@@ -1,7 +1,7 @@
 services:
-  mc-pack-library:
+  craftshelf:
     build: .
-    container_name: mc-pack-library
+    container_name: craftshelf
     restart: unless-stopped
     # Unraid の標準ユーザー(nobody:users)で動かす場合はコメントを外してください。
     # その場合、下の volumes 先のフォルダも  chown -R 99:100 <フォルダ>  で
@@ -21,13 +21,13 @@ services:
       - /mnt/user/minecraft/library:/data
     environment:
       - TZ=Asia/Tokyo
-      # 起動のたびにGitHubの最新コードを取得して反映する(README の「自動更新」参照)。
-      # リポジトリを作って push したら、ここに "ユーザー名/リポジトリ名" を入れてください。
-      - GITHUB_REPO=
+      # 起動のたびに GitHub の最新コードを取得して反映する(README の「アップデート」参照)。
+      # 画面の「🔄 パネルの更新」もこのリポジトリを見ます。
+      - GITHUB_REPO=mesamaru/craftshelf
       - GITHUB_BRANCH=main
       # - AUTO_UPDATE=false   # 自動更新を止めたい場合はコメントを外す
       # 初回起動時に管理者アカウントを自動作成したい場合(省略時は画面の初期設定で作成)
-      # - AUTH_USER=maru
+      # - AUTH_USER=admin
       # - AUTH_PASS=change-me
       # index.db だけ別の場所(キャッシュ上のappdataなど)に置きたい場合
       # - DB_DIR=/config

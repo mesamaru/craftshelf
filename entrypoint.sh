@@ -18,7 +18,7 @@ if [ "${AUTO_UPDATE:-true}" = "true" ] && [ -n "${GITHUB_REPO:-}" ]; then
             --exclude ".git" --exclude "data" --exclude ".version" \
             "$TMP_DIR"/ /app/
         echo "$COMMIT ($(date -u +%Y-%m-%dT%H:%M:%SZ))" > "$VERSION_FILE"
-        echo "[update] 最新化しました: $COMMIT"
+        echo "[update] 最新化しました: v$(cat /app/VERSION 2>/dev/null) ($COMMIT)"
         echo "[update] 依存パッケージを確認しています..."
         pip install --no-cache-dir --quiet -r /app/requirements.txt || \
             echo "[update] 依存パッケージのインストールに失敗しました(起動は続行します)"

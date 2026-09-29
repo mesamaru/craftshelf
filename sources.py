@@ -17,7 +17,7 @@ from urllib.parse import quote, urlsplit
 
 import requests
 
-UA = "mc-pack-library/1.0 (self-hosted Minecraft plugin/mod library)"
+UA = "CraftShelf/1.0 (self-hosted Minecraft plugin/mod library; https://github.com/mesamaru/craftshelf)"
 TIMEOUT = 20
 MAX_DOWNLOAD = 512 * 1024 * 1024  # 1ファイルあたりの上限
 

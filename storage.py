@@ -92,7 +92,7 @@ class BaseStorage:
         """接続テスト。(先頭20件の中身, 書き込めるか) を返す。"""
         self.ensure_dir("")
         entries = sorted(self.listdir(""))[:20]
-        name = f".mc-pack-library-test-{uuid.uuid4().hex[:6]}"
+        name = f".craftshelf-test-{uuid.uuid4().hex[:6]}"
         try:
             self.write_bytes(name, b"ok")
             self.delete(name)
@@ -448,7 +448,7 @@ class WebDavStorage(BaseStorage):
         if username:
             self.session.auth = (username, password)
         self.session.verify = verify_tls
-        self.session.headers["User-Agent"] = "mc-pack-library"
+        self.session.headers["User-Agent"] = "craftshelf"
         if not verify_tls:
             try:
                 import urllib3

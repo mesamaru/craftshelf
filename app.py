@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""MC Pack Library
+"""CraftShelf(旧 MC Pack Library)
 
 プラグイン / Mod / データパック / リソースパックを、ブラウザへのドラッグ&ドロップで
 登録して管理するための小さなWebアプリ。
@@ -34,6 +34,7 @@ from pathlib import Path
 from flask import Flask, g, jsonify, request, send_file, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
+import selfupdate
 import sources as src
 
 from storage import (
@@ -1169,11 +1170,11 @@ def index():
     return send_from_directory(BASE_DIR / "static", "index.html", max_age=0)
 
 
+APP_NAME = "CraftShelf"
+
+
 def running_version():
-    try:
-        return (BASE_DIR / ".version").read_text(encoding="utf-8").strip() or None
-    except FileNotFoundError:
-        return None
+    return selfupdate.current_version()
 
 
 def target_public(row, conn=None):
@@ -1214,6 +1215,8 @@ def api_library():
             "error": storage_err,
         },
         version=running_version(),
+        build=selfupdate.build_info(),
+        app_name=APP_NAME,
     )
 
 
@@ -1698,6 +1701,7 @@ def settings_public():
         "auto_download": get_setting("auto_download", "0") == "1",
         "stable_only": get_setting("stable_only", "1") == "1",
         "last_auto_check": get_setting("last_auto_check", ""),
+        "self_auto_update": get_setting("self_auto_update", "0") == "1",
     }
 
 
@@ -1719,7 +1723,7 @@ def api_settings_update():
         except (TypeError, ValueError):
             raise ApiError("確認間隔は数字で指定してください")
         set_setting("check_interval_hours", hours)
-    for key in ("auto_download", "stable_only"):
+    for key in ("auto_download", "stable_only", "self_auto_update"):
         if key in data:
             set_setting(key, "1" if _truthy(data[key]) else "0")
     return jsonify(settings_public())
@@ -2284,6 +2288,41 @@ def api_import():
 
 
 # --------------------------------------------------------------------------
+# CraftShelf 自身の更新(GitHub から)
+# --------------------------------------------------------------------------
+@app.get("/api/system/info")
+def api_system_info():
+    return jsonify(name=APP_NAME, version=running_version(), build=selfupdate.build_info(),
+                   repo=selfupdate.REPO, branch=selfupdate.BRANCH)
+
+
+@app.get("/api/system/update")
+@require("admin")
+def api_system_update_check():
+    return jsonify(selfupdate.check(force=_truthy(request.args.get("force"))))
+
+
+def _self_update_job(job):
+    old, new = selfupdate.apply(note=job.note)
+    job.result = {"from": old, "to": new}
+    job.note(f"{old} → {new} に更新しました。再起動します(数秒で画面が新しい版に切り替わります)")
+    selfupdate.restart()
+
+
+@app.post("/api/system/update")
+@require("admin")
+def api_system_update_apply():
+    info = selfupdate.check(force=True)
+    if info["error"]:
+        raise ApiError(info["error"], 502)
+    if not info["update_available"]:
+        raise ApiError(f"すでに最新です({info['current']})", 409)
+    job = start_job("selfupdate", f"{APP_NAME} の更新 ({info['current']} → {info['latest']})",
+                    _self_update_job, user=current_user()["username"])
+    return jsonify(job.public())
+
+
+# --------------------------------------------------------------------------
 # 定期的な更新確認
 # --------------------------------------------------------------------------
 def _auto_check_job(job, auto_download):
@@ -2298,11 +2337,27 @@ def _auto_check_job(job, auto_download):
             job.note(f"「{t['name']}」を確認できません: {getattr(e, 'message', e)}")
 
 
+def _self_update_tick():
+    """6時間ごとに GitHub を確認。「自動で適用」が有効なら更新まで行う。"""
+    last = getattr(_self_update_tick, "last", 0.0)
+    if time.monotonic() - last < 6 * 3600:
+        return
+    _self_update_tick.last = time.monotonic()
+    info = selfupdate.check(force=True)
+    if info["update_available"] and get_setting("self_auto_update", "0") == "1":
+        start_job("selfupdate", f"{APP_NAME} の自動更新 ({info['current']} → {info['latest']})",
+                  _self_update_job, user="(自動)")
+
+
 def _scheduler_loop():
     while True:
         time.sleep(60)
         try:
             with app.app_context():
+                try:
+                    _self_update_tick()
+                except ApiError:
+                    pass
                 hours = int(get_setting("check_interval_hours", "0") or 0)
                 if hours <= 0:
                     continue
@@ -2332,5 +2387,5 @@ start_scheduler()
 if __name__ == "__main__":
     host = os.environ.get("HOST", "127.0.0.1")
     port = int(os.environ.get("PORT", "8765"))
-    print(f"MC Pack Library: http://{host}:{port}  (ローカル保存先: {LOCAL_DIR})")
+    print(f"{APP_NAME} {running_version()}: http://{host}:{port}  (ローカル保存先: {LOCAL_DIR})")
     app.run(host=host, port=port, threaded=True)

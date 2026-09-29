@@ -1,4 +1,4 @@
-# MC Pack Library
+# CraftShelf
 
 プラグイン・Mod・データパック・リソースパックを、ブラウザにドラッグ&ドロップするだけで整理・保管するツールです。
 保存先は Unraid の共有フォルダに置けます。
@@ -37,57 +37,39 @@ NAS上には人が見てもわかる形で保存されます。このツール�
 
 `index.db` を失っても、`library/` に置かれたファイルは「inboxを取り込む」で再登録できます(メモは消えます)。
 
-## Unraid への導入
+## 導入(Docker / Dockge)
 
-1. このフォルダごと Unraid に置く(例: `appdata` 共有の中に `mc-pack-library` フォルダ)
-2. `docker-compose.yml` の `volumes` の左側を、保存したい共有フォルダに変更する(例: `/mnt/user/minecraft/library`)
-3. Unraid のターミナル(または SSH)で実行
+1. このリポジトリを取得して、サーバーに置く(Dockge なら `/opt/stacks/craftshelf` など)
 
    ```
-   cd /mnt/user/appdata/mc-pack-library
+   git clone https://github.com/mesamaru/craftshelf.git /opt/stacks/craftshelf
+   ```
+
+2. `docker-compose.yml` の `volumes` の左側を、保存したいフォルダに変更する(例: `/mnt/user/minecraft/library`)
+3. 起動する(Dockge なら画面から「デプロイ」)
+
+   ```
+   cd /opt/stacks/craftshelf
    docker compose up -d --build
    ```
 
-   `docker compose` が使えない古い Unraid の場合は、次の2行でも同じです。
+4. ブラウザで `http://<サーバーのIPアドレス>:8765` を開き、初期設定画面で管理者アカウントを作成する
 
-   ```
-   docker build -t mc-pack-library .
-   docker run -d --name mc-pack-library --restart unless-stopped \
-     -p 8765:8080 -v /mnt/user/minecraft/library:/data -e TZ=Asia/Tokyo mc-pack-library
-   ```
+## アップデート
 
-4. ブラウザで `http://<UnraidのIPアドレス>:8765` を開く
+CraftShelf は GitHub(https://github.com/mesamaru/craftshelf)の `main` ブランチから最新版を取得します。
 
-手動で更新する場合は、`app.py` などを差し替えて `docker compose up -d --build` をもう一度実行します。データは共有フォルダ側にあるので消えません。GitHub連携での自動更新は次の節を参照してください。
+- **画面から**: 右上の「🔄 パネルの更新」(管理者のみ)で、GitHub の最新版と変更内容を確認できます。新しい版があれば「更新して再起動」を押すだけで、ダウンロード・インストール・再起動まで自動で行い、数秒で新しい版に切り替わります
+- **自動で**: 「⚙ 設定」の「CraftShelf 自体の新しい版が…自動で更新する」をオンにすると、6時間ごとに確認して自動で更新します
+- **起動時**: コンテナを起動するたびにも最新版を取得します(`AUTO_UPDATE=false` で停止)
 
-## 自動更新(GitHubから)
+保存したファイル・登録情報(`/data`)はアップデートしても消えません。
 
-コンテナ起動のたびに、GitHubリポジトリの `main` ブランチ最新コードを取得して反映できます。`/data`(保存したファイルや `index.db`)には触れないので、アップデートしてもコレクションは消えません。
+### バージョン
 
-1. このフォルダの中身をGitHubの**公開(public)**リポジトリに push する
+バージョンは `00.00.00`(メジャー.マイナー.修正)の形式で、画面右上に表示されます。変更のたびに更新し、内容は [CHANGELOG.md](CHANGELOG.md) に記録します。
 
-   ```
-   cd mc-pack-library
-   git init -b main            # すでに初期化済みならスキップ
-   git add -A
-   git commit -m "initial"
-   git remote add origin https://github.com/<あなたのユーザー名>/<リポジトリ名>.git
-   git push -u origin main
-   ```
-
-2. `docker-compose.yml` の `GITHUB_REPO=` に `ユーザー名/リポジトリ名` を書く
-
-   ```
-   environment:
-     - GITHUB_REPO=あなたのユーザー名/mc-pack-library
-     - GITHUB_BRANCH=main
-   ```
-
-3. Dockgeでスタックを再起動(Restart)する。ログに `[update] 最新化しました: <コミットハッシュ>` と出れば成功です。以降、コンテナを再起動するたびに最新コードを取り込みます。画面右上の保存先の横にも反映済みのコミットが小さく表示されます。
-
-自動更新を止めたいときは `AUTO_UPDATE=false` を追加してください。取得に失敗した場合(ネットワーク不通など)は、既存のコードのまま起動を続けるので、更新の失敗でサービスが止まることはありません。
-
-非公開(private)リポジトリを使いたい場合は、`GITHUB_REPO` の代わりに個人アクセストークンを埋め込んだURL形式が必要になるので、その際は教えてください。
+- メジャー: 互換性のない大きな変更 / マイナー: 機能の追加 / 修正: 不具合の修正・細かな改善
 
 ## ログイン(アカウント)
 
@@ -182,7 +164,7 @@ python app.py
 | `CONFIG_DIR` (`DB_DIR`でも可) | `DATA_DIR` と同じ | `index.db` や暗号化鍵、ストレージ設定だけ別の場所(appdataなど)に置く場合 |
 | `PORT` / `HOST` | `8765` / `127.0.0.1` | `python app.py` で起動するときのみ |
 | `AUTH_USER` / `AUTH_PASS` | なし | ユーザーが1人もいないときに、この名前・パスワードで管理者を自動作成する |
-| `GITHUB_REPO` | なし | `ユーザー名/リポジトリ名`。設定すると起動のたびに最新コードを取得(Dockerのみ) |
+| `GITHUB_REPO` | `mesamaru/craftshelf` | アップデートの取得元(`ユーザー名/リポジトリ名`) |
 | `GITHUB_BRANCH` | `main` | 取得するブランチ |
 | `AUTO_UPDATE` | `true` | `false` にすると自動更新を止める |
 

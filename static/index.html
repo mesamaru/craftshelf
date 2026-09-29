@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>MC Pack Library</title>
+<title>CraftShelf</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%232b7a58%27/%3E%3Cpath d=%27M8 12l8-4 8 4v9l-8 4-8-4z M8 12l8 4 8-4 M16 16v9%27 fill=%27none%27 stroke=%27white%27 stroke-width=%271.8%27 stroke-linejoin=%27round%27/%3E%3C/svg%3E">
 <style>
 :root {
@@ -241,7 +241,7 @@ dialog.wide { width: min(720px, calc(100vw - 32px)); }
 <div class="wrap">
   <header class="top">
     <div>
-      <h1>MC Pack Library</h1>
+      <h1>CraftShelf</h1>
       <p>プラグイン・Mod・データパック・リソースパックの保管庫</p>
     </div>
     <div>
@@ -253,6 +253,7 @@ dialog.wide { width: min(720px, calc(100vw - 32px)); }
   <div class="storagebar">
     <div class="storagebar-info" id="storageInfo"></div>
     <div class="drop-actions">
+      <button class="btn small need-admin" id="selfUpdBtn" type="button">🔄 パネルの更新</button>
       <button class="btn small need-admin" id="settingsBtn" type="button">⚙ 設定</button>
       <button class="btn small need-admin" id="storageBtn" type="button">🗄 ストレージ設定</button>
     </div>
@@ -357,7 +358,7 @@ function scheduleRefresh() { clearTimeout(refreshTimer); refreshTimer = setTimeo
 async function refresh() {
   try {
     const d = await api("/api/library");
-    state.items = d.items; state.storage = d.storage; state.version = d.version;
+    state.items = d.items; state.storage = d.storage; state.version = d.version; state.build = d.build;
     if (state.selected && !state.items.some((i) => i.id === state.selected)) closePanel();
     render();
   } catch (e) { toast("読み込みに失敗しました: " + e.message, true); }
@@ -388,7 +389,7 @@ function render() {
   // stats
   const total = state.items.reduce((s, i) => s + i.total_size, 0);
   const nv = state.items.reduce((s, i) => s + i.versions.length, 0);
-  $("#stats").innerHTML = `<b>${state.items.length}</b> 件 / <b>${nv}</b> ファイル / <b>${fmtSize(total)}</b>${state.version ? `<br>${esc(state.version)}` : ""}`;
+  $("#stats").innerHTML = `<b>${state.items.length}</b> 件 / <b>${nv}</b> ファイル / <b>${fmtSize(total)}</b>${state.version ? `<br><span title="${esc(state.build || "")}">CraftShelf v${esc(state.version)}</span>` : ""}`;
   renderStorageBar();
 
   // chips
@@ -961,6 +962,7 @@ async function checkAuth() {
   applyRole();
   refresh();
   pollJobs();
+  if (me.user.role === "admin") checkSelfUpdate(false);
 }
 function applyRole() {
   const r = state.user ? state.user.role : "";
@@ -977,14 +979,14 @@ function showAuth(setup) {
   document.body.classList.remove("can-edit", "can-admin");
   const f = $("#authForm");
   f.innerHTML = setup ? `
-    <h2>MC Pack Library の初期設定</h2>
+    <h2>CraftShelf の初期設定</h2>
     <p>最初に管理者アカウントを作成してください。このアカウントで、ほかのユーザーの追加やストレージの設定ができます。</p>
     <label>ユーザー名<input type="text" name="username" autocomplete="username" required></label>
     <label>パスワード(8文字以上)<input type="password" name="password" autocomplete="new-password" minlength="8" required></label>
     <label>パスワード(確認)<input type="password" name="password2" autocomplete="new-password" required></label>
     <div class="err" id="authErr"></div>
     <button class="btn primary" type="submit">管理者を作成してはじめる</button>` : `
-    <h2>MC Pack Library</h2>
+    <h2>CraftShelf</h2>
     <p>ログインしてください。</p>
     <label>ユーザー名<input type="text" name="username" autocomplete="username" required></label>
     <label>パスワード<input type="password" name="password" autocomplete="current-password" required></label>
@@ -1081,12 +1083,13 @@ $("#settingsBtn").addEventListener("click", async () => {
       </select></label>
     <label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="auto_download"${st.auto_download ? " checked" : ""}>更新が見つかったら自動でダウンロードして保存する</label>
     <label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="stable_only"${st.stable_only ? " checked" : ""}>安定版(リリース版)のみを対象にする(ベータ・アルファ版を除く)</label>
+    <label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="self_auto_update"${st.self_auto_update ? " checked" : ""}>CraftShelf 自体の新しい版が GitHub に出たら自動で更新する(6時間ごとに確認)</label>
     <label>CurseForge APIキー ${st.cf_api_key_set ? "(登録済み。変更する場合のみ入力)" : "(未登録)"}
       <input type="password" name="cf_api_key" autocomplete="off" placeholder="https://console.curseforge.com で無料発行できます"></label>
     ${st.last_auto_check ? `<p>前回の自動確認: ${fmtDateTime(st.last_auto_check)}</p>` : ""}
     <div class="foot"><button class="btn" value="cancel" formnovalidate>キャンセル</button><button class="btn primary" value="ok">保存</button></div>`);
   if (!r) return;
-  const body = { check_interval_hours: Number(r.check_interval_hours), auto_download: !!r.auto_download, stable_only: !!r.stable_only };
+  const body = { check_interval_hours: Number(r.check_interval_hours), auto_download: !!r.auto_download, stable_only: !!r.stable_only, self_auto_update: !!r.self_auto_update };
   if (r.cf_api_key) body.cf_api_key = r.cf_api_key;
   try { await api("/api/settings", { method: "PATCH", json: body }); toast("保存しました"); } catch (e) { toast(e.message, true); }
 });
@@ -1274,6 +1277,59 @@ async function openMigrate(t) {
   if (r.mode === "move" && !(await confirmDlg("移動しますか?", `コピーに成功したファイルは「${t.name}」から削除されます。`, "移動する"))) return;
   try { jobStarted(await api("/api/storage/migrate", { json: { source_id: t.id, dest_id: Number(r.dest_id), mode: r.mode } })); }
   catch (e) { toast(e.message, true); }
+}
+
+
+/* ---------------- CraftShelf self update ---------------- */
+async function checkSelfUpdate(force) {
+  try {
+    const d = await api("/api/system/update" + (force ? "?force=1" : ""));
+    state.selfUpd = d;
+    const b = $("#selfUpdBtn");
+    b.textContent = d.update_available ? `🔄 パネルの更新 (v${d.latest})` : "🔄 パネルの更新";
+    b.classList.toggle("primary", !!d.update_available);
+    return d;
+  } catch (e) { if (force) toast(e.message, true); return null; }
+}
+$("#selfUpdBtn").addEventListener("click", async () => {
+  await customDialog(`<h3>CraftShelf の更新</h3><div id="suBody"><p>GitHub を確認しています…</p></div>
+    <div class="foot"><button class="btn" type="button" data-su="close">閉じる</button><button class="btn" type="button" data-su="recheck">再確認</button>
+    <button class="btn primary" type="button" data-su="apply" hidden>更新して再起動</button></div>`, (form, done) => {
+    const draw = (d) => {
+      const body = form.querySelector("#suBody"), ap = form.querySelector("[data-su=apply]");
+      if (!d) { body.innerHTML = `<p style="color:var(--danger)">確認できませんでした</p>`; return; }
+      ap.hidden = !d.update_available;
+      body.innerHTML = `
+        <p>現在の版: <b>v${esc(d.current)}</b> ・ GitHub の最新版: <b>${d.latest ? "v" + esc(d.latest) : "-"}</b></p>
+        <p>取得元: <a href="https://github.com/${esc(d.repo)}" target="_blank" rel="noopener">github.com/${esc(d.repo)}</a> (${esc(d.branch)})</p>
+        ${d.error ? `<p style="color:var(--danger)">${esc(d.error)}</p>` : d.update_available
+          ? `<p>新しい版があります。「更新して再起動」でダウンロード・インストールし、数秒で新しい版に切り替わります。保存したファイルや登録情報はそのまま残ります。</p>`
+          : `<p>最新の版を使っています。</p>`}
+        ${d.notes && d.notes.length ? `<div class="scroll" style="padding:8px 10px">${d.notes.map((n) => `<p><b>v${esc(n.version)}</b> ${esc(n.title)}</p><div class="filelist" style="max-height:none;margin-bottom:8px">${esc(n.body)}</div>`).join("")}</div>` : ""}`;
+    };
+    checkSelfUpdate(true).then(draw);
+    form.addEventListener("click", async (e) => {
+      const b = e.target.closest("[data-su]"); if (!b) return;
+      if (b.dataset.su === "close") return done(null);
+      if (b.dataset.su === "recheck") { form.querySelector("#suBody").innerHTML = "<p>確認しています…</p>"; draw(await checkSelfUpdate(true)); }
+      if (b.dataset.su === "apply") {
+        const from = state.selfUpd && state.selfUpd.current;
+        try { jobStarted(await api("/api/system/update", { method: "POST" })); } catch (ex) { toast(ex.message, true); return; }
+        done(null);
+        waitForNewVersion(from);
+      }
+    });
+  });
+});
+async function waitForNewVersion(from) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < 5 * 60 * 1000) {
+    await new Promise((r) => setTimeout(r, 2500));
+    try {
+      const d = await (await fetch("/api/system/info")).json();
+      if (d.version && d.version !== from) { toast(`CraftShelf v${d.version} に更新しました。画面を再読み込みします`); setTimeout(() => location.reload(), 1500); return; }
+    } catch { /* 再起動中 */ }
+  }
 }
 
 /* init */

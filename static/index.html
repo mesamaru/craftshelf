@@ -65,7 +65,7 @@ button { cursor: pointer; }
 .btn.danger:hover { border-color: var(--danger); }
 .btn.small { padding: 3px 9px; font-size: 13px; }
 .btn:disabled { opacity: .5; cursor: not-allowed; pointer-events: none; }
-select, input[type=text], input[type=search] {
+select, input[type=text], input[type=search], input[type=password] {
   background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
 }
 
@@ -582,11 +582,13 @@ function renderStoragePanel() {
             <span class="tag soft">${esc(t.protocol_label)}</span>
             ${t.active ? '<span class="tag">使用中</span>' : ""}
           </div>
-          ${t.protocol !== "local" ? `<div class="detail">${esc(t.server)} / ${esc(t.share)}${t.subpath ? " / " + esc(t.subpath) : ""} ・ ${t.username ? esc(t.username) : "ゲスト接続"}</div>` : ""}
+          ${t.protocol !== "local" ? `<div class="detail">${targetDetail(t)}</div>` : ""}
+          ${!t.supported ? `<div class="detail" style="color:var(--danger)">この方式には対応しなくなりました。「編集」で SMB に変更してください。</div>` : ""}
           ${t.last_error ? `<div class="detail" style="color:var(--danger)">前回のエラー: ${esc(t.last_error)}</div>` : ""}
           <div class="detail">登録アイテム数: ${t.item_count ?? "-"}</div>
           <div class="acts">
             ${t.active ? "" : `<button class="btn small primary" type="button" data-sact="activate">使用する</button>`}
+            ${t.active && t.protocol !== "local" && !t.mounted ? `<button class="btn small primary" type="button" data-sact="activate">再接続</button>` : ""}
             ${t.protocol !== "local" ? `<button class="btn small" type="button" data-sact="test">接続テスト</button>` : ""}
             ${t.protocol !== "local" ? `<button class="btn small" type="button" data-sact="edit">編集</button>` : ""}
             ${t.protocol !== "local" && !t.active ? `<button class="btn small danger" type="button" data-sact="delete">削除</button>` : ""}
@@ -625,30 +627,40 @@ $("#storagePanel").addEventListener("click", async (e) => {
   }
 });
 
+function targetDetail(t) {
+  const who = t.username ? esc(t.username) : (t.protocol === "smb" ? "ゲスト接続" : "認証なし");
+  const sub = t.subpath ? " / " + esc(t.subpath) : "";
+  if (t.protocol === "webdav") return `${esc(t.server)}${sub} ・ ${who}${t.tls_insecure ? " ・ 証明書を検証しない" : ""}`;
+  return `${esc(t.server)} / ${esc(t.share)}${sub} ・ ${who}`;
+}
 function protoHint(p) {
-  return p === "nfs"
-    ? "NFS: エクスポートパスは先頭 / から入力してください(例: /mnt/user/minecraft)。バージョンはNFSv4のみ対応です。"
-    : "SMB (Windows共有)。Unraid・TrueNASどちらも標準で使えます。";
+  return p === "webdav"
+    ? "Nextcloud などの WebDAV。Nextcloud ならサーバーのURL(例: https://cloud.example.com)だけでOKです。二段階認証を使っている場合は、Nextcloudの「設定 → セキュリティ」で作った「アプリパスワード」を入力してください。"
+    : "SMB (Windows共有)。Unraid・TrueNASどちらも標準で使えます。Unraidの「パブリック」共有ならユーザー名は空欄(ゲスト接続)で大丈夫です。";
 }
 function targetFormHTML(existing) {
-  const proto = existing ? existing.protocol : "cifs";
+  const proto = existing && existing.supported ? existing.protocol : "smb";
   return `
     <h3>${existing ? "接続を編集" : "接続を追加"}</h3>
     <label>名前<input type="text" name="name" value="${esc(existing?.name || "")}" placeholder="例: Unraid" required></label>
     <label>種類<select name="protocol" id="tProtocol">
-      <option value="cifs"${proto === "cifs" ? " selected" : ""}>SMB(Windows共有)</option>
-      <option value="nfs"${proto === "nfs" ? " selected" : ""}>NFS</option>
+      <option value="smb"${proto === "smb" ? " selected" : ""}>SMB(Windows共有 / Unraid・TrueNAS)</option>
+      <option value="webdav"${proto === "webdav" ? " selected" : ""}>WebDAV(Nextcloud など)</option>
     </select></label>
     <div class="field-hint" id="tProtoHint"></div>
-    <label>サーバー(IPアドレス・ホスト名)<input type="text" name="server" value="${esc(existing?.server || "")}" placeholder="192.168.1.10" required></label>
-    <label id="tShareLabel">共有名<input type="text" name="share" value="${esc(existing?.share || "")}" placeholder="minecraft" required></label>
-    <label>サブフォルダ(任意)<input type="text" name="subpath" value="${esc(existing?.subpath || "")}" placeholder="例: library-root"></label>
-    <div class="proto-only" id="tCifsOnly">
-      <label>ユーザー名(空欄ならゲスト接続)<input type="text" name="username" value="${esc(existing?.username || "")}"></label>
-      <label>パスワード${existing ? "(変更しない場合は空欄のまま)" : ""}<input type="password" name="password" autocomplete="new-password"></label>
+    <label id="tServerLabel"><span>サーバー</span><input type="text" name="server" value="${esc(existing?.server || "")}" required></label>
+    <div class="proto-only" id="tSmbShare">
+      <label>共有名<input type="text" name="share" value="${esc(existing?.share || "")}" placeholder="minecraft"></label>
+    </div>
+    <label>サブフォルダ(任意)<input type="text" name="subpath" value="${esc(existing?.subpath || "")}" placeholder="例: minecraft/library"></label>
+    <label id="tUserLabel"><span>ユーザー名</span><input type="text" name="username" value="${esc(existing?.username || "")}"></label>
+    <label>パスワード${existing ? "(変更しない場合は空欄のまま)" : ""}<input type="password" name="password" autocomplete="new-password"></label>
+    <div class="proto-only" id="tSmbOnly">
       <label>ドメイン(任意)<input type="text" name="domain" value="${esc(existing?.domain || "")}"></label>
     </div>
-    <label>詳細オプション(任意、上級者向け。mount -o に追記されます)<input type="text" name="mount_opts" value="${esc(existing?.mount_opts || "")}"></label>
+    <div class="proto-only" id="tDavOnly">
+      <label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="tls_insecure"${existing?.tls_insecure ? " checked" : ""}>証明書を検証しない(自己署名証明書の場合)</label>
+    </div>
     <div class="test-result" id="tTestResult" hidden></div>
     <div class="foot">
       <button class="btn" type="button" id="tCancel" formnovalidate>キャンセル</button>
@@ -662,14 +674,21 @@ function openTargetDialog(existing) {
     form.innerHTML = targetFormHTML(existing);
     const done = (val) => { dlg.close(); dlg.onclose = null; resolve(val); };
     const protoSel = form.querySelector("#tProtocol");
-    const shareLabel = form.querySelector("#tShareLabel");
-    const cifsOnly = form.querySelector("#tCifsOnly");
     const hint = form.querySelector("#tProtoHint");
+    const collect = () => {
+      const fd = Object.fromEntries(new FormData(form).entries());
+      fd.tls_insecure = form.querySelector("[name=tls_insecure]").checked;
+      return fd;
+    };
     function syncProto() {
-      const p = protoSel.value;
-      cifsOnly.classList.toggle("on", p === "cifs");
-      shareLabel.firstChild.textContent = p === "nfs" ? "エクスポートパス" : "共有名";
-      form.querySelector("[name=share]").placeholder = p === "nfs" ? "/mnt/user/minecraft" : "minecraft";
+      const p = protoSel.value, smb = p === "smb";
+      form.querySelector("#tSmbShare").classList.toggle("on", smb);
+      form.querySelector("#tSmbOnly").classList.toggle("on", smb);
+      form.querySelector("#tDavOnly").classList.toggle("on", !smb);
+      form.querySelector("[name=share]").required = smb;
+      form.querySelector("#tServerLabel span").textContent = smb ? "サーバー(IPアドレス・ホスト名)" : "URL";
+      form.querySelector("[name=server]").placeholder = smb ? "192.168.1.10" : "https://cloud.example.com";
+      form.querySelector("#tUserLabel span").textContent = smb ? "ユーザー名(空欄ならゲスト接続)" : "ユーザー名";
       hint.textContent = protoHint(p);
     }
     protoSel.addEventListener("change", syncProto);
@@ -678,7 +697,7 @@ function openTargetDialog(existing) {
     form.querySelector("#tTest").addEventListener("click", async () => {
       const btn = form.querySelector("#tTest");
       const resultEl = form.querySelector("#tTestResult");
-      const fd = Object.fromEntries(new FormData(form).entries());
+      const fd = collect();
       btn.disabled = true; const old = btn.textContent; btn.textContent = "接続中…";
       resultEl.hidden = false; resultEl.className = "test-result"; resultEl.textContent = "接続中…";
       try {
@@ -694,7 +713,7 @@ function openTargetDialog(existing) {
         btn.disabled = false; btn.textContent = old;
       }
     });
-    form.onsubmit = (e) => { e.preventDefault(); done(Object.fromEntries(new FormData(form).entries())); };
+    form.onsubmit = (e) => { e.preventDefault(); done(collect()); };
     dlg.onclose = () => resolve(null);
     dlg.showModal();
     form.querySelector("input[name=name]")?.focus();

@@ -5,8 +5,9 @@
 登録して管理するための小さなWebアプリ。
 
 保存先(ストレージ)はWeb画面から登録・切り替えができる。「ローカル」(このコンテナに
-直接バインドマウントされた /data)は常に使え、それに加えて SMB(CIFS) / NFS の接続情報を
-登録して、コンテナ側で実際にマウントしてから使うこともできる(Unraid・TrueNASなど)。
+直接バインドマウントされた /data)は常に使え、それに加えて SMB(Windows共有)/ WebDAV
+(Nextcloud など)の接続情報を登録して使うこともできる(Unraid・TrueNAS・Nextcloudなど)。
+SMB / WebDAV はアプリ自身が直接通信するので、OSの mount や特別な権限は必要ない。
 
 ストレージごとに完全に独立したカタログ(登録済みプラグイン一覧)を持つ。つまり「切り替え」は
 保存先を変えると同時に、画面に表示される一覧も切り替わる。Unraidに登録したものは、Unraidに
@@ -21,16 +22,19 @@ import json
 import os
 import re
 import secrets
-import shutil
 import sqlite3
-import subprocess
 import threading
+import time
 import uuid
 import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import Flask, Response, g, jsonify, request, send_file, send_from_directory
+
+from storage import (
+    LocalStorage, SmbStorage, StorageError, WebDavStorage, clean_rel, join_rel, parent_rel,
+)
 
 try:  # Python 3.11+
     import tomllib
@@ -48,12 +52,10 @@ BASE_DIR = Path(__file__).resolve().parent
 # CONFIG_DIR: index.db・暗号鍵など「常にローカル」に置く小さなデータ置き場。
 # LOCAL_DIR : 「ローカル」ストレージ(= 今までどおり docker-compose の volumes で
 #             直接バインドマウントした /data)の実体。
-# MOUNT_BASE: SMB/NFSで登録した接続を、コンテナ内で実際にマウントする場所。
 CONFIG_DIR = Path(os.environ.get(
     "CONFIG_DIR", os.environ.get("DB_DIR", os.environ.get("DATA_DIR", BASE_DIR / "data"))
 )).resolve()
 LOCAL_DIR = Path(os.environ.get("DATA_DIR", BASE_DIR / "data")).resolve()
-MOUNT_BASE = Path(os.environ.get("MOUNT_BASE", "/mnt/storage")).resolve()
 TMP_DIR = CONFIG_DIR / ".tmp"
 DB_PATH = CONFIG_DIR / "index.db"
 SECRET_KEY_PATH = CONFIG_DIR / "secret.key"
@@ -69,7 +71,8 @@ CATEGORIES = {
     "resourcepack": ("resourcepacks", "リソースパック"),
     "other": ("other", "その他"),
 }
-PROTOCOLS = {"local": "ローカル", "cifs": "SMB", "nfs": "NFS"}
+PROTOCOLS = {"local": "ローカル", "smb": "SMB", "webdav": "WebDAV"}
+REMOTE_PROTOCOLS = ("smb", "webdav")
 
 LOCK = threading.RLock()
 app = Flask(__name__, static_folder=None)
@@ -97,6 +100,7 @@ CREATE TABLE IF NOT EXISTS storage_targets (
     domain        TEXT NOT NULL DEFAULT '',
     password_enc  TEXT NOT NULL DEFAULT '',
     mount_opts    TEXT NOT NULL DEFAULT '',
+    options       TEXT NOT NULL DEFAULT '{}',
     active        INTEGER NOT NULL DEFAULT 0,
     last_error    TEXT NOT NULL DEFAULT '',
     created_at    TEXT NOT NULL,
@@ -128,7 +132,7 @@ CREATE TABLE IF NOT EXISTS versions (
 CREATE INDEX IF NOT EXISTS idx_versions_item ON versions(item_id);
 """
 # target_id に依存するインデックスは、旧DBのマイグレーション(target_id列の追加)が
-# 終わった後にしか作れないので、SCHEMA本体には含めず ensure_indexes() で別途作る。
+# 終わった後にしか作れないので、SCHEMA本体には含めず migrate_schema() で別途作る。
 
 LOCAL_TARGET_ID = 1
 
@@ -180,6 +184,11 @@ def migrate_schema(conn):
             "INSERT INTO versions (id, item_id, target_id, version, filename, relpath, size, sha256, meta, note, added_at) "
             "SELECT id, item_id, target_id, version, filename, relpath, size, sha256, meta, note, added_at FROM versions_old")
         conn.execute("DROP TABLE versions_old")
+    if "options" not in _table_cols(conn, "storage_targets"):
+        conn.execute("ALTER TABLE storage_targets ADD COLUMN options TEXT NOT NULL DEFAULT '{}'")
+    # 旧バージョン(OSの mount を使っていた頃)の SMB 登録は、そのまま新しい SMB 方式で使える。
+    # NFS はアプリ単体では扱えなくなったため、画面上で「非対応」と表示して再登録を促す。
+    conn.execute("UPDATE storage_targets SET protocol='smb' WHERE protocol='cifs'")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_versions_item ON versions(item_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_versions_target_sha ON versions(target_id, sha256)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_items_target ON items(target_id)")
@@ -202,7 +211,7 @@ def ensure_local_target(conn):
 
 
 def init_storage():
-    for d in (CONFIG_DIR, TMP_DIR, LOCAL_DIR, LOCAL_DIR / "library", LOCAL_DIR / "inbox", MOUNT_BASE):
+    for d in (CONFIG_DIR, TMP_DIR, LOCAL_DIR, LOCAL_DIR / "library", LOCAL_DIR / "inbox"):
         d.mkdir(parents=True, exist_ok=True)
     for p in TMP_DIR.glob("*"):
         try:
@@ -215,7 +224,7 @@ def init_storage():
     migrate_schema(conn)
     ensure_local_target(conn)
     conn.commit()
-    _startup_remount(conn)
+    _startup_connect(conn)
     conn.close()
 
 
@@ -520,8 +529,9 @@ def analyze(path, filename):
     return info
 
 
+
 # --------------------------------------------------------------------------
-# ストレージ(保存先)の接続管理: 暗号化・マウント・切り替え
+# ストレージ(保存先)の接続管理: 暗号化・接続・切り替え
 # --------------------------------------------------------------------------
 def _fernet():
     if Fernet is None:
@@ -564,173 +574,149 @@ def decrypt_secret(s):
     return ""
 
 
-def target_mount_point(target_id):
-    return MOUNT_BASE / f"t{target_id}"
-
-
-def _proc_mounts_text():
+def target_options(target):
     try:
-        return Path("/proc/mounts").read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return ""
+        opts = json.loads(target["options"] or "{}")
+    except (KeyError, IndexError, TypeError, ValueError):
+        opts = {}
+    return opts if isinstance(opts, dict) else {}
 
 
-def is_mounted(path):
-    p = str(Path(path).resolve())
-    for line in _proc_mounts_text().splitlines():
-        parts = line.split()
-        if len(parts) >= 2 and parts[1] == p:
-            return True
-    return False
-
-
-def _mount_cmd(target, mp):
+def make_storage(target, password=None):
+    """storage_targets の行(または同じキーを持つ dict)から、ストレージの実体を作る。"""
     proto = target["protocol"]
-    server = (target["server"] or "").strip()
-    share = (target["share"] or "").strip().strip("/")
-    extra = (target["mount_opts"] or "").strip()
-    if proto == "cifs":
-        opts = ["uid=0", "gid=0", "iocharset=utf8", "file_mode=0777", "dir_mode=0777", "vers=3.0"]
-        user = (target["username"] or "").strip()
-        if user:
-            pw = decrypt_secret(target["password_enc"])
-            opts += [f"username={user}", f"password={pw}"]
-            if (target["domain"] or "").strip():
-                opts.append(f"domain={target['domain'].strip()}")
-        else:
-            opts.append("guest")
-        if extra:
-            opts.append(extra)
-        return ["mount", "-t", "cifs", f"//{server}/{share}", str(mp), "-o", ",".join(opts)]
-    if proto == "nfs":
-        opts = ["vers=4"]
-        if extra:
-            opts.append(extra)
-        export = share if share.startswith("/") else "/" + share
-        return ["mount", "-t", "nfs4", f"{server}:{export}", str(mp), "-o", ",".join(opts)]
-    raise ApiError(f"未対応の接続方式です: {proto}")
+    if proto == "local":
+        return LocalStorage(LOCAL_DIR)
+    if password is None:
+        password = decrypt_secret(target["password_enc"])
+    if proto == "smb":
+        return SmbStorage(target["server"], target["share"], target["subpath"],
+                          target["username"], password, target["domain"])
+    if proto == "webdav":
+        return WebDavStorage(target["server"], target["subpath"], target["username"], password,
+                             verify_tls=not target_options(target).get("tls_insecure"))
+    raise ApiError("この接続方式(NFS)には対応しなくなりました。編集で「SMB」に変更するか、登録し直してください")
 
 
-def _friendly_mount_error(msg):
-    low = msg.lower()
-    if "permission denied" in low and "mount" not in low:
-        return "認証に失敗しました(ユーザー名・パスワードを確認してください)"
-    if "no route to host" in low or "network is unreachable" in low:
-        return "サーバーに到達できません(IPアドレス・ネットワークを確認してください)"
-    if "no such file or directory" in low or "no such device" in low or "mount error(2)" in low:
-        return "共有名・エクスポートパスが見つかりません"
-    if "mount error(112)" in low or "host is down" in low:
-        return "サーバーが応答しません"
-    if "mount error(13)" in low:
-        return "認証に失敗しました(ユーザー名・パスワードを確認してください)"
-    if "operation not permitted" in low or ("permission denied" in low and "mount" in low):
-        return "コンテナにマウントの権限がありません(docker-compose.yml の cap_add / security_opt を確認してください)"
-    return msg[:300] or "接続に失敗しました"
+# target_id -> (設定の指紋, ストレージ)。設定が変わったら作り直す
+_STORES = {}
+# target_id -> {"connected": bool, "last_try": 時刻}
+_CONN = {}
+RETRY_INTERVAL = 30  # 秒。接続できなかったリモートに、自動で再接続を試みる間隔
 
 
-def do_unmount(mp):
-    mp = Path(mp)
-    if not is_mounted(mp):
-        return
-    r = subprocess.run(["umount", str(mp)], capture_output=True, text=True, timeout=15)
-    if r.returncode != 0:
-        subprocess.run(["umount", "-l", str(mp)], capture_output=True, text=True, timeout=15)
+def _fingerprint(target):
+    return tuple(target[k] for k in ("protocol", "server", "share", "subpath", "username",
+                                      "domain", "password_enc", "options"))
 
 
-def do_mount(target, mp):
-    mp = Path(mp)
-    mp.mkdir(parents=True, exist_ok=True)
-    if is_mounted(mp):
-        do_unmount(mp)
-    cmd = _mount_cmd(target, mp)
+def store_for(target):
+    fp = _fingerprint(target)
+    cached = _STORES.get(target["id"])
+    if cached and cached[0] == fp:
+        return cached[1]
+    store = make_storage(target)
+    _STORES[target["id"]] = (fp, store)
+    _CONN.pop(target["id"], None)
+    return store
+
+
+def forget_store(target_id):
+    _STORES.pop(target_id, None)
+    _CONN.pop(target_id, None)
+
+
+def is_connected(target):
+    if target["protocol"] == "local":
+        return True
+    return bool(_CONN.get(target["id"], {}).get("connected"))
+
+
+def connect_target(target, conn):
+    """リモートの保存先に接続し、library / inbox フォルダを用意する。失敗時は ApiError(503)。"""
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=20)
-    except FileNotFoundError:
-        raise ApiError("mount コマンドが見つかりません(イメージに cifs-utils / nfs-common が必要です)")
-    except subprocess.TimeoutExpired:
-        raise ApiError("接続がタイムアウトしました(サーバーに到達できないか、応答がありません)")
-    if r.returncode != 0:
-        raise ApiError(_friendly_mount_error((r.stderr or r.stdout or "").strip()))
-    root = mount_root(target, mp)
+        store = store_for(target)
+    except StorageError as e:
+        raise ApiError(e.message, 503)
+    _CONN[target["id"]] = {"connected": False, "last_try": time.monotonic()}
     try:
-        root.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        pass  # 読み取り専用共有など。実際の利用時のエラーに任せる
-
-
-def mount_root(target, mp):
-    subpath = (target["subpath"] or "").strip().strip("/")
-    return (mp / subpath) if subpath else mp
+        store.connect()
+        store.ensure_dir("library")
+        store.ensure_dir("inbox")
+    except StorageError as e:
+        conn.execute("UPDATE storage_targets SET last_error=? WHERE id=?", (e.message, target["id"]))
+        conn.commit()
+        raise ApiError(e.message, 503)
+    _CONN[target["id"]]["connected"] = True
+    conn.execute("UPDATE storage_targets SET last_error='' WHERE id=?", (target["id"],))
+    conn.commit()
+    return store
 
 
 def test_target_params(params):
-    """保存前の接続テスト。実際に一時マウントポイントへマウント→一覧→アンマウントする。"""
-    if params.get("protocol") not in ("cifs", "nfs"):
-        raise ApiError("protocol は cifs か nfs を指定してください")
+    """保存前の接続テスト。実際に接続して中身を一覧し、書き込めるかを確かめる。"""
+    if params.get("protocol") not in REMOTE_PROTOCOLS:
+        raise ApiError("protocol は smb か webdav を指定してください")
+    opts = target_options(params) if "options" in params else {}
+    if "tls_insecure" in params:
+        opts["tls_insecure"] = _truthy(params.get("tls_insecure"))
     fake = {
         "protocol": params["protocol"],
-        "server": params.get("server", ""),
-        "share": params.get("share", ""),
-        "subpath": params.get("subpath", ""),
-        "username": params.get("username", ""),
-        "domain": params.get("domain", ""),
-        "password_enc": encrypt_secret(params.get("password", "")),
-        "mount_opts": params.get("mount_opts", ""),
+        "server": str(params.get("server", "")).strip(),
+        "share": str(params.get("share", "")).strip(),
+        "subpath": str(params.get("subpath", "")).strip(),
+        "username": str(params.get("username", "")).strip(),
+        "domain": str(params.get("domain", "")).strip(),
+        "options": json.dumps(opts),
     }
-    tmp_mp = MOUNT_BASE / f"test-{uuid.uuid4().hex[:8]}"
+    if not fake["server"]:
+        return {"ok": False, "message": "サーバー / URL を入力してください"}
+    if fake["protocol"] == "smb" and not fake["share"]:
+        return {"ok": False, "message": "共有名を入力してください"}
     try:
-        do_mount(fake, tmp_mp)
-        root = mount_root(fake, tmp_mp)
-        if not root.exists():
-            return {"ok": False, "message": "接続はできましたが、指定したサブフォルダが見つかりません"}
-        entries = sorted(p.name for p in root.iterdir())[:20]
-        writable = True
-        probe = root / ".mc-pack-library-test"
-        try:
-            probe.write_text("ok", encoding="utf-8")
-            probe.unlink()
-        except OSError:
-            writable = False
-        msg = "接続に成功しました" if writable else "接続に成功しました(書き込みはできないようです)"
-        return {"ok": True, "message": msg, "entries": entries, "writable": writable}
+        store = make_storage(fake, password=str(params.get("password") or ""))
+        store.connect()
+        entries, writable = store.probe()
+    except StorageError as e:
+        return {"ok": False, "message": e.message}
     except ApiError as e:
         return {"ok": False, "message": e.message}
-    finally:
-        do_unmount(tmp_mp)
-        try:
-            tmp_mp.rmdir()
-        except OSError:
-            pass
+    msg = "接続に成功しました" if writable else "接続に成功しました(書き込みはできないようです)"
+    return {"ok": True, "message": msg, "entries": entries, "writable": writable}
 
 
-def _startup_remount(conn):
-    """コンテナ起動時、アクティブなターゲットがネットワーク接続なら自動で再マウントする。"""
+def _startup_connect(conn):
+    """コンテナ起動時、アクティブなターゲットがリモートなら接続を試みる(失敗しても起動は続ける)。"""
     target = conn.execute("SELECT * FROM storage_targets WHERE active=1").fetchone()
     if not target or target["protocol"] == "local":
         return
-    mp = target_mount_point(target["id"])
     try:
-        do_mount(target, mp)
-        conn.execute("UPDATE storage_targets SET last_error='' WHERE id=?", (target["id"],))
-        print(f"[storage] 「{target['name']}」に接続しました ({mp})")
+        connect_target(target, conn)
+        print(f"[storage] 「{target['name']}」に接続しました ({store_for(target).describe()})")
     except ApiError as e:
-        conn.execute("UPDATE storage_targets SET last_error=? WHERE id=?", (e.message, target["id"]))
         print(f"[storage] 「{target['name']}」への接続に失敗しました: {e.message}")
-    conn.commit()
 
 
-def active_root():
-    """(root_path, target_row) を返す。ネットワーク接続でマウントされていなければ ApiError(503)。"""
+def active_store():
+    """(store, target_row) を返す。リモートに接続できなければ ApiError(503)。
+
+    NASの再起動などで接続できなかった場合も、RETRY_INTERVAL ごとに自動で繋ぎ直しを試みる。
+    """
     conn = db()
     target = conn.execute("SELECT * FROM storage_targets WHERE active=1").fetchone()
     if not target:
         raise ApiError("有効なストレージが設定されていません", 503)
-    if target["protocol"] == "local":
-        return LOCAL_DIR, target
-    mp = target_mount_point(target["id"])
-    if not is_mounted(mp):
-        raise ApiError(f"「{target['name']}」に接続されていません。設定画面から再接続してください。", 503)
-    return mount_root(target, mp), target
+    store = store_for(target)
+    if target["protocol"] == "local" or is_connected(target):
+        return store, target
+    st = _CONN.get(target["id"])
+    if st is None or time.monotonic() - st["last_try"] > RETRY_INTERVAL:
+        try:
+            return connect_target(target, conn), target
+        except ApiError as e:
+            raise ApiError(f"「{target['name']}」に接続できません: {e.message}", 503)
+    reason = target["last_error"] or "接続されていません"
+    raise ApiError(f"「{target['name']}」に接続できません: {reason}", 503)
 
 
 def activate_target(target_id):
@@ -739,47 +725,34 @@ def activate_target(target_id):
     if not target:
         raise ApiError("見つかりません", 404)
     with LOCK:
-        current = conn.execute("SELECT * FROM storage_targets WHERE active=1").fetchone()
         if target["protocol"] != "local":
-            do_mount(target, target_mount_point(target["id"]))  # 失敗時はここで ApiError
-        if current and current["id"] != target["id"] and current["protocol"] != "local":
-            do_unmount(target_mount_point(current["id"]))
+            connect_target(target, conn)  # 失敗時はここで ApiError
         conn.execute("UPDATE storage_targets SET active=0")
         conn.execute("UPDATE storage_targets SET active=1, last_error='', updated_at=? WHERE id=?",
-                      (utcnow(), target["id"]))
+                     (utcnow(), target["id"]))
         conn.commit()
-    return active_root()
+    return active_store()
 
 
 def require_same_target(row, kind="バージョン"):
     """versions/items の操作対象が、現在アクティブなストレージのものか確認する。"""
-    root, target = active_root()
+    store, target = active_store()
     if row["target_id"] != target["id"]:
         raise ApiError(
             f"この{kind}は現在アクティブなストレージに属していません。"
             "該当のストレージに切り替えてから操作してください。", 409)
-    return root, target
+    return store, target
 
 
 # --------------------------------------------------------------------------
 # 保存まわり
 # --------------------------------------------------------------------------
-def abs_path(relpath, lib_root):
-    p = (lib_root / relpath).resolve()
-    if lib_root not in p.parents and p != lib_root:
+def lib_rel(relpath):
+    """versions.relpath(library からの相対パス)を、保存先ルートからの相対パスにする。"""
+    try:
+        return join_rel("library", clean_rel(relpath))
+    except StorageError:
         raise ApiError("不正なパスです", 400)
-    return p
-
-
-def unique_path(directory, fname):
-    p = directory / fname
-    if not p.exists():
-        return p
-    stem, suf = os.path.splitext(fname)
-    i = 1
-    while (directory / f"{stem}-{i}{suf}").exists():
-        i += 1
-    return directory / f"{stem}-{i}{suf}"
 
 
 def sha256_file(path):
@@ -815,27 +788,26 @@ def get_or_create_item(conn, target_id, category, name):
     return row, True
 
 
-def remove_file(relpath, lib_root):
-    p = abs_path(relpath, lib_root)
-    try:
-        p.unlink()
-    except FileNotFoundError:
-        pass
-    try:
-        p.parent.rmdir()  # 空のときだけ消える
-    except OSError:
-        pass
+def remove_file(store, relpath):
+    rel = lib_rel(relpath)
+    store.delete(rel)
+    store.rmdir_if_empty(parent_rel(rel))  # 空のときだけ消える
 
 
-def ingest(src, filename, force_cat=None, default_cat=None):
-    """src のファイルを解析して、現在アクティブなストレージの library に登録(移動)する。"""
-    src = Path(src)
-    if src.stat().st_size == 0:
+def ingest(local, filename, force_cat=None, default_cat=None, src_rel=None):
+    """ファイルを解析して、現在アクティブなストレージの library に登録する。
+
+    local  : 解析に使う手元(コンテナ内)のファイル
+    src_rel: 保存先に既にあるファイル(inbox取り込み時)の場所。指定時はアップロードせず
+             保存先の中で移動する。未指定なら local を保存先へアップロード(移動)する。
+    """
+    local = Path(local)
+    size = local.stat().st_size
+    if size == 0:
         raise ApiError("空のファイルです")
-    root, target = active_root()
-    lib_root = root / "library"
-    sha = sha256_file(src)
-    info = analyze(src, filename)
+    store, target = active_store()
+    sha = sha256_file(local)
+    info = analyze(local, filename)
     cat = force_cat or (info["category"] if info["category"] != "other" else (default_cat or "other"))
     meta = {k: info[k] for k in ("loader", "mc", "description", "pack_format") if info.get(k)}
 
@@ -850,24 +822,28 @@ def ingest(src, filename, force_cat=None, default_cat=None):
                     "version": dup["version"], "category": dup["category"], "item_id": dup["item_id"]}
         try:
             item, created = get_or_create_item(conn, target["id"], cat, info["name"])
-            dest_dir = lib_root / CATEGORIES[cat][0] / item["folder"]
-            dest_dir.mkdir(parents=True, exist_ok=True)
+            dest_dir = join_rel("library", CATEGORIES[cat][0], item["folder"])
             fname = safe_name(Path(filename).name, "file", 200)
-            canonical = dest_dir / fname
-            if canonical.exists() and src.resolve() == canonical.resolve():
+            canonical = join_rel(dest_dir, fname)
+            if src_rel and clean_rel(src_rel) == canonical:
                 dest = canonical  # すでに正しい場所にある(再スキャン時)
             else:
-                dest = unique_path(dest_dir, fname)
-            relpath = dest.relative_to(lib_root).as_posix()
+                dest = store.unique_rel(dest_dir, fname)
             conn.execute(
                 "INSERT INTO versions (item_id, target_id, version, filename, relpath, size, sha256, meta, added_at) "
                 "VALUES (?,?,?,?,?,?,?,?,?)",
-                (item["id"], target["id"], info["version"], dest.name, relpath, src.stat().st_size, sha,
-                 json.dumps(meta, ensure_ascii=False), utcnow()),
+                (item["id"], target["id"], info["version"], dest.rsplit("/", 1)[-1],
+                 dest[len("library/"):], size, sha, json.dumps(meta, ensure_ascii=False), utcnow()),
             )
-            if dest != src:
-                shutil.move(str(src), str(dest))
+            if src_rel:
+                if dest != clean_rel(src_rel):
+                    store.move(src_rel, dest)
+            else:
+                store.put(local, dest)
             conn.commit()
+        except StorageError as e:
+            conn.rollback()
+            raise ApiError(f"保存先への書き込みに失敗しました: {e.message}", 502)
         except Exception:
             conn.rollback()
             raise
@@ -876,9 +852,9 @@ def ingest(src, filename, force_cat=None, default_cat=None):
             "new_item": created}
 
 
-def build_library(conn, root, target):
-    lib_root = root / "library"
+def build_library(conn, store, target):
     tid = target["id"]
+    present = store.file_index("library")
     items = {r["id"]: dict(r, versions=[])
              for r in conn.execute("SELECT * FROM items WHERE target_id=?", (tid,))}
     for r in conn.execute("SELECT * FROM versions WHERE target_id=?", (tid,)):
@@ -887,7 +863,7 @@ def build_library(conn, root, target):
             d["meta"] = json.loads(d["meta"] or "{}")
         except ValueError:
             d["meta"] = {}
-        d["missing"] = not (lib_root / d.pop("relpath")).exists()
+        d["missing"] = ("library/" + d.pop("relpath")) not in present
         items[d["item_id"]]["versions"].append(d)
     out = []
     for it in items.values():
@@ -925,6 +901,11 @@ def handle_api_error(e):
     return jsonify(error=e.message), e.status
 
 
+@app.errorhandler(StorageError)
+def handle_storage_error(e):
+    return jsonify(error=e.message), 502
+
+
 @app.errorhandler(Exception)
 def handle_error(e):
     from werkzeug.exceptions import HTTPException
@@ -949,12 +930,13 @@ def running_version():
 def target_public(row, conn=None):
     d = dict(row)
     d.pop("password_enc", None)
+    d.pop("mount_opts", None)
+    d.pop("options", None)
     d["has_password"] = bool(row["password_enc"])
-    if row["protocol"] == "local":
-        d["mounted"] = True
-    else:
-        d["mounted"] = is_mounted(target_mount_point(row["id"]))
-    d["protocol_label"] = PROTOCOLS.get(row["protocol"], row["protocol"])
+    d["mounted"] = is_connected(row)
+    d["supported"] = row["protocol"] in PROTOCOLS
+    d["tls_insecure"] = bool(target_options(row).get("tls_insecure"))
+    d["protocol_label"] = PROTOCOLS.get(row["protocol"], f"{row['protocol'].upper()}(非対応)")
     if conn is not None:
         d["item_count"] = conn.execute(
             "SELECT COUNT(*) FROM items WHERE target_id=?", (row["id"],)).fetchone()[0]
@@ -965,20 +947,20 @@ def target_public(row, conn=None):
 def api_library():
     conn = db()
     try:
-        root, target = active_root()
+        store, target = active_store()
         storage_err = None
-        items = build_library(conn, root, target)
-    except ApiError as e:
+        items = build_library(conn, store, target)
+        where = store.describe()
+    except (ApiError, StorageError) as e:
         target = conn.execute("SELECT * FROM storage_targets WHERE active=1").fetchone()
         storage_err = e.message
         items = []
-        root = None
+        where = None
     return jsonify(
         items=items,
         categories={k: v[1] for k, v in CATEGORIES.items()},
         storage={
-            "path": str(root / "library") if root else None,
-            "inbox": str(root / "inbox") if root else None,
+            "path": where,
             "target": target_public(target, conn) if target else None,
             "error": storage_err,
         },
@@ -1015,46 +997,54 @@ def api_upload():
 def api_scan():
     """inbox/ 内のファイルと、DB未登録のlibrary内ファイルを取り込む(アクティブなストレージのみ)。"""
     conn = db()
-    root, target = active_root()
-    lib_root, inbox_root = root / "library", root / "inbox"
-    lib_root.mkdir(parents=True, exist_ok=True)
-    inbox_root.mkdir(parents=True, exist_ok=True)
-    known = {r[0] for r in conn.execute(
+    store, target = active_store()
+    store.ensure_dir("library")
+    store.ensure_dir("inbox")
+    store.invalidate_index()
+    known = {"library/" + r[0] for r in conn.execute(
         "SELECT relpath FROM versions WHERE target_id=?", (target["id"],))}
-    scan_targets = []  # (path, default_cat)
-    for p in sorted(inbox_root.rglob("*")):
-        if p.is_file() and not p.name.startswith("."):
-            scan_targets.append((p, None))
+    inbox_files, inbox_dirs = store.walk("inbox")
+    lib_files, lib_dirs = store.walk("library")
+    hidden = lambda rel: rel.rsplit("/", 1)[-1].startswith(".")  # noqa: E731
+    scan_targets = [(rel, None) for rel in sorted(inbox_files) if not hidden(rel)]  # (rel, default_cat)
     rev = {v[0]: k for k, v in CATEGORIES.items()}
-    for p in sorted(lib_root.rglob("*")):
-        if not p.is_file() or p.name.startswith("."):
+    for rel in sorted(lib_files):
+        if hidden(rel) or rel in known:
             continue
-        rel = p.relative_to(lib_root).as_posix()
-        if rel not in known:
-            top = rel.split("/", 1)[0]
-            scan_targets.append((p, rev.get(top)))
+        top = rel.split("/")[1] if rel.count("/") >= 2 else ""
+        scan_targets.append((rel, rev.get(top)))
     added = dup = 0
     errors = []
-    for p, default_cat in scan_targets:
+    for rel, default_cat in scan_targets:
+        name = rel.rsplit("/", 1)[-1]
         try:
-            r = ingest(p, p.name, default_cat=default_cat)
+            if store.is_local:
+                r = ingest(store.local_path(rel), name, default_cat=default_cat, src_rel=rel)
+            else:
+                tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
+                try:
+                    store.fetch(rel, tmp)
+                    r = ingest(tmp, name, default_cat=default_cat, src_rel=rel)
+                finally:
+                    try:
+                        tmp.unlink()
+                    except FileNotFoundError:
+                        pass
             if r["status"] == "added":
                 added += 1
             else:
                 dup += 1
         except Exception as e:  # noqa: BLE001
-            errors.append(f"{p.name}: {getattr(e, 'message', e)}")
+            errors.append(f"{name}: {getattr(e, 'message', e)}")
     # 取り込みで空になったフォルダを片付ける(inbox本体・カテゴリフォルダは残す)
-    keep = {inbox_root} | {lib_root / v[0] for v in CATEGORIES.values()}
-    for r_ in (inbox_root, lib_root):
-        for d in sorted((x for x in r_.rglob("*") if x.is_dir()), key=lambda x: len(x.parts), reverse=True):
-            if d not in keep:
-                try:
-                    d.rmdir()
-                except OSError:
-                    pass
+    keep = {"inbox", "library"} | {"library/" + v[0] for v in CATEGORIES.values()}
+    for d in sorted(inbox_dirs + lib_dirs, key=lambda x: x.count("/"), reverse=True):
+        if d not in keep:
+            store.rmdir_if_empty(d)
+    store.invalidate_index()
+    present = store.file_index("library")
     missing = sum(1 for r in conn.execute("SELECT relpath FROM versions WHERE target_id=?", (target["id"],))
-                  if not (lib_root / r[0]).exists())
+                  if ("library/" + r[0]) not in present)
     return jsonify(added=added, duplicates=dup, errors=errors, missing=missing,
                    scanned=len(scan_targets))
 
@@ -1064,11 +1054,20 @@ def api_download(vid):
     row = db().execute("SELECT * FROM versions WHERE id=?", (vid,)).fetchone()
     if not row:
         raise ApiError("見つかりません", 404)
-    root, _target = require_same_target(row)
-    p = abs_path(row["relpath"], root / "library")
-    if not p.exists():
+    store, _target = require_same_target(row)
+    rel = lib_rel(row["relpath"])
+    if store.is_local:
+        p = store.local_path(rel)
+        if not p.exists():
+            raise ApiError("ファイルが保存先に見つかりません", 404)
+        return send_file(p, as_attachment=True, download_name=row["filename"])
+    if not store.exists(rel):
         raise ApiError("ファイルが保存先に見つかりません", 404)
-    return send_file(p, as_attachment=True, download_name=row["filename"])
+    f = store.open_read(rel)
+    resp = send_file(f, as_attachment=True, download_name=row["filename"],
+                     mimetype="application/octet-stream", conditional=False)
+    resp.content_length = row["size"]
+    return resp
 
 
 @app.patch("/api/versions/<int:vid>")
@@ -1092,14 +1091,14 @@ def api_delete_version(vid):
     row = conn.execute("SELECT * FROM versions WHERE id=?", (vid,)).fetchone()
     if not row:
         raise ApiError("見つかりません", 404)
-    root, _target = require_same_target(row)
+    store, _target = require_same_target(row)
     with LOCK:
         conn.execute("DELETE FROM versions WHERE id=?", (vid,))
         left = conn.execute("SELECT COUNT(*) FROM versions WHERE item_id=?", (row["item_id"],)).fetchone()[0]
         if left == 0:
             conn.execute("DELETE FROM items WHERE id=?", (row["item_id"],))
         conn.commit()
-        remove_file(row["relpath"], root / "library")
+        remove_file(store, row["relpath"])
     return jsonify(ok=True)
 
 
@@ -1109,13 +1108,13 @@ def api_delete_item(iid):
     item = conn.execute("SELECT * FROM items WHERE id=?", (iid,)).fetchone()
     if not item:
         raise ApiError("見つかりません", 404)
-    root, _target = require_same_target(item, kind="アイテム")
+    store, _target = require_same_target(item, kind="アイテム")
     rows = conn.execute("SELECT relpath FROM versions WHERE item_id=?", (iid,)).fetchall()
     with LOCK:
         conn.execute("DELETE FROM items WHERE id=?", (iid,))
         conn.commit()
         for r in rows:
-            remove_file(r["relpath"], root / "library")
+            remove_file(store, r["relpath"])
     return jsonify(ok=True)
 
 
@@ -1127,8 +1126,7 @@ def api_patch_item(iid):
     item = conn.execute("SELECT * FROM items WHERE id=?", (iid,)).fetchone()
     if not item:
         raise ApiError("見つかりません", 404)
-    root, _target = require_same_target(item, kind="アイテム")
-    lib_root = root / "library"
+    store, _target = require_same_target(item, kind="アイテム")
     new_cat = data.get("category", item["category"])
     if new_cat not in CATEGORIES:
         raise ApiError("category が不正です")
@@ -1143,17 +1141,17 @@ def api_patch_item(iid):
             if target["id"] == item["id"]:
                 conn.execute("UPDATE items SET name=? WHERE id=?", (new_name, iid))
             else:
-                dest_dir = lib_root / CATEGORIES[new_cat][0] / target["folder"]
-                dest_dir.mkdir(parents=True, exist_ok=True)
+                dest_dir = join_rel("library", CATEGORIES[new_cat][0], target["folder"])
+                store.ensure_dir(dest_dir)
                 for v in conn.execute("SELECT * FROM versions WHERE item_id=?", (iid,)).fetchall():
-                    src = lib_root / v["relpath"]
-                    dest = unique_path(dest_dir, v["filename"])
-                    if src.exists():
-                        shutil.move(str(src), str(dest))
+                    src = lib_rel(v["relpath"])
+                    dest = store.unique_rel(dest_dir, v["filename"])
+                    if store.exists(src):
+                        store.move(src, dest)
                         moved.append((dest, src))
                     conn.execute(
                         "UPDATE versions SET item_id=?, relpath=?, filename=? WHERE id=?",
-                        (target["id"], dest.relative_to(lib_root).as_posix(), dest.name, v["id"]),
+                        (target["id"], dest[len("library/"):], dest.rsplit("/", 1)[-1], v["id"]),
                     )
                 conn.execute("DELETE FROM items WHERE id=?", (iid,))
             conn.commit()
@@ -1161,16 +1159,12 @@ def api_patch_item(iid):
             conn.rollback()
             for dest, src in reversed(moved):
                 try:
-                    shutil.move(str(dest), str(src))
-                except OSError:
+                    store.move(dest, src)
+                except (OSError, StorageError):
                     pass
             raise
         # 空になった旧フォルダを片付ける
-        old_dir = lib_root / CATEGORIES[item["category"]][0] / item["folder"]
-        try:
-            old_dir.rmdir()
-        except OSError:
-            pass
+        store.rmdir_if_empty(join_rel("library", CATEGORIES[item["category"]][0], item["folder"]))
     return jsonify(ok=True)
 
 
@@ -1185,29 +1179,38 @@ def api_storage_list():
     return jsonify(targets=[target_public(r, conn) for r in rows])
 
 
+def _truthy(v):
+    return v is True or str(v).lower() in ("1", "true", "on", "yes")
+
+
 def _target_payload(data, existing=None):
-    protocol = data.get("protocol", existing["protocol"] if existing else "cifs")
-    if protocol not in ("cifs", "nfs"):
-        raise ApiError("protocol は cifs か nfs を指定してください")
-    name = str(data.get("name", existing["name"] if existing else "")).strip()[:80]
+    def field(key, limit):
+        return str(data.get(key, existing[key] if existing else "") or "").strip()[:limit]
+
+    protocol = data.get("protocol", existing["protocol"] if existing else "smb")
+    if protocol not in REMOTE_PROTOCOLS:
+        raise ApiError("protocol は smb か webdav を指定してください")
+    name = field("name", 80)
     if not name:
         raise ApiError("名前を入力してください")
-    server = str(data.get("server", existing["server"] if existing else "")).strip()[:255]
+    server = field("server", 500)
     if not server:
-        raise ApiError("サーバー(IPアドレス・ホスト名)を入力してください")
-    share = str(data.get("share", existing["share"] if existing else "")).strip()[:255]
-    if not share:
-        raise ApiError("共有名 / エクスポートパスを入力してください")
-    subpath = str(data.get("subpath", existing["subpath"] if existing else "")).strip().strip("/")[:255]
-    username = str(data.get("username", existing["username"] if existing else "")).strip()[:120]
-    domain = str(data.get("domain", existing["domain"] if existing else "")).strip()[:120]
-    mount_opts = str(data.get("mount_opts", existing["mount_opts"] if existing else "")).strip()[:500]
+        raise ApiError("サーバー(IPアドレス)/ URL を入力してください")
+    share = field("share", 255).strip("/\\")
+    if protocol == "smb" and not share:
+        raise ApiError("共有名を入力してください")
+    subpath = field("subpath", 255).strip("/")
+    username = field("username", 120)
+    domain = field("domain", 120)
     if "password" in data:
         password_enc = encrypt_secret(str(data.get("password") or ""))
     else:
         password_enc = existing["password_enc"] if existing else ""
+    opts = target_options(existing) if existing else {}
+    if "tls_insecure" in data:
+        opts["tls_insecure"] = _truthy(data.get("tls_insecure"))
     return dict(name=name, protocol=protocol, server=server, share=share, subpath=subpath,
-                username=username, domain=domain, password_enc=password_enc, mount_opts=mount_opts)
+                username=username, domain=domain, password_enc=password_enc, options=json.dumps(opts))
 
 
 @app.post("/api/storage/targets")
@@ -1218,8 +1221,8 @@ def api_storage_create():
     with LOCK:
         cur = conn.execute(
             "INSERT INTO storage_targets "
-            "(name,protocol,server,share,subpath,username,domain,password_enc,mount_opts,active,created_at,updated_at) "
-            "VALUES (:name,:protocol,:server,:share,:subpath,:username,:domain,:password_enc,:mount_opts,0,:now,:now)",
+            "(name,protocol,server,share,subpath,username,domain,password_enc,options,active,created_at,updated_at) "
+            "VALUES (:name,:protocol,:server,:share,:subpath,:username,:domain,:password_enc,:options,0,:now,:now)",
             {**payload, "now": utcnow()},
         )
         conn.commit()
@@ -1240,10 +1243,11 @@ def api_storage_update(tid):
         conn.execute(
             "UPDATE storage_targets SET name=:name, protocol=:protocol, server=:server, share=:share, "
             "subpath=:subpath, username=:username, domain=:domain, password_enc=:password_enc, "
-            "mount_opts=:mount_opts, updated_at=:now WHERE id=:id",
+            "options=:options, last_error='', updated_at=:now WHERE id=:id",
             {**payload, "now": utcnow(), "id": tid},
         )
         conn.commit()
+        forget_store(tid)
     return jsonify(ok=True)
 
 
@@ -1261,10 +1265,9 @@ def api_storage_delete(tid):
     if has_items:
         raise ApiError("この接続にはまだ登録されたファイルがあります。削除する前に切り替えて内容を確認してください")
     with LOCK:
-        if row["protocol"] != "local":
-            do_unmount(target_mount_point(tid))
         conn.execute("DELETE FROM storage_targets WHERE id=?", (tid,))
         conn.commit()
+        forget_store(tid)
     return jsonify(ok=True)
 
 
@@ -1289,8 +1292,8 @@ def api_storage_test_existing(tid):
 
 @app.post("/api/storage/targets/<int:tid>/activate")
 def api_storage_activate(tid):
-    root, target = activate_target(tid)
-    return jsonify(ok=True, target=target_public(target, db()), root=str(root))
+    store, target = activate_target(tid)
+    return jsonify(ok=True, target=target_public(target, db()), root=store.describe())
 
 
 init_storage()

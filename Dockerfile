@@ -1,17 +1,17 @@
 FROM python:3.12-slim
 
 # git/rsync/ca-certificates: 起動時の自動更新(GitHubから最新コードを取得)に使う
-# cifs-utils/nfs-common: Web設定パネルから登録したSMB/NFS共有をコンテナ内でマウントするのに使う
+# SMB / WebDAV の保存先はアプリ(Python)が直接通信するので、mount 用のパッケージは不要
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git rsync ca-certificates cifs-utils nfs-common \
+    && apt-get install -y --no-install-recommends git rsync ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py .
+COPY app.py storage.py ./
 COPY static ./static
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh

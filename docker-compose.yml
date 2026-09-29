@@ -1,0 +1,29 @@
+services:
+  mc-pack-library:
+    build: .
+    container_name: mc-pack-library
+    restart: unless-stopped
+    # Unraid の標準ユーザー(nobody:users)で動かす場合はコメントを外してください。
+    # その場合、下の volumes 先のフォルダも  chown -R 99:100 <フォルダ>  で
+    # 所有者を合わせておかないと Permission denied になります。
+    # また /app は root 所有でビルドされるため、自動更新(GITHUB_REPO)も
+    # 使うなら root 実行のままにしておくのが簡単です。
+    # user: "99:100"
+    ports:
+      - "8765:8080"
+    volumes:
+      # 左側を Unraid 上の保存したい共有フォルダに変えてください
+      - /mnt/user/minecraft/library:/data
+    environment:
+      - TZ=Asia/Tokyo
+      # 起動のたびにGitHubの最新コードを取得して反映する(README の「自動更新」参照)。
+      # リポジトリを作って push したら、ここに "ユーザー名/リポジトリ名" を入れてください。
+      - GITHUB_REPO=
+      - GITHUB_BRANCH=main
+      # - AUTO_UPDATE=false   # 自動更新を止めたい場合はコメントを外す
+      # 家庭内LANの外に公開する場合はパスワードを付けてください(公開自体は非推奨)
+      # - AUTH_USER=maru
+      # - AUTH_PASS=change-me
+      # index.db だけ別の場所(キャッシュ上のappdataなど)に置きたい場合
+      # - DB_DIR=/config
+    # volumes に  - /mnt/user/appdata/mc-pack-library:/config  も足してください

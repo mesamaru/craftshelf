@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MC Pack Library</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Crect width=%2732%27 height=%2732%27 rx=%277%27 fill=%27%232b7a58%27/%3E%3Cpath d=%27M8 12l8-4 8 4v9l-8 4-8-4z M8 12l8 4 8-4 M16 16v9%27 fill=%27none%27 stroke=%27white%27 stroke-width=%271.8%27 stroke-linejoin=%27round%27/%3E%3C/svg%3E">
+<style>
+:root {
+  --bg: #f4f6f3; --surface: #ffffff; --surface-2: #f0f3ef; --ink: #1b2420; --muted: #65716b;
+  --line: #dde2dd; --accent: #2b7a58; --accent-ink: #ffffff; --accent-soft: #e4f1ea;
+  --danger: #b3382c; --shadow: 0 8px 32px rgba(20, 30, 25, .18);
+  --c-plugin: #2f6fdb; --c-mod: #1f8f5f; --c-datapack: #b97a10; --c-resourcepack: #8a4fd6; --c-other: #6b7772;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #131816; --surface: #1b2220; --surface-2: #232c29; --ink: #e5ebe8; --muted: #8e9b95;
+    --line: #2d3835; --accent: #52b88d; --accent-ink: #0b1511; --accent-soft: #1f3129;
+    --danger: #ef7d70; --shadow: 0 8px 32px rgba(0, 0, 0, .5);
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #131816; --surface: #1b2220; --surface-2: #232c29; --ink: #e5ebe8; --muted: #8e9b95;
+  --line: #2d3835; --accent: #52b88d; --accent-ink: #0b1511; --accent-soft: #1f3129;
+  --danger: #ef7d70; --shadow: 0 8px 32px rgba(0, 0, 0, .5);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 15px/1.55 "Hiragino Sans", "Yu Gothic UI", "Noto Sans JP", "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+button, select, input { font: inherit; color: inherit; }
+button { cursor: pointer; }
+.wrap { max-width: 1080px; margin: 0 auto; padding: 24px 16px 80px; }
+
+/* header */
+.top { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
+.top h1 { font-size: 22px; margin: 0; letter-spacing: .01em; }
+.top p { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+.stats { color: var(--muted); font-size: 13px; text-align: right; }
+.stats b { color: var(--ink); font-weight: 600; }
+
+/* drop zone */
+.drop {
+  border: 2px dashed var(--line); background: var(--surface); border-radius: 14px;
+  padding: 22px 20px; display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+  transition: border-color .15s, background .15s;
+}
+.drop:hover { border-color: var(--accent); background: var(--accent-soft); }
+.drop-main strong { display: block; font-size: 16px; }
+.drop-main span { color: var(--muted); font-size: 13px; }
+.drop-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.drop-actions label { font-size: 13px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+.btn {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; line-height: 1.4;
+  transition: border-color .12s, background .12s;
+}
+.btn:hover { border-color: var(--accent); }
+.btn:focus-visible, select:focus-visible, input:focus-visible, .row:focus-visible, .chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.btn.danger { color: var(--danger); }
+.btn.danger:hover { border-color: var(--danger); }
+.btn.small { padding: 3px 9px; font-size: 13px; }
+select, input[type=text], input[type=search] {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
+}
+
+/* queue */
+.queue { margin-top: 12px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.queue-head { display: flex; justify-content: space-between; align-items: center; padding: 8px 14px; background: var(--surface-2); font-size: 13px; }
+.queue-list { max-height: 220px; overflow: auto; }
+.q { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.8fr); gap: 12px; padding: 6px 14px; font-size: 13px; border-top: 1px solid var(--line); align-items: center; }
+.q .fn { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q .st { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.q.added .st { color: var(--accent); }
+.q.error .st { color: var(--danger); }
+.bar { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 3px; }
+.bar i { display: block; height: 100%; background: var(--accent); width: 0; }
+
+/* toolbar */
+.toolbar { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin: 22px 0 10px; }
+.chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.chip { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 12px; font-size: 13px; }
+.chip .n { color: var(--muted); margin-left: 4px; font-variant-numeric: tabular-nums; }
+.chip[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.chip[aria-pressed="true"] .n { color: inherit; opacity: .8; }
+.search { min-width: 220px; flex: 0 1 300px; }
+.search input { width: 100%; }
+
+/* list */
+.list { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.cols, .row {
+  display: grid; grid-template-columns: 116px minmax(0, 1fr) 150px 90px 90px 96px; gap: 12px; align-items: center; padding: 0 14px;
+}
+.cols { background: var(--surface-2); font-size: 12px; color: var(--muted); border-bottom: 1px solid var(--line); }
+.cols button { background: none; border: 0; padding: 8px 0; text-align: left; color: inherit; font-size: 12px; }
+.cols button:hover { color: var(--ink); }
+.cols button[data-dir]::after { content: attr(data-dir); margin-left: 4px; color: var(--accent); }
+.row { width: 100%; text-align: left; background: none; border: 0; border-top: 1px solid var(--line); padding-top: 11px; padding-bottom: 11px; }
+.cols + .row { border-top: 0; }
+.row:hover { background: var(--accent-soft); }
+.row.sel { background: var(--accent-soft); }
+.row .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .latest { font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.row .sub { color: var(--muted); font-size: 13px; font-variant-numeric: tabular-nums; }
+.badge {
+  --c: var(--c-other); display: inline-block; font-size: 12px; padding: 1px 9px; border-radius: 999px; white-space: nowrap;
+  background: color-mix(in srgb, var(--c) 15%, transparent); color: color-mix(in srgb, var(--c) 72%, var(--ink));
+}
+.badge.plugin { --c: var(--c-plugin); } .badge.mod { --c: var(--c-mod); } .badge.datapack { --c: var(--c-datapack); }
+.badge.resourcepack { --c: var(--c-resourcepack); } .badge.other { --c: var(--c-other); }
+.empty { padding: 44px 16px; text-align: center; color: var(--muted); }
+
+/* side panel */
+.backdrop { position: fixed; inset: 0; background: rgba(10, 16, 13, .35); opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; }
+.backdrop.on { opacity: 1; pointer-events: auto; }
+.panel {
+  position: fixed; top: 0; right: 0; bottom: 0; width: min(500px, 100vw); background: var(--surface); box-shadow: var(--shadow);
+  transform: translateX(105%); transition: transform .22s ease; z-index: 30; display: flex; flex-direction: column;
+}
+.panel.on { transform: none; }
+.panel-head { padding: 18px 18px 12px; border-bottom: 1px solid var(--line); }
+.panel-head .line1 { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.panel-head h2 { margin: 6px 0 2px; font-size: 20px; word-break: break-word; }
+.panel-head .desc { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+.panel-tools { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; align-items: center; }
+.panel-tools .sp { flex: 1; }
+.panel-body { overflow: auto; padding: 14px 18px 40px; display: flex; flex-direction: column; gap: 10px; }
+.ver { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--surface); }
+.ver.latest { border-color: var(--accent); background: var(--accent-soft); }
+.ver.missing { border-style: dashed; }
+.ver .head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.ver .vnum { font-weight: 700; font-size: 16px; font-variant-numeric: tabular-nums; word-break: break-all; }
+.tag { font-size: 11px; padding: 0 7px; border-radius: 4px; background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.tag.warn { background: var(--danger); color: #fff; }
+.tag.soft { background: var(--surface-2); color: var(--muted); font-weight: 500; border: 1px solid var(--line); }
+.ver .file { font-size: 13px; color: var(--muted); word-break: break-all; margin-top: 3px; }
+.ver .meta { font-size: 12px; color: var(--muted); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.ver .note { font-size: 13px; margin-top: 6px; padding: 5px 8px; background: var(--surface-2); border-radius: 6px; white-space: pre-wrap; }
+.ver .acts { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+a.btn { text-decoration: none; display: inline-block; color: inherit; }
+
+/* dialog */
+dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--ink); padding: 0; width: min(440px, calc(100vw - 32px)); box-shadow: var(--shadow); }
+dialog::backdrop { background: rgba(10, 16, 13, .45); }
+dialog form { padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+dialog h3 { margin: 0; font-size: 17px; }
+dialog p { margin: 0; color: var(--muted); font-size: 14px; word-break: break-word; }
+dialog label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+dialog label input, dialog label select { color: var(--ink); }
+dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
+
+/* overlay while dragging */
+.overlay {
+  position: fixed; inset: 0; z-index: 50; display: none; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--accent) 22%, transparent); backdrop-filter: blur(2px);
+  font-size: 24px; font-weight: 700; pointer-events: none;
+}
+.overlay.on { display: flex; }
+.overlay div { background: var(--surface); border: 3px dashed var(--accent); border-radius: 20px; padding: 40px 56px; box-shadow: var(--shadow); }
+
+/* toast */
+.toasts { position: fixed; left: 50%; bottom: 20px; transform: translateX(-50%); display: flex; flex-direction: column; gap: 8px; z-index: 60; width: min(520px, calc(100vw - 32px)); }
+.toast { background: var(--ink); color: var(--bg); padding: 9px 14px; border-radius: 10px; font-size: 14px; box-shadow: var(--shadow); }
+.toast.err { background: var(--danger); color: #fff; }
+
+@media (max-width: 760px) {
+  .cols, .row { grid-template-columns: 96px minmax(0, 1fr) 110px; }
+  .cols .hide-s, .row .hide-s { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div>
+      <h1>MC Pack Library</h1>
+      <p>プラグイン・Mod・データパック・リソースパックの保管庫</p>
+    </div>
+    <div class="stats" id="stats"></div>
+  </header>
+
+  <section class="drop" id="drop">
+    <div class="drop-main">
+      <strong>ここにファイルやフォルダをドラッグ&amp;ドロップ</strong>
+      <span>.jar / .zip をまとめて投げ込めます。名前とバージョンは中身から自動で読み取ります。</span>
+    </div>
+    <div class="drop-actions">
+      <label>登録先
+        <select id="catOverride" aria-label="登録先の種類">
+          <option value="">自動判定</option>
+        </select>
+      </label>
+      <button class="btn primary" id="pickFiles" type="button">ファイルを選択</button>
+      <button class="btn" id="pickDir" type="button">フォルダを選択</button>
+      <button class="btn" id="scanBtn" type="button" title="NAS上の inbox フォルダに直接コピーしたファイルや、手で置いたファイルを取り込みます">inboxを取り込む</button>
+    </div>
+    <input type="file" id="fileInput" multiple hidden>
+    <input type="file" id="dirInput" webkitdirectory hidden>
+  </section>
+
+  <section class="queue" id="queue" hidden>
+    <div class="queue-head"><span id="queueSummary"></span><button class="btn small" id="queueClear" type="button">完了分を消す</button></div>
+    <div class="queue-list" id="queueList"></div>
+  </section>
+
+  <section class="toolbar">
+    <div class="chips" id="chips" role="group" aria-label="種類で絞り込み"></div>
+    <div class="search"><input type="search" id="search" placeholder="名前・ファイル名で検索" aria-label="検索"></div>
+  </section>
+
+  <section class="list" id="list"></section>
+</div>
+
+<div class="backdrop" id="backdrop"></div>
+<aside class="panel" id="panel" aria-label="バージョン一覧" aria-hidden="true"></aside>
+
+<dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
+<div class="overlay" id="overlay"><div>ここにドロップして登録</div></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const CATS = { plugin: "プラグイン", mod: "Mod", datapack: "データパック", resourcepack: "リソースパック", other: "その他" };
+const state = { items: [], cat: "all", q: "", sortKey: "name", sortDir: 1, selected: null, verOrder: "desc", storage: {}, version: null };
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtSize = (n) => {
+  if (n < 1024) return n + " B";
+  const u = ["KB", "MB", "GB", "TB"]; let i = -1;
+  do { n /= 1024; i++; } while (n >= 1024 && i < u.length - 1);
+  return n.toFixed(n >= 100 ? 0 : 1) + " " + u[i];
+};
+const fmtDate = (iso) => new Date(iso).toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" });
+const fmtDateTime = (iso) => new Date(iso).toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+const verLabel = (v) => v || "(バージョン不明)";
+
+async function api(path, opts = {}) {
+  const res = await fetch(path, opts);
+  let data = null;
+  try { data = await res.json(); } catch { /* not json */ }
+  if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
+  return data;
+}
+function toast(msg, isErr = false) {
+  const el = document.createElement("div");
+  el.className = "toast" + (isErr ? " err" : "");
+  el.textContent = msg;
+  $("#toasts").appendChild(el);
+  setTimeout(() => el.remove(), isErr ? 7000 : 4000);
+}
+
+/* ---------------- data ---------------- */
+let refreshTimer = null;
+function scheduleRefresh() { clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 250); }
+async function refresh() {
+  try {
+    const d = await api("/api/library");
+    state.items = d.items; state.storage = d.storage; state.version = d.version;
+    if (state.selected && !state.items.some((i) => i.id === state.selected)) closePanel();
+    render();
+  } catch (e) { toast("読み込みに失敗しました: " + e.message, true); }
+}
+
+/* ---------------- list ---------------- */
+function filtered() {
+  const q = state.q.trim().toLowerCase();
+  let list = state.items.filter((it) => state.cat === "all" || it.category === state.cat);
+  if (q) list = list.filter((it) =>
+    it.name.toLowerCase().includes(q) ||
+    it.versions.some((v) => v.filename.toLowerCase().includes(q) || v.version.toLowerCase().includes(q)));
+  const k = state.sortKey, dir = state.sortDir;
+  const cmpName = (a, b) => a.name.localeCompare(b.name, "ja", { numeric: true, sensitivity: "base" });
+  list.sort((a, b) => {
+    let r = 0;
+    if (k === "name") r = cmpName(a, b);
+    else if (k === "count") r = a.versions.length - b.versions.length;
+    else if (k === "size") r = a.total_size - b.total_size;
+    else if (k === "added") r = a.last_added < b.last_added ? -1 : a.last_added > b.last_added ? 1 : 0;
+    return (r || cmpName(a, b)) * dir;
+  });
+  return list;
+}
+
+function render() {
+  // stats
+  const total = state.items.reduce((s, i) => s + i.total_size, 0);
+  const nv = state.items.reduce((s, i) => s + i.versions.length, 0);
+  $("#stats").innerHTML = `<b>${state.items.length}</b> 件 / <b>${nv}</b> ファイル / <b>${fmtSize(total)}</b><br>保存先: ${esc(state.storage.path || "")}${state.version ? ` ・ ${esc(state.version)}` : ""}`;
+
+  // chips
+  const counts = { all: state.items.length };
+  for (const k of Object.keys(CATS)) counts[k] = state.items.filter((i) => i.category === k).length;
+  $("#chips").innerHTML = ["all", ...Object.keys(CATS)]
+    .filter((k) => k === "all" || counts[k] > 0 || state.cat === k)
+    .map((k) => `<button class="chip" type="button" data-cat="${k}" aria-pressed="${state.cat === k}">${k === "all" ? "すべて" : CATS[k]}<span class="n">${counts[k]}</span></button>`).join("");
+
+  // list
+  const list = filtered();
+  const arrow = (k) => (state.sortKey === k ? (state.sortDir === 1 ? "▲" : "▼") : "");
+  const head = `<div class="cols">
+      <span>種類</span>
+      <button type="button" data-sort="name" ${arrow("name") ? `data-dir="${arrow("name")}"` : ""}>名前</button>
+      <span>最新バージョン</span>
+      <button type="button" class="hide-s" data-sort="count" ${arrow("count") ? `data-dir="${arrow("count")}"` : ""}>保存数</button>
+      <button type="button" class="hide-s" data-sort="size" ${arrow("size") ? `data-dir="${arrow("size")}"` : ""}>サイズ</button>
+      <button type="button" class="hide-s" data-sort="added" ${arrow("added") ? `data-dir="${arrow("added")}"` : ""}>最終追加</button>
+    </div>`;
+  if (!list.length) {
+    $("#list").innerHTML = head + `<div class="empty">${state.items.length ? "条件に合うものがありません。" : "まだ何も登録されていません。上のエリアにファイルをドロップしてください。"}</div>`;
+  } else {
+    $("#list").innerHTML = head + list.map((it) => {
+      const latest = it.versions.find((v) => v.id === it.latest_id);
+      return `<button class="row${state.selected === it.id ? " sel" : ""}" type="button" data-id="${it.id}">
+        <span><span class="badge ${it.category}">${CATS[it.category]}</span></span>
+        <span class="name" title="${esc(it.name)}">${esc(it.name)}</span>
+        <span class="latest">${esc(verLabel(latest.version))}</span>
+        <span class="sub hide-s">${it.versions.length} 版</span>
+        <span class="sub hide-s">${fmtSize(it.total_size)}</span>
+        <span class="sub hide-s">${fmtDate(it.last_added)}</span>
+      </button>`;
+    }).join("");
+  }
+  if (state.selected) renderPanel();
+}
+
+$("#chips").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-cat]"); if (!b) return;
+  state.cat = b.dataset.cat; render();
+});
+$("#search").addEventListener("input", (e) => { state.q = e.target.value; render(); });
+$("#list").addEventListener("click", (e) => {
+  const s = e.target.closest("[data-sort]");
+  if (s) {
+    const k = s.dataset.sort;
+    if (state.sortKey === k) state.sortDir *= -1;
+    else { state.sortKey = k; state.sortDir = k === "name" ? 1 : -1; }
+    render(); return;
+  }
+  const r = e.target.closest(".row");
+  if (r) openPanel(Number(r.dataset.id));
+});
+
+/* ---------------- side panel ---------------- */
+function openPanel(id) {
+  state.selected = id;
+  $("#panel").classList.add("on"); $("#panel").setAttribute("aria-hidden", "false");
+  $("#backdrop").classList.add("on");
+  render();
+  $("#panel .close")?.focus();
+}
+function closePanel() {
+  state.selected = null;
+  $("#panel").classList.remove("on"); $("#panel").setAttribute("aria-hidden", "true");
+  $("#backdrop").classList.remove("on");
+  document.querySelectorAll(".row.sel").forEach((r) => r.classList.remove("sel"));
+}
+function renderPanel() {
+  const it = state.items.find((i) => i.id === state.selected);
+  if (!it) return;
+  const vs = state.verOrder === "desc" ? it.versions : [...it.versions].reverse();
+  const latest = it.versions.find((v) => v.id === it.latest_id);
+  const chips = (v) => [v.meta.loader, v.meta.mc && "MC " + v.meta.mc, v.meta.pack_format && "pack_format " + v.meta.pack_format]
+    .filter(Boolean).map((t) => `<span class="tag soft">${esc(t)}</span>`).join("");
+  $("#panel").innerHTML = `
+    <div class="panel-head">
+      <div class="line1"><span class="badge ${it.category}">${CATS[it.category]}</span>
+        <button class="btn small close" type="button" data-act="close" aria-label="閉じる">閉じる</button></div>
+      <h2>${esc(it.name)}</h2>
+      <div class="desc">${it.versions.length} バージョン保存 / 合計 ${fmtSize(it.total_size)}</div>
+      ${latest.meta.description ? `<p class="desc">${esc(latest.meta.description)}</p>` : ""}
+      <div class="panel-tools">
+        <button class="btn small" type="button" data-act="edit-item">名前・種類を編集</button>
+        <button class="btn small" type="button" data-act="order">${state.verOrder === "desc" ? "新しい順" : "古い順"}</button>
+        <span class="sp"></span>
+        <button class="btn small danger" type="button" data-act="del-item">すべて削除</button>
+      </div>
+    </div>
+    <div class="panel-body">
+      ${vs.map((v) => `
+        <div class="ver${v.id === it.latest_id ? " latest" : ""}${v.missing ? " missing" : ""}" data-vid="${v.id}">
+          <div class="head"><span class="vnum">${esc(verLabel(v.version))}</span>
+            ${v.id === it.latest_id ? '<span class="tag">最新</span>' : ""}
+            ${v.missing ? '<span class="tag warn">ファイルが見つかりません</span>' : ""}
+            ${chips(v)}</div>
+          <div class="file">${esc(v.filename)}</div>
+          <div class="meta">${fmtSize(v.size)} ・ ${fmtDateTime(v.added_at)} に追加</div>
+          ${v.note ? `<div class="note">${esc(v.note)}</div>` : ""}
+          <div class="acts">
+            ${v.missing ? "" : `<a class="btn small" href="/api/versions/${v.id}/download">ダウンロード</a>`}
+            <button class="btn small" type="button" data-act="edit-ver">編集</button>
+            <button class="btn small danger" type="button" data-act="del-ver">削除</button>
+          </div>
+        </div>`).join("")}
+    </div>`;
+}
+$("#backdrop").addEventListener("click", closePanel);
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#dlg").open && state.selected) closePanel();
+});
+$("#panel").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-act]"); if (!b) return;
+  const it = state.items.find((i) => i.id === state.selected); if (!it) return;
+  const vid = Number(b.closest("[data-vid]")?.dataset.vid);
+  const v = it.versions.find((x) => x.id === vid);
+  switch (b.dataset.act) {
+    case "close": closePanel(); break;
+    case "order": state.verOrder = state.verOrder === "desc" ? "asc" : "desc"; renderPanel(); break;
+    case "edit-item": editItem(it); break;
+    case "edit-ver": editVersion(it, v); break;
+    case "del-ver":
+      if (await confirmDlg(`「${it.name}」の ${verLabel(v.version)} を削除しますか?`, `${v.filename}\n保存先のファイルも削除され、元に戻せません。`, "削除する")) {
+        await run(() => api(`/api/versions/${v.id}`, { method: "DELETE" }), "削除しました");
+      } break;
+    case "del-item":
+      if (await confirmDlg(`「${it.name}」をすべて削除しますか?`, `保存されている ${it.versions.length} バージョンのファイルがすべて削除され、元に戻せません。`, "すべて削除")) {
+        await run(() => api(`/api/items/${it.id}`, { method: "DELETE" }), "削除しました");
+      } break;
+  }
+});
+async function run(fn, okMsg) {
+  try { await fn(); if (okMsg) toast(okMsg); await refresh(); }
+  catch (e) { toast(e.message, true); }
+}
+
+/* ---------------- dialogs ---------------- */
+function openDialog(html) {
+  return new Promise((resolve) => {
+    const dlg = $("#dlg"), form = $("#dlgForm");
+    form.innerHTML = html;
+    const done = (val) => { dlg.close(); dlg.onclose = null; resolve(val); };
+    form.onsubmit = (e) => {
+      e.preventDefault();
+      const submitter = e.submitter;
+      if (submitter && submitter.value === "cancel") return done(null);
+      done(Object.fromEntries(new FormData(form).entries()));
+    };
+    dlg.onclose = () => resolve(null);
+    dlg.showModal();
+    form.querySelector("input, select, button[value=ok]")?.focus();
+  });
+}
+async function confirmDlg(title, text, okLabel) {
+  const r = await openDialog(`<h3>${esc(title)}</h3><p style="white-space:pre-wrap">${esc(text)}</p>
+    <div class="foot"><button class="btn" value="cancel" formnovalidate>キャンセル</button><button class="btn danger" value="ok">${esc(okLabel)}</button></div>`);
+  return r !== null;
+}
+async function editItem(it) {
+  const r = await openDialog(`<h3>名前・種類を編集</h3>
+    <p>同じ名前・種類の項目が既にある場合は、そちらに統合されます。</p>
+    <label>名前<input type="text" name="name" value="${esc(it.name)}" required></label>
+    <label>種類<select name="category">${Object.entries(CATS).map(([k, n]) => `<option value="${k}"${k === it.category ? " selected" : ""}>${n}</option>`).join("")}</select></label>
+    <div class="foot"><button class="btn" value="cancel" formnovalidate>キャンセル</button><button class="btn primary" value="ok">保存</button></div>`);
+  if (!r) return;
+  await run(async () => {
+    await api(`/api/items/${it.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(r) });
+    // 統合された場合は選択中の項目が消えるので、名前・種類で追い直す
+    await refresh();
+    const t = state.items.find((i) => i.category === r.category && i.name.toLowerCase().replace(/[\W_]+/g, "") === r.name.toLowerCase().replace(/[\W_]+/g, ""));
+    if (t) openPanel(t.id);
+  }, "保存しました");
+}
+async function editVersion(it, v) {
+  const r = await openDialog(`<h3>バージョン情報を編集</h3><p>${esc(v.filename)}</p>
+    <label>バージョン<input type="text" name="version" value="${esc(v.version)}"></label>
+    <label>メモ(使用中のサーバー、注意点など)<input type="text" name="note" value="${esc(v.note)}"></label>
+    <div class="foot"><button class="btn" value="cancel" formnovalidate>キャンセル</button><button class="btn primary" value="ok">保存</button></div>`);
+  if (!r) return;
+  await run(() => api(`/api/versions/${v.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(r) }), "保存しました");
+}
+
+/* ---------------- upload ---------------- */
+const OKEXT = /\.(jar|zip|7z|rar|mcpack|disabled)$/i;
+const tasks = []; let active = 0; let batchAdded = 0, batchDup = 0, batchErr = 0, queueRaf = 0;
+
+function enqueue(files) {
+  files = files.filter(Boolean);
+  if (!files.length) { toast("対象のファイルが見つかりませんでした", true); return; }
+  const category = $("#catOverride").value;
+  for (const file of files) tasks.push({ file, category, status: "wait", pct: 0, msg: "待機中" });
+  $("#queue").hidden = false;
+  drawQueue(); pump();
+}
+function pump() {
+  while (active < 3) {
+    const t = tasks.find((x) => x.status === "wait");
+    if (!t) break;
+    t.status = "run"; active++;
+    upload(t).then(() => { active--; pump(); if (!active && !tasks.some((x) => x.status === "wait")) finishBatch(); });
+  }
+}
+function upload(t) {
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", "/api/upload?filename=" + encodeURIComponent(t.file.name) + (t.category ? "&category=" + t.category : ""));
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) { t.pct = Math.round((e.loaded / e.total) * 100); t.msg = t.pct >= 100 ? "解析中…" : `アップロード中 ${t.pct}%`; scheduleQueue(); }
+    };
+    xhr.onload = () => {
+      let d = null; try { d = JSON.parse(xhr.responseText); } catch { /* */ }
+      if (xhr.status >= 200 && xhr.status < 300 && d) {
+        t.pct = 100;
+        if (d.status === "added") { t.status = "added"; batchAdded++; t.msg = `追加: ${d.name} ${d.version || "(版不明)"} [${CATS[d.category]}]`; scheduleRefresh(); }
+        else { t.status = "dup"; batchDup++; t.msg = `登録済み: ${d.name} ${d.version || ""}`; }
+      } else { t.status = "error"; batchErr++; t.msg = (d && d.error) || `エラー (HTTP ${xhr.status})`; }
+      scheduleQueue(); resolve();
+    };
+    xhr.onerror = () => { t.status = "error"; batchErr++; t.msg = "通信に失敗しました"; scheduleQueue(); resolve(); };
+    xhr.send(t.file);
+  });
+}
+function finishBatch() {
+  const parts = [`${batchAdded} 件追加`];
+  if (batchDup) parts.push(`${batchDup} 件は登録済み`);
+  if (batchErr) parts.push(`${batchErr} 件エラー`);
+  toast("アップロード完了: " + parts.join("、"), batchErr > 0);
+  batchAdded = batchDup = batchErr = 0;
+  refresh();
+}
+function scheduleQueue() { if (!queueRaf) queueRaf = requestAnimationFrame(() => { queueRaf = 0; drawQueue(); }); }
+function drawQueue() {
+  const done = tasks.filter((t) => ["added", "dup", "error"].includes(t.status)).length;
+  $("#queueSummary").textContent = `${done} / ${tasks.length} 件完了`;
+  const shown = tasks.slice(-300);
+  $("#queueList").innerHTML = shown.map((t) => `
+    <div class="q ${t.status === "added" ? "added" : t.status === "error" ? "error" : ""}">
+      <div class="fn" title="${esc(t.file.name)}">${esc(t.file.name)}</div>
+      <div><div class="st" title="${esc(t.msg)}">${esc(t.msg)}</div>${t.status === "run" ? `<div class="bar"><i style="width:${t.pct}%"></i></div>` : ""}</div>
+    </div>`).join("");
+  const list = $("#queueList"); if (tasks.some((t) => t.status === "run")) list.scrollTop = list.scrollHeight;
+}
+$("#queueClear").addEventListener("click", () => {
+  for (let i = tasks.length - 1; i >= 0; i--) if (["added", "dup", "error"].includes(tasks[i].status)) tasks.splice(i, 1);
+  if (!tasks.length) $("#queue").hidden = true; else drawQueue();
+});
+
+/* picking */
+$("#pickFiles").addEventListener("click", () => $("#fileInput").click());
+$("#pickDir").addEventListener("click", () => $("#dirInput").click());
+$("#fileInput").addEventListener("change", (e) => { enqueue([...e.target.files]); e.target.value = ""; });
+$("#dirInput").addEventListener("change", (e) => { enqueue([...e.target.files].filter((f) => OKEXT.test(f.name))); e.target.value = ""; });
+
+/* drag & drop (ウィンドウ全体で受ける / フォルダも再帰的に読む) */
+const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+let dragDepth = 0;
+window.addEventListener("dragenter", (e) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; $("#overlay").classList.add("on"); });
+window.addEventListener("dragover", (e) => { if (!hasFiles(e)) return; e.preventDefault(); e.dataTransfer.dropEffect = "copy"; });
+window.addEventListener("dragleave", (e) => { if (!hasFiles(e)) return; dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) $("#overlay").classList.remove("on"); });
+window.addEventListener("drop", async (e) => {
+  if (!hasFiles(e)) return;
+  e.preventDefault(); dragDepth = 0; $("#overlay").classList.remove("on");
+  enqueue(await collectDropped(e.dataTransfer));
+});
+async function collectDropped(dt) {
+  // drop イベント中に同期でエントリを取り出しておく必要がある
+  const entries = [], loose = [];
+  for (const it of [...(dt.items || [])]) {
+    if (it.kind !== "file") continue;
+    const en = it.webkitGetAsEntry ? it.webkitGetAsEntry() : null;
+    if (en) entries.push(en); else { const f = it.getAsFile(); if (f) loose.push(f); }
+  }
+  if (!entries.length && !loose.length) return [...(dt.files || [])];
+  const out = loose;
+  for (const en of entries) await walk(en, out, false);
+  return out;
+}
+async function walk(entry, out, inDir) {
+  if (entry.isFile) {
+    const f = await new Promise((res) => entry.file(res, () => res(null)));
+    if (f && (!inDir || OKEXT.test(f.name))) out.push(f);
+  } else if (entry.isDirectory) {
+    const reader = entry.createReader();
+    let batch;
+    do {
+      batch = await new Promise((res) => reader.readEntries(res, () => res([])));
+      for (const e of batch) await walk(e, out, true);
+    } while (batch.length);
+  }
+}
+
+/* inbox scan */
+$("#scanBtn").addEventListener("click", async () => {
+  const btn = $("#scanBtn"); btn.disabled = true; const old = btn.textContent; btn.textContent = "取り込み中…";
+  try {
+    const r = await api("/api/scan", { method: "POST" });
+    const parts = [`${r.added} 件追加`];
+    if (r.duplicates) parts.push(`${r.duplicates} 件は登録済み(inboxに残っています)`);
+    if (r.missing) parts.push(`保存先に見つからないファイル ${r.missing} 件`);
+    toast(r.scanned || r.missing ? "取り込み完了: " + parts.join("、") : "取り込むファイルはありませんでした", r.errors.length > 0);
+    r.errors.slice(0, 3).forEach((m) => toast(m, true));
+    await refresh();
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = old; }
+});
+
+/* init */
+(function init() {
+  const sel = $("#catOverride");
+  for (const [k, n] of Object.entries(CATS)) sel.insertAdjacentHTML("beforeend", `<option value="${k}">${n}として登録</option>`);
+  refresh();
+})();
+</script>
+</body>
+</html>

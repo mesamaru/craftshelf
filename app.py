@@ -27,10 +27,14 @@ import threading
 import time
 import uuid
 import zipfile
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from functools import wraps
 from pathlib import Path
 
-from flask import Flask, Response, g, jsonify, request, send_file, send_from_directory
+from flask import Flask, g, jsonify, request, send_file, send_from_directory, session
+from werkzeug.security import check_password_hash, generate_password_hash
+
+import sources as src
 
 from storage import (
     LocalStorage, SmbStorage, StorageError, WebDavStorage, clean_rel, join_rel, parent_rel,
@@ -59,9 +63,14 @@ LOCAL_DIR = Path(os.environ.get("DATA_DIR", BASE_DIR / "data")).resolve()
 TMP_DIR = CONFIG_DIR / ".tmp"
 DB_PATH = CONFIG_DIR / "index.db"
 SECRET_KEY_PATH = CONFIG_DIR / "secret.key"
+SESSION_KEY_PATH = CONFIG_DIR / "session.key"
 
+# 初回起動時の管理者アカウント(ユーザーがまだ1人もいない場合だけ使う。README参照)
 AUTH_USER = os.environ.get("AUTH_USER", "")
 AUTH_PASS = os.environ.get("AUTH_PASS", "")
+
+# 権限。数字が大きいほど強い
+ROLES = {"viewer": (1, "閲覧のみ"), "editor": (2, "編集者"), "admin": (3, "管理者")}
 
 # key -> (フォルダ名, 表示名)
 CATEGORIES = {
@@ -130,6 +139,33 @@ CREATE TABLE IF NOT EXISTS versions (
     added_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_versions_item ON versions(item_id);
+CREATE TABLE IF NOT EXISTS users (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    username      TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    password_hash TEXT NOT NULL,
+    role          TEXT NOT NULL DEFAULT 'editor',
+    created_at    TEXT NOT NULL,
+    last_login    TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE IF NOT EXISTS settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
+);
+-- アイテムと配布元(Modrinth / SpigotMC / CurseForge)の紐付け、および最新版の確認結果
+CREATE TABLE IF NOT EXISTS item_sources (
+    item_id        INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
+    provider       TEXT NOT NULL,
+    project_id     TEXT NOT NULL,
+    title          TEXT NOT NULL DEFAULT '',
+    page_url       TEXT NOT NULL DEFAULT '',
+    loaders        TEXT NOT NULL DEFAULT '[]',
+    game_versions  TEXT NOT NULL DEFAULT '[]',
+    linked_by      TEXT NOT NULL DEFAULT '',
+    status         TEXT NOT NULL DEFAULT 'unchecked',
+    message        TEXT NOT NULL DEFAULT '',
+    latest         TEXT NOT NULL DEFAULT '{}',
+    checked_at     TEXT NOT NULL DEFAULT ''
+);
 """
 # target_id に依存するインデックスは、旧DBのマイグレーション(target_id列の追加)が
 # 終わった後にしか作れないので、SCHEMA本体には含めず migrate_schema() で別途作る。
@@ -189,6 +225,8 @@ def migrate_schema(conn):
     # 旧バージョン(OSの mount を使っていた頃)の SMB 登録は、そのまま新しい SMB 方式で使える。
     # NFS はアプリ単体では扱えなくなったため、画面上で「非対応」と表示して再登録を促す。
     conn.execute("UPDATE storage_targets SET protocol='smb' WHERE protocol='cifs'")
+    if "sha1" not in _table_cols(conn, "versions"):  # 配布サイトとの照合に使う
+        conn.execute("ALTER TABLE versions ADD COLUMN sha1 TEXT NOT NULL DEFAULT ''")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_versions_item ON versions(item_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_versions_target_sha ON versions(target_id, sha256)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_items_target ON items(target_id)")
@@ -218,11 +256,13 @@ def init_storage():
             p.unlink()
         except OSError:
             pass
+    app.secret_key = _session_secret()
     conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
     migrate_schema(conn)
     ensure_local_target(conn)
+    ensure_initial_admin(conn)
     conn.commit()
     _startup_connect(conn)
     conn.close()
@@ -794,19 +834,25 @@ def remove_file(store, relpath):
     store.rmdir_if_empty(parent_rel(rel))  # 空のときだけ消える
 
 
-def ingest(local, filename, force_cat=None, default_cat=None, src_rel=None):
-    """ファイルを解析して、現在アクティブなストレージの library に登録する。
+def ingest(local, filename, force_cat=None, default_cat=None, src_rel=None, item_id=None,
+           store=None, target=None):
+    """ファイルを解析して、保存先の library に登録する。
 
     local  : 解析に使う手元(コンテナ内)のファイル
     src_rel: 保存先に既にあるファイル(inbox取り込み時)の場所。指定時はアップロードせず
              保存先の中で移動する。未指定なら local を保存先へアップロード(移動)する。
+    item_id: 指定すると、解析結果の名前に関係なくそのアイテムの新しいバージョンとして登録する
+             (配布サイトから取得した更新ファイルなど)。
+    store / target: 省略時は現在アクティブな保存先。
     """
     local = Path(local)
     size = local.stat().st_size
     if size == 0:
         raise ApiError("空のファイルです")
-    store, target = active_store()
+    if store is None:
+        store, target = active_store()
     sha = sha256_file(local)
+    sha1 = src.sha1_file(local)
     info = analyze(local, filename)
     cat = force_cat or (info["category"] if info["category"] != "other" else (default_cat or "other"))
     meta = {k: info[k] for k in ("loader", "mc", "description", "pack_format") if info.get(k)}
@@ -821,7 +867,14 @@ def ingest(local, filename, force_cat=None, default_cat=None, src_rel=None):
             return {"status": "duplicate", "filename": filename, "name": dup["name"],
                     "version": dup["version"], "category": dup["category"], "item_id": dup["item_id"]}
         try:
-            item, created = get_or_create_item(conn, target["id"], cat, info["name"])
+            if item_id:
+                item = conn.execute("SELECT * FROM items WHERE id=? AND target_id=?",
+                                    (item_id, target["id"])).fetchone()
+                if not item:
+                    raise ApiError("登録先のアイテムが見つかりません", 404)
+                created, cat = False, item["category"]
+            else:
+                item, created = get_or_create_item(conn, target["id"], cat, info["name"])
             dest_dir = join_rel("library", CATEGORIES[cat][0], item["folder"])
             fname = safe_name(Path(filename).name, "file", 200)
             canonical = join_rel(dest_dir, fname)
@@ -830,10 +883,10 @@ def ingest(local, filename, force_cat=None, default_cat=None, src_rel=None):
             else:
                 dest = store.unique_rel(dest_dir, fname)
             conn.execute(
-                "INSERT INTO versions (item_id, target_id, version, filename, relpath, size, sha256, meta, added_at) "
-                "VALUES (?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO versions (item_id, target_id, version, filename, relpath, size, sha256, sha1, meta, added_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (item["id"], target["id"], info["version"], dest.rsplit("/", 1)[-1],
-                 dest[len("library/"):], size, sha, json.dumps(meta, ensure_ascii=False), utcnow()),
+                 dest[len("library/"):], size, sha, sha1, json.dumps(meta, ensure_ascii=False), utcnow()),
             )
             if src_rel:
                 if dest != clean_rel(src_rel):
@@ -865,6 +918,10 @@ def build_library(conn, store, target):
             d["meta"] = {}
         d["missing"] = ("library/" + d.pop("relpath")) not in present
         items[d["item_id"]]["versions"].append(d)
+    for r in conn.execute("SELECT s.* FROM item_sources s JOIN items i ON i.id=s.item_id WHERE i.target_id=?",
+                          (tid,)):
+        if r["item_id"] in items:
+            items[r["item_id"]]["source"] = source_public(r)
     out = []
     for it in items.values():
         vs = sorted(it["versions"],
@@ -883,17 +940,209 @@ def build_library(conn, store, target):
 
 
 # --------------------------------------------------------------------------
+# 設定値(settings テーブル)
+# --------------------------------------------------------------------------
+def get_setting(key, default=""):
+    row = db().execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def set_setting(key, value):
+    conn = db()
+    conn.execute("INSERT INTO settings (key, value) VALUES (?, ?) "
+                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (key, str(value)))
+    conn.commit()
+
+
+def cf_api_key():
+    return decrypt_secret(get_setting("cf_api_key"))
+
+
+# --------------------------------------------------------------------------
+# アカウント(ログイン・権限)
+# --------------------------------------------------------------------------
+def _session_secret():
+    if not SESSION_KEY_PATH.exists():
+        SESSION_KEY_PATH.parent.mkdir(parents=True, exist_ok=True)
+        SESSION_KEY_PATH.write_bytes(secrets.token_bytes(32))
+        try:
+            os.chmod(SESSION_KEY_PATH, 0o600)
+        except OSError:
+            pass
+    return SESSION_KEY_PATH.read_bytes()
+
+
+app.config.update(
+    SESSION_COOKIE_NAME="mcpl_session",
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    PERMANENT_SESSION_LIFETIME=timedelta(days=30),
+)
+
+
+def ensure_initial_admin(conn):
+    """ユーザーが1人もいなければ、環境変数 AUTH_USER / AUTH_PASS から管理者を作る(旧Basic認証からの移行用)。"""
+    if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]:
+        return
+    if AUTH_USER and AUTH_PASS:
+        conn.execute("INSERT INTO users (username, password_hash, role, created_at) VALUES (?,?,?,?)",
+                     (AUTH_USER, generate_password_hash(AUTH_PASS), "admin", utcnow()))
+        print(f"[auth] 環境変数 AUTH_USER から管理者「{AUTH_USER}」を作成しました")
+
+
+def _pw_stamp(user):
+    # パスワードを変えたら、他の端末のログインを無効にするための目印
+    return hashlib.sha256(user["password_hash"].encode()).hexdigest()[:16]
+
+
+def current_user():
+    if "user" not in g:
+        u = None
+        uid = session.get("uid")
+        if uid:
+            u = db().execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+            if u and session.get("pw") != _pw_stamp(u):
+                u = None
+        g.user = u
+    return g.user
+
+
+def role_level(user):
+    return ROLES.get(user["role"], (0, ""))[0] if user else 0
+
+
+def require(role):
+    """ルートに必要な権限を付けるデコレーター。"""
+    def deco(fn):
+        @wraps(fn)
+        def wrapper(*a, **kw):
+            u = current_user()
+            if not u:
+                raise ApiError("ログインしてください", 401)
+            if role_level(u) < ROLES[role][0]:
+                raise ApiError(f"この操作には「{ROLES[role][1]}」以上の権限が必要です", 403)
+            return fn(*a, **kw)
+        return wrapper
+    return deco
+
+
+def user_public(u):
+    return {"id": u["id"], "username": u["username"], "role": u["role"],
+            "role_label": ROLES.get(u["role"], (0, u["role"]))[1],
+            "created_at": u["created_at"], "last_login": u["last_login"]}
+
+
+def _login(u):
+    session.clear()
+    session.permanent = True
+    session["uid"] = u["id"]
+    session["pw"] = _pw_stamp(u)
+    db().execute("UPDATE users SET last_login=? WHERE id=?", (utcnow(), u["id"]))
+    db().commit()
+
+
+_USERNAME_RE = re.compile(r"^[\w.@-]{1,40}$")
+
+
+def _check_new_credentials(username, password, need_username=True):
+    if need_username and not _USERNAME_RE.match(username or ""):
+        raise ApiError("ユーザー名は1〜40文字の英数字・記号(. _ - @)で入力してください")
+    if len(password or "") < 8:
+        raise ApiError("パスワードは8文字以上にしてください")
+
+
+# ログイン失敗の回数制限(IPごと、10分で10回まで)
+_FAILS = {}
+_FAILS_LOCK = threading.Lock()
+
+
+def _too_many_failures(ip, add=False):
+    now = time.monotonic()
+    with _FAILS_LOCK:
+        lst = [t for t in _FAILS.get(ip, []) if now - t < 600]
+        if add:
+            lst.append(now)
+        _FAILS[ip] = lst
+        return len(lst) >= 10
+
+
+# --------------------------------------------------------------------------
+# バックグラウンド処理(移行・更新確認など、時間のかかるもの)
+# --------------------------------------------------------------------------
+_JOBS = {}
+_JOBS_LOCK = threading.Lock()
+
+
+class Job:
+    def __init__(self, kind, title, user):
+        self.id = uuid.uuid4().hex[:12]
+        self.kind, self.title, self.user = kind, title, user
+        self.total = self.done = 0
+        self.status = "running"
+        self.log = []
+        self.result = {}
+        self.started = utcnow()
+        self.finished = ""
+
+    def note(self, msg):
+        self.log.append(msg)
+        del self.log[:-200]
+
+    def public(self):
+        return {k: getattr(self, k) for k in
+                ("id", "kind", "title", "user", "total", "done", "status", "log", "result", "started", "finished")}
+
+
+def start_job(kind, title, fn, *args, user=""):
+    with _JOBS_LOCK:
+        if any(j.kind == kind and j.status == "running" for j in _JOBS.values()):
+            raise ApiError("同じ種類の処理がすでに実行中です。終わるまでお待ちください", 409)
+        job = Job(kind, title, user)
+        _JOBS[job.id] = job
+        for old in sorted(_JOBS.values(), key=lambda j: j.started)[:-20]:  # 古い記録は捨てる
+            if old.status != "running":
+                _JOBS.pop(old.id, None)
+
+    def run():
+        with app.app_context():
+            try:
+                fn(job, *args)
+                job.status = "done"
+            except Exception as e:  # noqa: BLE001
+                job.status = "error"
+                job.note(f"エラー: {getattr(e, 'message', e)}")
+                app.logger.exception("job failed")
+            finally:
+                job.finished = utcnow()
+
+    threading.Thread(target=run, daemon=True, name=f"job-{kind}").start()
+    return job
+
+
+def open_store(target):
+    """アクティブかどうかに関係なく、その保存先に接続して store を返す。"""
+    if target["protocol"] == "local" or is_connected(target):
+        return store_for(target)
+    return connect_target(target, db())
+
+
+# --------------------------------------------------------------------------
 # HTTP
 # --------------------------------------------------------------------------
+PUBLIC_PATHS = {"/", "/api/auth/me", "/api/auth/login", "/api/auth/setup", "/api/auth/logout"}
+
+
 @app.before_request
 def check_auth():
-    if not (AUTH_USER and AUTH_PASS):
+    # CSRF対策: 画面(同じオリジンのJavaScript)からしか付けられないヘッダーを、変更系の操作に必須にする
+    if request.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
+        if request.headers.get("X-Requested-With") != "mcpl":
+            raise ApiError("不正なリクエストです(画面を再読み込みしてください)", 403)
+    if request.path in PUBLIC_PATHS:
         return None
-    a = request.authorization
-    if a and secrets.compare_digest(a.username or "", AUTH_USER) and \
-            secrets.compare_digest(a.password or "", AUTH_PASS):
-        return None
-    return Response("認証が必要です", 401, {"WWW-Authenticate": 'Basic realm="MC Pack Library"'})
+    if not current_user():
+        raise ApiError("ログインしてください", 401)
+    return None
 
 
 @app.errorhandler(ApiError)
@@ -969,6 +1218,7 @@ def api_library():
 
 
 @app.put("/api/upload")
+@require("editor")
 def api_upload():
     filename = os.path.basename((request.args.get("filename") or "").replace("\\", "/"))
     if not filename:
@@ -994,6 +1244,7 @@ def api_upload():
 
 
 @app.post("/api/scan")
+@require("editor")
 def api_scan():
     """inbox/ 内のファイルと、DB未登録のlibrary内ファイルを取り込む(アクティブなストレージのみ)。"""
     conn = db()
@@ -1071,6 +1322,7 @@ def api_download(vid):
 
 
 @app.patch("/api/versions/<int:vid>")
+@require("editor")
 def api_patch_version(vid):
     data = request.get_json(silent=True) or {}
     conn = db()
@@ -1086,6 +1338,7 @@ def api_patch_version(vid):
 
 
 @app.delete("/api/versions/<int:vid>")
+@require("editor")
 def api_delete_version(vid):
     conn = db()
     row = conn.execute("SELECT * FROM versions WHERE id=?", (vid,)).fetchone()
@@ -1103,6 +1356,7 @@ def api_delete_version(vid):
 
 
 @app.delete("/api/items/<int:iid>")
+@require("editor")
 def api_delete_item(iid):
     conn = db()
     item = conn.execute("SELECT * FROM items WHERE id=?", (iid,)).fetchone()
@@ -1119,6 +1373,7 @@ def api_delete_item(iid):
 
 
 @app.patch("/api/items/<int:iid>")
+@require("editor")
 def api_patch_item(iid):
     """名前・種類の変更。同じ名前・種類の項目が既にあれば統合される(同一ストレージ内のみ)。"""
     data = request.get_json(silent=True) or {}
@@ -1172,6 +1427,7 @@ def api_patch_item(iid):
 # ストレージ接続の登録・切り替え API
 # --------------------------------------------------------------------------
 @app.get("/api/storage/targets")
+@require("admin")
 def api_storage_list():
     conn = db()
     rows = conn.execute(
@@ -1214,6 +1470,7 @@ def _target_payload(data, existing=None):
 
 
 @app.post("/api/storage/targets")
+@require("admin")
 def api_storage_create():
     data = request.get_json(silent=True) or {}
     payload = _target_payload(data)
@@ -1230,6 +1487,7 @@ def api_storage_create():
 
 
 @app.patch("/api/storage/targets/<int:tid>")
+@require("admin")
 def api_storage_update(tid):
     conn = db()
     row = conn.execute("SELECT * FROM storage_targets WHERE id=?", (tid,)).fetchone()
@@ -1252,6 +1510,7 @@ def api_storage_update(tid):
 
 
 @app.delete("/api/storage/targets/<int:tid>")
+@require("admin")
 def api_storage_delete(tid):
     conn = db()
     row = conn.execute("SELECT * FROM storage_targets WHERE id=?", (tid,)).fetchone()
@@ -1272,12 +1531,14 @@ def api_storage_delete(tid):
 
 
 @app.post("/api/storage/targets/test")
+@require("admin")
 def api_storage_test_new():
     data = request.get_json(silent=True) or {}
     return jsonify(test_target_params(data))
 
 
 @app.post("/api/storage/targets/<int:tid>/test")
+@require("admin")
 def api_storage_test_existing(tid):
     conn = db()
     row = conn.execute("SELECT * FROM storage_targets WHERE id=?", (tid,)).fetchone()
@@ -1291,12 +1552,782 @@ def api_storage_test_existing(tid):
 
 
 @app.post("/api/storage/targets/<int:tid>/activate")
+@require("admin")
 def api_storage_activate(tid):
     store, target = activate_target(tid)
     return jsonify(ok=True, target=target_public(target, db()), root=store.describe())
 
 
+# --------------------------------------------------------------------------
+# アカウント API
+# --------------------------------------------------------------------------
+@app.get("/api/auth/me")
+def api_auth_me():
+    u = current_user()
+    setup = db().execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
+    return jsonify(user=user_public(u) if u else None, setup_required=setup,
+                   roles={k: v[1] for k, v in ROLES.items()})
+
+
+@app.post("/api/auth/setup")
+def api_auth_setup():
+    """最初の管理者アカウントを作る(ユーザーが1人もいないときだけ使える)。"""
+    data = request.get_json(silent=True) or {}
+    username, password = str(data.get("username", "")).strip(), str(data.get("password", ""))
+    _check_new_credentials(username, password)
+    conn = db()
+    with LOCK:
+        if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]:
+            raise ApiError("初期設定はすでに完了しています", 409)
+        cur = conn.execute("INSERT INTO users (username, password_hash, role, created_at) VALUES (?,?,?,?)",
+                           (username, generate_password_hash(password), "admin", utcnow()))
+        conn.commit()
+    _login(conn.execute("SELECT * FROM users WHERE id=?", (cur.lastrowid,)).fetchone())
+    return jsonify(ok=True)
+
+
+@app.post("/api/auth/login")
+def api_auth_login():
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
+    if _too_many_failures(ip):
+        raise ApiError("ログインの失敗が続いたため、しばらく(10分ほど)待ってからお試しください", 429)
+    data = request.get_json(silent=True) or {}
+    u = db().execute("SELECT * FROM users WHERE username=?", (str(data.get("username", "")).strip(),)).fetchone()
+    if not u or not check_password_hash(u["password_hash"], str(data.get("password", ""))):
+        _too_many_failures(ip, add=True)
+        raise ApiError("ユーザー名かパスワードが違います", 401)
+    _login(u)
+    return jsonify(ok=True, user=user_public(u))
+
+
+@app.post("/api/auth/logout")
+def api_auth_logout():
+    session.clear()
+    return jsonify(ok=True)
+
+
+@app.post("/api/auth/password")
+def api_auth_password():
+    data = request.get_json(silent=True) or {}
+    u = current_user()
+    if not check_password_hash(u["password_hash"], str(data.get("current", ""))):
+        raise ApiError("現在のパスワードが違います")
+    new = str(data.get("new", ""))
+    _check_new_credentials("", new, need_username=False)
+    conn = db()
+    conn.execute("UPDATE users SET password_hash=? WHERE id=?", (generate_password_hash(new), u["id"]))
+    conn.commit()
+    _login(conn.execute("SELECT * FROM users WHERE id=?", (u["id"],)).fetchone())
+    return jsonify(ok=True)
+
+
+@app.get("/api/users")
+@require("admin")
+def api_users():
+    rows = db().execute("SELECT * FROM users ORDER BY id").fetchall()
+    return jsonify(users=[user_public(r) for r in rows])
+
+
+@app.post("/api/users")
+@require("admin")
+def api_users_create():
+    data = request.get_json(silent=True) or {}
+    username, password = str(data.get("username", "")).strip(), str(data.get("password", ""))
+    role = data.get("role", "editor")
+    if role not in ROLES:
+        raise ApiError("権限の指定が不正です")
+    _check_new_credentials(username, password)
+    conn = db()
+    if conn.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone():
+        raise ApiError("そのユーザー名はすでに使われています")
+    conn.execute("INSERT INTO users (username, password_hash, role, created_at) VALUES (?,?,?,?)",
+                 (username, generate_password_hash(password), role, utcnow()))
+    conn.commit()
+    return jsonify(ok=True)
+
+
+def _admin_count(conn):
+    return conn.execute("SELECT COUNT(*) FROM users WHERE role='admin'").fetchone()[0]
+
+
+@app.patch("/api/users/<int:uid>")
+@require("admin")
+def api_users_update(uid):
+    data = request.get_json(silent=True) or {}
+    conn = db()
+    u = conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    if not u:
+        raise ApiError("見つかりません", 404)
+    if "role" in data:
+        if data["role"] not in ROLES:
+            raise ApiError("権限の指定が不正です")
+        if u["role"] == "admin" and data["role"] != "admin" and _admin_count(conn) <= 1:
+            raise ApiError("管理者が1人もいなくなるため変更できません")
+        conn.execute("UPDATE users SET role=? WHERE id=?", (data["role"], uid))
+    if data.get("password"):
+        _check_new_credentials("", str(data["password"]), need_username=False)
+        conn.execute("UPDATE users SET password_hash=? WHERE id=?",
+                     (generate_password_hash(str(data["password"])), uid))
+    conn.commit()
+    return jsonify(ok=True)
+
+
+@app.delete("/api/users/<int:uid>")
+@require("admin")
+def api_users_delete(uid):
+    conn = db()
+    u = conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    if not u:
+        raise ApiError("見つかりません", 404)
+    if uid == current_user()["id"]:
+        raise ApiError("自分自身は削除できません")
+    if u["role"] == "admin" and _admin_count(conn) <= 1:
+        raise ApiError("管理者が1人もいなくなるため削除できません")
+    conn.execute("DELETE FROM users WHERE id=?", (uid,))
+    conn.commit()
+    return jsonify(ok=True)
+
+
+# --------------------------------------------------------------------------
+# 設定 API
+# --------------------------------------------------------------------------
+def settings_public():
+    return {
+        "cf_api_key_set": bool(get_setting("cf_api_key")),
+        "check_interval_hours": int(get_setting("check_interval_hours", "0") or 0),
+        "auto_download": get_setting("auto_download", "0") == "1",
+        "stable_only": get_setting("stable_only", "1") == "1",
+        "last_auto_check": get_setting("last_auto_check", ""),
+    }
+
+
+@app.get("/api/settings")
+@require("viewer")
+def api_settings():
+    return jsonify(settings_public())
+
+
+@app.patch("/api/settings")
+@require("admin")
+def api_settings_update():
+    data = request.get_json(silent=True) or {}
+    if "cf_api_key" in data:
+        set_setting("cf_api_key", encrypt_secret(str(data["cf_api_key"] or "").strip()))
+    if "check_interval_hours" in data:
+        try:
+            hours = max(0, min(24 * 7, int(data["check_interval_hours"])))
+        except (TypeError, ValueError):
+            raise ApiError("確認間隔は数字で指定してください")
+        set_setting("check_interval_hours", hours)
+    for key in ("auto_download", "stable_only"):
+        if key in data:
+            set_setting(key, "1" if _truthy(data[key]) else "0")
+    return jsonify(settings_public())
+
+
+# --------------------------------------------------------------------------
+# バックグラウンド処理 API
+# --------------------------------------------------------------------------
+@app.get("/api/jobs")
+def api_jobs():
+    with _JOBS_LOCK:
+        jobs = sorted(_JOBS.values(), key=lambda j: j.started, reverse=True)
+    return jsonify(jobs=[j.public() for j in jobs[:10]])
+
+
+@app.get("/api/jobs/<job_id>")
+def api_job(job_id):
+    job = _JOBS.get(job_id)
+    if not job:
+        raise ApiError("見つかりません", 404)
+    return jsonify(job.public())
+
+
+# --------------------------------------------------------------------------
+# 保存先の中身の確認・移行
+# --------------------------------------------------------------------------
+@app.get("/api/storage/targets/<int:tid>/contents")
+@require("admin")
+def api_storage_contents(tid):
+    conn = db()
+    target = conn.execute("SELECT * FROM storage_targets WHERE id=?", (tid,)).fetchone()
+    if not target:
+        raise ApiError("見つかりません", 404)
+    store = open_store(target)
+    items = build_library(conn, store, target)
+    store.invalidate_index()
+    lib_files, _ = store.walk("library")
+    inbox_files, _ = store.walk("inbox")
+    known = {"library/" + r[0] for r in conn.execute("SELECT relpath FROM versions WHERE target_id=?", (tid,))}
+    visible = lambda rel: not rel.rsplit("/", 1)[-1].startswith(".")  # noqa: E731
+    unregistered = sorted(f for f in lib_files if f not in known and visible(f))
+    inbox = sorted(f for f in inbox_files if visible(f))
+    compact = [{
+        "id": it["id"], "name": it["name"], "category": it["category"],
+        "versions": len(it["versions"]), "latest": it["versions"][0]["version"],
+        "total_size": it["total_size"], "missing": sum(1 for v in it["versions"] if v["missing"]),
+    } for it in sorted(items, key=lambda i: i["name"].lower())]
+    return jsonify(
+        target=target_public(target, conn), where=store.describe(), items=compact,
+        totals={"items": len(items), "files": sum(i["versions"] for i in compact),
+                "size": sum(i["total_size"] for i in compact), "missing": sum(i["missing"] for i in compact)},
+        unregistered={"count": len(unregistered), "files": unregistered[:200]},
+        inbox={"count": len(inbox), "files": inbox[:200]},
+    )
+
+
+def _migrate_job(job, source_id, dest_id, mode, item_ids):
+    conn = db()
+    s_t = conn.execute("SELECT * FROM storage_targets WHERE id=?", (source_id,)).fetchone()
+    d_t = conn.execute("SELECT * FROM storage_targets WHERE id=?", (dest_id,)).fetchone()
+    job.note(f"「{s_t['name']}」→「{d_t['name']}」に接続しています…")
+    s_store, d_store = open_store(s_t), open_store(d_t)
+    q = "SELECT * FROM items WHERE target_id=?"
+    args = [source_id]
+    if item_ids:
+        q += f" AND id IN ({','.join('?' * len(item_ids))})"
+        args += list(item_ids)
+    items = conn.execute(q, args).fetchall()
+    versions = {it["id"]: conn.execute("SELECT * FROM versions WHERE item_id=?", (it["id"],)).fetchall()
+                for it in items}
+    job.total = sum(len(v) for v in versions.values())
+    stats = {"copied": 0, "duplicates": 0, "missing": 0, "errors": 0, "removed": 0}
+    for it in items:
+        for v in versions[it["id"]]:
+            job.done += 1
+            label = f"{it['name']} {v['version'] or ''}".strip()
+            src_rel = lib_rel(v["relpath"])
+            try:
+                if not s_store.exists(src_rel):
+                    stats["missing"] += 1
+                    job.note(f"見つからないためスキップ: {label} ({v['filename']})")
+                    continue
+                with LOCK:
+                    dup = conn.execute("SELECT 1 FROM versions WHERE target_id=? AND sha256=?",
+                                       (dest_id, v["sha256"])).fetchone()
+                if dup:
+                    stats["duplicates"] += 1
+                else:
+                    tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
+                    try:
+                        s_store.fetch(src_rel, tmp)  # ローカルでもコピーを作る(put は移動するため)
+                        with LOCK:
+                            d_item, _ = get_or_create_item(conn, dest_id, it["category"], it["name"])
+                            dest = d_store.unique_rel(
+                                join_rel("library", CATEGORIES[it["category"]][0], d_item["folder"]), v["filename"])
+                            conn.execute(
+                                "INSERT INTO versions (item_id, target_id, version, filename, relpath, size, sha256, "
+                                "sha1, meta, note, added_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                                (d_item["id"], dest_id, v["version"], dest.rsplit("/", 1)[-1], dest[len("library/"):],
+                                 v["size"], v["sha256"], v["sha1"], v["meta"], v["note"], v["added_at"]))
+                            try:
+                                d_store.put(tmp, dest)
+                            except Exception:
+                                conn.rollback()
+                                raise
+                            # 配布元の紐付けも引き継ぐ
+                            conn.execute(
+                                "INSERT OR IGNORE INTO item_sources (item_id, provider, project_id, title, page_url, "
+                                "loaders, game_versions, linked_by) SELECT ?, provider, project_id, title, page_url, "
+                                "loaders, game_versions, linked_by FROM item_sources WHERE item_id=?",
+                                (d_item["id"], it["id"]))
+                            conn.commit()
+                    finally:
+                        try:
+                            tmp.unlink()
+                        except FileNotFoundError:
+                            pass
+                    stats["copied"] += 1
+                if mode == "move":
+                    with LOCK:
+                        conn.execute("DELETE FROM versions WHERE id=?", (v["id"],))
+                        if not conn.execute("SELECT 1 FROM versions WHERE item_id=?", (it["id"],)).fetchone():
+                            conn.execute("DELETE FROM items WHERE id=?", (it["id"],))
+                        conn.commit()
+                    remove_file(s_store, v["relpath"])
+                    stats["removed"] += 1
+            except Exception as e:  # noqa: BLE001
+                stats["errors"] += 1
+                job.note(f"失敗: {label}: {getattr(e, 'message', e)}")
+    job.result = stats
+    job.note(f"完了: コピー {stats['copied']} / 移行先に登録済み {stats['duplicates']} / "
+              f"見つからない {stats['missing']} / 失敗 {stats['errors']}"
+              + (f" / 移行元から削除 {stats['removed']}" if mode == "move" else ""))
+
+
+@app.post("/api/storage/migrate")
+@require("admin")
+def api_storage_migrate():
+    data = request.get_json(silent=True) or {}
+    try:
+        source_id, dest_id = int(data.get("source_id")), int(data.get("dest_id"))
+    except (TypeError, ValueError):
+        raise ApiError("移行元と移行先を指定してください")
+    if source_id == dest_id:
+        raise ApiError("移行元と移行先が同じです")
+    mode = data.get("mode", "copy")
+    if mode not in ("copy", "move"):
+        raise ApiError("mode は copy か move を指定してください")
+    item_ids = [int(x) for x in data.get("item_ids") or []]
+    conn = db()
+    for tid in (source_id, dest_id):
+        t = conn.execute("SELECT * FROM storage_targets WHERE id=?", (tid,)).fetchone()
+        if not t:
+            raise ApiError("保存先が見つかりません", 404)
+        open_store(t)  # 接続できるかを先に確認(できなければここでエラー)
+    title = "保存先の移行(移動)" if mode == "move" else "保存先の移行(コピー)"
+    job = start_job("migrate", title, _migrate_job, source_id, dest_id, mode, item_ids,
+                    user=current_user()["username"])
+    return jsonify(job.public())
+
+
+# --------------------------------------------------------------------------
+# 配布元(Modrinth / SpigotMC / CurseForge)との連携・更新確認
+# --------------------------------------------------------------------------
+def _jl(s, default):
+    try:
+        v = json.loads(s or "")
+        return v if isinstance(v, type(default)) else default
+    except ValueError:
+        return default
+
+
+def source_public(r):
+    return {
+        "provider": r["provider"], "provider_label": src.PROVIDERS.get(r["provider"], r["provider"]),
+        "project_id": r["project_id"], "title": r["title"], "page_url": r["page_url"],
+        "loaders": _jl(r["loaders"], []), "game_versions": _jl(r["game_versions"], []),
+        "linked_by": r["linked_by"], "status": r["status"], "message": r["message"],
+        "latest": _jl(r["latest"], {}), "checked_at": r["checked_at"],
+    }
+
+
+def _item_versions(conn, item_id):
+    vs = conn.execute("SELECT * FROM versions WHERE item_id=?", (item_id,)).fetchall()
+    return sorted(vs, key=lambda v: (version_key(v["version"]), v["added_at"], v["id"]), reverse=True)
+
+
+def _default_filters(conn, item, matched=None):
+    """紐付け時の絞り込み条件の既定値(loaders / game_versions)。"""
+    vs = _item_versions(conn, item["id"])
+    loader = _jl(vs[0]["meta"], {}).get("loader") if vs else None
+    loaders = src.default_loaders(item["category"], loader)
+    if not loaders and matched:
+        loaders = matched.get("loaders") or []
+    # Mod は MC のバージョンが合わないと動かないので、一致した版の対応バージョンで絞る。
+    # プラグインは新しい版が古いMCを切り捨てることが多いので絞らない。
+    game_versions = (matched.get("game_versions") or []) if (matched and item["category"] == "mod") else []
+    return loaders, game_versions
+
+
+def link_source(conn, item, info, linked_by, matched=None):
+    loaders, game_versions = _default_filters(conn, item, matched)
+    with LOCK:
+        conn.execute(
+            "INSERT INTO item_sources (item_id, provider, project_id, title, page_url, loaders, game_versions, "
+            "linked_by, status, message, latest, checked_at) VALUES (?,?,?,?,?,?,?,?, 'unchecked', '', '{}', '') "
+            "ON CONFLICT(item_id) DO UPDATE SET provider=excluded.provider, project_id=excluded.project_id, "
+            "title=excluded.title, page_url=excluded.page_url, loaders=excluded.loaders, "
+            "game_versions=excluded.game_versions, linked_by=excluded.linked_by, status='unchecked', "
+            "message='', latest='{}', checked_at=''",
+            (item["id"], info["provider"], info["project_id"], info.get("title", ""), info.get("page_url", ""),
+             json.dumps(loaders), json.dumps(game_versions), linked_by))
+        conn.commit()
+
+
+def _ensure_hashes(conn, store, versions, want_cf):
+    """照合用に sha1(と必要なら CurseForge のフィンガープリント)を用意する。"""
+    out = []  # [(version_row, sha1, fingerprint or None)]
+    for v in versions:
+        sha1, fp = v["sha1"], None
+        if not sha1 or want_cf:
+            tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
+            try:
+                store.fetch(lib_rel(v["relpath"]), tmp)
+                sha1 = src.sha1_file(tmp)
+                fp = src.cf_fingerprint(tmp) if want_cf else None
+            except (StorageError, OSError):
+                continue
+            finally:
+                try:
+                    tmp.unlink()
+                except FileNotFoundError:
+                    pass
+            if not v["sha1"]:
+                with LOCK:
+                    conn.execute("UPDATE versions SET sha1=? WHERE id=?", (sha1, v["id"]))
+                    conn.commit()
+        out.append((v, sha1, fp))
+    return out
+
+
+_PROJECT_TYPES = {"plugin": "plugin", "mod": "mod", "datapack": "datapack", "resourcepack": "resourcepack"}
+
+
+def detect_source(conn, store, item):
+    """保存済みファイルのハッシュや名前から、配布元を探して紐付ける。
+
+    確実なもの(ハッシュ一致、または SpigotMC で名前が完全一致する1件)だけ自動で紐付け、
+    それ以外は候補を返す。
+    """
+    key = cf_api_key()
+    hashed = _ensure_hashes(conn, store, _item_versions(conn, item["id"])[:3], want_cf=bool(key))
+    sha1s = [h for _v, h, _fp in hashed if h]
+    try:
+        found = src.modrinth_by_hashes(sha1s)
+    except src.SourceError:
+        found = {}
+    for h in sha1s:
+        if h in found:
+            ver = found[h]
+            info = src.modrinth_project(ver["project_id"])
+            link_source(conn, item, info, "hash", matched={"game_versions": ver.get("game_versions") or [],
+                                                           "loaders": ver.get("loaders") or []})
+            return {"linked": True, "how": "Modrinth でファイルが一致しました", "candidates": []}
+    if key:
+        fps = [fp for _v, _h, fp in hashed if fp]
+        try:
+            cf = src.curseforge_by_fingerprints(fps, key)
+        except src.SourceError:
+            cf = {}
+        for fp in fps:
+            if fp in cf:
+                info = src.curseforge_project(cf[fp]["project_id"], key)
+                f = src._cf_file(cf[fp]["file"])
+                link_source(conn, item, info, "hash", matched=f)
+                return {"linked": True, "how": "CurseForge でファイルが一致しました", "candidates": []}
+    candidates = []
+    if item["category"] == "plugin":
+        try:
+            sp = src.spigot_search(item["name"])
+        except src.SourceError:
+            sp = []
+        exact = [c for c in sp if norm_key(c["title"]) == norm_key(item["name"])]
+        if len(exact) == 1:
+            link_source(conn, item, src.spigot_project(exact[0]["project_id"]), "name")
+            return {"linked": True, "how": "SpigotMC で同じ名前のリソースが見つかりました(名前での推定です)",
+                    "candidates": []}
+        candidates += sp[:5]
+    try:
+        candidates += src.modrinth_search(item["name"], _PROJECT_TYPES.get(item["category"]))[:5]
+    except src.SourceError:
+        pass
+    return {"linked": False, "how": "", "candidates": candidates}
+
+
+def _first_nums(v):
+    m = re.search(r"\d+(?:\.\d+)*", v or "")
+    return tuple(int(x) for x in m.group(0).split(".")) if m else None
+
+
+def check_item(conn, item):
+    """紐付けた配布元の最新版を確認し、保存済みと比べて状態を記録する。"""
+    s = conn.execute("SELECT * FROM item_sources WHERE item_id=?", (item["id"],)).fetchone()
+    if not s:
+        raise ApiError("配布元が紐付けられていません")
+    status, message, info = "error", "", {}
+    try:
+        info = src.latest(s["provider"], s["project_id"], loaders=_jl(s["loaders"], []),
+                          game_versions=_jl(s["game_versions"], []),
+                          stable_only=get_setting("stable_only", "1") == "1", api_key=cf_api_key())
+        if not info:
+            message = "条件に合う版が見つかりません(ローダー・MCバージョンの絞り込みを確認してください)"
+        else:
+            vs = _item_versions(conn, item["id"])
+            have = any((info.get("sha1") and v["sha1"] == info["sha1"]) or v["filename"] == info.get("file_name")
+                       or src.same_version(v["version"], info.get("version")) for v in vs)
+            newest_saved = max((_first_nums(v["version"]) for v in vs if _first_nums(v["version"])), default=None)
+            latest_nums = _first_nums(info.get("version"))
+            if have:
+                status, message = "up_to_date", "最新版を保存済みです"
+            elif newest_saved and latest_nums and newest_saved > latest_nums:
+                status, message = "up_to_date", "保存済みの版の方が新しいようです"
+            else:
+                status = "update"
+                message = "新しい版があります" + (f"({info['note']})" if info.get("note") else "")
+    except src.SourceError as e:
+        message = e.message
+    with LOCK:
+        conn.execute("UPDATE item_sources SET status=?, message=?, latest=?, checked_at=? WHERE item_id=?",
+                     (status, message, json.dumps(info, ensure_ascii=False), utcnow(), item["id"]))
+        conn.commit()
+    return conn.execute("SELECT * FROM item_sources WHERE item_id=?", (item["id"],)).fetchone()
+
+
+def download_latest(conn, item, store=None, target=None):
+    """配布元の最新版をダウンロードして、そのアイテムの新しいバージョンとして保存する。"""
+    s = check_item(conn, item)
+    info = _jl(s["latest"], {})
+    if s["status"] == "error":
+        raise ApiError(s["message"] or "最新版を確認できません")
+    if s["status"] == "up_to_date":
+        return {"status": "duplicate", "message": s["message"]}
+    if not info.get("downloadable") or not info.get("url"):
+        raise ApiError(info.get("note") or "この配布元からは自動ダウンロードできません。配布ページから手動で取得してください")
+    tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
+    try:
+        try:
+            src.download(info["url"], tmp, info.get("sha1") or "")
+        except src.SourceError as e:
+            raise ApiError(e.message, 502)
+        fname = info.get("file_name") or f"{safe_name(item['name'])}-{info.get('version', 'latest')}.jar"
+        if store is None:
+            store, target = active_store()
+        result = ingest(tmp, fname, item_id=item["id"], store=store, target=target)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+    if result.get("status") == "added" and info.get("version"):
+        # 配布元の表記(例 5.5.71)の方が分かりやすいことが多いので、読み取れなかった場合は補う
+        with LOCK:
+            conn.execute("UPDATE versions SET version=? WHERE id=(SELECT MAX(id) FROM versions WHERE item_id=?) "
+                         "AND version=''", (info["version"][:64], item["id"]))
+            conn.commit()
+    check_item(conn, item)
+    return result
+
+
+def _item_for_edit(iid):
+    item = db().execute("SELECT * FROM items WHERE id=?", (iid,)).fetchone()
+    if not item:
+        raise ApiError("見つかりません", 404)
+    require_same_target(item, kind="アイテム")
+    return item
+
+
+def _source_from_request(data):
+    if data.get("url"):
+        try:
+            provider, pid, hint = src.parse_url(data["url"])
+            if provider == "curseforge":
+                return src.curseforge_project(pid, cf_api_key(), hint)
+            return src.project_info(provider, pid)
+        except src.SourceError as e:
+            raise ApiError(e.message)
+    if data.get("provider") in src.PROVIDERS and data.get("project_id"):
+        try:
+            return src.project_info(data["provider"], str(data["project_id"]), cf_api_key())
+        except src.SourceError as e:
+            raise ApiError(e.message)
+    raise ApiError("配布ページのURLを入力してください")
+
+
+@app.post("/api/items/<int:iid>/source")
+@require("editor")
+def api_source_link(iid):
+    item = _item_for_edit(iid)
+    info = _source_from_request(request.get_json(silent=True) or {})
+    conn = db()
+    link_source(conn, item, info, "manual")
+    return jsonify(source=source_public(check_item(conn, item)))
+
+
+@app.patch("/api/items/<int:iid>/source")
+@require("editor")
+def api_source_update(iid):
+    item = _item_for_edit(iid)
+    data = request.get_json(silent=True) or {}
+    conn = db()
+    if not conn.execute("SELECT 1 FROM item_sources WHERE item_id=?", (iid,)).fetchone():
+        raise ApiError("配布元が紐付けられていません")
+
+    def split(v):
+        return [x.strip() for x in (v if isinstance(v, list) else str(v or "").split(",")) if x.strip()][:30]
+    with LOCK:
+        if "loaders" in data:
+            conn.execute("UPDATE item_sources SET loaders=? WHERE item_id=?",
+                         (json.dumps([x.lower() for x in split(data["loaders"])]), iid))
+        if "game_versions" in data:
+            conn.execute("UPDATE item_sources SET game_versions=? WHERE item_id=?",
+                         (json.dumps(split(data["game_versions"])), iid))
+        conn.commit()
+    return jsonify(source=source_public(check_item(conn, item)))
+
+
+@app.delete("/api/items/<int:iid>/source")
+@require("editor")
+def api_source_unlink(iid):
+    _item_for_edit(iid)
+    conn = db()
+    conn.execute("DELETE FROM item_sources WHERE item_id=?", (iid,))
+    conn.commit()
+    return jsonify(ok=True)
+
+
+@app.post("/api/items/<int:iid>/source/detect")
+@require("editor")
+def api_source_detect(iid):
+    item = _item_for_edit(iid)
+    store, _t = active_store()
+    conn = db()
+    r = detect_source(conn, store, item)
+    s = conn.execute("SELECT * FROM item_sources WHERE item_id=?", (iid,)).fetchone()
+    if r["linked"]:
+        s = check_item(conn, item)
+    return jsonify({**r, "source": source_public(s) if s else None})
+
+
+@app.post("/api/items/<int:iid>/source/check")
+@require("editor")
+def api_source_check(iid):
+    item = _item_for_edit(iid)
+    return jsonify(source=source_public(check_item(db(), item)))
+
+
+@app.post("/api/items/<int:iid>/source/download")
+@require("editor")
+def api_source_download(iid):
+    item = _item_for_edit(iid)
+    return jsonify(download_latest(db(), item))
+
+
+def _bulk_job(job, target_id, do_detect, do_check, do_download):
+    conn = db()
+    target = conn.execute("SELECT * FROM storage_targets WHERE id=?", (target_id,)).fetchone()
+    store = open_store(target) if (do_detect or do_download) else None
+    items = conn.execute("SELECT * FROM items WHERE target_id=? ORDER BY name", (target_id,)).fetchall()
+    linked = {r[0] for r in conn.execute("SELECT item_id FROM item_sources")}
+    todo = [it for it in items if (it["id"] in linked) or do_detect]
+    job.total = len(todo)
+    stats = {"linked": 0, "checked": 0, "updates": 0, "downloaded": 0, "errors": 0}
+    for it in todo:
+        job.done += 1
+        try:
+            if it["id"] not in linked:
+                r = detect_source(conn, store, it)
+                if not r["linked"]:
+                    continue
+                stats["linked"] += 1
+                job.note(f"紐付け: {it['name']}({r['how']})")
+            if not (do_check or do_download):
+                continue
+            s = check_item(conn, it)
+            stats["checked"] += 1
+            if s["status"] == "error":
+                stats["errors"] += 1
+                job.note(f"確認できません: {it['name']}: {s['message']}")
+            elif s["status"] == "update":
+                stats["updates"] += 1
+                latest = _jl(s["latest"], {})
+                job.note(f"更新あり: {it['name']} → {latest.get('version', '?')}")
+                if do_download and latest.get("downloadable"):
+                    r = download_latest(conn, it, store=store, target=target)
+                    if r.get("status") == "added":
+                        stats["downloaded"] += 1
+                        job.note(f"保存しました: {it['name']} {latest.get('version', '')}")
+        except Exception as e:  # noqa: BLE001
+            stats["errors"] += 1
+            job.note(f"失敗: {it['name']}: {getattr(e, 'message', e)}")
+    job.result = stats
+    job.note("完了: " + " / ".join(f"{k} {v}" for k, v in {
+        "紐付け": stats["linked"], "確認": stats["checked"], "更新あり": stats["updates"],
+        "保存": stats["downloaded"], "失敗": stats["errors"]}.items()))
+
+
+@app.post("/api/updates/run")
+@require("editor")
+def api_updates_run():
+    """detect=未連携のアイテムの配布元を探す / check=最新版を確認 / download=更新を保存。"""
+    data = request.get_json(silent=True) or {}
+    _store, target = active_store()
+    detect, check, dl = _truthy(data.get("detect")), _truthy(data.get("check", True)), _truthy(data.get("download"))
+    title = "配布元の自動検出" if detect and not check else ("更新の確認と保存" if dl else "更新の確認")
+    job = start_job("updates", title, _bulk_job, target["id"], detect, check, dl,
+                    user=current_user()["username"])
+    return jsonify(job.public())
+
+
+@app.post("/api/import")
+@require("editor")
+def api_import():
+    """配布ページのURLから最新版をダウンロードして登録し、配布元も紐付ける。"""
+    data = request.get_json(silent=True) or {}
+    info = _source_from_request(data)
+    loaders = [x.strip().lower() for x in str(data.get("loaders") or "").split(",") if x.strip()]
+    game_versions = [x.strip() for x in str(data.get("game_versions") or "").split(",") if x.strip()]
+    try:
+        latest = src.latest(info["provider"], info["project_id"], loaders=loaders, game_versions=game_versions,
+                            stable_only=get_setting("stable_only", "1") == "1", api_key=cf_api_key())
+    except src.SourceError as e:
+        raise ApiError(e.message, 502)
+    if not latest:
+        raise ApiError("条件に合う版が見つかりません(ローダー・MCバージョンを確認してください)")
+    if not latest.get("downloadable"):
+        raise ApiError(latest.get("note") or "この配布元からは自動ダウンロードできません")
+    tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
+    try:
+        try:
+            src.download(latest["url"], tmp, latest.get("sha1") or "")
+        except src.SourceError as e:
+            raise ApiError(e.message, 502)
+        force = data.get("category") if data.get("category") in CATEGORIES else None
+        result = ingest(tmp, latest.get("file_name") or f"{safe_name(info['title'])}.jar", force)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+    conn = db()
+    item = conn.execute("SELECT * FROM items WHERE id=?", (result["item_id"],)).fetchone()
+    if not conn.execute("SELECT 1 FROM item_sources WHERE item_id=?", (item["id"],)).fetchone():
+        link_source(conn, item, info, "import", matched=latest)
+        if loaders or game_versions:
+            conn.execute("UPDATE item_sources SET loaders=?, game_versions=? WHERE item_id=?",
+                         (json.dumps(loaders or _jl(conn.execute("SELECT loaders FROM item_sources WHERE item_id=?",
+                                                                   (item["id"],)).fetchone()[0], [])),
+                          json.dumps(game_versions), item["id"]))
+            conn.commit()
+        check_item(conn, item)
+    return jsonify({**result, "source_title": info["title"]})
+
+
+# --------------------------------------------------------------------------
+# 定期的な更新確認
+# --------------------------------------------------------------------------
+def _auto_check_job(job, auto_download):
+    conn = db()
+    targets = conn.execute("SELECT DISTINCT t.* FROM storage_targets t JOIN items i ON i.target_id=t.id "
+                           "JOIN item_sources s ON s.item_id=i.id").fetchall()
+    for t in targets:
+        job.note(f"保存先「{t['name']}」を確認します")
+        try:
+            _bulk_job(job, t["id"], False, True, auto_download)
+        except Exception as e:  # noqa: BLE001
+            job.note(f"「{t['name']}」を確認できません: {getattr(e, 'message', e)}")
+
+
+def _scheduler_loop():
+    while True:
+        time.sleep(60)
+        try:
+            with app.app_context():
+                hours = int(get_setting("check_interval_hours", "0") or 0)
+                if hours <= 0:
+                    continue
+                last = get_setting("last_auto_check", "")
+                if last:
+                    last_dt = datetime.strptime(last, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+                    if datetime.now(timezone.utc) - last_dt < timedelta(hours=hours):
+                        continue
+                set_setting("last_auto_check", utcnow())
+                start_job("updates", "定期的な更新確認", _auto_check_job,
+                          get_setting("auto_download", "0") == "1", user="(自動)")
+        except ApiError:
+            pass  # 手動の確認が実行中など
+        except Exception:  # noqa: BLE001
+            app.logger.exception("scheduler")
+
+
+def start_scheduler():
+    if os.environ.get("MCPL_NO_SCHEDULER"):
+        return
+    threading.Thread(target=_scheduler_loop, daemon=True, name="scheduler").start()
+
+
 init_storage()
+start_scheduler()
 
 if __name__ == "__main__":
     host = os.environ.get("HOST", "127.0.0.1")

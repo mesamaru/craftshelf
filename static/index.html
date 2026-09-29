@@ -195,6 +195,41 @@ dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4
 .toast { background: var(--ink); color: var(--bg); padding: 9px 14px; border-radius: 10px; font-size: 14px; box-shadow: var(--shadow); }
 .toast.err { background: var(--danger); color: #fff; }
 
+/* auth screen */
+.auth { position: fixed; inset: 0; z-index: 80; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 16px; }
+.auth[hidden] { display: none; }
+.auth form { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 24px; width: min(380px, 100%); display: flex; flex-direction: column; gap: 12px; box-shadow: var(--shadow); }
+.auth h2 { margin: 0; font-size: 20px; }
+.auth p { margin: 0; color: var(--muted); font-size: 13px; }
+.auth label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--muted); }
+.auth .err { color: var(--danger); font-size: 13px; min-height: 1em; }
+.userbox { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; justify-content: flex-end; margin-top: 6px; }
+/* role based visibility */
+body:not(.can-edit) .need-editor { display: none !important; }
+body:not(.can-admin) .need-admin { display: none !important; }
+/* jobs */
+.jobs { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.job { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 8px 12px; font-size: 13px; }
+.job .jl { display: flex; justify-content: space-between; gap: 8px; align-items: center; flex-wrap: wrap; }
+.job .log { color: var(--muted); font-size: 12px; white-space: pre-wrap; max-height: 120px; overflow: auto; margin-top: 4px; }
+.job.error { border-color: var(--danger); }
+/* source (update) box */
+.srcbox { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--surface-2); font-size: 13px; }
+.srcbox .head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.srcbox .muted { color: var(--muted); font-size: 12px; }
+.srcbox .acts { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+.tag.upd { background: #c07a12; color: #fff; }
+.cand { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); }
+.cand:first-child { border-top: 0; }
+.cand .t { overflow: hidden; text-overflow: ellipsis; }
+.cand small { color: var(--muted); display: block; }
+.tbl { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tbl th, .tbl td { text-align: left; padding: 5px 6px; border-top: 1px solid var(--line); vertical-align: top; }
+.tbl th { color: var(--muted); font-weight: 500; font-size: 12px; }
+.scroll { max-height: 46vh; overflow: auto; border: 1px solid var(--line); border-radius: 8px; }
+dialog.wide { width: min(720px, calc(100vw - 32px)); }
+.filelist { font-size: 12px; color: var(--muted); white-space: pre-wrap; word-break: break-all; max-height: 140px; overflow: auto; background: var(--surface-2); border-radius: 6px; padding: 6px 8px; }
+
 @media (max-width: 760px) {
   .cols, .row { grid-template-columns: 96px minmax(0, 1fr) 110px; }
   .cols .hide-s, .row .hide-s { display: none; }
@@ -209,16 +244,23 @@ dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4
       <h1>MC Pack Library</h1>
       <p>プラグイン・Mod・データパック・リソースパックの保管庫</p>
     </div>
-    <div class="stats" id="stats"></div>
+    <div>
+      <div class="stats" id="stats"></div>
+      <div class="userbox" id="userbox"></div>
+    </div>
   </header>
 
   <div class="storagebar">
     <div class="storagebar-info" id="storageInfo"></div>
-    <button class="btn small" id="storageBtn" type="button">⚙ ストレージ設定</button>
+    <div class="drop-actions">
+      <button class="btn small need-admin" id="settingsBtn" type="button">⚙ 設定</button>
+      <button class="btn small need-admin" id="storageBtn" type="button">🗄 ストレージ設定</button>
+    </div>
   </div>
   <div class="banner" id="storageBanner" hidden></div>
+  <div class="jobs" id="jobs"></div>
 
-  <section class="drop" id="drop">
+  <section class="drop need-editor" id="drop">
     <div class="drop-main">
       <strong>ここにファイルやフォルダをドラッグ&amp;ドロップ</strong>
       <span>.jar / .zip をまとめて投げ込めます。名前とバージョンは中身から自動で読み取ります。</span>
@@ -244,6 +286,15 @@ dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4
 
   <section class="toolbar">
     <div class="chips" id="chips" role="group" aria-label="種類で絞り込み"></div>
+    <div class="drop-actions need-editor">
+      <button class="btn small" id="importBtn" type="button" title="Modrinth / SpigotMC / CurseForge の配布ページのURLから最新版を取得して登録します">🔗 URLから追加</button>
+      <button class="btn small" id="updCheckBtn" type="button" title="配布元を紐付けたアイテムの最新版を確認します">↻ 更新を確認</button>
+      <select id="updMore" aria-label="更新のその他の操作" class="btn small" style="padding:3px 6px">
+        <option value="">その他…</option>
+        <option value="detect">未連携の配布元を自動検出して確認</option>
+        <option value="download">確認して更新をすべて保存</option>
+      </select>
+    </div>
     <div class="search"><input type="search" id="search" placeholder="名前・ファイル名で検索" aria-label="検索"></div>
   </section>
 
@@ -257,12 +308,15 @@ dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4
 <dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
 <div class="overlay" id="overlay"><div>ここにドロップして登録</div></div>
 <div class="toasts" id="toasts" aria-live="polite"></div>
+<div class="auth" id="auth" hidden><form id="authForm" autocomplete="on"></form></div>
 
 <script>
 "use strict";
 const $ = (s) => document.querySelector(s);
 const CATS = { plugin: "プラグイン", mod: "Mod", datapack: "データパック", resourcepack: "リソースパック", other: "その他" };
-const state = { items: [], cat: "all", q: "", sortKey: "name", sortDir: 1, selected: null, verOrder: "desc", storage: {}, version: null, storageOpen: false, targets: [] };
+const state = { items: [], cat: "all", q: "", sortKey: "name", sortDir: 1, selected: null, verOrder: "desc", storage: {}, version: null, storageOpen: false, targets: [], user: null, jobs: [], candidates: {} };
+const PROVIDERS = { modrinth: "Modrinth", spigot: "SpigotMC", curseforge: "CurseForge" };
+const SRC_STATUS = { up_to_date: "最新", update: "更新あり", error: "確認できません", unchecked: "未確認" };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmtSize = (n) => {
@@ -276,9 +330,16 @@ const fmtDateTime = (iso) => new Date(iso).toLocaleString("ja-JP", { year: "nume
 const verLabel = (v) => v || "(バージョン不明)";
 
 async function api(path, opts = {}) {
+  opts.headers = { "X-Requested-With": "mcpl", ...(opts.headers || {}) };
+  if (opts.json !== undefined) {
+    opts.headers["Content-Type"] = "application/json";
+    opts.body = JSON.stringify(opts.json); delete opts.json;
+    opts.method = opts.method || "POST";
+  }
   const res = await fetch(path, opts);
   let data = null;
   try { data = await res.json(); } catch { /* not json */ }
+  if (res.status === 401 && !path.startsWith("/api/auth/")) { showAuth(false); }
   if (!res.ok) throw new Error((data && data.error) || `HTTP ${res.status}`);
   return data;
 }
@@ -305,7 +366,8 @@ async function refresh() {
 /* ---------------- list ---------------- */
 function filtered() {
   const q = state.q.trim().toLowerCase();
-  let list = state.items.filter((it) => state.cat === "all" || it.category === state.cat);
+  let list = state.items.filter((it) => state.cat === "all" || it.category === state.cat
+    || (state.cat === "__upd" && it.source && it.source.status === "update"));
   if (q) list = list.filter((it) =>
     it.name.toLowerCase().includes(q) ||
     it.versions.some((v) => v.filename.toLowerCase().includes(q) || v.version.toLowerCase().includes(q)));
@@ -334,7 +396,11 @@ function render() {
   for (const k of Object.keys(CATS)) counts[k] = state.items.filter((i) => i.category === k).length;
   $("#chips").innerHTML = ["all", ...Object.keys(CATS)]
     .filter((k) => k === "all" || counts[k] > 0 || state.cat === k)
-    .map((k) => `<button class="chip" type="button" data-cat="${k}" aria-pressed="${state.cat === k}">${k === "all" ? "すべて" : CATS[k]}<span class="n">${counts[k]}</span></button>`).join("");
+    .map((k) => `<button class="chip" type="button" data-cat="${k}" aria-pressed="${state.cat === k}">${k === "all" ? "すべて" : CATS[k]}<span class="n">${counts[k]}</span></button>`).join("")
+    + (() => {
+      const n = state.items.filter((i) => i.source && i.source.status === "update").length;
+      return n || state.cat === "__upd" ? `<button class="chip" type="button" data-cat="__upd" aria-pressed="${state.cat === "__upd"}">⬆ 更新あり<span class="n">${n}</span></button>` : "";
+    })();
 
   // list
   const list = filtered();
@@ -355,7 +421,7 @@ function render() {
       return `<button class="row${state.selected === it.id ? " sel" : ""}" type="button" data-id="${it.id}">
         <span><span class="badge ${it.category}">${CATS[it.category]}</span></span>
         <span class="name" title="${esc(it.name)}">${esc(it.name)}</span>
-        <span class="latest">${esc(verLabel(latest.version))}</span>
+        <span class="latest">${esc(verLabel(latest.version))}${it.source && it.source.status === "update" ? ` <span class="tag upd" title="${esc(it.source.latest.version || "")}">更新あり</span>` : ""}</span>
         <span class="sub hide-s">${it.versions.length} 版</span>
         <span class="sub hide-s">${fmtSize(it.total_size)}</span>
         <span class="sub hide-s">${fmtDate(it.last_added)}</span>
@@ -444,13 +510,14 @@ function renderPanel() {
       <div class="desc">${it.versions.length} バージョン保存 / 合計 ${fmtSize(it.total_size)}</div>
       ${latest.meta.description ? `<p class="desc">${esc(latest.meta.description)}</p>` : ""}
       <div class="panel-tools">
-        <button class="btn small" type="button" data-act="edit-item">名前・種類を編集</button>
+        <button class="btn small need-editor" type="button" data-act="edit-item">名前・種類を編集</button>
         <button class="btn small" type="button" data-act="order">${state.verOrder === "desc" ? "新しい順" : "古い順"}</button>
         <span class="sp"></span>
-        <button class="btn small danger" type="button" data-act="del-item">すべて削除</button>
+        <button class="btn small danger need-editor" type="button" data-act="del-item">すべて削除</button>
       </div>
     </div>
     <div class="panel-body">
+      ${sourceBoxHTML(it)}
       ${vs.map((v) => `
         <div class="ver${v.id === it.latest_id ? " latest" : ""}${v.missing ? " missing" : ""}" data-vid="${v.id}">
           <div class="head"><span class="vnum">${esc(verLabel(v.version))}</span>
@@ -462,8 +529,8 @@ function renderPanel() {
           ${v.note ? `<div class="note">${esc(v.note)}</div>` : ""}
           <div class="acts">
             ${v.missing ? "" : `<a class="btn small" href="/api/versions/${v.id}/download">ダウンロード</a>`}
-            <button class="btn small" type="button" data-act="edit-ver">編集</button>
-            <button class="btn small danger" type="button" data-act="del-ver">削除</button>
+            <button class="btn small need-editor" type="button" data-act="edit-ver">編集</button>
+            <button class="btn small danger need-editor" type="button" data-act="del-ver">削除</button>
           </div>
         </div>`).join("")}
     </div>`;
@@ -479,6 +546,7 @@ $("#panel").addEventListener("click", async (e) => {
   const it = state.items.find((i) => i.id === state.selected); if (!it) return;
   const vid = Number(b.closest("[data-vid]")?.dataset.vid);
   const v = it.versions.find((x) => x.id === vid);
+  if (b.dataset.act.startsWith("src-")) { await sourceAction(it, b.dataset.act, b); return; }
   switch (b.dataset.act) {
     case "close": closePanel(); break;
     case "order": state.verOrder = state.verOrder === "desc" ? "asc" : "desc"; renderPanel(); break;
@@ -589,6 +657,8 @@ function renderStoragePanel() {
           <div class="acts">
             ${t.active ? "" : `<button class="btn small primary" type="button" data-sact="activate">使用する</button>`}
             ${t.active && t.protocol !== "local" && !t.mounted ? `<button class="btn small primary" type="button" data-sact="activate">再接続</button>` : ""}
+            <button class="btn small" type="button" data-sact="contents">中身を確認</button>
+            <button class="btn small" type="button" data-sact="migrate">移行…</button>
             ${t.protocol !== "local" ? `<button class="btn small" type="button" data-sact="test">接続テスト</button>` : ""}
             ${t.protocol !== "local" ? `<button class="btn small" type="button" data-sact="edit">編集</button>` : ""}
             ${t.protocol !== "local" && !t.active ? `<button class="btn small danger" type="button" data-sact="delete">削除</button>` : ""}
@@ -605,6 +675,8 @@ $("#storagePanel").addEventListener("click", async (e) => {
   const tid = card ? Number(card.dataset.tid) : null;
   const t = state.targets.find((x) => x.id === tid);
   if (!t) return;
+  if (b.dataset.sact === "contents") { showContents(t); return; }
+  if (b.dataset.sact === "migrate") { openMigrate(t); return; }
   if (b.dataset.sact === "activate") {
     await run(async () => { await api(`/api/storage/targets/${tid}/activate`, { method: "POST" }); await fetchTargets(); },
       `「${t.name}」に切り替えました`);
@@ -762,6 +834,7 @@ function upload(t) {
   return new Promise((resolve) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", "/api/upload?filename=" + encodeURIComponent(t.file.name) + (t.category ? "&category=" + t.category : ""));
+    xhr.setRequestHeader("X-Requested-With", "mcpl");
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable) { t.pct = Math.round((e.loaded / e.total) * 100); t.msg = t.pct >= 100 ? "解析中…" : `アップロード中 ${t.pct}%`; scheduleQueue(); }
     };
@@ -862,11 +935,352 @@ $("#scanBtn").addEventListener("click", async () => {
   finally { btn.disabled = false; btn.textContent = old; }
 });
 
+/* ---------------- generic dialog with custom wiring ---------------- */
+function customDialog(html, setup, wide = false) {
+  return new Promise((resolve) => {
+    const dlg = $("#dlg"), form = $("#dlgForm");
+    dlg.classList.toggle("wide", wide);
+    form.innerHTML = html;
+    const done = (val) => { dlg.close(); dlg.onclose = null; dlg.classList.remove("wide"); resolve(val); };
+    form.onsubmit = (e) => { e.preventDefault(); };
+    dlg.onclose = () => { dlg.classList.remove("wide"); resolve(null); };
+    setup(form, done);
+    if (!dlg.open) dlg.showModal();
+    form.querySelector("input:not([type=hidden]), select, button[value=ok]")?.focus();
+  });
+}
+
+/* ---------------- auth ---------------- */
+async function checkAuth() {
+  let me;
+  try { me = await api("/api/auth/me"); } catch (e) { toast(e.message, true); return; }
+  state.roles = me.roles;
+  if (!me.user) { showAuth(me.setup_required); return; }
+  state.user = me.user;
+  $("#auth").hidden = true;
+  applyRole();
+  refresh();
+  pollJobs();
+}
+function applyRole() {
+  const r = state.user ? state.user.role : "";
+  document.body.classList.toggle("can-edit", r === "editor" || r === "admin");
+  document.body.classList.toggle("can-admin", r === "admin");
+  $("#userbox").innerHTML = state.user ? `
+    <span class="tag soft">${esc(state.user.username)}・${esc(state.user.role_label)}</span>
+    <button class="btn small" type="button" data-u="pw">パスワード変更</button>
+    <button class="btn small need-admin" type="button" data-u="users">ユーザー管理</button>
+    <button class="btn small" type="button" data-u="logout">ログアウト</button>` : "";
+}
+function showAuth(setup) {
+  state.user = null;
+  document.body.classList.remove("can-edit", "can-admin");
+  const f = $("#authForm");
+  f.innerHTML = setup ? `
+    <h2>MC Pack Library の初期設定</h2>
+    <p>最初に管理者アカウントを作成してください。このアカウントで、ほかのユーザーの追加やストレージの設定ができます。</p>
+    <label>ユーザー名<input type="text" name="username" autocomplete="username" required></label>
+    <label>パスワード(8文字以上)<input type="password" name="password" autocomplete="new-password" minlength="8" required></label>
+    <label>パスワード(確認)<input type="password" name="password2" autocomplete="new-password" required></label>
+    <div class="err" id="authErr"></div>
+    <button class="btn primary" type="submit">管理者を作成してはじめる</button>` : `
+    <h2>MC Pack Library</h2>
+    <p>ログインしてください。</p>
+    <label>ユーザー名<input type="text" name="username" autocomplete="username" required></label>
+    <label>パスワード<input type="password" name="password" autocomplete="current-password" required></label>
+    <div class="err" id="authErr"></div>
+    <button class="btn primary" type="submit">ログイン</button>`;
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const d = Object.fromEntries(new FormData(f).entries());
+    const err = $("#authErr");
+    if (setup && d.password !== d.password2) { err.textContent = "確認用のパスワードが一致しません"; return; }
+    try {
+      await api(setup ? "/api/auth/setup" : "/api/auth/login", { json: { username: d.username, password: d.password } });
+      checkAuth();
+    } catch (ex) { err.textContent = ex.message; }
+  };
+  $("#auth").hidden = false;
+  f.querySelector("input")?.focus();
+}
+$("#userbox").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-u]"); if (!b) return;
+  if (b.dataset.u === "logout") { await api("/api/auth/logout", { method: "POST" }).catch(() => {}); showAuth(false); }
+  if (b.dataset.u === "pw") changePassword();
+  if (b.dataset.u === "users") usersDialog();
+});
+async function changePassword() {
+  const r = await openDialog(`<h3>パスワード変更</h3>
+    <label>現在のパスワード<input type="password" name="current" autocomplete="current-password" required></label>
+    <label>新しいパスワード(8文字以上)<input type="password" name="new" autocomplete="new-password" minlength="8" required></label>
+    <div class="foot"><button class="btn" value="cancel" formnovalidate>キャンセル</button><button class="btn primary" value="ok">変更</button></div>`);
+  if (!r) return;
+  try { await api("/api/auth/password", { json: r }); toast("パスワードを変更しました"); } catch (e) { toast(e.message, true); }
+}
+async function usersDialog() {
+  const roleOpts = (sel) => Object.entries(state.roles || {}).map(([k, n]) => `<option value="${k}"${k === sel ? " selected" : ""}>${esc(n)}</option>`).join("");
+  const draw = async (form) => {
+    let users = [];
+    try { users = (await api("/api/users")).users; } catch (e) { toast(e.message, true); }
+    form.querySelector("#uList").innerHTML = `<table class="tbl"><tr><th>ユーザー名</th><th>権限</th><th>最終ログイン</th><th></th></tr>
+      ${users.map((u) => `<tr data-uid="${u.id}"><td>${esc(u.username)}</td>
+        <td><select data-role>${roleOpts(u.role)}</select></td>
+        <td>${u.last_login ? fmtDateTime(u.last_login) : "-"}</td>
+        <td style="white-space:nowrap"><button class="btn small" type="button" data-ua="pw">PW再設定</button>
+        <button class="btn small danger" type="button" data-ua="del">削除</button></td></tr>`).join("")}</table>`;
+  };
+  await customDialog(`<h3>ユーザー管理</h3>
+    <p>閲覧のみ: 一覧の閲覧とダウンロード / 編集者: 登録・編集・削除・更新の取得 / 管理者: すべて(ストレージ・ユーザー・設定)</p>
+    <div class="scroll" id="uList"></div>
+    <h3 style="font-size:15px">ユーザーを追加</h3>
+    <label>ユーザー名<input type="text" name="username" autocomplete="off"></label>
+    <label>パスワード(8文字以上)<input type="password" name="password" autocomplete="new-password"></label>
+    <label>権限<select name="role">${roleOpts("editor")}</select></label>
+    <div class="foot"><button class="btn" type="button" data-ua="close">閉じる</button><button class="btn primary" type="button" data-ua="add">追加</button></div>`,
+  (form, done) => {
+    draw(form);
+    form.addEventListener("change", async (e) => {
+      const sel = e.target.closest("[data-role]"); if (!sel) return;
+      const uid = sel.closest("[data-uid]").dataset.uid;
+      try { await api(`/api/users/${uid}`, { method: "PATCH", json: { role: sel.value } }); toast("権限を変更しました"); }
+      catch (ex) { toast(ex.message, true); draw(form); }
+    });
+    form.addEventListener("click", async (e) => {
+      const b = e.target.closest("[data-ua]"); if (!b) return;
+      const uid = b.closest("[data-uid]")?.dataset.uid;
+      try {
+        if (b.dataset.ua === "close") return done(null);
+        if (b.dataset.ua === "add") {
+          const d = Object.fromEntries(new FormData(form).entries());
+          await api("/api/users", { json: d }); toast("追加しました");
+          form.querySelector("[name=username]").value = ""; form.querySelector("[name=password]").value = "";
+        }
+        if (b.dataset.ua === "pw") {
+          const pw = prompt("新しいパスワード(8文字以上)を入力してください");
+          if (!pw) return;
+          await api(`/api/users/${uid}`, { method: "PATCH", json: { password: pw } }); toast("パスワードを再設定しました");
+        }
+        if (b.dataset.ua === "del") {
+          if (!confirm("このユーザーを削除しますか?")) return;
+          await api(`/api/users/${uid}`, { method: "DELETE" }); toast("削除しました");
+        }
+        draw(form);
+      } catch (ex) { toast(ex.message, true); }
+    });
+  }, true);
+}
+
+/* ---------------- settings ---------------- */
+$("#settingsBtn").addEventListener("click", async () => {
+  let st;
+  try { st = await api("/api/settings"); } catch (e) { toast(e.message, true); return; }
+  const r = await openDialog(`<h3>設定</h3>
+    <label>更新の自動確認
+      <select name="check_interval_hours">
+        ${[[0, "しない"], [6, "6時間ごと"], [12, "12時間ごと"], [24, "1日ごと"], [168, "1週間ごと"]].map(([v, n]) => `<option value="${v}"${st.check_interval_hours === v ? " selected" : ""}>${n}</option>`).join("")}
+      </select></label>
+    <label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="auto_download"${st.auto_download ? " checked" : ""}>更新が見つかったら自動でダウンロードして保存する</label>
+    <label style="flex-direction:row;align-items:center;gap:8px"><input type="checkbox" name="stable_only"${st.stable_only ? " checked" : ""}>安定版(リリース版)のみを対象にする(ベータ・アルファ版を除く)</label>
+    <label>CurseForge APIキー ${st.cf_api_key_set ? "(登録済み。変更する場合のみ入力)" : "(未登録)"}
+      <input type="password" name="cf_api_key" autocomplete="off" placeholder="https://console.curseforge.com で無料発行できます"></label>
+    ${st.last_auto_check ? `<p>前回の自動確認: ${fmtDateTime(st.last_auto_check)}</p>` : ""}
+    <div class="foot"><button class="btn" value="cancel" formnovalidate>キャンセル</button><button class="btn primary" value="ok">保存</button></div>`);
+  if (!r) return;
+  const body = { check_interval_hours: Number(r.check_interval_hours), auto_download: !!r.auto_download, stable_only: !!r.stable_only };
+  if (r.cf_api_key) body.cf_api_key = r.cf_api_key;
+  try { await api("/api/settings", { method: "PATCH", json: body }); toast("保存しました"); } catch (e) { toast(e.message, true); }
+});
+
+/* ---------------- jobs ---------------- */
+let jobTimer = null;
+const seenDone = new Set();
+async function pollJobs() {
+  clearTimeout(jobTimer);
+  try {
+    const { jobs } = await api("/api/jobs");
+    const firstLoad = !state.jobsLoaded; state.jobsLoaded = true;
+    for (const j of jobs) {
+      if (j.status !== "running" && !seenDone.has(j.id)) {
+        seenDone.add(j.id);
+        if (!firstLoad) { toast(`${j.title}: ${j.status === "done" ? "完了しました" : "エラーで終了しました"}`, j.status !== "done"); refresh(); if (state.storageOpen) fetchTargets().then(renderStoragePanel); }
+      }
+    }
+    state.jobs = jobs.filter((j) => j.status === "running" || (Date.now() - new Date(j.finished).getTime() < 5 * 60 * 1000));
+    renderJobs();
+    jobTimer = setTimeout(pollJobs, jobs.some((j) => j.status === "running") ? 1500 : 15000);
+  } catch { jobTimer = setTimeout(pollJobs, 15000); }
+}
+function renderJobs() {
+  $("#jobs").innerHTML = state.jobs.map((j) => `
+    <div class="job${j.status === "error" ? " error" : ""}">
+      <div class="jl"><strong>${esc(j.title)}</strong>
+        <span>${j.status === "running" ? `実行中… ${j.done} / ${j.total || "?"}` : j.status === "done" ? "完了" : "エラー"}
+        ${j.status !== "running" ? `<button class="btn small" type="button" data-jclose="${j.id}">閉じる</button>` : ""}</span></div>
+      ${j.status === "running" && j.total ? `<div class="bar"><i style="width:${Math.round(j.done / j.total * 100)}%"></i></div>` : ""}
+      ${j.log.length ? `<details${j.status !== "running" ? " open" : ""}><summary class="muted" style="font-size:12px;cursor:pointer">記録 (${j.log.length})</summary><div class="log">${esc(j.log.slice(-40).join("\n"))}</div></details>` : ""}
+    </div>`).join("");
+}
+$("#jobs").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-jclose]"); if (!b) return;
+  state.jobs = state.jobs.filter((j) => j.id !== b.dataset.jclose); renderJobs();
+});
+function jobStarted(j) { toast(`${j.title}を開始しました`); seenDone.delete(j.id); pollJobs(); }
+
+/* ---------------- updates / sources ---------------- */
+function sourceBoxHTML(it) {
+  const s = it.source;
+  const cands = state.candidates[it.id];
+  if (!s) {
+    return `<div class="srcbox"><div class="head"><strong>配布元</strong><span class="tag soft">未連携</span></div>
+      <div class="muted">Modrinth / SpigotMC / CurseForge と紐付けると、最新版の確認とダウンロードができます。</div>
+      <div class="acts need-editor">
+        <button class="btn small primary" type="button" data-act="src-detect">自動で探す</button>
+        <button class="btn small" type="button" data-act="src-link">URLで紐付け</button>
+      </div>
+      ${cands ? (cands.length ? `<div class="muted" style="margin-top:8px">候補(クリックで紐付け):</div>
+        <div>${cands.map((c, i) => `<div class="cand"><div class="t">${esc(c.title)} <small>${esc(PROVIDERS[c.provider])}・${(c.downloads || 0).toLocaleString()} DL${c.summary ? "・" + esc(c.summary.slice(0, 60)) : ""}</small></div>
+          <span style="white-space:nowrap"><a class="btn small" href="${esc(c.page_url)}" target="_blank" rel="noopener">開く</a>
+          <button class="btn small need-editor" type="button" data-act="src-pick" data-i="${i}">これにする</button></span></div>`).join("")}</div>`
+        : `<div class="muted" style="margin-top:8px">見つかりませんでした。配布ページのURLで紐付けてください。</div>`) : ""}
+    </div>`;
+  }
+  const L = s.latest || {};
+  const stTag = s.status === "update" ? '<span class="tag upd">更新あり</span>'
+    : s.status === "up_to_date" ? '<span class="tag">最新</span>'
+    : `<span class="tag ${s.status === "error" ? "warn" : "soft"}">${esc(SRC_STATUS[s.status] || s.status)}</span>`;
+  return `<div class="srcbox">
+    <div class="head"><strong>配布元</strong><span class="tag soft">${esc(s.provider_label)}</span>
+      <a href="${esc(s.page_url)}" target="_blank" rel="noopener">${esc(s.title)}</a>${stTag}</div>
+    ${L.version ? `<div style="margin-top:4px">配布元の最新: <b>${esc(L.version)}</b>${L.date ? ` <span class="muted">(${fmtDate(L.date)})</span>` : ""}${L.file_name ? ` <span class="muted">${esc(L.file_name)}</span>` : ""}</div>` : ""}
+    ${s.message ? `<div class="muted">${esc(s.message)}</div>` : ""}
+    <div class="muted">絞り込み: ローダー ${s.loaders.length ? esc(s.loaders.join(", ")) : "指定なし"} / MC ${s.game_versions.length ? esc(s.game_versions.join(", ")) : "指定なし"}
+      ${s.linked_by === "name" ? "・名前から推定した紐付けです" : ""}${s.checked_at ? `・確認 ${fmtDateTime(s.checked_at)}` : ""}</div>
+    <div class="acts need-editor">
+      <button class="btn small" type="button" data-act="src-check">最新版を確認</button>
+      ${s.status === "update" && L.downloadable ? `<button class="btn small primary" type="button" data-act="src-download">最新版を保存 (${esc(L.version || "")})</button>` : ""}
+      <button class="btn small" type="button" data-act="src-filter">絞り込みを変更</button>
+      <button class="btn small" type="button" data-act="src-link">紐付け直す</button>
+      <button class="btn small danger" type="button" data-act="src-unlink">解除</button>
+    </div>
+  </div>`;
+}
+async function sourceAction(it, act, btn) {
+  const busy = (on) => { if (btn) { btn.disabled = on; if (on) btn.dataset.old = btn.textContent, btn.textContent = "処理中…"; else btn.textContent = btn.dataset.old; } };
+  try {
+    busy(true);
+    if (act === "src-detect") {
+      const r = await api(`/api/items/${it.id}/source/detect`, { method: "POST" });
+      if (r.linked) { toast(r.how); delete state.candidates[it.id]; }
+      else { state.candidates[it.id] = r.candidates; }
+    } else if (act === "src-pick") {
+      const c = state.candidates[it.id][Number(btn.dataset.i)];
+      await api(`/api/items/${it.id}/source`, { json: { provider: c.provider, project_id: c.project_id } });
+      delete state.candidates[it.id]; toast("紐付けました");
+    } else if (act === "src-link") {
+      busy(false);
+      const r = await openDialog(`<h3>配布元をURLで紐付け</h3>
+        <p>Modrinth / SpigotMC / CurseForge の配布ページのURLを貼り付けてください。</p>
+        <label>URL<input type="text" name="url" placeholder="https://modrinth.com/plugin/luckperms" required></label>
+        <div class="foot"><button class="btn" value="cancel" formnovalidate>キャンセル</button><button class="btn primary" value="ok">紐付け</button></div>`);
+      if (!r) return;
+      await api(`/api/items/${it.id}/source`, { json: { url: r.url } }); toast("紐付けました");
+    } else if (act === "src-check") {
+      const r = await api(`/api/items/${it.id}/source/check`, { method: "POST" });
+      toast(r.source.message || SRC_STATUS[r.source.status], r.source.status === "error");
+    } else if (act === "src-download") {
+      const r = await api(`/api/items/${it.id}/source/download`, { method: "POST" });
+      toast(r.status === "added" ? `保存しました: ${r.version || ""}` : (r.message || "すでに保存済みです"));
+    } else if (act === "src-filter") {
+      busy(false);
+      const s = it.source;
+      const r = await openDialog(`<h3>絞り込み条件</h3>
+        <p>最新版を探すときの条件です。Mod は Minecraft のバージョンを指定しないと、別のMCバージョン向けの版が「最新」になることがあります。カンマ区切りで複数指定できます。</p>
+        <label>ローダー(例: paper, spigot / fabric / neoforge / forge)<input type="text" name="loaders" value="${esc(s.loaders.join(", "))}"></label>
+        <label>Minecraft のバージョン(例: 1.20.1, 1.21.1)<input type="text" name="game_versions" value="${esc(s.game_versions.join(", "))}"></label>
+        <div class="foot"><button class="btn" value="cancel" formnovalidate>キャンセル</button><button class="btn primary" value="ok">保存して確認</button></div>`);
+      if (!r) return;
+      await api(`/api/items/${it.id}/source`, { method: "PATCH", json: r });
+    } else if (act === "src-unlink") {
+      busy(false);
+      if (!(await confirmDlg("配布元の紐付けを解除しますか?", "保存済みのファイルはそのまま残ります。", "解除する"))) return;
+      await api(`/api/items/${it.id}/source`, { method: "DELETE" });
+    }
+    await refresh();
+  } catch (e) { toast(e.message, true); try { busy(false); } catch { /* */ } renderPanel(); }
+}
+async function runUpdates(opts) {
+  try { jobStarted(await api("/api/updates/run", { json: opts })); } catch (e) { toast(e.message, true); }
+}
+$("#updCheckBtn").addEventListener("click", () => runUpdates({ check: true }));
+$("#updMore").addEventListener("change", (e) => {
+  const v = e.target.value; e.target.value = "";
+  if (v === "detect") runUpdates({ detect: true, check: true });
+  if (v === "download") runUpdates({ check: true, download: true });
+});
+$("#importBtn").addEventListener("click", async () => {
+  const r = await openDialog(`<h3>URLから追加</h3>
+    <p>Modrinth / SpigotMC / CurseForge の配布ページのURLから最新版をダウンロードして登録し、配布元も紐付けます。</p>
+    <label>URL<input type="text" name="url" placeholder="https://modrinth.com/mod/fabric-api" required></label>
+    <label>ローダー(Mod の場合は指定を推奨。例: fabric / neoforge / forge / paper)<input type="text" name="loaders"></label>
+    <label>Minecraft のバージョン(Mod の場合は指定を推奨。例: 1.20.1)<input type="text" name="game_versions"></label>
+    <div class="foot"><button class="btn" value="cancel" formnovalidate>キャンセル</button><button class="btn primary" value="ok">取得して登録</button></div>`);
+  if (!r) return;
+  toast("取得しています…");
+  try {
+    const d = await api("/api/import", { json: r });
+    toast(d.status === "added" ? `追加しました: ${d.name} ${d.version || ""}` : `登録済みです: ${d.name} ${d.version || ""}`);
+    await refresh();
+    if (d.item_id) openPanel(d.item_id);
+  } catch (e) { toast(e.message, true); }
+});
+
+/* ---------------- storage contents / migrate ---------------- */
+async function showContents(t) {
+  await customDialog(`<h3>「${esc(t.name)}」の中身</h3><div id="cBody"><p>読み込み中…(ネットワーク上の保存先は時間がかかることがあります)</p></div>
+    <div class="foot"><button class="btn" type="button" data-c="migrate">この保存先から移行…</button><button class="btn primary" type="button" data-c="close">閉じる</button></div>`,
+  (form, done) => {
+    form.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-c]"); if (!b) return;
+      done(null);
+      if (b.dataset.c === "migrate") setTimeout(() => openMigrate(t), 0);
+    });
+    api(`/api/storage/targets/${t.id}/contents`).then((d) => {
+      form.querySelector("#cBody").innerHTML = `
+        <p>${esc(d.where)}</p>
+        <p><b>${d.totals.items}</b> 件 / <b>${d.totals.files}</b> ファイル / <b>${fmtSize(d.totals.size)}</b>
+          ${d.totals.missing ? ` / <span style="color:var(--danger)">見つからないファイル ${d.totals.missing}</span>` : ""}</p>
+        <div class="scroll"><table class="tbl"><tr><th>種類</th><th>名前</th><th>最新</th><th>版数</th><th>サイズ</th></tr>
+          ${d.items.map((i) => `<tr><td><span class="badge ${i.category}">${CATS[i.category]}</span></td><td>${esc(i.name)}${i.missing ? ' <span class="tag warn">欠損</span>' : ""}</td>
+            <td>${esc(verLabel(i.latest))}</td><td>${i.versions}</td><td>${fmtSize(i.total_size)}</td></tr>`).join("") || `<tr><td colspan="5">登録されたものはありません</td></tr>`}
+        </table></div>
+        ${d.unregistered.count ? `<p>未登録のファイル(library 内・${d.unregistered.count} 件。この保存先に切り替えて「inboxを取り込む」で登録できます):</p><div class="filelist">${esc(d.unregistered.files.join("\n"))}</div>` : ""}
+        ${d.inbox.count ? `<p>inbox のファイル(${d.inbox.count} 件):</p><div class="filelist">${esc(d.inbox.files.join("\n"))}</div>` : ""}`;
+    }).catch((e) => { form.querySelector("#cBody").innerHTML = `<p style="color:var(--danger)">${esc(e.message)}</p>`; });
+  }, true);
+}
+async function openMigrate(t) {
+  if (!state.targets.length) await fetchTargets();
+  const others = state.targets.filter((x) => x.id !== t.id);
+  if (!others.length) { toast("移行先になる保存先がありません。先に接続を追加してください", true); return; }
+  const r = await openDialog(`<h3>「${esc(t.name)}」から移行</h3>
+    <p>登録済みのファイルと情報(バージョン・メモ・配布元の紐付け)を、別の保存先にコピーします。移行先に同じファイルが既にあればスキップします。</p>
+    <label>移行先<select name="dest_id">${others.map((x) => `<option value="${x.id}">${esc(x.name)}(${esc(x.protocol_label)})</option>`).join("")}</select></label>
+    <label>方法<select name="mode">
+      <option value="copy">コピー(移行元にも残す)</option>
+      <option value="move">移動(コピーが成功したものを移行元から削除する)</option>
+    </select></label>
+    <div class="foot"><button class="btn" value="cancel" formnovalidate>キャンセル</button><button class="btn primary" value="ok">移行を開始</button></div>`);
+  if (!r) return;
+  if (r.mode === "move" && !(await confirmDlg("移動しますか?", `コピーに成功したファイルは「${t.name}」から削除されます。`, "移動する"))) return;
+  try { jobStarted(await api("/api/storage/migrate", { json: { source_id: t.id, dest_id: Number(r.dest_id), mode: r.mode } })); }
+  catch (e) { toast(e.message, true); }
+}
+
 /* init */
 (function init() {
   const sel = $("#catOverride");
   for (const [k, n] of Object.entries(CATS)) sel.insertAdjacentHTML("beforeend", `<option value="${k}">${n}として登録</option>`);
-  refresh();
+  checkAuth();
 })();
 </script>
 </body>

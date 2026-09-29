@@ -26,7 +26,7 @@ services:
       - GITHUB_REPO=
       - GITHUB_BRANCH=main
       # - AUTO_UPDATE=false   # 自動更新を止めたい場合はコメントを外す
-      # 家庭内LANの外に公開する場合はパスワードを付けてください(公開自体は非推奨)
+      # 初回起動時に管理者アカウントを自動作成したい場合(省略時は画面の初期設定で作成)
       # - AUTH_USER=maru
       # - AUTH_PASS=change-me
       # index.db だけ別の場所(キャッシュ上のappdataなど)に置きたい場合

@@ -1,0 +1,421 @@
+"""外部の配布サイト(Modrinth / SpigotMC / CurseForge)から、プラグイン・Modの情報を取得する。
+
+- Modrinth  : 公開API。ファイルのハッシュ(SHA-1)から、どのプロジェクトのどの版かを特定できる
+- SpigotMC  : Spiget(非公式の公開API)を使う。ハッシュ検索はできないので、名前検索かURLで紐付ける
+- CurseForge: 公式APIキー(無料、https://console.curseforge.com で発行)が必要。
+              ファイルのフィンガープリントから特定できる
+NeoForge / Forge / Fabric は「Mod ローダー」の種類で、Mod 自体は Modrinth / CurseForge で配布されている。
+そのため、ローダーの違いは検索時の絞り込み条件(loaders)として扱う。
+
+このモジュールは Flask にも DB にも依存せず、辞書を返すだけにしてある。
+"""
+import hashlib
+import json
+import re
+import struct
+from urllib.parse import quote, urlsplit
+
+import requests
+
+UA = "mc-pack-library/1.0 (self-hosted Minecraft plugin/mod library)"
+TIMEOUT = 20
+MAX_DOWNLOAD = 512 * 1024 * 1024  # 1ファイルあたりの上限
+
+PROVIDERS = {"modrinth": "Modrinth", "spigot": "SpigotMC", "curseforge": "CurseForge"}
+
+MODRINTH = "https://api.modrinth.com/v2"
+SPIGET = "https://api.spiget.org/v2"
+CURSEFORGE = "https://api.curseforge.com/v1"
+CF_GAME_MINECRAFT = 432
+# CurseForge の分類(classId)
+CF_CLASSES = {6: "mod", 5: "plugin", 12: "resourcepack", 6945: "datapack"}
+# CurseForge の modLoaderType
+CF_LOADERS = {"forge": 1, "fabric": 4, "quilt": 5, "neoforge": 6}
+
+
+class SourceError(Exception):
+    def __init__(self, message):
+        super().__init__(message)
+        self.message = message
+
+
+_S = requests.Session()
+_S.headers["User-Agent"] = UA
+
+
+def _req(method, url, *, api_key=None, ok=(200,), **kw):
+    headers = kw.pop("headers", {})
+    if api_key:
+        headers["x-api-key"] = api_key
+    kw.setdefault("timeout", TIMEOUT)
+    try:
+        r = _S.request(method, url, headers=headers, **kw)
+    except requests.exceptions.Timeout:
+        raise SourceError(f"{urlsplit(url).hostname} が応答しません")
+    except requests.exceptions.RequestException:
+        raise SourceError(f"{urlsplit(url).hostname} に接続できません(インターネット接続を確認してください)")
+    if r.status_code in ok:
+        return r
+    if r.status_code == 403 and "curseforge" in url:
+        raise SourceError("CurseForge のAPIキーが無効です(設定画面で確認してください)")
+    if r.status_code == 404:
+        raise SourceError("配布ページが見つかりません(削除されたか、IDが違います)")
+    if r.status_code == 429:
+        raise SourceError("アクセスが集中しています。しばらく待ってから再度お試しください")
+    raise SourceError(f"{urlsplit(url).hostname} からエラーが返りました (HTTP {r.status_code})")
+
+
+def _json(method, url, **kw):
+    r = _req(method, url, **kw)
+    try:
+        return r.json()
+    except ValueError:
+        raise SourceError(f"{urlsplit(url).hostname} からの応答を読み取れません")
+
+
+# --------------------------------------------------------------------------
+# ハッシュ
+# --------------------------------------------------------------------------
+def sha1_file(path):
+    h = hashlib.sha1()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def cf_fingerprint(path):
+    """CurseForge のフィンガープリント(空白類を除いた内容の MurmurHash2、seed=1)。"""
+    with open(path, "rb") as f:
+        data = bytes(b for b in f.read() if b not in (9, 10, 13, 32))
+    m, length = 0x5BD1E995, len(data)
+    h = (1 ^ length) & 0xFFFFFFFF
+    i = 0
+    while length >= 4:
+        k = struct.unpack_from("<I", data, i)[0]
+        k = (k * m) & 0xFFFFFFFF
+        k ^= k >> 24
+        k = (k * m) & 0xFFFFFFFF
+        h = ((h * m) & 0xFFFFFFFF) ^ k
+        i += 4
+        length -= 4
+    if length == 3:
+        h ^= data[i + 2] << 16
+    if length >= 2:
+        h ^= data[i + 1] << 8
+    if length >= 1:
+        h ^= data[i]
+        h = (h * m) & 0xFFFFFFFF
+    h ^= h >> 13
+    h = (h * m) & 0xFFFFFFFF
+    h ^= h >> 15
+    return h
+
+
+# --------------------------------------------------------------------------
+# ローダー(絞り込み条件)
+# --------------------------------------------------------------------------
+def default_loaders(category, loader_label):
+    """登録済みファイルの解析結果から、Modrinth で使う loaders の既定値を決める。"""
+    lab = (loader_label or "").lower()
+    if category == "datapack":
+        return ["datapack"]
+    if category == "resourcepack":
+        return ["minecraft"]
+    if "neoforge" in lab:
+        return ["neoforge"]
+    if "forge" in lab:
+        return ["forge"]
+    if "quilt" in lab:
+        return ["quilt", "fabric"]
+    if "fabric" in lab:
+        return ["fabric"]
+    if "velocity" in lab:
+        return ["velocity"]
+    if "bungee" in lab:
+        return ["bungeecord", "waterfall"]
+    if category == "plugin" or "bukkit" in lab or "paper" in lab:
+        return ["paper", "spigot", "bukkit", "purpur", "folia"]
+    return []
+
+
+def _norm(v):
+    return re.sub(r"[^0-9a-z]+", "", (v or "").lower().lstrip("v"))
+
+
+def same_version(a, b):
+    """'v5.5.71-bukkit' と '5.5.71' のような表記揺れを許して、同じ版か判定する。"""
+    na, nb = _norm(a), _norm(b)
+    if not na or not nb:
+        return False
+    if na == nb:
+        return True
+    nums_a = re.findall(r"\d+(?:\.\d+)+", a or "")
+    nums_b = re.findall(r"\d+(?:\.\d+)+", b or "")
+    return bool(nums_a and nums_b and nums_a[0] == nums_b[0])
+
+
+# --------------------------------------------------------------------------
+# URL から配布元を判定
+# --------------------------------------------------------------------------
+def parse_url(url):
+    """配布ページのURLから (provider, id_or_slug, 補足) を読み取る。"""
+    u = urlsplit((url or "").strip())
+    host = (u.hostname or "").lower()
+    parts = [p for p in u.path.split("/") if p]
+    if host.endswith("modrinth.com") and len(parts) >= 2:
+        return "modrinth", parts[1], None
+    if host.endswith("spigotmc.org") and len(parts) >= 2 and parts[0] == "resources":
+        m = re.search(r"(?:\.|^)(\d+)$", parts[1])
+        if m:
+            return "spigot", m.group(1), None
+    if host.endswith("curseforge.com") and len(parts) >= 3 and parts[0] == "minecraft":
+        return "curseforge", parts[2], parts[1]
+    raise SourceError("対応していないURLです(Modrinth / SpigotMC / CurseForge の配布ページのURLを入力してください)")
+
+
+# --------------------------------------------------------------------------
+# Modrinth
+# --------------------------------------------------------------------------
+def _mr_file(version):
+    files = version.get("files") or []
+    f = next((x for x in files if x.get("primary")), files[0] if files else None)
+    if not f:
+        return None
+    return {
+        "version": version.get("version_number") or "",
+        "version_id": version.get("id"),
+        "file_name": f.get("filename"),
+        "url": f.get("url"),
+        "sha1": (f.get("hashes") or {}).get("sha1", ""),
+        "size": f.get("size"),
+        "date": version.get("date_published") or "",
+        "game_versions": version.get("game_versions") or [],
+        "loaders": version.get("loaders") or [],
+        "downloadable": bool(f.get("url")),
+    }
+
+
+def modrinth_project(id_or_slug):
+    p = _json("GET", f"{MODRINTH}/project/{quote(id_or_slug, safe='')}")
+    return {"provider": "modrinth", "project_id": p["id"], "slug": p.get("slug") or "",
+            "title": p.get("title") or p.get("slug") or p["id"],
+            "page_url": f"https://modrinth.com/{p.get('project_type', 'project')}/{p.get('slug') or p['id']}"}
+
+
+def modrinth_by_hashes(sha1s):
+    """{sha1: {"project_id","version"...}} 見つかったものだけ返す。"""
+    if not sha1s:
+        return {}
+    d = _json("POST", f"{MODRINTH}/version_files", json={"hashes": list(sha1s), "algorithm": "sha1"})
+    return {h: v for h, v in d.items()} if isinstance(d, dict) else {}
+
+
+def modrinth_search(name, project_type=None, size=8):
+    facets = [[f"project_type:{project_type}"]] if project_type else None
+    params = {"query": name, "limit": size}
+    if facets:
+        params["facets"] = json.dumps(facets)
+    d = _json("GET", f"{MODRINTH}/search", params=params)
+    return [{"provider": "modrinth", "project_id": h["project_id"], "title": h.get("title") or "",
+             "summary": h.get("description") or "", "downloads": h.get("downloads") or 0,
+             "page_url": f"https://modrinth.com/{h.get('project_type', 'project')}/{h.get('slug')}"}
+            for h in d.get("hits") or []]
+
+
+def modrinth_latest(project_id, loaders=None, game_versions=None, stable_only=True):
+    params = {"include_changelog": "false"}
+    if loaders:
+        params["loaders"] = json.dumps(loaders)
+    if game_versions:
+        params["game_versions"] = json.dumps(game_versions)
+    vs = _json("GET", f"{MODRINTH}/project/{quote(project_id, safe='')}/version", params=params)
+    if not vs:
+        return None
+    if stable_only:
+        vs = [v for v in vs if v.get("version_type") == "release"] or vs
+    vs.sort(key=lambda v: v.get("date_published") or "", reverse=True)
+    return _mr_file(vs[0])
+
+
+# --------------------------------------------------------------------------
+# SpigotMC (Spiget)
+# --------------------------------------------------------------------------
+def spigot_project(resource_id):
+    d = _json("GET", f"{SPIGET}/resources/{int(resource_id)}")
+    return {"provider": "spigot", "project_id": str(d["id"]), "slug": "", "title": d.get("name") or str(d["id"]),
+            "page_url": f"https://www.spigotmc.org/resources/{d['id']}/"}
+
+
+def spigot_search(name, size=8):
+    q = re.sub(r"[^\w\s.-]+", " ", name or "").strip()
+    if not q:
+        return []
+    d = _json("GET", f"{SPIGET}/search/resources/{quote(q, safe='')}", ok=(200, 404),
+              params={"field": "name", "size": size, "sort": "-downloads"})
+    if not isinstance(d, list):
+        return []
+    return [{"provider": "spigot", "project_id": str(x["id"]), "title": x.get("name") or "",
+             "summary": x.get("tag") or "", "downloads": x.get("downloads") or 0,
+             "page_url": f"https://www.spigotmc.org/resources/{x['id']}/"} for x in d]
+
+
+def spigot_latest(resource_id):
+    rid = int(resource_id)
+    res = _json("GET", f"{SPIGET}/resources/{rid}")
+    ver = _json("GET", f"{SPIGET}/resources/{rid}/versions/latest")
+    ftype = ((res.get("file") or {}).get("type") or "").lower()
+    downloadable = not res.get("premium") and not res.get("external") and ftype in (".jar", ".zip")
+    name = re.sub(r"[^\w.+-]+", "_", res.get("name") or f"resource-{rid}").strip("_")
+    vname = str(ver.get("name") or "")
+    vsafe = re.sub(r"[^\w.+-]+", "_", vname)
+    ext = ftype if ftype in (".jar", ".zip") else ".jar"
+    from datetime import datetime, timezone
+    date = ""
+    if ver.get("releaseDate"):
+        date = datetime.fromtimestamp(int(ver["releaseDate"]), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    return {
+        "version": vname,
+        "version_id": str(ver.get("id") or ""),
+        "file_name": f"{name}-{vsafe}{ext}",
+        "url": f"{SPIGET}/resources/{rid}/download" if downloadable else None,
+        "sha1": "",
+        "size": None,
+        "date": date,
+        "game_versions": res.get("testedVersions") or [],
+        "loaders": [],
+        "downloadable": downloadable,
+        "note": "" if downloadable else ("有料リソースのため自動ダウンロードできません" if res.get("premium")
+                                         else "外部サイトで配布されているため自動ダウンロードできません"),
+    }
+
+
+# --------------------------------------------------------------------------
+# CurseForge
+# --------------------------------------------------------------------------
+def _need_key(api_key):
+    if not api_key:
+        raise SourceError("CurseForge を使うには APIキーが必要です(設定画面で登録してください)")
+
+
+def _cf_project_dict(m):
+    links = m.get("links") or {}
+    return {"provider": "curseforge", "project_id": str(m["id"]), "slug": m.get("slug") or "",
+            "title": m.get("name") or str(m["id"]), "page_url": links.get("websiteUrl") or ""}
+
+
+def curseforge_project(id_or_slug, api_key, class_hint=None):
+    _need_key(api_key)
+    if str(id_or_slug).isdigit():
+        return _cf_project_dict(_json("GET", f"{CURSEFORGE}/mods/{id_or_slug}", api_key=api_key)["data"])
+    hint = {"mc-mods": 6, "bukkit-plugins": 5, "texture-packs": 12, "data-packs": 6945}.get(class_hint or "")
+    for class_id in ([hint] if hint else []) + [c for c in CF_CLASSES if c != hint]:
+        d = _json("GET", f"{CURSEFORGE}/mods/search", api_key=api_key,
+                  params={"gameId": CF_GAME_MINECRAFT, "classId": class_id, "slug": id_or_slug})
+        if d.get("data"):
+            return _cf_project_dict(d["data"][0])
+    raise SourceError("CurseForge でプロジェクトが見つかりません")
+
+
+def curseforge_by_fingerprints(fps, api_key):
+    """{fingerprint: {"project_id", "file": {...}}} 見つかったものだけ返す。"""
+    _need_key(api_key)
+    if not fps:
+        return {}
+    d = _json("POST", f"{CURSEFORGE}/fingerprints/{CF_GAME_MINECRAFT}", api_key=api_key,
+              json={"fingerprints": [int(x) for x in fps]})
+    out = {}
+    for m in (d.get("data") or {}).get("exactMatches") or []:
+        f = m.get("file") or {}
+        out[int(f.get("fileFingerprint") or 0)] = {"project_id": str(m.get("id")), "file": f}
+    return out
+
+
+def _cf_file(f):
+    sha1 = next((h.get("value") for h in f.get("hashes") or [] if h.get("algo") == 1), "")
+    return {
+        "version": f.get("displayName") or f.get("fileName") or "",
+        "version_id": str(f.get("id") or ""),
+        "file_name": f.get("fileName"),
+        "url": f.get("downloadUrl"),
+        "sha1": sha1 or "",
+        "size": f.get("fileLength"),
+        "date": f.get("fileDate") or "",
+        "game_versions": [g for g in f.get("gameVersions") or [] if re.match(r"^\d", g)],
+        "loaders": [g.lower() for g in f.get("gameVersions") or [] if g.lower() in CF_LOADERS],
+        "downloadable": bool(f.get("downloadUrl")),
+        "note": "" if f.get("downloadUrl") else "作者が外部ツールからのダウンロードを許可していないため、自動ダウンロードできません",
+    }
+
+
+def curseforge_latest(project_id, api_key, loaders=None, game_versions=None, stable_only=True):
+    _need_key(api_key)
+    params = {"pageSize": 50}
+    loader_ids = [CF_LOADERS[x] for x in (loaders or []) if x in CF_LOADERS]
+    if len(loader_ids) == 1:
+        params["modLoaderType"] = loader_ids[0]
+    if game_versions:
+        params["gameVersion"] = game_versions[0]
+    d = _json("GET", f"{CURSEFORGE}/mods/{int(project_id)}/files", api_key=api_key, params=params)
+    files = d.get("data") or []
+    if stable_only:
+        files = [f for f in files if f.get("releaseType") == 1] or files  # 1=release 2=beta 3=alpha
+    if not files:
+        return None
+    files.sort(key=lambda f: f.get("fileDate") or "", reverse=True)
+    return _cf_file(files[0])
+
+
+# --------------------------------------------------------------------------
+# 共通
+# --------------------------------------------------------------------------
+def project_info(provider, project_id, api_key=None):
+    if provider == "modrinth":
+        return modrinth_project(project_id)
+    if provider == "spigot":
+        return spigot_project(project_id)
+    if provider == "curseforge":
+        return curseforge_project(project_id, api_key)
+    raise SourceError("未対応の配布元です")
+
+
+def latest(provider, project_id, *, loaders=None, game_versions=None, stable_only=True, api_key=None):
+    if provider == "modrinth":
+        return modrinth_latest(project_id, loaders, game_versions, stable_only)
+    if provider == "spigot":
+        return spigot_latest(project_id)
+    if provider == "curseforge":
+        return curseforge_latest(project_id, api_key, loaders, game_versions, stable_only)
+    raise SourceError("未対応の配布元です")
+
+
+_ALLOWED_DL_HOSTS = ("modrinth.com", "spiget.org", "forgecdn.net", "curseforge.com", "spigotmc.org")
+
+
+def download(url, dest, expected_sha1=""):
+    """配布サイトからファイルをダウンロードする(https・既知のホストのみ、サイズ上限あり)。"""
+    def check_host(u):
+        p = urlsplit(u)
+        host = (p.hostname or "").lower()
+        if p.scheme != "https" or not any(host == h or host.endswith("." + h) for h in _ALLOWED_DL_HOSTS):
+            raise SourceError(f"想定外のダウンロード先のため中止しました: {host}")
+
+    check_host(url)
+    r = _req("GET", url, stream=True, timeout=(TIMEOUT, 120))
+    for h in r.history:
+        check_host(h.headers.get("location") or h.url)
+    check_host(r.url)
+    sha1 = hashlib.sha1()
+    total = 0
+    with open(dest, "wb") as out:
+        for chunk in r.iter_content(1024 * 1024):
+            total += len(chunk)
+            if total > MAX_DOWNLOAD:
+                raise SourceError("ファイルが大きすぎます")
+            sha1.update(chunk)
+            out.write(chunk)
+    if total == 0:
+        raise SourceError("ダウンロードしたファイルが空です")
+    if expected_sha1 and sha1.hexdigest() != expected_sha1.lower():
+        raise SourceError("ダウンロードしたファイルが壊れています(ハッシュ不一致)")
+    return sha1.hexdigest()

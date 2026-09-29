@@ -9,10 +9,26 @@ services:
     # また /app は root 所有でビルドされるため、自動更新(GITHUB_REPO)も
     # 使うなら root 実行のままにしておくのが簡単です。
     # user: "99:100"
+    #
+    # Web設定パネルからSMB/NFS接続(Unraid以外の保存先、TrueNASなど)を登録して
+    # 使う場合、コンテナ内で `mount` コマンドを実行できる必要があるため、
+    # 以下の cap_add / security_opt を有効にしてください(下のコメントアウトを解除)。
+    # これは root 実行が前提です。上の user: の指定とは併用しないでください。
+    # cap_add:
+    #   - SYS_ADMIN
+    #   - DAC_READ_SEARCH
+    # security_opt:
+    #   - apparmor:unconfined
+    #   - seccomp:unconfined
+    # 上記でもホストのセキュリティ設定(AppArmor/SELinuxなど)により mount に
+    # 失敗する場合の最終手段として、代わりに次の1行だけを使うこともできます
+    # (コンテナにほぼ全権限を与えるため、他の方法で動かない場合のみ推奨)。
+    # privileged: true
     ports:
       - "8765:8080"
     volumes:
       # 左側を Unraid 上の保存したい共有フォルダに変えてください
+      # (ローカル保存先。Web設定パネルからSMB/NFSを追加登録することもできます)
       - /mnt/user/minecraft/library:/data
     environment:
       - TZ=Asia/Tokyo

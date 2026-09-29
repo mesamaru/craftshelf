@@ -1,8 +1,10 @@
 FROM python:3.12-slim
 
-# 起動時の自動更新(GitHubから最新コードを取得)に使うツール
+# git/rsync/ca-certificates: 起動時の自動更新(GitHubから最新コードを取得)に使う
+# cifs-utils/nfs-common: Web設定パネルから登録したSMB/NFS共有をコンテナ内でマウントするのに使う
+ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends git rsync ca-certificates \
+    && apt-get install -y --no-install-recommends git rsync ca-certificates cifs-utils nfs-common \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

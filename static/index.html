@@ -49,6 +49,7 @@ button { cursor: pointer; }
   transition: border-color .15s, background .15s;
 }
 .drop:hover { border-color: var(--accent); background: var(--accent-soft); }
+.drop.disabled { opacity: .55; pointer-events: none; }
 .drop-main strong { display: block; font-size: 16px; }
 .drop-main span { color: var(--muted); font-size: 13px; }
 .drop-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -63,6 +64,7 @@ button { cursor: pointer; }
 .btn.danger { color: var(--danger); }
 .btn.danger:hover { border-color: var(--danger); }
 .btn.small { padding: 3px 9px; font-size: 13px; }
+.btn:disabled { opacity: .5; cursor: not-allowed; pointer-events: none; }
 select, input[type=text], input[type=search] {
   background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px;
 }
@@ -78,6 +80,33 @@ select, input[type=text], input[type=search] {
 .q.error .st { color: var(--danger); }
 .bar { height: 4px; background: var(--line); border-radius: 2px; overflow: hidden; margin-top: 3px; }
 .bar i { display: block; height: 100%; background: var(--accent); width: 0; }
+
+/* storage bar / banner */
+.storagebar { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin: -6px 0 14px; flex-wrap: wrap; }
+.storagebar-info { font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; background: var(--muted); flex: none; }
+.dot.ok { background: var(--accent); }
+.dot.err { background: var(--danger); }
+.banner {
+  background: color-mix(in srgb, var(--danger) 10%, var(--surface)); border: 1px solid var(--danger);
+  color: var(--ink); border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-bottom: 14px;
+  display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.banner[hidden] { display: none; }
+
+/* storage target cards (settings panel) */
+.target { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--surface); }
+.target.active { border-color: var(--accent); background: var(--accent-soft); }
+.target .head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.target .head strong { font-size: 15px; }
+.target .detail { font-size: 12px; color: var(--muted); margin-top: 3px; word-break: break-all; }
+.target .acts { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.target .test-result { font-size: 12px; margin-top: 6px; padding: 5px 8px; border-radius: 6px; background: var(--surface-2); white-space: pre-wrap; }
+.target .test-result.ok { color: var(--accent); }
+.target .test-result.err { color: var(--danger); }
+.field-hint { font-size: 12px; color: var(--muted); margin-top: -2px; }
+.proto-only { display: none; }
+.proto-only.on { display: flex; flex-direction: column; gap: 4px; }
 
 /* toolbar */
 .toolbar { display: flex; gap: 12px; align-items: center; justify-content: space-between; flex-wrap: wrap; margin: 22px 0 10px; }
@@ -183,6 +212,12 @@ dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4
     <div class="stats" id="stats"></div>
   </header>
 
+  <div class="storagebar">
+    <div class="storagebar-info" id="storageInfo"></div>
+    <button class="btn small" id="storageBtn" type="button">⚙ ストレージ設定</button>
+  </div>
+  <div class="banner" id="storageBanner" hidden></div>
+
   <section class="drop" id="drop">
     <div class="drop-main">
       <strong>ここにファイルやフォルダをドラッグ&amp;ドロップ</strong>
@@ -217,6 +252,7 @@ dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4
 
 <div class="backdrop" id="backdrop"></div>
 <aside class="panel" id="panel" aria-label="バージョン一覧" aria-hidden="true"></aside>
+<aside class="panel" id="storagePanel" aria-label="ストレージ設定" aria-hidden="true"></aside>
 
 <dialog id="dlg"><form method="dialog" id="dlgForm"></form></dialog>
 <div class="overlay" id="overlay"><div>ここにドロップして登録</div></div>
@@ -226,7 +262,7 @@ dialog .foot { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4
 "use strict";
 const $ = (s) => document.querySelector(s);
 const CATS = { plugin: "プラグイン", mod: "Mod", datapack: "データパック", resourcepack: "リソースパック", other: "その他" };
-const state = { items: [], cat: "all", q: "", sortKey: "name", sortDir: 1, selected: null, verOrder: "desc", storage: {}, version: null };
+const state = { items: [], cat: "all", q: "", sortKey: "name", sortDir: 1, selected: null, verOrder: "desc", storage: {}, version: null, storageOpen: false, targets: [] };
 
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const fmtSize = (n) => {
@@ -290,7 +326,8 @@ function render() {
   // stats
   const total = state.items.reduce((s, i) => s + i.total_size, 0);
   const nv = state.items.reduce((s, i) => s + i.versions.length, 0);
-  $("#stats").innerHTML = `<b>${state.items.length}</b> 件 / <b>${nv}</b> ファイル / <b>${fmtSize(total)}</b><br>保存先: ${esc(state.storage.path || "")}${state.version ? ` ・ ${esc(state.version)}` : ""}`;
+  $("#stats").innerHTML = `<b>${state.items.length}</b> 件 / <b>${nv}</b> ファイル / <b>${fmtSize(total)}</b>${state.version ? `<br>${esc(state.version)}` : ""}`;
+  renderStorageBar();
 
   // chips
   const counts = { all: state.items.length };
@@ -326,7 +363,39 @@ function render() {
     }).join("");
   }
   if (state.selected) renderPanel();
+  if (state.storageOpen) renderStoragePanel();
 }
+
+/* ---------------- storage bar / banner ---------------- */
+function renderStorageBar() {
+  const s = state.storage || {};
+  const t = s.target;
+  const ok = !s.error;
+  const protoLabel = t ? (t.protocol_label || t.protocol) : "";
+  const name = t ? t.name : "";
+  const pathText = s.path ? esc(s.path) : "";
+  $("#storageInfo").innerHTML = t
+    ? `<span class="dot ${ok ? "ok" : "err"}"></span>${esc(name)}<span class="tag soft">${esc(protoLabel)}</span>${pathText ? `<span class="hide-s">${pathText}</span>` : ""}`
+    : "";
+
+  const banner = $("#storageBanner");
+  if (s.error) {
+    banner.hidden = false;
+    banner.innerHTML = `<span>⚠ ${esc(s.error)}</span><button class="btn small" type="button" data-act="open-storage">設定を開く</button>`;
+  } else {
+    banner.hidden = true;
+    banner.innerHTML = "";
+  }
+  const disabled = !!s.error;
+  $("#drop").classList.toggle("disabled", disabled);
+  $("#pickFiles").disabled = disabled;
+  $("#pickDir").disabled = disabled;
+  $("#scanBtn").disabled = disabled;
+}
+$("#storageBanner").addEventListener("click", (e) => {
+  if (e.target.closest("[data-act='open-storage']")) openStoragePanel();
+});
+$("#storageBtn").addEventListener("click", openStoragePanel);
 
 $("#chips").addEventListener("click", (e) => {
   const b = e.target.closest("[data-cat]"); if (!b) return;
@@ -347,6 +416,7 @@ $("#list").addEventListener("click", (e) => {
 
 /* ---------------- side panel ---------------- */
 function openPanel(id) {
+  closeStoragePanel();
   state.selected = id;
   $("#panel").classList.add("on"); $("#panel").setAttribute("aria-hidden", "false");
   $("#backdrop").classList.add("on");
@@ -398,9 +468,11 @@ function renderPanel() {
         </div>`).join("")}
     </div>`;
 }
-$("#backdrop").addEventListener("click", closePanel);
+$("#backdrop").addEventListener("click", () => { closePanel(); closeStoragePanel(); });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && !$("#dlg").open && state.selected) closePanel();
+  if (e.key !== "Escape" || $("#dlg").open) return;
+  if (state.selected) closePanel();
+  if (state.storageOpen) closeStoragePanel();
 });
 $("#panel").addEventListener("click", async (e) => {
   const b = e.target.closest("[data-act]"); if (!b) return;
@@ -473,11 +545,185 @@ async function editVersion(it, v) {
   await run(() => api(`/api/versions/${v.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(r) }), "保存しました");
 }
 
+/* ---------------- storage settings panel ---------------- */
+async function fetchTargets() {
+  try { state.targets = (await api("/api/storage/targets")).targets; }
+  catch (e) { toast(e.message, true); }
+}
+function openStoragePanel() {
+  closePanel();
+  state.storageOpen = true;
+  $("#storagePanel").classList.add("on"); $("#storagePanel").setAttribute("aria-hidden", "false");
+  $("#backdrop").classList.add("on");
+  renderStoragePanel();
+  fetchTargets().then(renderStoragePanel);
+}
+function closeStoragePanel() {
+  if (!state.storageOpen) return;
+  state.storageOpen = false;
+  $("#storagePanel").classList.remove("on"); $("#storagePanel").setAttribute("aria-hidden", "true");
+  $("#backdrop").classList.remove("on");
+}
+function renderStoragePanel() {
+  const targets = state.targets;
+  $("#storagePanel").innerHTML = `
+    <div class="panel-head">
+      <div class="line1"><strong style="font-size:18px">ストレージ設定</strong>
+        <button class="btn small close" type="button" data-sact="close" aria-label="閉じる">閉じる</button></div>
+      <div class="desc">保存先を登録・切り替えできます。切り替えると表示される一覧もその保存先のものに変わります(ファイルの自動移動はしません)。</div>
+      <div class="panel-tools"><span class="sp"></span><button class="btn small primary" type="button" data-sact="add">＋ 接続を追加</button></div>
+    </div>
+    <div class="panel-body">
+      ${targets.length ? targets.map((t) => `
+        <div class="target${t.active ? " active" : ""}" data-tid="${t.id}">
+          <div class="head">
+            <span class="dot ${t.protocol === "local" || t.mounted ? "ok" : "err"}"></span>
+            <strong>${esc(t.name)}</strong>
+            <span class="tag soft">${esc(t.protocol_label)}</span>
+            ${t.active ? '<span class="tag">使用中</span>' : ""}
+          </div>
+          ${t.protocol !== "local" ? `<div class="detail">${esc(t.server)} / ${esc(t.share)}${t.subpath ? " / " + esc(t.subpath) : ""} ・ ${t.username ? esc(t.username) : "ゲスト接続"}</div>` : ""}
+          ${t.last_error ? `<div class="detail" style="color:var(--danger)">前回のエラー: ${esc(t.last_error)}</div>` : ""}
+          <div class="detail">登録アイテム数: ${t.item_count ?? "-"}</div>
+          <div class="acts">
+            ${t.active ? "" : `<button class="btn small primary" type="button" data-sact="activate">使用する</button>`}
+            ${t.protocol !== "local" ? `<button class="btn small" type="button" data-sact="test">接続テスト</button>` : ""}
+            ${t.protocol !== "local" ? `<button class="btn small" type="button" data-sact="edit">編集</button>` : ""}
+            ${t.protocol !== "local" && !t.active ? `<button class="btn small danger" type="button" data-sact="delete">削除</button>` : ""}
+          </div>
+          <div class="test-result" hidden></div>
+        </div>`).join("") : `<div class="empty">読み込み中…</div>`}
+    </div>`;
+}
+$("#storagePanel").addEventListener("click", async (e) => {
+  const b = e.target.closest("[data-sact]"); if (!b) return;
+  if (b.dataset.sact === "close") { closeStoragePanel(); return; }
+  if (b.dataset.sact === "add") { await saveTarget(null); return; }
+  const card = b.closest("[data-tid]");
+  const tid = card ? Number(card.dataset.tid) : null;
+  const t = state.targets.find((x) => x.id === tid);
+  if (!t) return;
+  if (b.dataset.sact === "activate") {
+    await run(async () => { await api(`/api/storage/targets/${tid}/activate`, { method: "POST" }); await fetchTargets(); },
+      `「${t.name}」に切り替えました`);
+    renderStoragePanel();
+  } else if (b.dataset.sact === "edit") {
+    await saveTarget(t);
+  } else if (b.dataset.sact === "test") {
+    const resultEl = card.querySelector(".test-result");
+    resultEl.hidden = false; resultEl.className = "test-result"; resultEl.textContent = "接続中…";
+    try {
+      const r = await api(`/api/storage/targets/${tid}/test`, { method: "POST" });
+      resultEl.className = "test-result " + (r.ok ? "ok" : "err");
+      resultEl.textContent = r.message + (r.entries ? (r.entries.length ? `\n中身(先頭${r.entries.length}件): ${r.entries.join(", ")}` : "\n(空のフォルダです)") : "");
+    } catch (e2) { resultEl.className = "test-result err"; resultEl.textContent = e2.message; }
+  } else if (b.dataset.sact === "delete") {
+    if (await confirmDlg(`「${t.name}」を削除しますか?`, "この操作は元に戻せません。", "削除する")) {
+      await run(async () => { await api(`/api/storage/targets/${tid}`, { method: "DELETE" }); await fetchTargets(); }, "削除しました");
+      renderStoragePanel();
+    }
+  }
+});
+
+function protoHint(p) {
+  return p === "nfs"
+    ? "NFS: エクスポートパスは先頭 / から入力してください(例: /mnt/user/minecraft)。バージョンはNFSv4のみ対応です。"
+    : "SMB (Windows共有)。Unraid・TrueNASどちらも標準で使えます。";
+}
+function targetFormHTML(existing) {
+  const proto = existing ? existing.protocol : "cifs";
+  return `
+    <h3>${existing ? "接続を編集" : "接続を追加"}</h3>
+    <label>名前<input type="text" name="name" value="${esc(existing?.name || "")}" placeholder="例: Unraid" required></label>
+    <label>種類<select name="protocol" id="tProtocol">
+      <option value="cifs"${proto === "cifs" ? " selected" : ""}>SMB(Windows共有)</option>
+      <option value="nfs"${proto === "nfs" ? " selected" : ""}>NFS</option>
+    </select></label>
+    <div class="field-hint" id="tProtoHint"></div>
+    <label>サーバー(IPアドレス・ホスト名)<input type="text" name="server" value="${esc(existing?.server || "")}" placeholder="192.168.1.10" required></label>
+    <label id="tShareLabel">共有名<input type="text" name="share" value="${esc(existing?.share || "")}" placeholder="minecraft" required></label>
+    <label>サブフォルダ(任意)<input type="text" name="subpath" value="${esc(existing?.subpath || "")}" placeholder="例: library-root"></label>
+    <div class="proto-only" id="tCifsOnly">
+      <label>ユーザー名(空欄ならゲスト接続)<input type="text" name="username" value="${esc(existing?.username || "")}"></label>
+      <label>パスワード${existing ? "(変更しない場合は空欄のまま)" : ""}<input type="password" name="password" autocomplete="new-password"></label>
+      <label>ドメイン(任意)<input type="text" name="domain" value="${esc(existing?.domain || "")}"></label>
+    </div>
+    <label>詳細オプション(任意、上級者向け。mount -o に追記されます)<input type="text" name="mount_opts" value="${esc(existing?.mount_opts || "")}"></label>
+    <div class="test-result" id="tTestResult" hidden></div>
+    <div class="foot">
+      <button class="btn" type="button" id="tCancel" formnovalidate>キャンセル</button>
+      <button class="btn" type="button" id="tTest">接続をテスト</button>
+      <button class="btn primary" type="submit">保存</button>
+    </div>`;
+}
+function openTargetDialog(existing) {
+  return new Promise((resolve) => {
+    const dlg = $("#dlg"), form = $("#dlgForm");
+    form.innerHTML = targetFormHTML(existing);
+    const done = (val) => { dlg.close(); dlg.onclose = null; resolve(val); };
+    const protoSel = form.querySelector("#tProtocol");
+    const shareLabel = form.querySelector("#tShareLabel");
+    const cifsOnly = form.querySelector("#tCifsOnly");
+    const hint = form.querySelector("#tProtoHint");
+    function syncProto() {
+      const p = protoSel.value;
+      cifsOnly.classList.toggle("on", p === "cifs");
+      shareLabel.firstChild.textContent = p === "nfs" ? "エクスポートパス" : "共有名";
+      form.querySelector("[name=share]").placeholder = p === "nfs" ? "/mnt/user/minecraft" : "minecraft";
+      hint.textContent = protoHint(p);
+    }
+    protoSel.addEventListener("change", syncProto);
+    syncProto();
+    form.querySelector("#tCancel").addEventListener("click", () => done(null));
+    form.querySelector("#tTest").addEventListener("click", async () => {
+      const btn = form.querySelector("#tTest");
+      const resultEl = form.querySelector("#tTestResult");
+      const fd = Object.fromEntries(new FormData(form).entries());
+      btn.disabled = true; const old = btn.textContent; btn.textContent = "接続中…";
+      resultEl.hidden = false; resultEl.className = "test-result"; resultEl.textContent = "接続中…";
+      try {
+        const useExisting = existing && !fd.password;
+        const r = useExisting
+          ? await api(`/api/storage/targets/${existing.id}/test`, { method: "POST" })
+          : await api("/api/storage/targets/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(fd) });
+        resultEl.className = "test-result " + (r.ok ? "ok" : "err");
+        resultEl.textContent = r.message + (r.entries ? (r.entries.length ? `\n中身(先頭${r.entries.length}件): ${r.entries.join(", ")}` : "\n(空のフォルダです)") : "");
+      } catch (e) {
+        resultEl.className = "test-result err"; resultEl.textContent = e.message;
+      } finally {
+        btn.disabled = false; btn.textContent = old;
+      }
+    });
+    form.onsubmit = (e) => { e.preventDefault(); done(Object.fromEntries(new FormData(form).entries())); };
+    dlg.onclose = () => resolve(null);
+    dlg.showModal();
+    form.querySelector("input[name=name]")?.focus();
+  });
+}
+async function saveTarget(existing) {
+  const r = await openTargetDialog(existing);
+  if (!r) return;
+  if (existing && !r.password) delete r.password;  // 空欄=変更しない
+  await run(async () => {
+    if (existing) {
+      await api(`/api/storage/targets/${existing.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(r) });
+    } else {
+      await api("/api/storage/targets", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(r) });
+    }
+    await fetchTargets();
+  }, existing ? "更新しました" : "追加しました");
+  renderStoragePanel();
+}
+
 /* ---------------- upload ---------------- */
 const OKEXT = /\.(jar|zip|7z|rar|mcpack|disabled)$/i;
 const tasks = []; let active = 0; let batchAdded = 0, batchDup = 0, batchErr = 0, queueRaf = 0;
 
 function enqueue(files) {
+  if (state.storage && state.storage.error) {
+    toast("ストレージに接続できていないため、アップロードできません", true);
+    return;
+  }
   files = files.filter(Boolean);
   if (!files.length) { toast("対象のファイルが見つかりませんでした", true); return; }
   const category = $("#catOverride").value;

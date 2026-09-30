@@ -161,6 +161,74 @@ function openMenu(anchor, items) {
   m.querySelector("button")?.focus();
 }
 
+/* ---------------- テーマ・背景 ---------------- */
+/* tone: 背景の明るさ。大見出しの文字色を合わせる(dark=白文字 / light=黒文字 / null=通常) */
+const PIXELS = "repeating-conic-gradient(rgba(0,0,0,.05) 0 25%, transparent 0 50%) 0 0 / 32px 32px";
+const STARS = [
+  "radial-gradient(1.4px 1.4px at 20px 30px, rgba(255,255,255,.9), transparent) 0 0 / 140px 140px",
+  "radial-gradient(1px 1px at 90px 70px, rgba(255,255,255,.7), transparent) 0 0 / 190px 190px",
+  "radial-gradient(1.8px 1.8px at 50px 160px, rgba(220,200,255,.8), transparent) 0 0 / 230px 230px",
+].join(", ");
+const THEMES = [
+  { id: "mint", name: "ミント", tone: null, bg: null },
+  { id: "aurora", name: "オーロラ", tone: "dark", bg: "radial-gradient(60% 50% at 20% 15%, rgba(61,255,170,.55), transparent 70%), radial-gradient(50% 45% at 85% 25%, rgba(138,92,255,.6), transparent 70%), radial-gradient(60% 50% at 55% 95%, rgba(0,180,255,.4), transparent 70%), linear-gradient(160deg, #050b1f, #0b1a33 50%, #06201f)" },
+  { id: "sunset", name: "サンセット", tone: "dark", bg: "radial-gradient(70% 60% at 15% 5%, #ffc27a, transparent 60%), radial-gradient(60% 55% at 90% 20%, #ff6f91, transparent 65%), radial-gradient(80% 60% at 50% 105%, #5b3cff, transparent 70%), linear-gradient(180deg, #ff9a7b, #ff5f86 50%, #6e45d6)" },
+  { id: "ocean", name: "オーシャン", tone: "dark", bg: "radial-gradient(60% 50% at 85% 5%, rgba(0,229,255,.5), transparent 70%), radial-gradient(70% 60% at 5% 95%, rgba(0,114,255,.55), transparent 70%), linear-gradient(170deg, #021b33, #063d5c 55%, #0a6b7a)" },
+  { id: "overworld", name: "オーバーワールド", tone: "light", bg: `linear-gradient(180deg, #6fbfff 0%, #a9dcff 48%, #d3f0ff 64%, #6cc24a 64%, #57a43a 76%, #7a5230 76%, #5e3e22 100%)` },
+  { id: "nether", name: "ネザー", tone: "dark", bg: `${PIXELS}, radial-gradient(55% 45% at 20% 90%, rgba(255,110,0,.7), transparent 70%), radial-gradient(45% 40% at 85% 75%, rgba(255,40,40,.5), transparent 70%), radial-gradient(60% 50% at 50% 0%, rgba(130,0,40,.65), transparent 70%), linear-gradient(180deg, #1a0508, #3a0a0a 60%, #5a1405)` },
+  { id: "end", name: "ジ・エンド", tone: "dark", bg: `${STARS}, radial-gradient(60% 50% at 70% 25%, rgba(170,90,255,.45), transparent 70%), radial-gradient(50% 40% at 15% 85%, rgba(230,220,140,.18), transparent 70%), linear-gradient(180deg, #07040f, #140a26 60%, #1e1036)` },
+  { id: "pastel", name: "パステル", tone: "light", bg: "radial-gradient(50% 50% at 10% 10%, #ffcfe6, transparent 70%), radial-gradient(50% 50% at 90% 15%, #c6e2ff, transparent 70%), radial-gradient(60% 60% at 25% 90%, #d3f6e2, transparent 70%), radial-gradient(50% 50% at 90% 90%, #fff0bf, transparent 70%), #f8f6ff" },
+  { id: "graphite", name: "グラファイト", tone: "dark", bg: "radial-gradient(60% 50% at 30% 0%, rgba(255,255,255,.12), transparent 70%), radial-gradient(40% 40% at 90% 90%, rgba(255,255,255,.05), transparent 70%), linear-gradient(180deg, #232326, #0c0c0e)" },
+];
+const bgUrl = (file) => `/api/backgrounds/${encodeURIComponent(file)}`;
+function readCachedTheme() { try { return JSON.parse(localStorage.getItem("craftshelf.theme") || "null"); } catch { return null; } }
+function writeCachedTheme(p) { try { localStorage.setItem("craftshelf.theme", JSON.stringify(p)); } catch { /* 保存できない環境 */ } }
+function applyTheme(prefs, { loggedIn = true } = {}) {
+  prefs = prefs || {};
+  const body = document.body, st = body.style;
+  let id = prefs.theme || "mint";
+  let bg = null, tone = null;
+  if (id === "custom" && prefs.bg_file && loggedIn) {
+    bg = `url("${bgUrl(prefs.bg_file)}") center / cover no-repeat, #111`;
+    tone = prefs.tone || "dark";
+  } else {
+    const t = THEMES.find((x) => x.id === id) || THEMES[0];
+    id = t.id; bg = t.bg; tone = t.tone;
+  }
+  if (bg) st.setProperty("--app-bg", bg); else st.removeProperty("--app-bg");
+  const custom = id === "custom";
+  st.setProperty("--bg-dim", String((bg ? (prefs.bg_dim ?? (custom ? 20 : 0)) : 0) / 100));
+  st.setProperty("--bg-blur", `${bg ? (prefs.bg_blur ?? 0) : 0}px`);
+  body.classList.toggle("has-bg", !!bg);
+  body.classList.toggle("tone-dark", tone === "dark");
+  body.classList.toggle("tone-light", tone === "light");
+  writeCachedTheme({ theme: prefs.theme, bg_dim: prefs.bg_dim, bg_blur: prefs.bg_blur });
+}
+/* アップロードした画像の明るさを調べ、上の方が暗ければ白文字にする */
+function detectTone(file) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const c = document.createElement("canvas"); c.width = 32; c.height = 32;
+        const g = c.getContext("2d"); g.drawImage(img, 0, 0, 32, 32);
+        const d = g.getImageData(0, 0, 32, 12).data;
+        let sum = 0; for (let i = 0; i < d.length; i += 4) sum += 0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2];
+        resolve(sum / (d.length / 4) < 150 ? "dark" : "light");
+      } catch { resolve("dark"); }
+    };
+    img.onerror = () => resolve("dark");
+    img.src = bgUrl(file);
+  });
+}
+async function savePrefs(patch) {
+  const r = await api("/api/me/prefs", { method: "PATCH", json: patch });
+  const tone = state.prefs && state.prefs.tone;
+  state.prefs = { ...r.prefs, tone };
+  applyTheme(state.prefs);
+  return state.prefs;
+}
+
 /* ---------------- auth ---------------- */
 async function checkAuth() {
   let me;
@@ -168,6 +236,9 @@ async function checkAuth() {
   state.roles = me.roles || {}; state.appVersion = me.version;
   if (!me.user) { showAuth(me.setup_required); return; }
   state.user = me.user;
+  state.prefs = me.prefs || {};
+  if (state.prefs.theme === "custom" && state.prefs.bg_file) state.prefs.tone = await detectTone(state.prefs.bg_file);
+  applyTheme(state.prefs);
   $("#auth").hidden = true;
   $("#app").hidden = false;
   document.body.classList.toggle("can-edit", isEditor());
@@ -178,6 +249,7 @@ async function checkAuth() {
 }
 function showAuth(setup) {
   state.user = null;
+  applyTheme(readCachedTheme(), { loggedIn: false });
   $("#app").hidden = true;
   closePanel();
   const dlg = $("#dlg"); if (dlg.open) dlg.close();
@@ -603,6 +675,7 @@ async function renderSettings() {
   try { await page.render(body, cur.arg); }
   catch (e) { body.innerHTML = `<div class="result err">${esc(e.message)}</div>`; }
 }
+const themeName = (p) => (p && p.theme === "custom" ? "マイ画像" : (THEMES.find((t) => t.id === (p && p.theme)) || THEMES[0]).name);
 const rowBtn = (key, ic, color, title, val = "", extra = "") =>
   `<button class="row" type="button" data-go="${key}" ${extra}><span class="cicon sm ${color}">${icon(ic)}</span><span class="main"><span class="title">${esc(title)}</span></span><span class="trail">${val}${icon("chev", "i chev")}</span></button>`;
 
@@ -615,6 +688,7 @@ const SETTINGS_PAGES = {
       body.innerHTML = `
         <div class="group"><div class="row"><span class="cicon c-teal">${icon("person")}</span>
           <span class="main"><span class="title">${esc(u.username)}</span><span class="subtitle">${esc(u.role_label)}</span></span></div>
+          ${rowBtn("appearance", "sparkle", "c-resourcepack", "テーマと背景", `<span class="val">${esc(themeName(state.prefs))}</span>`)}
           ${rowBtn("password", "key", "c-gray", "パスワードを変更")}
           <button class="row danger" type="button" data-go="logout"><span class="cicon sm c-red">${icon("logout")}</span><span class="main"><span class="title">ログアウト</span></span></button>
         </div>
@@ -636,6 +710,81 @@ const SETTINGS_PAGES = {
           $("#dlg").close(); showAuth(false); return;
         }
         pushSettings(b.dataset.go);
+      };
+    },
+  },
+  appearance: {
+    title: () => "テーマと背景",
+    async render(body) {
+      const p = state.prefs || {};
+      const cur = p.theme || "mint";
+      const tile = (id, name, bgCss) => `<button class="theme-tile" type="button" data-theme="${id}" aria-pressed="${cur === id}">
+        <span class="sw" style="background:${esc(bgCss)}">${cur === id ? `<span class="ck">${icon("check")}</span>` : ""}</span>${esc(name)}</button>`;
+      const mintBg = "radial-gradient(120% 80% at 10% 0%, rgba(52,199,89,.35), transparent 60%), radial-gradient(90% 70% at 100% 0%, rgba(0,122,255,.25), transparent 60%), #f2f2f7";
+      const dim = p.bg_dim ?? (cur === "custom" ? 20 : 0);
+      body.innerHTML = `<p>パネルの背景を選べます。設定はアカウントごとに保存されます。</p>
+        <div class="themes">
+          ${THEMES.map((t) => tile(t.id, t.name, t.bg || mintBg)).join("")}
+          ${p.bg_file ? tile("custom", "マイ画像", `url("${bgUrl(p.bg_file)}") center / cover no-repeat`)
+            : `<button class="theme-tile" type="button" data-upload><span class="sw"><span class="add">${icon("plus")}</span></span>画像を追加</button>`}
+        </div>
+        <div class="group-title">背景画像</div>
+        <div class="group">
+          <button class="row noicon tint" type="button" data-upload><span class="main"><span class="title">${p.bg_file ? "画像を変更" : "画像をアップロード"}</span><span class="subtitle">PNG / JPEG / WebP / GIF・15MBまで</span></span></button>
+          ${p.bg_file ? `<button class="row noicon danger" type="button" data-bgdel><span class="main"><span class="title">画像を削除</span></span></button>` : ""}
+        </div>
+        <div class="group-title">見やすさの調整</div>
+        <div class="group">
+          <label class="slider-row"><span class="lab"><span>暗さ</span><span id="vDim">${dim}%</span></span>
+            <input type="range" name="bg_dim" min="0" max="80" value="${dim}"></label>
+          <label class="slider-row"><span class="lab"><span>ぼかし</span><span id="vBlur">${p.bg_blur ?? 0}px</span></span>
+            <input type="range" name="bg_blur" min="0" max="40" value="${p.bg_blur ?? 0}"></label>
+        </div>
+        <div class="group-foot">「ミント」以外では、カードが半透明のガラスになり背景が透けて見えます。「ミント」では暗さ・ぼかしは使われません。</div>
+        <input type="file" id="bgFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden>`;
+      const paint = (el) => el.style.setProperty("--p", `${(el.value - el.min) / (el.max - el.min) * 100}%`);
+      body.querySelectorAll("input[type=range]").forEach(paint);
+      let timer = null;
+      body.oninput = (e) => {
+        const el = e.target; if (el.type !== "range") return;
+        paint(el);
+        $(el.name === "bg_dim" ? "#vDim" : "#vBlur", body).textContent = el.name === "bg_dim" ? `${el.value}%` : `${el.value}px`;
+        state.prefs = { ...state.prefs, [el.name]: Number(el.value) };
+        applyTheme(state.prefs);
+        clearTimeout(timer);
+        timer = setTimeout(() => savePrefs({ [el.name]: Number(el.value) }).catch((ex) => toast(ex.message, true)), 400);
+      };
+      body.onclick = async (e) => {
+        const tb = e.target.closest("[data-theme]");
+        if (tb) {
+          try {
+            await savePrefs({ theme: tb.dataset.theme });
+            if (tb.dataset.theme === "custom" && state.prefs.bg_file) { state.prefs.tone = await detectTone(state.prefs.bg_file); applyTheme(state.prefs); }
+            renderSettings();
+          } catch (ex) { toast(ex.message, true); }
+          return;
+        }
+        if (e.target.closest("[data-upload]")) { $("#bgFile", body).click(); return; }
+        const del = e.target.closest("[data-bgdel]");
+        if (del) {
+          await busy(del, async () => {
+            try { const r = await api("/api/me/background", { method: "DELETE" }); state.prefs = r.prefs; applyTheme(state.prefs); toast("削除しました"); renderSettings(); }
+            catch (ex) { toast(ex.message, true); }
+          });
+        }
+      };
+      $("#bgFile", body).onchange = async (e) => {
+        const f = e.target.files[0]; e.target.value = "";
+        if (!f) return;
+        if (f.size > 15 * 1024 * 1024) { toast("画像が大きすぎます(15MBまで)", true); return; }
+        const tp = toastProgress("画像をアップロードしています…");
+        try {
+          const r = await api("/api/me/background", { method: "PUT", body: f, headers: { "Content-Type": f.type || "application/octet-stream" } });
+          state.prefs = r.prefs;
+          state.prefs.tone = await detectTone(state.prefs.bg_file);
+          applyTheme(state.prefs); toast("背景を変更しました"); renderSettings();
+        } catch (ex) { toast(ex.message, true); }
+        finally { tp.remove(); }
       };
     },
   },
@@ -1079,6 +1228,7 @@ async function walk(entry, out, inDir) {
 
 /* ---------------- init ---------------- */
 (function init() {
+  applyTheme(readCachedTheme(), { loggedIn: false });
   const sel = $("#catOverride");
   for (const [k, n] of Object.entries(CATS)) sel.insertAdjacentHTML("beforeend", `<option value="${k}">種類: ${n}</option>`);
   checkAuth();

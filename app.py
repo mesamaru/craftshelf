@@ -229,6 +229,8 @@ def migrate_schema(conn):
     conn.execute("UPDATE storage_targets SET protocol='smb' WHERE protocol='cifs'")
     if "sha1" not in _table_cols(conn, "versions"):  # 配布サイトとの照合に使う
         conn.execute("ALTER TABLE versions ADD COLUMN sha1 TEXT NOT NULL DEFAULT ''")
+    if "prefs" not in _table_cols(conn, "users"):  # テーマ・背景などの個人設定
+        conn.execute("ALTER TABLE users ADD COLUMN prefs TEXT NOT NULL DEFAULT '{}'")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_versions_item ON versions(item_id)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_versions_target_sha ON versions(target_id, sha256)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_items_target ON items(target_id)")
@@ -1028,6 +1030,14 @@ def require(role):
     return deco
 
 
+def user_prefs(u):
+    try:
+        p = json.loads(u["prefs"] or "{}")
+    except (KeyError, IndexError, ValueError):
+        p = {}
+    return p if isinstance(p, dict) else {}
+
+
 def user_public(u):
     return {"id": u["id"], "username": u["username"], "role": u["role"],
             "role_label": ROLES.get(u["role"], (0, u["role"]))[1],
@@ -1596,7 +1606,7 @@ def api_storage_activate(tid):
 def api_auth_me():
     u = current_user()
     setup = db().execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
-    return jsonify(user=user_public(u) if u else None, setup_required=setup,
+    return jsonify(user=user_public(u) if u else None, setup_required=setup, prefs=user_prefs(u) if u else None,
                    roles={k: v[1] for k, v in ROLES.items()}, app_name=APP_NAME, version=running_version())
 
 
@@ -1719,9 +1729,122 @@ def api_users_delete(uid):
         raise ApiError("自分自身は削除できません")
     if u["role"] == "admin" and _admin_count(conn) <= 1:
         raise ApiError("管理者が1人もいなくなるため削除できません")
+    _remove_bg_file(user_prefs(u).get("bg_file"))
     conn.execute("DELETE FROM users WHERE id=?", (uid,))
     conn.commit()
     return jsonify(ok=True)
+
+
+# --------------------------------------------------------------------------
+# 個人設定(テーマ・背景画像)
+# --------------------------------------------------------------------------
+BG_DIR = CONFIG_DIR / "backgrounds"
+MAX_BG = 15 * 1024 * 1024
+_BG_NAME = re.compile(r"^u\d+-[0-9a-f]{16}\.(png|jpg|webp|gif)$")
+_THEME_ID = re.compile(r"^[a-z0-9-]{1,32}$")
+
+
+def _image_ext(head):
+    """中身の先頭バイトで画像の種類を判定する(拡張子やヘッダーは信用しない。SVG は受け付けない)。"""
+    if head.startswith(bytes.fromhex("89504e470d0a1a0a")):
+        return "png"
+    if head.startswith(bytes.fromhex("ffd8ff")):
+        return "jpg"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
+    if head[:6] in (b"GIF87a", b"GIF89a"):
+        return "gif"
+    return None
+
+
+def _save_prefs(uid, prefs):
+    conn = db()
+    conn.execute("UPDATE users SET prefs=? WHERE id=?", (json.dumps(prefs, ensure_ascii=False), uid))
+    conn.commit()
+
+
+def _remove_bg_file(name):
+    if name and _BG_NAME.match(name):
+        try:
+            (BG_DIR / name).unlink()
+        except FileNotFoundError:
+            pass
+
+
+@app.patch("/api/me/prefs")
+def api_me_prefs():
+    data = request.get_json(silent=True) or {}
+    u = current_user()
+    prefs = user_prefs(u)
+    if "theme" in data:
+        theme = str(data["theme"] or "")
+        if not _THEME_ID.match(theme):
+            raise ApiError("テーマの指定が不正です")
+        if theme == "custom" and not prefs.get("bg_file"):
+            raise ApiError("先に背景画像をアップロードしてください")
+        prefs["theme"] = theme
+    for key, lo, hi in (("bg_dim", 0, 80), ("bg_blur", 0, 40)):
+        if key in data:
+            try:
+                prefs[key] = max(lo, min(hi, int(data[key])))
+            except (TypeError, ValueError):
+                raise ApiError("数値で指定してください")
+    _save_prefs(u["id"], prefs)
+    return jsonify(prefs=prefs)
+
+
+@app.put("/api/me/background")
+def api_me_background_upload():
+    u = current_user()
+    head = request.stream.read(16)
+    ext = _image_ext(head)
+    if not ext:
+        raise ApiError("PNG / JPEG / WebP / GIF の画像を選んでください")
+    BG_DIR.mkdir(parents=True, exist_ok=True)
+    name = f"u{u['id']}-{secrets.token_hex(8)}.{ext}"
+    path = BG_DIR / name
+    total = len(head)
+    try:
+        with open(path, "wb") as f:
+            f.write(head)
+            while True:
+                chunk = request.stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                total += len(chunk)
+                if total > MAX_BG:
+                    raise ApiError("画像が大きすぎます(15MBまで)", 413)
+                f.write(chunk)
+    except Exception:
+        path.unlink(missing_ok=True)
+        raise
+    prefs = user_prefs(u)
+    _remove_bg_file(prefs.get("bg_file"))
+    prefs.update(bg_file=name, theme="custom")
+    prefs.setdefault("bg_dim", 20)
+    prefs.setdefault("bg_blur", 0)
+    _save_prefs(u["id"], prefs)
+    return jsonify(prefs=prefs)
+
+
+@app.delete("/api/me/background")
+def api_me_background_delete():
+    u = current_user()
+    prefs = user_prefs(u)
+    _remove_bg_file(prefs.pop("bg_file", None))
+    if prefs.get("theme") == "custom":
+        prefs["theme"] = "mint"
+    _save_prefs(u["id"], prefs)
+    return jsonify(prefs=prefs)
+
+
+@app.get("/api/backgrounds/<name>")
+def api_background_file(name):
+    if not _BG_NAME.match(name) or not (BG_DIR / name).exists():
+        raise ApiError("見つかりません", 404)
+    resp = send_from_directory(BG_DIR, name, max_age=86400)
+    resp.headers["Cache-Control"] = "private, max-age=86400"
+    return resp
 
 
 # --------------------------------------------------------------------------

@@ -478,6 +478,58 @@ dialog.sheet form { display: flex; flex-direction: column; min-height: 0; flex: 
 @keyframes sheetUp { from { transform: translateY(100%); } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 
+/* ---------- プルダウンの選択肢(ダークモードで見えなくならないように) ---------- */
+select option, select optgroup { background-color: var(--card); color: var(--label); }
+select.compact { background-color: var(--fill-2); color: var(--label); }
+
+/* ---------- 一覧の行(配布ページへのリンク) ---------- */
+.row[data-id] { cursor: pointer; }
+.row[data-id]:hover { background: var(--fill); }
+.linkbtn {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600; color: var(--tint);
+  padding: 3px 9px; border-radius: 999px; background: var(--tint-soft); white-space: nowrap; text-decoration: none !important;
+}
+.linkbtn:hover { background: color-mix(in srgb, var(--tint-soft) 70%, var(--tint)); color: var(--tint-ink); }
+.linkbtn svg.i { width: 13px; height: 13px; stroke-width: 2.2; }
+
+/* ---------- 表示の切り替え ---------- */
+.lt-left { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+.viewsw { border-radius: 999px; padding: 3px; }
+.viewsw .seg { padding: 6px 14px; }
+
+/* ---------- ダッシュボード ---------- */
+.tiles { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 14px; }
+.tile { background: var(--card); border-radius: var(--r-card); padding: 16px; display: flex; flex-direction: column; gap: 2px; }
+.tile .k { font-size: 13px; color: var(--label-2); display: flex; align-items: center; gap: 6px; }
+.tile .v { font-size: 30px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; line-height: 1.15; }
+.tile .v small { font-size: 15px; font-weight: 600; color: var(--label-2); margin-left: 3px; }
+.tile .s { font-size: 12.5px; color: var(--label-2); }
+.tile.warn .v { color: var(--orange); }
+.dash-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.card { background: var(--card); border-radius: var(--r-card); overflow: hidden; }
+.card-h { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 14px 16px 6px; }
+.card-h h4 { margin: 0; font-size: 16px; font-weight: 700; }
+.card-b { padding: 4px 16px 16px; }
+.card .row { padding-left: 0; padding-right: 0; }
+.card .row + .row::before { left: 48px; }
+.card .row.noicon + .row.noicon::before { left: 0; }
+.barrow { display: grid; grid-template-columns: 120px minmax(0, 1fr) 44px; gap: 10px; align-items: center; padding: 6px 0; font-size: 14px; }
+.barrow .lab { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.barrow .lab span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.barrow .track { height: 10px; border-radius: 999px; background: var(--fill); position: relative; }
+.barrow .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 999px; background: var(--tint-fill); min-width: 4px; }
+.barrow .n { text-align: right; font-variant-numeric: tabular-nums; color: var(--label); font-weight: 600; }
+.meter { height: 10px; border-radius: 999px; background: var(--fill); overflow: hidden; margin: 8px 0 6px; }
+.meter i { display: block; height: 100%; background: var(--tint-fill); border-radius: 999px; }
+.kv { display: flex; justify-content: space-between; gap: 10px; font-size: 14px; padding: 5px 0; }
+.kv span:first-child { color: var(--label-2); }
+.kv span:last-child { text-align: right; word-break: break-all; }
+.dash-empty { color: var(--label-2); font-size: 14px; padding: 10px 0; }
+body.has-bg .tile, body.has-bg .card { background: color-mix(in srgb, var(--card) 76%, transparent); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); box-shadow: inset 0 0 0 .5px var(--glass-edge); }
+@media (max-width: 900px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dash-grid { grid-template-columns: 1fr; } }
+
 /* role based visibility */
 body:not(.can-edit) .need-editor { display: none !important; }
 body:not(.can-admin) .need-admin { display: none !important; }
+.row[data-open] { cursor: pointer; }
+.row[data-open]:hover { background: var(--fill); }

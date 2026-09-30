@@ -38,6 +38,8 @@ const ICONS = {
   trash: '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
   arrows: '<path d="M7 7h11l-3-3M17 17H6l3 3"/>',
+  external: '<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/>',
+  chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
 };
 const icon = (name, cls = "i") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
 
@@ -243,6 +245,8 @@ async function checkAuth() {
   $("#app").hidden = false;
   document.body.classList.toggle("can-edit", isEditor());
   document.body.classList.toggle("can-admin", isAdmin());
+  let v = "library"; try { v = localStorage.getItem("craftshelf.view") || "library"; } catch { /* */ }
+  setView(v === "dash" ? "dash" : "library");
   refresh();
   pollJobs();
   if (isAdmin()) checkSelfUpdate(false);
@@ -340,15 +344,20 @@ function render() {
       const latest = it.versions.find((v) => v.id === it.latest_id) || it.versions[0];
       const upd = it.source && it.source.status === "update";
       const missing = it.versions.some((v) => v.missing);
-      return `<button class="row${state.selected === it.id ? " sel" : ""}" type="button" data-id="${it.id}">
+      const mc = mcOf(it);
+      const page = it.source && it.source.page_url ? safeUrl(it.source.page_url) : "";
+      return `<div class="row${state.selected === it.id ? " sel" : ""}" role="button" tabindex="0" data-id="${it.id}">
         <span class="cicon c-${it.category}">${CAT_LETTER[it.category]}</span>
         <span class="main"><span class="title">${esc(it.name)}</span>
-          <span class="subtitle">${esc(verLabel(latest.version))} · ${it.versions.length} 版<span class="hide-s"> · ${fmtSize(it.total_size)} · ${fmtDate(it.last_added)}</span></span></span>
-        <span class="trail">${missing ? '<span class="badge err">欠損</span>' : ""}${upd ? `<span class="badge upd">更新 ${esc(it.source.latest.version || "")}</span>` : ""}${icon("chev", "i chev")}</span>
-      </button>`;
+          <span class="subtitle">${esc(verLabel(latest.version))}${mc ? ` · MC ${esc(mc)}` : ""} · ${it.versions.length} バージョン<span class="hide-s"> · ${fmtSize(it.total_size)} · ${fmtDate(it.last_added)}</span></span></span>
+        <span class="trail">${missing ? '<span class="badge err">欠損</span>' : ""}${upd ? `<span class="badge upd">更新 ${esc(it.source.latest.version || "")}</span>` : ""}
+          ${page !== "" && page !== "#" ? `<a class="linkbtn hide-s" href="${esc(page)}" target="_blank" rel="noopener noreferrer" title="${esc(it.source.provider_label)} の配布ページを開く">${esc(it.source.provider_label)} ${icon("external")}</a>` : ""}
+          ${icon("chev", "i chev")}</span>
+      </div>`;
     }).join("");
   }
   if (state.selected) renderPanel();
+  if (state.view === "dash") renderDash();
 }
 function renderStorage() {
   const s = state.storage || {}, t = s.target;
@@ -370,7 +379,119 @@ $("#search").addEventListener("input", (e) => { state.q = e.target.value; render
 $("#sortSel").addEventListener("change", (e) => {
   const [k, d] = e.target.value.split(":"); state.sortKey = k; state.sortDir = Number(d); render();
 });
-$("#list").addEventListener("click", (e) => { const r = e.target.closest(".row[data-id]"); if (r) openPanel(Number(r.dataset.id)); });
+$("#list").addEventListener("click", (e) => {
+  if (e.target.closest("a")) return;  // 配布ページのリンクはそのまま開く
+  const r = e.target.closest(".row[data-id]"); if (r) openPanel(Number(r.dataset.id));
+});
+$("#list").addEventListener("keydown", (e) => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches(".row[data-id]")) { e.preventDefault(); openPanel(Number(e.target.dataset.id)); }
+});
+
+/* ---------------- 対応MCバージョン ---------------- */
+const mcOf = (it) => it.mc_versions || it.mc_auto || "";
+
+/* ---------------- 表示の切り替え(ライブラリ / ダッシュボード) ---------------- */
+function setView(view) {
+  state.view = view;
+  document.querySelectorAll("#viewSw [data-view]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.view === view)));
+  $("#viewTitle").textContent = view === "dash" ? "ダッシュボード" : "ライブラリ";
+  $("#libView").hidden = view === "dash";
+  $("#dash").hidden = view !== "dash";
+  try { localStorage.setItem("craftshelf.view", view); } catch { /* 保存できない環境 */ }
+  if (view === "dash") renderDash();
+}
+$("#viewSw").addEventListener("click", (e) => { const b = e.target.closest("[data-view]"); if (b) setView(b.dataset.view); });
+
+async function renderDash() {
+  const items = state.items;
+  const nFiles = items.reduce((s, i) => s + i.versions.length, 0);
+  const size = items.reduce((s, i) => s + i.total_size, 0);
+  const upd = items.filter((i) => i.source && i.source.status === "update");
+  const linked = items.filter((i) => i.source);
+  const errs = items.filter((i) => i.source && i.source.status === "error");
+  const missing = items.filter((i) => i.versions.some((v) => v.missing));
+  const unknownMc = items.filter((i) => !mcOf(i));
+  const recent = [...items].sort((a, b) => (a.last_added < b.last_added ? 1 : -1)).slice(0, 6);
+  const counts = Object.keys(CATS).map((k) => [k, items.filter((i) => i.category === k).length]).filter(([, n]) => n > 0);
+  const max = Math.max(1, ...counts.map(([, n]) => n));
+  const s = state.storage || {}, t = s.target;
+  if (!state.dashSettings) { try { state.dashSettings = await api("/api/settings"); } catch { state.dashSettings = {}; } }
+  const st = state.dashSettings;
+  const itemRow = (it, trail) => `<div class="row" role="button" tabindex="0" data-open="${it.id}">
+      <span class="cicon sm c-${it.category}">${CAT_LETTER[it.category]}</span>
+      <span class="main"><span class="title">${esc(it.name)}</span><span class="subtitle">${esc(verLabel((it.versions.find((v) => v.id === it.latest_id) || it.versions[0]).version))}${mcOf(it) ? ` · MC ${esc(mcOf(it))}` : ""}</span></span>
+      <span class="trail">${trail}${icon("chev", "i chev")}</span></div>`;
+  const intervalLabel = { 0: "しない", 6: "6時間ごと", 12: "12時間ごと", 24: "1日ごと", 168: "1週間ごと" }[st.check_interval_hours] || `${st.check_interval_hours || 0}時間ごと`;
+
+  $("#dash").innerHTML = `
+    <div class="tiles">
+      <div class="tile"><span class="k">${icon("box")}登録しているもの</span><span class="v">${items.length}<small>件</small></span><span class="s">${nFiles} ファイル</span></div>
+      <div class="tile"><span class="k">${icon("server")}使用している容量</span><span class="v">${esc(fmtSize(size))}</span><span class="s">${esc(t ? t.name : "")}</span></div>
+      <div class="tile${upd.length ? " warn" : ""}"><span class="k">${icon("refresh")}更新があるもの</span><span class="v">${upd.length}<small>件</small></span><span class="s">${linked.length} 件を確認対象にしています</span></div>
+      <div class="tile"><span class="k">${icon("link")}配布元の連携</span><span class="v">${items.length ? Math.round(linked.length / items.length * 100) : 0}<small>%</small></span><span class="s">${linked.length} / ${items.length} 件</span></div>
+    </div>
+    <div class="dash-grid">
+      <div class="card">
+        <div class="card-h"><h4>更新があるもの</h4>${upd.length ? `<button class="btn small filled need-editor" type="button" data-dact="dlall">${icon("download")}すべて保存</button>` : ""}</div>
+        <div class="card-b">${upd.length ? upd.map((it) => itemRow(it, `<span class="badge upd">${esc(it.source.latest.version || "")}</span>`)).join("")
+          : `<div class="dash-empty">${linked.length ? "すべて最新です 🎉" : "配布元を紐付けると、ここに更新が表示されます"}</div>`}
+          <div class="chips need-editor" style="margin-top:8px"><button class="btn small" type="button" data-dact="check">${icon("refresh")}今すぐ確認</button></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h4>種類ごとの件数</h4></div>
+        <div class="card-b">${counts.length ? counts.map(([k, n]) => `<div class="barrow" title="${esc(CATS[k])}: ${n} 件">
+            <span class="lab"><span class="cicon sm c-${k}" style="width:22px;height:22px;border-radius:6px;font-size:11px">${CAT_LETTER[k]}</span><span>${esc(CATS[k])}</span></span>
+            <span class="track"><span class="fill" style="width:${(n / max * 100).toFixed(1)}%"></span></span><span class="n">${n}</span></div>`).join("")
+          : `<div class="dash-empty">まだ何も登録されていません</div>`}</div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h4>配布元の連携</h4></div>
+        <div class="card-b">
+          <div class="meter" title="連携済み ${linked.length} / ${items.length} 件"><i style="width:${items.length ? linked.length / items.length * 100 : 0}%"></i></div>
+          <div class="kv"><span>連携済み</span><span>${linked.length} 件</span></div>
+          <div class="kv"><span>未連携</span><span>${items.length - linked.length} 件</span></div>
+          <div class="kv"><span>確認できないもの</span><span>${errs.length} 件</span></div>
+          <div class="kv"><span>自動確認</span><span>${esc(intervalLabel)}${st.last_auto_check ? `(前回 ${esc(fmtDateTime(st.last_auto_check))})` : ""}</span></div>
+          ${items.length - linked.length ? `<div class="chips need-editor" style="margin-top:8px"><button class="btn small tinted" type="button" data-dact="detect">${icon("wand")}未連携の配布元を探す</button></div>` : ""}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h4>最近追加したもの</h4></div>
+        <div class="card-b">${recent.length ? recent.map((it) => itemRow(it, `<span class="val" style="font-size:13px">${esc(fmtDate(it.last_added))}</span>`)).join("") : `<div class="dash-empty">まだ何も登録されていません</div>`}</div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h4>保存先</h4>${isAdmin() ? `<button class="btn small" type="button" data-dact="storage">設定</button>` : ""}</div>
+        <div class="card-b">${t ? `
+          <div class="kv"><span>名前</span><span>${esc(t.name)}</span></div>
+          <div class="kv"><span>種類</span><span>${esc(t.protocol_label)}</span></div>
+          <div class="kv"><span>場所</span><span>${esc(s.path || "")}</span></div>
+          <div class="kv"><span>状態</span><span><span class="status-dot ${s.error ? "err" : "ok"}" style="display:inline-block;margin-right:6px"></span>${s.error ? esc(s.error) : "接続しています"}</span></div>` : ""}
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-h"><h4>確認が必要なもの</h4></div>
+        <div class="card-b">${missing.length || errs.length || unknownMc.length ? `
+          ${missing.map((it) => itemRow(it, '<span class="badge err">ファイルが見つかりません</span>')).join("")}
+          ${errs.map((it) => itemRow(it, '<span class="badge err">更新を確認できません</span>')).join("")}
+          ${unknownMc.length ? `<div class="kv"><span>対応MCバージョンが不明</span><span>${unknownMc.length} 件</span></div>` : ""}`
+          : `<div class="dash-empty">問題はありません</div>`}</div>
+      </div>
+    </div>`;
+}
+$("#dash").addEventListener("click", async (e) => {
+  const open = e.target.closest("[data-open]");
+  if (open) { openPanel(Number(open.dataset.open)); return; }
+  const b = e.target.closest("[data-dact]"); if (!b) return;
+  const a = b.dataset.dact;
+  if (a === "check") await busy(b, () => runUpdates({ check: true }), "開始しています…");
+  if (a === "detect") await busy(b, () => runUpdates({ detect: true, check: true }), "開始しています…");
+  if (a === "dlall") await busy(b, () => runUpdates({ check: true, download: true }), "開始しています…");
+  if (a === "storage") openSettings("storage");
+});
+$("#dash").addEventListener("keydown", (e) => {
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches("[data-open]")) { e.preventDefault(); openPanel(Number(e.target.dataset.open)); }
+});
 
 /* ---------------- detail panel ---------------- */
 function openPanel(id) {
@@ -402,9 +523,11 @@ function renderPanel() {
         <button class="close-x" type="button" data-act="close" aria-label="閉じる">${icon("x")}</button></div>
       <h3>${esc(it.name)}</h3>
       <p class="desc">${it.versions.length} バージョン · 合計 ${fmtSize(it.total_size)}</p>
+      <p class="desc">対応MCバージョン: <b style="color:var(--label)">${esc(mcOf(it) || "不明")}</b>${it.mc_versions ? "(手入力)" : it.mc_auto ? "(自動で判定)" : ""}</p>
       ${latest.meta.description ? `<p class="desc">${esc(latest.meta.description)}</p>` : ""}
       <div class="chips">
-        <button class="btn small need-editor" type="button" data-act="edit-item">${icon("edit")}名前・種類</button>
+        ${it.source && safeUrl(it.source.page_url) !== "#" ? `<a class="btn small tinted" href="${esc(safeUrl(it.source.page_url))}" target="_blank" rel="noopener noreferrer">${icon("external")}配布ページ</a>` : ""}
+        <button class="btn small need-editor" type="button" data-act="edit-item">${icon("edit")}情報を編集</button>
         <button class="btn small" type="button" data-act="order">${icon("arrows")}${state.verOrder === "desc" ? "新しい順" : "古い順"}</button>
         <button class="btn small danger need-editor" type="button" data-act="del-item">${icon("trash")}すべて削除</button>
       </div>
@@ -456,9 +579,11 @@ async function run(fn, okMsg) {
   catch (e) { toast(e.message, true); return false; }
 }
 async function editItem(it) {
-  const r = await formSheet("名前・種類を編集", `<p>同じ名前・種類のものが既にある場合は、そちらに統合されます。</p>
+  const r = await formSheet("情報を編集", `<p>同じ名前・種類のものが既にある場合は、そちらに統合されます。</p>
     ${field("名前", `<input type="text" name="name" value="${esc(it.name)}" required>`)}
-    ${field("種類", `<select name="category">${Object.entries(CATS).map(([k, n]) => `<option value="${k}"${k === it.category ? " selected" : ""}>${n}</option>`).join("")}</select>`)}`);
+    ${field("種類", `<select name="category">${Object.entries(CATS).map(([k, n]) => `<option value="${k}"${k === it.category ? " selected" : ""}>${n}</option>`).join("")}</select>`)}
+    ${field("対応MCバージョン(例: 1.20.1〜1.21.4 / 1.20 以降)", `<input type="text" name="mc_versions" value="${esc(it.mc_versions || "")}" placeholder="${esc(it.mc_auto || "空欄なら自動で判定します")}">`)}
+    <p style="font-size:12.5px">空欄のままにすると、ファイルの中身や配布元から自動で判定した${it.mc_auto ? `「${esc(it.mc_auto)}」` : "バージョン"}を表示します。</p>`);
   if (!r) return;
   await run(async () => {
     await api(`/api/items/${it.id}`, { method: "PATCH", json: r });
@@ -489,7 +614,7 @@ function sourceBoxHTML(it) {
         <button class="btn small" type="button" data-act="src-link">${icon("link")}URLで紐付け</button>
       </div>
       ${cands ? (cands.length ? `<div class="muted">候補から選んでください</div>${cands.map((c, i) => `
-        <div class="cand"><div class="main">${esc(c.title)}<small>${esc(PROVIDERS[c.provider])} · ${(c.downloads || 0).toLocaleString()} DL${c.summary ? " · " + esc(c.summary.slice(0, 70)) : ""}</small></div>
+        <div class="cand"><div class="main">${esc(c.title)}${c.exact ? ' <span class="badge ok">名前が一致</span>' : ""}<small>${esc(PROVIDERS[c.provider])} · ${(c.downloads || 0).toLocaleString()} DL${c.summary ? " · " + esc(c.summary.slice(0, 70)) : ""}</small></div>
           <a class="btn small" href="${esc(safeUrl(c.page_url))}" target="_blank" rel="noopener noreferrer">開く</a>
           <button class="btn small tinted need-editor" type="button" data-act="src-pick" data-i="${i}">選択</button></div>`).join("")}`
         : `<div class="muted">見つかりませんでした。配布ページのURLで紐付けてください。</div>`) : ""}
@@ -506,6 +631,9 @@ function sourceBoxHTML(it) {
       ${L.file_name ? `<div class="muted" style="margin-top:2px">${esc(L.file_name)}</div>` : ""}</div>` : ""}
     ${s.message ? `<div class="muted">${esc(s.message)}</div>` : ""}
     <div class="muted">絞り込み: ローダー ${s.loaders.length ? esc(s.loaders.join(", ")) : "指定なし"} / MC ${s.game_versions.length ? esc(s.game_versions.join(", ")) : "指定なし"}${s.checked_at ? ` · 確認 ${fmtDateTime(s.checked_at)}` : ""}</div>
+    <div class="acts">
+      ${safeUrl(s.page_url) !== "#" ? `<a class="btn small tinted" href="${esc(safeUrl(s.page_url))}" target="_blank" rel="noopener noreferrer">${icon("external")}配布ページを開く</a>` : ""}
+    </div>
     <div class="acts need-editor">
       ${s.status === "update" && L.downloadable ? `<button class="btn small filled" type="button" data-act="src-download">${icon("download")}${esc(L.version || "最新版")} を保存</button>` : ""}
       <button class="btn small" type="button" data-act="src-check">${icon("refresh")}確認</button>
@@ -519,7 +647,8 @@ async function sourceAction(it, act, btn) {
   try {
     if (act === "src-detect") {
       const r = await busy(btn, () => api(`/api/items/${it.id}/source/detect`, { method: "POST" }), "探しています…");
-      if (r.linked) { toast(r.how); delete state.candidates[it.id]; } else state.candidates[it.id] = r.candidates;
+      if (r.linked) { toast(r.how); delete state.candidates[it.id]; }
+      else { state.candidates[it.id] = r.candidates; toast(r.candidates.length ? "候補が見つかりました。正しいものを選んでください" : "見つかりませんでした", !r.candidates.length); }
     } else if (act === "src-pick") {
       const c = state.candidates[it.id][Number(btn.dataset.i)];
       await busy(btn, () => api(`/api/items/${it.id}/source`, { json: { provider: c.provider, project_id: c.project_id } }), "");
@@ -659,6 +788,8 @@ async function openSettings(start) {
     renderSettings();
   }, { wide: false });
   settingsNav.form = null;
+  state.dashSettings = null;
+  if (state.view === "dash") renderDash();
 }
 function pushSettings(page, arg) { settingsNav.stack.push({ page, arg }); renderSettings(); }
 function popSettings() { settingsNav.stack.pop(); renderSettings(); }
@@ -1013,7 +1144,7 @@ const SETTINGS_PAGES = {
           ${d.totals.missing ? `<div class="row noicon danger"><span class="main"><span class="title">見つからないファイル</span></span><span class="trail">${d.totals.missing}</span></div>` : ""}</div>
         <div class="group-title">登録されているもの</div>
         <div class="group scroll">${d.items.map((i) => `<div class="row"><span class="cicon sm c-${i.category}">${CAT_LETTER[i.category]}</span>
-          <span class="main"><span class="title">${esc(i.name)}</span><span class="subtitle">${esc(verLabel(i.latest))} · ${i.versions} 版 · ${fmtSize(i.total_size)}</span></span>
+          <span class="main"><span class="title">${esc(i.name)}</span><span class="subtitle">${esc(verLabel(i.latest))} · ${i.versions} バージョン · ${fmtSize(i.total_size)}</span></span>
           ${i.missing ? '<span class="badge err">欠損</span>' : ""}</div>`).join("") || `<div class="empty">登録されたものはありません</div>`}</div>
         ${d.unregistered.count ? `<div class="group-title">未登録のファイル(${d.unregistered.count})</div><div class="filelist">${esc(d.unregistered.files.join("\n"))}</div>
           <div class="group-foot">この保存先に切り替えて「inbox を取り込む」で登録できます</div>` : ""}
@@ -1230,6 +1361,6 @@ async function walk(entry, out, inDir) {
 (function init() {
   applyTheme(readCachedTheme(), { loggedIn: false });
   const sel = $("#catOverride");
-  for (const [k, n] of Object.entries(CATS)) sel.insertAdjacentHTML("beforeend", `<option value="${k}">種類: ${n}</option>`);
+  for (const [k, n] of Object.entries(CATS)) sel.insertAdjacentHTML("beforeend", `<option value="${k}">${n}として登録</option>`);
   checkAuth();
 })();

@@ -229,6 +229,8 @@ def migrate_schema(conn):
     conn.execute("UPDATE storage_targets SET protocol='smb' WHERE protocol='cifs'")
     if "sha1" not in _table_cols(conn, "versions"):  # 配布サイトとの照合に使う
         conn.execute("ALTER TABLE versions ADD COLUMN sha1 TEXT NOT NULL DEFAULT ''")
+    if "mc_versions" not in _table_cols(conn, "items"):  # 対応MCバージョン(手入力。空なら自動)
+        conn.execute("ALTER TABLE items ADD COLUMN mc_versions TEXT NOT NULL DEFAULT ''")
     if "prefs" not in _table_cols(conn, "users"):  # テーマ・背景などの個人設定
         conn.execute("ALTER TABLE users ADD COLUMN prefs TEXT NOT NULL DEFAULT '{}'")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_versions_item ON versions(item_id)")
@@ -909,6 +911,38 @@ def ingest(local, filename, force_cat=None, default_cat=None, src_rel=None, item
             "new_item": created}
 
 
+_MC_REL = re.compile(r"^1\.\d+(\.\d+)?$|^\d{2}\.\d+(\.\d+)?$")
+
+
+def _mc_key(v):
+    return tuple(int(x) for x in v.split("."))
+
+
+def summarize_mc(versions):
+    """["1.20.1", "1.20.2", ..., "1.21.4"] → "1.20.1〜1.21.4"(スナップショット等は除く)。"""
+    vs = sorted({v for v in versions if isinstance(v, str) and _MC_REL.match(v)}, key=_mc_key)
+    if not vs:
+        return ""
+    return vs[0] if len(vs) == 1 else (", ".join(vs) if len(vs) <= 3 else f"{vs[0]}〜{vs[-1]}")
+
+
+def auto_mc_versions(meta, category, source):
+    """保存しているファイルの中身・配布元の情報から、対応MCバージョンを推定する。"""
+    mc = str((meta or {}).get("mc") or "").strip()
+    if mc:
+        if category == "plugin" and re.match(r"^\d+\.\d+(\.\d+)?$", mc):
+            return f"{mc} 以降"  # plugin.yml の api-version は「このバージョン以降」の意味
+        mc = re.sub(r"^>=\s*(\S+)$", r"\1 以降", mc)
+        mc = re.sub(r"^\[([^,\]]+),\s*\)$", r"\1 以降", mc)  # Forge の [1.20.1,)
+        return mc.lstrip("~^=")[:60]
+    if source:
+        if source.get("game_versions"):
+            return summarize_mc(source["game_versions"])
+        if source.get("status") == "up_to_date":
+            return summarize_mc((source.get("latest") or {}).get("game_versions") or [])
+    return ""
+
+
 def build_library(conn, store, target):
     tid = target["id"]
     present = store.file_index("library")
@@ -935,6 +969,7 @@ def build_library(conn, store, target):
             continue
         it["versions"] = vs
         it["latest_id"] = vs[0]["id"]
+        it["mc_auto"] = auto_mc_versions(vs[0]["meta"], it["category"], it.get("source"))
         it["total_size"] = sum(v["size"] for v in vs)
         it["last_added"] = max(v["added_at"] for v in vs)
         it.pop("key", None)
@@ -1429,6 +1464,7 @@ def api_patch_item(iid):
     new_name = str(data.get("name", item["name"]) or "").strip()
     if not new_name:
         raise ApiError("名前を入力してください")
+    mc_versions = str(data.get("mc_versions", item["mc_versions"]) or "").strip()[:100]
 
     moved = []  # (dest, src) 失敗時に戻す用
     with LOCK:
@@ -1450,6 +1486,7 @@ def api_patch_item(iid):
                         (target["id"], dest[len("library/"):], dest.rsplit("/", 1)[-1], v["id"]),
                     )
                 conn.execute("DELETE FROM items WHERE id=?", (iid,))
+            conn.execute("UPDATE items SET mc_versions=? WHERE id=?", (mc_versions, target["id"]))
             conn.commit()
         except Exception:
             conn.rollback()
@@ -2158,15 +2195,14 @@ def detect_source(conn, store, item):
                 return {"linked": True, "how": "CurseForge でファイルが一致しました", "candidates": []}
     candidates = []
     if item["category"] == "plugin":
+        # 名前だけで決めると別の同名リソースに紐付くことがあるため、自動では紐付けず候補として出す
         try:
             sp = src.spigot_search(item["name"])
         except src.SourceError:
             sp = []
-        exact = [c for c in sp if norm_key(c["title"]) == norm_key(item["name"])]
-        if len(exact) == 1:
-            link_source(conn, item, src.spigot_project(exact[0]["project_id"]), "name")
-            return {"linked": True, "how": "SpigotMC で同じ名前のリソースが見つかりました(名前での推定です)",
-                    "candidates": []}
+        for c in sp:
+            c["exact"] = norm_key(c["title"]) == norm_key(item["name"])
+        sp.sort(key=lambda c: not c["exact"])
         candidates += sp[:5]
     try:
         candidates += src.modrinth_search(item["name"], _PROJECT_TYPES.get(item["category"]))[:5]
@@ -2199,12 +2235,12 @@ def check_item(conn, item):
             newest_saved = max((_first_nums(v["version"]) for v in vs if _first_nums(v["version"])), default=None)
             latest_nums = _first_nums(info.get("version"))
             if have:
-                status, message = "up_to_date", "最新版を保存済みです"
+                status, message = "up_to_date", "最新バージョンを保存しています"
             elif newest_saved and latest_nums and newest_saved > latest_nums:
-                status, message = "up_to_date", "保存済みの版の方が新しいようです"
+                status, message = "up_to_date", "保存しているバージョンの方が新しいようです"
             else:
                 status = "update"
-                message = "新しい版があります" + (f"({info['note']})" if info.get("note") else "")
+                message = "新しいバージョンが公開されています" + (f"({info['note']})" if info.get("note") else "")
     except src.SourceError as e:
         message = e.message
     with LOCK:

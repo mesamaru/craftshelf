@@ -27,11 +27,19 @@
 
   <main class="wrap">
     <div class="large-title">
-      <h2>ライブラリ</h2>
+      <div class="lt-left">
+        <h2 id="viewTitle">ライブラリ</h2>
+        <div class="segmented viewsw glass" id="viewSw" role="tablist" aria-label="表示の切り替え">
+          <button class="seg" type="button" role="tab" data-view="library" aria-pressed="true">ライブラリ</button>
+          <button class="seg" type="button" role="tab" data-view="dash" aria-pressed="false">ダッシュボード</button>
+        </div>
+      </div>
       <div class="pill" id="storageInfo"></div>
     </div>
     <div class="banner" id="storageBanner" hidden></div>
     <div class="jobs" id="jobs"></div>
+    <section id="dash" hidden></section>
+    <div id="libView">
 
     <section class="dropcard need-editor" id="drop">
       <div class="dz">
@@ -39,7 +47,7 @@
         <div><strong>ドラッグ&amp;ドロップで追加</strong><span class="s">.jar / .zip やフォルダをまとめて。名前とバージョンは自動で読み取ります</span></div>
       </div>
       <div class="acts">
-        <select id="catOverride" class="compact" aria-label="登録先の種類"><option value="">種類: 自動判定</option></select>
+        <select id="catOverride" class="compact" aria-label="登録するときの種類"><option value="">種類を自動で判定</option></select>
         <button class="btn filled small" id="pickFiles" type="button">ファイルを選択</button>
         <button class="btn small" id="pickDir" type="button">フォルダ</button>
       </div>
@@ -66,6 +74,7 @@
     </div>
 
     <section class="group" id="list"></section>
+    </div>
   </main>
 </div>
 

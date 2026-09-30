@@ -1364,7 +1364,7 @@ function depsHTML(it) {
       const dv = dep.versions.find((v) => v.id === dep.latest_id) || dep.versions[0];
       const comp = mcCompatible(mcOf(it), mcOf(dep));
       return `<div class="row" role="button" tabindex="0" data-open="${dep.id}">
-        <span class="cicon sm c-${dep.category}">${catGlyph(dep.category)}</span>
+        ${itemIcon(dep, true)}
         <span class="main"><span class="title">${esc(d.name)}${dep.name.toLowerCase() !== d.name.toLowerCase() ? ` <span class="muted">→ ${esc(dep.name)}</span>` : ""}</span>
           <span class="subtitle">${d.required ? "必須" : "任意"} · ${esc(verLabel(dv.version))}${mcOf(dep) ? ` · MC ${esc(mcOf(dep))}` : ""}${d.manual ? " · 手動で紐付け" : ""}</span></span>
         <span class="trail">${dep.source && dep.source.status === "update" ? '<span class="badge upd">更新あり</span>' : ""}
@@ -1420,7 +1420,8 @@ function sourceBoxHTML(it) {
   const st = s.status === "update" ? '<span class="badge upd">更新あり</span>' : s.status === "up_to_date" ? '<span class="badge ok">最新</span>'
     : `<span class="badge${s.status === "error" ? " err" : ""}">${esc(SRC_STATUS[s.status] || s.status)}</span>`;
   return `<div class="srcbox">
-    <div class="sh">${providerBadge(s.provider).replace('class="pbadge"', 'class="pbadge lg"')}
+    <div class="sh">${s.icon_v ? `<span class="srcicon"><img src="/api/items/${it.id}/icon?v=${s.icon_v}" alt="" decoding="async">${providerBadge(s.provider)}</span>`
+      : providerBadge(s.provider).replace('class="pbadge"', 'class="pbadge lg"')}
       <div class="main"><a href="${esc(safeUrl(s.page_url))}" target="_blank" rel="noopener noreferrer" style="font-weight:600">${esc(s.title)} ${icon("external", "i ext")}</a>
         <div class="muted" style="margin:0">${esc(s.provider_label)}${s.linked_by === "name" ? " · 名前から推定" : ""}${s.checked_at ? ` · ${fmtDateTime(s.checked_at)} に確認` : ""}</div></div>${st}</div>
     ${L.version ? `<div class="latest"><div>配布元の最新: <b>${esc(L.version)}</b>${L.date ? ` <span class="muted">(${fmtDate(L.date)})</span>` : ""}</div>

@@ -1,0 +1,4 @@
+# インストーラー版のビルドに使う(packaging/build.py)
+pyinstaller>=6.10
+pystray>=0.19
+pillow>=10.0

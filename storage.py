@@ -104,6 +104,10 @@ class BaseStorage:
     def describe(self):
         raise NotImplementedError
 
+    def capacity(self):
+        """保存先の容量 {"total": バイト, "free": バイト}。分からなければ None。"""
+        return None
+
 
 # --------------------------------------------------------------------------
 # ローカル
@@ -117,6 +121,10 @@ class LocalStorage(BaseStorage):
 
     def describe(self):
         return str(self.root)
+
+    def capacity(self):
+        du = shutil.disk_usage(self.root)
+        return {"total": du.total, "free": du.free}
 
     def local_path(self, rel):
         p = (self.root / clean_rel(rel)).resolve()
@@ -262,6 +270,10 @@ class SmbStorage(BaseStorage):
 
     def _kw(self):
         return dict(username=self.username, password=self.password, port=self.port)
+
+    def capacity(self):
+        v = self._call(lambda c: c.stat_volume(self._unc(""), **self._kw()))
+        return {"total": int(v.total_size), "free": int(v.caller_available_size)}
 
     CONNECT_TIMEOUT = 15  # 秒
 
@@ -489,6 +501,28 @@ class WebDavStorage(BaseStorage):
         if r.status_code == 507:
             raise StorageError("保存先の容量が不足しています")
         raise StorageError(f"WebDAVエラー: HTTP {r.status_code} ({method})")
+
+    def capacity(self):
+        # RFC 4331 のクォータ情報(Nextcloud などが対応)。無ければ None
+        body = ('<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop>'
+                '<d:quota-available-bytes/><d:quota-used-bytes/></d:prop></d:propfind>')
+        r = self._req("PROPFIND", self._url("", is_dir=True), ok=(207,), data=body,
+                      headers={"Depth": "0", "Content-Type": "application/xml"})
+        try:
+            root = ET.fromstring(r.content)
+        except ET.ParseError:
+            return None
+        num = {}
+        for tag in ("quota-available-bytes", "quota-used-bytes"):
+            el = root.find(f".//{{DAV:}}{tag}")
+            try:
+                num[tag] = int(el.text) if el is not None and el.text else None
+            except ValueError:
+                num[tag] = None
+        free, used = num["quota-available-bytes"], num["quota-used-bytes"]
+        if free is None or free < 0:  # 無制限(-3 など)や未対応
+            return None
+        return {"total": free + (used or 0), "free": free}
 
     def _propfind(self, rel, depth):
         body = ('<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop>'

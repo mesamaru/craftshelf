@@ -14,6 +14,7 @@ import hashlib
 import json
 import re
 import struct
+from html.parser import HTMLParser
 from urllib.parse import quote, urlsplit
 
 import requests
@@ -491,7 +492,7 @@ def download(url, dest, expected_sha1="", extra_hosts=()):
 # --------------------------------------------------------------------------
 # 変更履歴(チェンジログ)
 # --------------------------------------------------------------------------
-class _TextOnly(__import__("html.parser", fromlist=["HTMLParser"]).HTMLParser):
+class _TextOnly(HTMLParser):
     """HTML からテキストだけを取り出す(タグは一切残さないので、画面に出しても安全)。"""
     BLOCK = {"p", "div", "br", "li", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "pre", "blockquote"}
 

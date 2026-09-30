@@ -10,16 +10,17 @@ services:
     # 使うなら root 実行のままにしておくのが簡単です。
     # user: "99:100"
     #
-    # Web設定パネルから SMB(Unraid・TrueNAS)/ WebDAV(Nextcloud)の保存先を追加できます。
+    # Web設定パネルから SMB(Unraid・TrueNAS・Synology・Windows 共有)/ WebDAV(Nextcloud)の保存先を追加できます。
     # アプリ自身が直接通信するので、cap_add / security_opt / privileged などの
     # 特別な権限は不要です(Proxmox の非特権LXC の中の Docker でも動きます)。
     ports:
       - "8765:8080"
     volumes:
-      # 左側を Unraid 上の保存したい共有フォルダに変えてください
+      # 左側を、ファイルを保存したいフォルダに変えてください(例: Unraid なら /mnt/user/minecraft/library)
       # (ローカル保存先。Web設定パネルからSMB/WebDAVを追加登録することもできます)
-      - /mnt/user/minecraft/library:/data
+      - ./data:/data
     environment:
+      # タイムゾーン(例: Asia/Tokyo, Europe/London, America/New_York)
       - TZ=Asia/Tokyo
       # 起動のたびに GitHub の最新コードを取得して反映する(README の「アップデート」参照)。
       # 画面の「🔄 パネルの更新」もこのリポジトリを見ます。
@@ -31,4 +32,4 @@ services:
       # - AUTH_PASS=change-me
       # index.db だけ別の場所(キャッシュ上のappdataなど)に置きたい場合
       # - DB_DIR=/config
-    # volumes に  - /mnt/user/appdata/mc-pack-library:/config  も足してください
+    # volumes に  - ./config:/config  も足してください

@@ -1569,6 +1569,38 @@ def api_library():
     )
 
 
+@app.get("/api/storage/status")
+def api_storage_status():
+    """いま使っている保存先(NAS など)の状況: 接続・応答時間・容量・CraftShelf の使用量・バックアップ。"""
+    conn = db()
+    target = conn.execute("SELECT * FROM storage_targets WHERE active=1").fetchone()
+    if not target:
+        raise ApiError("有効なストレージが設定されていません", 404)
+    out = {"target": target_public(target, conn), "connected": False, "error": None,
+           "latency_ms": None, "capacity": None, "where": None}
+    t0 = time.monotonic()
+    try:
+        store, target = active_store()
+        try:
+            out["capacity"] = store.capacity()
+        except StorageError as e:
+            out["capacity_error"] = e.message
+        except Exception:  # noqa: BLE001
+            out["capacity"] = None
+        out["latency_ms"] = round((time.monotonic() - t0) * 1000)
+        out["connected"] = True
+        if current_user()["role"] == "admin":
+            out["where"] = store.describe()
+    except (ApiError, StorageError) as e:
+        out["error"] = e.message
+    r = conn.execute("SELECT COUNT(DISTINCT i.id), COUNT(v.id), COALESCE(SUM(v.size), 0) FROM items i "
+                     "LEFT JOIN versions v ON v.item_id=i.id WHERE i.target_id=?", (target["id"],)).fetchone()
+    out["usage"] = {"items": r[0], "files": r[1], "bytes": r[2]}
+    out["backup"] = {"enabled": bool(int(get_setting("backup_target_id", "0") or 0)),
+                     "last": get_setting("last_backup", "")}
+    return jsonify(out)
+
+
 @app.put("/api/upload")
 @require("editor")
 def api_upload():
@@ -4603,7 +4635,7 @@ def _self_update_tick():
         return
     _self_update_tick.last = time.monotonic()
     info = selfupdate.check(force=True)
-    if info["update_available"] and get_setting("self_auto_update", "0") == "1":
+    if info["update_available"] and info.get("mode") != "installer" and get_setting("self_auto_update", "0") == "1":
         start_job("selfupdate", f"{APP_NAME} の自動更新 ({info['current']} → {info['latest']})",
                   _self_update_job, user="(自動)")
 

@@ -1,0 +1,66 @@
+# v01.02.03 のようなタグを push すると、Windows / macOS / Linux 向けの配布物をビルドしてリリースを作る。
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-15, macos-15-intel, ubuntu-22.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r packaging/requirements-build.txt
+      - name: Install Inno Setup
+        if: runner.os == 'Windows'
+        run: choco install innosetup -y --no-progress
+      - name: Build
+        run: python packaging/build.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: craftshelf-${{ matrix.os }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Release notes from CHANGELOG.md
+        run: |
+          python3 - <<'EOF'
+          import os, re
+          ver = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          text = open("CHANGELOG.md", encoding="utf-8").read()
+          m = re.search(rf"^## {re.escape(ver)} - .*?$(.*?)(?=^## |\Z)", text, re.M | re.S)
+          body = (m.group(1).strip() if m else "") + "\n\n---\n" + open("packaging/release-notes.md", encoding="utf-8").read()
+          open("notes.md", "w", encoding="utf-8").write(body)
+          EOF
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: CraftShelf ${{ github.ref_name }}
+          body_path: notes.md
+          files: |
+            artifacts/*
+            install.sh

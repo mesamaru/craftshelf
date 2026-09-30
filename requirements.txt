@@ -1,5 +1,6 @@
 Flask>=3.0
 gunicorn>=22.0
+waitress>=3.0
 cryptography>=42.0
 smbprotocol>=1.13
 requests>=2.31

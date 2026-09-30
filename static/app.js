@@ -435,7 +435,8 @@ function render() {
     + (nDeps || state.cat === "__deps" ? `<button class="seg upd" type="button" data-cat="__deps" aria-pressed="${state.cat === "__deps"}">前提が不足<span class="n">${nDeps}</span></button>` : "")
     + (state.cat === "__unlinked" ? `<button class="seg" type="button" data-cat="__unlinked" aria-pressed="true">未連携<span class="n">${state.items.filter((i) => !i.source).length}</span></button>` : "")
     + (state.cat === "__nomc" ? `<button class="seg" type="button" data-cat="__nomc" aria-pressed="true">MC不明<span class="n">${state.items.filter((i) => !mcOf(i)).length}</span></button>` : "")
-    + (emptyCats.length ? `<select class="compact seg-more" id="catMore" aria-label="ほかの種類"><option value="">ほかの種類</option>${emptyCats.map((k) => `<option value="${k}">${CATS[k]}(0)</option>`).join("")}</select>` : "");
+    + (emptyCats.length ? `<button class="seg seg-more" type="button" id="catMore" aria-haspopup="menu">ほかの種類${icon("down")}</button>` : "");
+  state.emptyCats = emptyCats;
   const tags = [...new Set(state.items.flatMap((i) => i.tags || []))].sort((a, b) => a.localeCompare(b, "ja"));
   if (state.tag && !tags.includes(state.tag)) state.tag = "";
   $("#tagChips").hidden = !tags.length;
@@ -481,7 +482,7 @@ function render() {
 function renderStorage() {
   const s = state.storage || {}, t = s.target;
   $("#storageInfo").innerHTML = t ? `<span class="status-dot ${s.error ? "err" : "ok"}"></span>${icon(t.protocol === "local" ? "box" : "server")}<span class="t">${esc(t.name)}</span>` : "";
-  $("#storageInfo").title = t ? `保存先: ${t.name}` : "";
+  $("#storageInfo").title = t ? `保存先: ${t.name}(押すと状況を表示)` : "";
   const banner = $("#storageBanner");
   banner.hidden = !s.error;
   banner.innerHTML = s.error ? `<span>⚠️ ${esc(s.error)}</span>${isAdmin() ? `<button class="btn small tinted" type="button" id="bannerOpen">ストレージ設定を開く</button>` : ""}` : "";
@@ -489,12 +490,56 @@ function renderStorage() {
   $("#drop").classList.toggle("disabled", !!s.error);
 }
 
-$("#chips").addEventListener("change", (e) => {
-  if (e.target.id !== "catMore" || !e.target.value) return;
-  state.cat = e.target.value; render();
-  try { localStorage.setItem("craftshelf.cat", state.cat); } catch { /* */ }
-});
+/* 保存先(NAS など)の状況 */
+async function storageStatusSheet() {
+  const body = (d) => {
+    if (!d) return `<div class="empty"><span class="spinner"></span></div>`;
+    const t = d.target || {}, c = d.capacity, u = d.usage || {};
+    const pct = c && c.total ? Math.min(100, Math.round((1 - c.free / c.total) * 100)) : null;
+    const ours = c && c.total ? Math.max(0.5, (u.bytes / c.total) * 100) : 0;
+    return `<div class="group"><div class="row noicon"><span class="main"><span class="title"><span class="status-dot ${d.connected ? "ok" : "err"}" style="display:inline-block;margin-right:8px"></span>${d.connected ? "接続しています" : "接続できません"}</span>
+        ${d.error ? `<span class="subtitle brk">${esc(d.error)}</span>` : ""}</span>
+        ${d.latency_ms != null ? `<span class="trail"><span class="badge ${d.latency_ms < 300 ? "ok" : d.latency_ms < 1500 ? "upd" : "err"}">応答時間 ${d.latency_ms} ms</span></span>` : ""}</div></div>
+      <div class="group"><div class="card-b" style="padding:12px 14px">
+        <div class="kv"><span>名前</span><span translate="no">${esc(t.name || "")}</span></div>
+        <div class="kv"><span>種類</span><span>${esc(t.protocol_label || t.protocol || "")}</span></div>
+        ${d.where ? `<div class="kv"><span>場所</span><span translate="no">${esc(d.where)}</span></div>` : ""}
+      </div></div>
+      <div class="group-title">保存先の容量</div>
+      <div class="group"><div class="card-b" style="padding:12px 14px">
+        ${c ? `<div class="meter stack"><i style="width:${pct}%"></i><b style="width:${Math.min(ours, pct)}%"></b></div>
+          <div class="kv"><span>使用済み</span><span>${fmtSize(c.total - c.free)} / ${fmtSize(c.total)}(${pct}%)</span></div>
+          <div class="kv"><span>空き容量</span><span>${fmtSize(c.free)}</span></div>`
+          : `<div class="muted" style="margin:0">${d.connected ? "この保存先は容量の情報を返しません" : "接続できないため取得できません"}</div>`}
+        <div class="kv"><span>CraftShelf の使用量</span><span>${fmtSize(u.bytes || 0)}(${u.items || 0} 件 · ${u.files || 0} ファイル)</span></div>
+      </div></div>
+      <div class="group"><div class="card-b" style="padding:12px 14px">
+        <div class="kv"><span>自動バックアップ</span><span>${d.backup && d.backup.enabled ? `毎日${d.backup.last ? `(前回 ${esc(fmtDateTime(d.backup.last))})` : ""}` : "設定されていません"}</span></div>
+      </div></div>`;
+  };
+  await sheet(`${sheetHead("保存先の状況")}<div class="db" id="nasBody">${body(null)}</div>
+    <div class="df row2"><button class="btn" type="button" id="nasRe">${icon("refresh")}再確認</button>
+    ${isAdmin() ? `<button class="btn tinted" type="button" id="nasSet">ストレージ設定</button>` : `<button class="btn" type="button" data-close>閉じる</button>`}</div>`, (form, done) => {
+    const load = async () => {
+      try { $("#nasBody", form).innerHTML = body(await api("/api/storage/status")); }
+      catch (e) { $("#nasBody", form).innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
+    };
+    $("#nasRe", form).onclick = (e) => busy(e.currentTarget, load, "確認中…");
+    const s = $("#nasSet", form);
+    if (s) s.onclick = () => { done(null); openSettings("storage"); };
+    load();
+  });
+}
+$("#storageInfo").addEventListener("click", () => { if (state.storage && state.storage.target) storageStatusSheet(); });
+$("#storageInfo").addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("#storageInfo").click(); } });
+
 $("#chips").addEventListener("click", (e) => {
+  const more = e.target.closest("#catMore");
+  if (more) {
+    openMenu(more, (state.emptyCats || []).map((k) => ({ label: `${CATS[k]}(0)`, icon: CAT_ICON[k] || "doc",
+      run: () => { state.cat = k; render(); try { localStorage.setItem("craftshelf.cat", k); } catch { /* */ } } })));
+    return;
+  }
   const b = e.target.closest("[data-cat]"); if (!b) return;
   state.cat = b.dataset.cat; render();
   try { if (!state.cat.startsWith("__")) localStorage.setItem("craftshelf.cat", state.cat); } catch { /* */ }
@@ -2403,10 +2448,12 @@ const SETTINGS_PAGES = {
           <div class="v">${d.update_available ? `v${esc(d.latest)}` : `v${esc(d.current)}`}</div>
           <p>${d.error ? esc(d.error) : d.update_available ? `現在 v${esc(d.current)} · 新しいバージョンがあります` : "CraftShelf は最新です"}</p></div>
         ${d.notes && d.notes.length ? `<div class="notes">${d.notes.map((n) => `<h4>v${esc(n.version)} ${esc(n.title)}</h4><div class="body">${esc(n.body)}</div>`).join("")}</div>` : ""}
-        ${d.update_available ? `<button class="btn filled block" type="button" id="suGo">ダウンロードしてインストール</button>
+        ${d.update_available && d.mode === "installer" ? `<a class="btn filled block" href="${esc(safeUrl(d.download_url))}" target="_blank" rel="noopener noreferrer">${icon("download")}新しいインストーラーをダウンロード</a>
+          <div class="group-foot" style="text-align:center">ダウンロードしたインストーラーを実行すると、上書きでアップデートされます。保存したファイルや登録情報はそのまま残ります。</div>`
+          : d.update_available ? `<button class="btn filled block" type="button" id="suGo">ダウンロードしてインストール</button>
           <div class="group-foot" style="text-align:center">インストール後に自動で再起動します(数秒〜数十秒)。保存したファイルや登録情報はそのまま残ります。</div>`
           : `<button class="btn tinted block" type="button" id="suRe">${icon("refresh")}もう一度確認</button>`}
-        <div class="group" style="margin-top:6px">${toggle("self_auto_update", "自動アップデート", "6時間ごとに確認し、新しいバージョンがあれば自動でインストールします", (await api("/api/settings")).self_auto_update)}</div>
+        ${d.mode === "installer" ? "" : `<div class="group" style="margin-top:6px">${toggle("self_auto_update", "自動アップデート", "6時間ごとに確認し、新しいバージョンがあれば自動でインストールします", (await api("/api/settings")).self_auto_update)}</div>`}
         <div class="group-foot">取得元: <a href="https://github.com/${esc(d.repo)}" target="_blank" rel="noopener noreferrer">github.com/${esc(d.repo)}</a> (${esc(d.branch)})</div>`;
       $("#suRe", body)?.addEventListener("click", (e) => busy(e.currentTarget, () => renderSettings(), "確認中…"));
       $("#suGo", body)?.addEventListener("click", (e) => busy(e.currentTarget, () => startSelfUpdate(d), "開始しています…"));

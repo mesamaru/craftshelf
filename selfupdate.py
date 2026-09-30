@@ -20,6 +20,10 @@ BASE_DIR = Path(__file__).resolve().parent
 REPO = (os.environ.get("GITHUB_REPO") or "").strip() or "mesamaru/craftshelf"
 BRANCH = (os.environ.get("GITHUB_BRANCH") or "").strip() or "main"
 CHECK_TTL = 600  # 秒。GitHub への確認結果をこの間は使い回す
+# インストーラー版(実行ファイル)は自分自身を書き換えられないので、GitHub のリリースを見て
+# 新しいインストーラーのダウンロードを案内する。それ以外(Docker・git から入れたもの)はコードを入れ替える。
+FROZEN = getattr(sys, "frozen", False)
+MODE = "installer" if FROZEN else "git"
 
 _VER_RE = re.compile(r"^(\d{1,3})\.(\d{1,3})\.(\d{1,3})$")
 
@@ -99,9 +103,10 @@ def check(force=False):
             return dict(_cache["data"], current=current_version())
     cur = current_version()
     data = {"repo": REPO, "branch": BRANCH, "current": cur, "latest": None, "update_available": False,
-            "notes": [], "error": None, "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
+            "notes": [], "error": None, "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "mode": MODE, "download_url": f"https://github.com/{REPO}/releases/latest"}
     try:
-        latest = _github_file("VERSION").strip()
+        latest = _latest_release() if FROZEN else _github_file("VERSION").strip()
         if not parse_version(latest):
             raise UpdateError(f"GitHub の VERSION の形式が不正です: {latest[:20]}")
         data["latest"] = latest
@@ -111,12 +116,26 @@ def check(force=False):
         except UpdateError:
             notes = []
         data["notes"] = [n for n in notes if parse_version(n["version"]) and
-                         parse_version(n["version"]) > parse_version(cur)][:20]
+                         parse_version(cur) < parse_version(n["version"]) <= parse_version(latest)][:20]
     except UpdateError as e:
         data["error"] = e.message
     with _cache_lock:
         _cache.update(at=time.monotonic(), data=data)
     return data
+
+
+def _latest_release():
+    """GitHub の最新リリースのバージョン(タグ v01.02.03 → 01.02.03)。"""
+    try:
+        r = requests.get(f"https://api.github.com/repos/{REPO}/releases/latest", timeout=15,
+                         headers={"Accept": "application/vnd.github+json", "User-Agent": "craftshelf"})
+    except requests.RequestException as e:
+        raise UpdateError(f"GitHub に接続できません: {e}") from e
+    if r.status_code == 404:
+        raise UpdateError("GitHub にリリースがまだありません")
+    if r.status_code != 200:
+        raise UpdateError(f"GitHub からリリース情報を取得できません(HTTP {r.status_code})")
+    return str(r.json().get("tag_name") or "").lstrip("vV").strip()
 
 
 def _run(cmd, **kw):
@@ -128,6 +147,8 @@ def _run(cmd, **kw):
 
 def apply(note=print):
     """最新版を取得して /app を入れ替える。成功したら (旧, 新) を返す(再起動は restart() で別に行う)。"""
+    if FROZEN:
+        raise UpdateError("インストーラー版は、新しいインストーラーをダウンロードして上書きインストールしてください")
     if os.name != "posix":
         raise UpdateError("この環境(Windows での直接実行)では自動更新できません。Docker で動かしてください")
     for tool in ("git", "rsync"):

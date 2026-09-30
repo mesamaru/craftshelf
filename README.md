@@ -1,7 +1,25 @@
-# CraftShelf
+<p align="center"><img src="static/icon.svg" width="112" alt="CraftShelf"></p>
 
-プラグイン・Mod・データパック・リソースパック・シェーダー・Modパックを、ブラウザにドラッグ&ドロップするだけで整理・保管するツールです。
-保存先は Unraid の共有フォルダに置けます。
+<h1 align="center">CraftShelf</h1>
+
+<p align="center">
+Minecraft のプラグイン・Mod・データパック・リソースパック・シェーダー・Modパックを<br>
+ドラッグ&ドロップで整理・保管し、更新の確認からサーバーへの反映までまとめて行うセルフホストの Web パネル
+</p>
+
+<p align="center"><a href="README.en.md">English</a> · <a href="CHANGELOG.md">変更履歴</a></p>
+
+---
+
+## 特長
+
+- 📦 **放り込むだけで整理**: jar / zip やフォルダをドロップするだけで、名前・バージョン・対応 MC・サーバーソフトを自動で読み取って保存
+- 🔗 **配布サイトと連携**: Modrinth / SpigotMC / CurseForge と自動で紐付け、更新を定期的にチェックして新しい版をワンクリックで保存
+- 🧩 **前提プラグインのチェック**: 足りない前提プラグイン・Mod を見つけて、検索から追加
+- 🖥️ **Pterodactyl 連携**: サーバーへのワンクリック同期・サーバー同士の比較・同期前の状態への巻き戻し・予約同期
+- 🗂️ **保存先を選べる**: ローカルフォルダ / SMB(Unraid・TrueNAS・Synology・Windows 共有)/ WebDAV(Nextcloud など)
+- 👥 **複数人で使える**: 閲覧のみ・編集者・管理者の権限、二段階認証、API トークン、操作の記録
+- 🌐 **日本語 / English** の切り替え、テーマと背景のカスタマイズ、スマホ対応
 
 ## できること
 
@@ -10,21 +28,24 @@
   - プラグイン: `plugin.yml` / `paper-plugin.yml` / `bungee.yml` / `velocity-plugin.json`
   - Mod: `fabric.mod.json` / `quilt.mod.json` / `mods.toml` / `neoforge.mods.toml` / `mcmod.info`
   - データパック・リソースパック: `pack.mcmeta`(名前・バージョンは無いのでファイル名から推測、`pack_format` も表示)
+  - シェーダー・Modパック: `shaders/` フォルダ、`modrinth.index.json` / `manifest.json`
   - 読めなかったら「その他」に入れます(あとから編集できます)
 - **配布元(Modrinth / SpigotMC / CurseForge)と連携して、最新版の確認・ダウンロード**(下記)
 - **アカウントでログイン**(閲覧のみ / 編集者 / 管理者)
 - **名前をクリック → 保存済みの全バージョンを一覧**(新しい順/古い順、1.10 が 1.9 より新しい、beta より正式版が新しい、といった自然な順序で並びます)
 - 同じファイルを二重に登録しない(中身のSHA-256で判定)
 - 名前・バージョン・メモの編集、ダウンロード、削除
-- 名前・保存数・サイズ・最終追加日での並び替え、種類での絞り込み、検索
+- 名前・保存数・サイズ・最終追加日での並び替え、種類・サーバーソフト・MCバージョンでの絞り込み、検索
 - **一括操作**: 一覧の「選択」でチェックしたものをまとめてダウンロード・共有リンク作成・サーバーへ転送・タグ付け・削除
+- **共有リンク**: ログインしていない人でもダウンロードできる期限付きリンク
 - **英語表示**: 設定の「言語 / Language」で切り替え
 - **アイコン**: 配布元と連携したものは、配布元のアイコンを取得して表示
-- **inbox取り込み**: NASの `inbox/` フォルダに直接コピーしたファイルを一括登録(既存コレクションの初回取り込みに便利)
+- **保存先の状況**: 右上の保存先の表示を押すと、NAS などの接続状態・応答時間・容量・空き容量を確認
+- **inbox取り込み**: 保存先の `inbox/` フォルダに直接コピーしたファイルを一括登録(既存コレクションの初回取り込みに便利)
 
 ## ファイルの保存形式
 
-NAS上には人が見てもわかる形で保存されます。このツールが壊れても、ファイルはそのまま使えます。
+保存先には人が見てもわかる形で保存されます。このツールが壊れても、ファイルはそのまま使えます。
 
 ```
 <保存先>/
@@ -40,31 +61,87 @@ NAS上には人が見てもわかる形で保存されます。このツール�
 
 `index.db` を失っても、`library/` に置かれたファイルは「inboxを取り込む」で再登録できます(メモは消えます)。
 
-## 導入(Docker / Dockge)
+## インストール
 
-1. このリポジトリを取得して、サーバーに置く(Dockge なら `/opt/stacks/craftshelf` など)
+| 使い方 | おすすめの方法 |
+| --- | --- |
+| 自分の PC(Windows / Mac)で使う | [インストーラー版](#インストーラー版windows--macos--linux) |
+| Ubuntu / Debian のサーバーで常駐させる | [インストールスクリプト](#ubuntu--debian-のサーバー) |
+| NAS・Docker 環境で動かす | [Docker](#導入docker) |
 
+### インストーラー版(Windows / macOS / Linux)
+
+[Releases](https://github.com/mesamaru/craftshelf/releases/latest) から、お使いの OS のファイルをダウンロードします。
+
+- **Windows 10 / 11**: `CraftShelf-Setup-<版>.exe` を実行してインストール。管理者権限は不要です。起動するとタスクトレイにアイコンが出て、ブラウザで画面が開きます
+- **macOS**: `CraftShelf-<版>-macos-arm64.dmg`(Apple シリコン)または `-x64.dmg`(Intel)を開き、CraftShelf を「アプリケーション」へドラッグ。メニューバーのアイコンから開けます
+- **Linux(デスクトップ)**: `CraftShelf-<版>-linux-x64.tar.gz` を展開して `CraftShelf` を実行
+
+> コード署名をしていないため、初回は「発行元を確認できません」という警告が出ることがあります。Windows は「詳細情報 → 実行」、macOS は CraftShelf を右クリック →「開く」で起動できます。
+
+データの保存先(変更する場合は保存先フォルダに `launcher.json` を置くか、起動オプション `--data-dir` を使います):
+
+| OS | 保存先 |
+| --- | --- |
+| Windows | `%LOCALAPPDATA%\CraftShelf` |
+| macOS | `~/Library/Application Support/CraftShelf` |
+| Linux | `~/.local/share/craftshelf` |
+
+初期状態ではこの PC からだけ開けます(`http://127.0.0.1:8765`)。LAN のほかの端末からも使う場合は、保存先フォルダに次の `launcher.json` を置いて再起動してください。
+
+```json
+{ "host": "0.0.0.0", "port": 8765 }
+```
+
+アップデートは、パネルの ⚙ →「パネルのアップデート」に新しい版が表示されたら、新しいインストーラーをダウンロードして上書きインストールします(データはそのまま残ります)。
+
+### Ubuntu / Debian のサーバー
+
+次の 1 行で、ダウンロードから常駐サービス(systemd)の登録まで行います。もう一度実行すると最新版に更新されます。
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/mesamaru/craftshelf/main/install.sh | sudo bash
+```
+
+- ブラウザで `http://<サーバーのIP>:8765` を開きます(ポートは `CRAFTSHELF_PORT=9000` のように指定して変更できます)
+- データは `/var/lib/craftshelf`、プログラムは `/opt/craftshelf` に置かれます
+- パネルの「パネルのアップデート」からそのまま更新できます
+- 状態の確認: `systemctl status craftshelf` / ログ: `journalctl -u craftshelf -f`
+- 削除: `curl -fsSL https://raw.githubusercontent.com/mesamaru/craftshelf/main/install.sh | sudo bash -s -- --uninstall`(データは残ります)
+
+## 導入(Docker)
+
+Docker と Docker Compose が使える環境(Linux サーバー、NAS、Dockge / Portainer など)で動きます。
+
+1. このリポジトリを取得する
+
+   ```bash
+   git clone https://github.com/mesamaru/craftshelf.git
+   cd craftshelf
    ```
-   git clone https://github.com/mesamaru/craftshelf.git /opt/stacks/craftshelf
-   ```
 
-2. `docker-compose.yml` の `volumes` の左側を、保存したいフォルダに変更する(例: `/mnt/user/minecraft/library`)
-3. 起動する(Dockge なら画面から「デプロイ」)
+2. 必要なら `docker-compose.yml` を編集する
+   - `volumes` の左側: ファイルを保存する場所(既定は `./data`。NAS なら例: `/mnt/user/minecraft/library`)
+   - `ports` の左側: ブラウザで開くポート(既定 `8765`)
+   - `TZ`: タイムゾーン(予約同期や表示の時刻に使います)
 
-   ```
-   cd /opt/stacks/craftshelf
+3. 起動する(Dockge / Portainer なら画面から「デプロイ」)
+
+   ```bash
    docker compose up -d --build
    ```
 
 4. ブラウザで `http://<サーバーのIPアドレス>:8765` を開き、初期設定画面で管理者アカウントを作成する
+
+> **Unraid で使う場合**: `volumes` を `/mnt/user/<共有名>/...:/data` のように共有フォルダに向けます。コンテナを `nobody:users`(99:100)で動かしたい場合は `docker-compose.yml` のコメントを参照してください。
 
 ## アップデート
 
 CraftShelf は GitHub(https://github.com/mesamaru/craftshelf)の `main` ブランチから最新版を取得します。
 
 - **画面から**: 右上の ⚙(設定)→「パネルのアップデート」(管理者のみ)で、GitHub の最新版と変更内容を確認できます。新しい版があれば「ダウンロードしてインストール」を押すだけで、ダウンロード・インストール・再起動まで自動で行い、進み具合が画面に表示されます
-- **自動で**: 同じ画面の「自動アップデート」をオンにすると、6時間ごとに確認して自動で更新します
-- **起動時**: コンテナを起動するたびにも最新版を取得します(`AUTO_UPDATE=false` で停止)
+- **自動で**: 同じ画面の「自動アップデート」をオンにすると、6時間ごとに確認して自動で更新します(既定はオフ)
+- **起動時**: コンテナを起動するたびにも最新版を取得します(`AUTO_UPDATE=false` で停止。取得元は `GITHUB_REPO` で変更できるので、フォークしたリポジトリを使うこともできます)
 
 保存したファイル・登録情報(`/data`)はアップデートしても消えません。
 
@@ -191,13 +268,13 @@ plugin.yml(depend / softdepend)、paper-plugin.yml、Fabric・Quilt・Forge・Ne
 
 ## 保存先をWeb画面から追加登録する(SMB / WebDAV・Nextcloud)
 
-`docker-compose.yml` の `volumes` で指定した場所(初期状態では「ローカル」という保存先として扱われます)以外に、画面右上の ⚙(設定)→「ストレージ」から、SMB(Windows共有)や WebDAV(Nextcloud など)の接続情報を登録して、いつでも切り替えて使えます。Unraidを使い続けつつ、将来TrueNASやNextcloudを追加で登録する、といった使い方ができます。
+`docker-compose.yml` の `volumes` で指定した場所(初期状態では「ローカル」という保存先として扱われます)以外に、画面右上の ⚙(設定)→「ストレージ」から、SMB(Windows共有)や WebDAV(Nextcloud など)の接続情報を登録して、いつでも切り替えて使えます。NAS を使い続けつつ、あとから別の NAS や Nextcloud を追加で登録する、といった使い方ができます。
 
 ### 使い方
 
 1. 画面右上の ⚙(設定)→「ストレージ」を開き、「接続を追加」
 2. 名前・種類を選んで入力
-   - **SMB**(Unraid・TrueNAS など): サーバー(IPアドレス)・共有名。Unraidの「パブリック」共有ならユーザー名は空欄(ゲスト接続)でOK
+   - **SMB**(Unraid・TrueNAS・Synology・Windows 共有など): サーバー(IPアドレス)・共有名。ゲスト接続を許可した共有ならユーザー名は空欄でOK
    - **WebDAV**(Nextcloud など): URL・ユーザー名・パスワード。Nextcloud ならサーバーのURL(例 `https://cloud.example.com`)だけで、`/remote.php/dav/files/<ユーザー名>` は自動で補います。二段階認証を使っている場合は Nextcloud の「設定 → セキュリティ」で作った**アプリパスワード**を使ってください。自己署名証明書なら「証明書を検証しない」をオン
    - サブフォルダ(任意)を指定すると、共有の中のそのフォルダを保存先にします(無ければ作ります)
 3. 「接続をテスト」で読み書きできるか確認してから「保存」
@@ -208,8 +285,6 @@ plugin.yml(depend / softdepend)、paper-plugin.yml、Fabric・Quilt・Forge・Ne
 ### 特別な権限は不要
 
 SMB / WebDAV はアプリ(Python)が直接通信する方式なので、OSの `mount` は使いません。`cap_add` / `security_opt` / `privileged` などの設定は不要で、Proxmox の非特権LXC の中の Docker でもそのまま動きます。
-
-(以前のバージョンは OS の `mount` を使っていたため、非特権LXCなどでは「マウントの権限がありません」で失敗していました。以前に登録した SMB 接続はそのまま引き継がれます。NFS は非対応になったため、「編集」で SMB に変更してください。)
 
 ### そのほかの注意点
 
@@ -248,6 +323,13 @@ python app.py
 
 ## 注意
 
-- ログインは必須ですが、家庭内LAN向けの道具です。インターネットには直接公開しないでください(外から使う場合は VPN や Tailscale などを経由してください)。
-- `index.db` は SQLite です。Unraid の共有フォルダ上でロックのエラーが出る場合は、`DB_DIR` をキャッシュ上の appdata に分けてください。
+- ログインは必須ですが、LAN 内での利用を想定した道具です。インターネットに公開する場合は、HTTPS のリバースプロキシの後ろに置き、二段階認証を有効にしてください(VPN や Tailscale 経由での利用がより安全です)。
+- 脆弱性を見つけた場合は [SECURITY.md](SECURITY.md) の方法で報告してください。
+- `index.db` は SQLite です。ネットワーク共有の上でロックのエラーが出る場合は、`DB_DIR`(`CONFIG_DIR`)をローカルディスクに分けてください。
 - 「削除」は保存先のファイルも実際に消します(ゴミ箱はありません)。
+
+## ライセンス
+
+[LICENSE](LICENSE) を参照してください。
+
+Minecraft は Mojang Studios の商標です。CraftShelf は Mojang Studios・Microsoft・各配布サイトとは関係のない非公式のツールです。

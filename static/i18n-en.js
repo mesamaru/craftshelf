@@ -6,6 +6,18 @@ window.CS_EN = {
   // ---- 長い説明文 ----
   // ---- ダッシュボードの編集 ----
   "ほかの種類": "More types",
+  "この保存先は容量の情報を返しません": "This storage does not report its capacity",
+  "接続できないため取得できません": "Unavailable while disconnected",
+  "CraftShelf の使用量": "Used by CraftShelf",
+  "(押すと状況を表示)": " (click for status)",
+  "保存先の状況": "Storage status",
+  "再確認": "Refresh",
+  "ストレージ設定": "Storage settings",
+  "接続できません": "Disconnected",
+  "使用済み": "Used",
+  "空き容量": "Free space",
+  "保存先の容量": "Capacity",
+  "応答時間": "Latency",
   "サーバーソフトで絞り込み": "Filter by server software",
   "サーバーソフト": "Server software",
   "Pterodactyl のサーバーを連携すると、ここに同期の状況が表示されます": "Link Pterodactyl servers to see their sync status here",

@@ -3414,6 +3414,8 @@ def server_inventory(conn, srv_row, target, note=lambda m: None):
                 entry["status"] = "latest"
             elif v:
                 entry["status"] = "outdated"
+            elif vs and src.same_version(vs[0]["version"], pver):
+                entry["status"] = "latest"  # 中身のハッシュは違うが、ライブラリの最新と同じバージョン
             else:
                 newer = vs and version_key(vs[0]["version"]) > version_key(pver or "")
                 entry["status"] = "outdated" if newer else "different"

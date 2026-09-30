@@ -40,6 +40,10 @@ const ICONS = {
   arrows: '<path d="M7 7h11l-3-3M17 17H6l3 3"/>',
   external: '<path d="M14 4h6v6"/><path d="M20 4l-9 9"/><path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4"/>',
   chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
+  bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z"/><path d="M10 20a2 2 0 0 0 4 0"/>',
+  shield: '<path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6z"/><path d="M9 12l2 2 4-4"/>',
+  tag: '<path d="M3 12V4h8l9 9-8 8z"/><circle cx="7.5" cy="8" r="1.4"/>',
   grid: '<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/>',
   stack: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
 };
@@ -163,7 +167,7 @@ const toggle = (name, title, sub, checked) => `<label class="toggle-row"><span c
 function openMenu(anchor, items) {
   const m = $("#menu");
   m.innerHTML = items.map((it, i) => it === "-" ? "<hr>" :
-    `<button type="button" role="menuitem" data-i="${i}"${it.admin ? ' class="need-admin"' : ""}><span>${esc(it.label)}</span>${icon(it.icon)}</button>`).join("");
+    `<button type="button" role="menuitem" data-i="${i}" class="${it.admin ? "need-admin" : ""}${it.danger ? " danger" : ""}"><span>${esc(it.label)}</span>${icon(it.icon)}</button>`).join("");
   m.hidden = false;
   const r = anchor.getBoundingClientRect();
   const w = m.offsetWidth;
@@ -296,13 +300,33 @@ function showAuth(setup) {
     if (setup && d.password !== d.password2) { err.textContent = "確認用のパスワードが一致しません"; return; }
     await busy(f.querySelector("[type=submit]"), async () => {
       try {
-        await api(setup ? "/api/auth/setup" : "/api/auth/login", { json: { username: d.username, password: d.password } });
+        const r = await api(setup ? "/api/auth/setup" : "/api/auth/login", { json: { username: d.username, password: d.password } });
+        if (r.need_totp) { showTotpStep(); return; }
         await checkAuth();
       } catch (ex) { err.textContent = ex.message; }
     }, setup ? "作成中…" : "ログイン中…");
   };
   $("#auth").hidden = false;
   f.querySelector("input")?.focus();
+}
+
+function showTotpStep() {
+  const f = $("#authForm");
+  f.innerHTML = `<div class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8l8-4 8 4v8l-8 4-8-4z M4 8l8 4 8-4 M12 12v8"/></svg></div>
+    <h2>二段階認証</h2><p>認証アプリに表示されている 6 桁のコードを入力してください。スマホが手元にない場合は回復コードも使えます。</p>
+    ${field("確認コード", `<input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" required>`)}
+    <div class="err" id="authErr"></div>
+    <button class="btn filled block" type="submit">確認</button>
+    <button class="btn plain block" type="button" id="totpBack">最初からやり直す</button>`;
+  $("#totpBack").onclick = () => showAuth(false);
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    await busy(f.querySelector("[type=submit]"), async () => {
+      try { await api("/api/auth/totp", { json: { code: f.querySelector("[name=code]").value } }); await checkAuth(); }
+      catch (ex) { $("#authErr").textContent = ex.message; }
+    }, "確認中…");
+  };
+  f.querySelector("input").focus();
 }
 
 /* ---------------- data ---------------- */
@@ -326,6 +350,7 @@ function filtered() {
     || (state.cat === "__unlinked" && !it.source)
     || (state.cat === "__nomc" && !mcOf(it)));
   if (state.mc) list = list.filter((it) => mcSupports(mcOf(it), state.mc) === true);
+  if (state.tag) list = list.filter((it) => (it.tags || []).includes(state.tag));
   if (q) list = list.filter((it) => it.name.toLowerCase().includes(q)
     || it.versions.some((v) => v.filename.toLowerCase().includes(q) || v.version.toLowerCase().includes(q)));
   const k = state.sortKey, dir = state.sortDir;
@@ -356,6 +381,10 @@ function render() {
     + (nDeps || state.cat === "__deps" ? `<button class="seg upd" type="button" data-cat="__deps" aria-pressed="${state.cat === "__deps"}">前提が不足<span class="n">${nDeps}</span></button>` : "")
     + (state.cat === "__unlinked" ? `<button class="seg" type="button" data-cat="__unlinked" aria-pressed="true">未連携<span class="n">${state.items.filter((i) => !i.source).length}</span></button>` : "")
     + (state.cat === "__nomc" ? `<button class="seg" type="button" data-cat="__nomc" aria-pressed="true">MC不明<span class="n">${state.items.filter((i) => !mcOf(i)).length}</span></button>` : "");
+  const tags = [...new Set(state.items.flatMap((i) => i.tags || []))].sort((a, b) => a.localeCompare(b, "ja"));
+  if (state.tag && !tags.includes(state.tag)) state.tag = "";
+  $("#tagChips").hidden = !tags.length;
+  $("#tagChips").innerHTML = tags.length ? `<span class="tag-lab">${icon("tag")}</span>` + tags.map((t) => `<button class="tagchip" type="button" data-tagf="${esc(t)}" aria-pressed="${state.tag === t}">#${esc(t)}</button>`).join("") : "";
   const mcSel = $("#mcSel");
   if (mcSel.options.length === 1) mcSel.insertAdjacentHTML("beforeend", MC_LINES.map((v) => `<option value="${v}">MC ${v} で使える</option>`).join(""));
   mcSel.value = state.mc || "";
@@ -374,7 +403,8 @@ function render() {
       return `<div class="row${state.selected === it.id ? " sel" : ""}" role="button" tabindex="0" data-id="${it.id}">
         <span class="cicon c-${it.category}">${CAT_LETTER[it.category]}</span>
         <span class="main"><span class="title">${esc(it.name)}</span>
-          <span class="subtitle">${esc(verLabel(latest.version))}${mc ? ` · MC ${esc(mc)}` : ""} · ${it.versions.length} バージョン<span class="hide-s"> · ${fmtSize(it.total_size)} · ${fmtDate(it.last_added)}</span></span></span>
+          <span class="subtitle">${esc(verLabel(latest.version))}${mc ? ` · MC ${esc(mc)}` : ""} · ${it.versions.length} バージョン<span class="hide-s"> · ${fmtSize(it.total_size)} · ${fmtDate(it.last_added)}</span></span>
+          ${(it.tags || []).length ? `<span class="rtags">${it.tags.slice(0, 4).map((t) => `<span class="tagchip mini">#${esc(t)}</span>`).join("")}</span>` : ""}</span>
         <span class="trail">${missing ? '<span class="badge err">欠損</span>' : ""}${(it.missing_deps || []).length ? `<span class="badge err" title="足りない前提: ${esc(it.missing_deps.join(", "))}">前提が不足</span>` : ""}${upd ? `<span class="badge upd">更新 ${esc(it.source.latest.version || "")}</span>` : ""}
           ${page !== "" && page !== "#" ? `<a class="linkbtn hide-s" href="${esc(page)}" target="_blank" rel="noopener noreferrer" title="${esc(it.source.provider_label)} の配布ページを開く">${esc(it.source.provider_label)} ${icon("external")}</a>` : ""}
           ${icon("chev", "i chev")}</span>
@@ -403,6 +433,7 @@ $("#chips").addEventListener("click", (e) => {
 });
 $("#search").addEventListener("input", (e) => { state.q = e.target.value; render(); });
 $("#mcSel").addEventListener("change", (e) => { state.mc = e.target.value; render(); });
+$("#tagChips").addEventListener("click", (e) => { const b = e.target.closest("[data-tagf]"); if (!b) return; state.tag = state.tag === b.dataset.tagf ? "" : b.dataset.tagf; render(); });
 $("#sortSel").addEventListener("change", (e) => {
   const [k, d] = e.target.value.split(":"); state.sortKey = k; state.sortDir = Number(d); render();
 });
@@ -669,49 +700,6 @@ async function loadServers() {
   }
 }
 const stateBadge = (s) => ({ running: '<span class="badge ok">稼働中</span>', offline: '<span class="badge">停止中</span>', starting: '<span class="badge upd">起動中</span>', stopping: '<span class="badge upd">停止処理中</span>' }[s] || '<span class="badge">状態不明</span>');
-function renderServers() {
-  const list = state.servers || [];
-  $("#serversView").innerHTML = !state.pteroConfigured ? `<div class="card"><div class="empty"><div class="big">🦖</div>
-      Pterodactyl と連携すると、保管しているプラグインをサーバーへ転送・同期できます。<br>
-      ${isAdmin() ? `<button class="btn filled" type="button" data-va="setup" style="margin-top:12px">${icon("gear")}Pterodactyl を設定</button>` : "管理者に設定を依頼してください"}</div></div>`
-    : `<div class="view-head"><p>サーバーのプラグインフォルダとライブラリを照らし合わせ、古いものの更新やまとめての転送ができます。</p>
-        <button class="btn filled need-admin" type="button" data-va="add">${icon("plus")}サーバーを連携</button></div>
-      ${list.length ? `<div class="dash-grid">${list.map((s) => `<div class="card" data-srv="${s.id}">
-        <div class="card-h"><h4>${esc(s.name)}</h4><span class="srv-state"><span class="spinner"></span></span></div>
-        <div class="card-b">
-          <div class="kv"><span>フォルダ</span><span>${esc(s.plugin_dir)}</span></div>
-          <div class="kv"><span>セット</span><span>${s.set_name ? esc(s.set_name) : "なし"}</span></div>
-          <div class="kv"><span>最後の同期</span><span>${s.last_sync ? esc(fmtDateTime(s.last_sync)) : "-"}</span></div>
-          <div class="chips" style="margin-top:10px">
-            <button class="btn small tinted need-editor" type="button" data-va="inv">${icon("search")}中身を確認</button>
-            <button class="btn small filled need-editor" type="button" data-va="sync">${icon("refresh")}同期</button>
-            <button class="btn small need-editor" type="button" data-va="push">${icon("server")}転送</button>
-            <button class="btn small need-editor" type="button" data-va="restart">再起動</button>
-            <button class="btn small need-admin" type="button" data-va="edit">${icon("gear")}設定</button>
-          </div>
-        </div></div>`).join("")}</div>`
-      : `<div class="card"><div class="empty"><div class="big">🖥️</div>まだサーバーを連携していません</div></div>`}`;
-}
-$("#serversView").addEventListener("click", async (e) => {
-  const b = e.target.closest("[data-va]"); if (!b) return;
-  const sid = Number(b.closest("[data-srv]")?.dataset.srv);
-  const s = (state.servers || []).find((x) => x.id === sid);
-  const a = b.dataset.va;
-  if (a === "setup") openSettings("ptero");
-  if (a === "add") linkServerDialog();
-  if (a === "edit") serverSettingsDialog(s);
-  if (a === "inv") inventoryDialog(s);
-  if (a === "push") pushDialog({ server: s });
-  if (a === "sync") {
-    const r = await formSheet(`「${s.name}」を同期`, `<p>サーバーの ${esc(s.plugin_dir)} を確認し、ライブラリに新しいバージョンがあるものを更新します${s.set_name ? `。連携中のセット「${esc(s.set_name)}」に入っていて、サーバーに無いものも追加します` : ""}。</p>
-      <div class="group">${toggle("restart", "完了後にサーバーを再起動", "プラグインの入れ替えを反映させるには再起動が必要です", false)}</div>`, "同期する");
-    if (!r) return;
-    try { jobStarted(await api(`/api/servers/${sid}/sync`, { json: { restart: r.restart } })); } catch (ex) { toast(ex.message, true); }
-  }
-  if (a === "restart" && await confirmSheet(`「${s.name}」を再起動しますか?`, "プレイ中のプレイヤーは切断されます。", "再起動")) {
-    await busy(b, async () => { try { await api(`/api/servers/${sid}/power`, { json: { signal: "restart" } }); toast("再起動しました"); } catch (ex) { toast(ex.message, true); } });
-  }
-});
 async function linkServerDialog() {
   let ps;
   const tp = toastProgress("Pterodactyl からサーバーの一覧を取得しています…");
@@ -727,17 +715,89 @@ async function linkServerDialog() {
   r.name = (avail.find((p) => p.identifier === r.identifier) || {}).name || r.identifier;
   try { await api("/api/servers", { json: r }); toast("連携しました"); loadServers(); } catch (e) { toast(e.message, true); }
 }
+const DOW = ["月", "火", "水", "木", "金", "土", "日"];
+const schedLabel = (s) => s.sched_mode === "daily" ? `毎日 ${s.sched_time}` : s.sched_mode === "weekly" ? `毎週${DOW[s.sched_dow] || ""}曜 ${s.sched_time}` : "なし";
+function renderServers() {
+  const list = state.servers || [];
+  const mode = state.srvMode || "list";
+  if (!state.pteroConfigured) {
+    $("#serversView").innerHTML = `<div class="card"><div class="empty"><div class="big">🦖</div>
+      Pterodactyl と連携すると、保管しているプラグインをサーバーへ転送・同期できます。<br>
+      ${isAdmin() ? `<button class="btn filled" type="button" data-va="setup" style="margin-top:12px">${icon("gear")}Pterodactyl を設定</button>` : "管理者に設定を依頼してください"}</div></div>`;
+    return;
+  }
+  $("#serversView").innerHTML = `
+    <div class="view-head">
+      <div class="segmented glass viewsw">${[["list", "一覧"], ["compare", "比較"]].map(([k, n]) => `<button class="seg" type="button" data-mode="${k}" aria-pressed="${mode === k}">${n}</button>`).join("")}</div>
+      <button class="btn filled need-admin" type="button" data-va="add">${icon("plus")}サーバーを連携</button></div>
+    <div id="srvBody"></div>`;
+  if (mode === "compare") { renderCompare(); return; }
+  $("#srvBody").innerHTML = list.length ? `<div class="dash-grid">${list.map((s) => `<div class="card" data-srv="${s.id}">
+      <div class="card-h"><h4>${esc(s.name)}</h4><span class="srv-state"><span class="spinner"></span></span></div>
+      <div class="card-b">
+        <div class="kv"><span>フォルダ</span><span>${esc(s.plugin_dir)}</span></div>
+        <div class="kv"><span>セット</span><span>${s.set_name ? esc(s.set_name) : "なし"}</span></div>
+        <div class="kv"><span>予約同期</span><span>${esc(schedLabel(s))}</span></div>
+        <div class="kv"><span>最後の同期</span><span>${s.last_sync ? esc(fmtDateTime(s.last_sync)) : "-"}</span></div>
+        <div class="chips need-editor" style="margin-top:10px">
+          <button class="btn small filled" type="button" data-va="sync">${icon("refresh")}同期</button>
+          <button class="btn small tinted" type="button" data-va="inv">${icon("search")}中身</button>
+          <button class="icon-btn sm" type="button" data-va="more" title="その他" aria-label="その他の操作">${icon("more")}</button>
+        </div>
+      </div></div>`).join("")}</div>`
+    : `<div class="card"><div class="empty"><div class="big">🖥️</div>まだサーバーを連携していません</div></div>`;
+}
+$("#serversView").addEventListener("click", async (e) => {
+  const md = e.target.closest("[data-mode]");
+  if (md) { state.srvMode = md.dataset.mode; renderServers(); if (state.srvMode === "list") loadServers(); return; }
+  const b = e.target.closest("[data-va]"); if (!b) return;
+  const sid = Number(b.closest("[data-srv]")?.dataset.srv);
+  const s = (state.servers || []).find((x) => x.id === sid);
+  const a = b.dataset.va;
+  if (a === "setup") openSettings("ptero");
+  if (a === "add") linkServerDialog();
+  if (a === "inv") inventoryDialog(s);
+  if (a === "more") {
+    openMenu(b, [
+      { label: "転送する", icon: "server", run: () => pushDialog({ server: s }) },
+      { label: "履歴と巻き戻し", icon: "clock", run: () => snapshotsDialog(s) },
+      { label: "再起動", icon: "refresh", run: async () => {
+        if (await confirmSheet(`「${s.name}」を再起動しますか?`, "プレイ中のプレイヤーは切断されます。", "再起動")) {
+          try { await api(`/api/servers/${sid}/power`, { json: { signal: "restart" } }); toast("再起動しました"); } catch (ex) { toast(ex.message, true); }
+        }
+      } },
+      ...(isAdmin() ? ["-", { label: "設定・予約同期", icon: "gear", run: () => serverSettingsDialog(s) }] : []),
+    ]);
+  }
+  if (a === "sync") {
+    const r = await formSheet(`「${s.name}」を同期`, `<p>サーバーの ${esc(s.plugin_dir)} を確認し、ライブラリに新しいバージョンがあるものを更新します${s.set_name ? `。連携中のセット「${esc(s.set_name)}」に入っていて、サーバーに無いものも追加します` : ""}。置き換えるファイルは自動で退避するので、あとから「履歴と巻き戻し」で元に戻せます。</p>
+      <div class="group">${toggle("restart", "完了後にサーバーを再起動", "プラグインの入れ替えを反映させるには再起動が必要です", false)}</div>`, "同期する");
+    if (!r) return;
+    try { jobStarted(await api(`/api/servers/${sid}/sync`, { json: { restart: r.restart } })); } catch (ex) { toast(ex.message, true); }
+  }
+});
 async function serverSettingsDialog(s) {
   if (!state.sets) { try { state.sets = (await api("/api/sets")).sets; } catch { state.sets = []; } }
   const setOpts = `<option value="">なし</option>${state.sets.map((x) => `<option value="${x.id}"${x.id === s.set_id ? " selected" : ""}>${esc(x.name)}</option>`).join("")}`;
   const r = await sheet(`${sheetHead(`「${s.name}」の設定`)}<div class="db">
       ${field("表示名", `<input type="text" name="name" value="${esc(s.name)}">`)}
       ${field("プラグインのフォルダ", `<input type="text" name="plugin_dir" value="${esc(s.plugin_dir)}">`)}
-      ${field("セット", `<select name="set_id">${setOpts}</select>`)}
+      ${field("セット(同期のときに、セットの中身もサーバーに入れる)", `<select name="set_id">${setOpts}</select>`)}
+      <div class="group-title" style="margin:6px 4px 0">予約同期</div>
+      ${field("タイミング", `<select name="sched_mode"><option value="off"${s.sched_mode === "off" ? " selected" : ""}>しない</option><option value="daily"${s.sched_mode === "daily" ? " selected" : ""}>毎日</option><option value="weekly"${s.sched_mode === "weekly" ? " selected" : ""}>毎週</option></select>`)}
+      <div class="chips" id="schedRow">
+        <select name="sched_dow" class="compact">${DOW.map((d, i) => `<option value="${i}"${Number(s.sched_dow) === i ? " selected" : ""}>${d}曜日</option>`).join("")}</select>
+        <input type="time" name="sched_time" value="${esc(s.sched_time || "04:00")}" class="compact-time">
+      </div>
+      <div class="group">${toggle("sched_restart", "同期のあとに再起動", "更新があったときだけ再起動します", !!s.sched_restart)}</div>
       <button class="btn danger block" type="button" data-unlink>連携を解除</button>
     </div><div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok>保存</button></div>`, (form, done) => {
+    const sync = () => { const m = form.querySelector("[name=sched_mode]").value; $("#schedRow", form).hidden = m === "off"; form.querySelector("[name=sched_dow]").hidden = m !== "weekly"; };
+    form.querySelector("[name=sched_mode]").onchange = sync; sync();
     form.querySelector("[data-ok]").onclick = (ev) => busy(ev.currentTarget, async () => {
       const d = Object.fromEntries(new FormData(form).entries());
+      d.sched_restart = form.querySelector("[name=sched_restart]").checked;
+      d.sched_dow = Number(d.sched_dow || 0);
       try { await api(`/api/servers/${s.id}`, { method: "PATCH", json: d }); done("saved"); } catch (ex) { toast(ex.message, true); }
     });
     form.querySelector("[data-unlink]").onclick = async (ev) => {
@@ -747,6 +807,84 @@ async function serverSettingsDialog(s) {
   });
   if (r) { toast(r === "deleted" ? "連携を解除しました" : "保存しました"); loadServers(); }
 }
+async function snapshotsDialog(s) {
+  await sheet(`${sheetHead(`「${s.name}」の履歴`)}<div class="db" id="snBody"><div class="empty"><span class="spinner lg"></span></div></div>`, async (form, done) => {
+    let d;
+    try { d = await api(`/api/servers/${s.id}/snapshots`); } catch (ex) { $("#snBody", form).innerHTML = `<div class="result err">${esc(ex.message)}</div>`; return; }
+    $("#snBody", form).innerHTML = `<p>同期・転送のたびに、置き換えたファイルを退避しています(直近 10 回分)。「この前の状態に戻す」で、その同期の前に戻せます。</p>
+      ${d.snapshots.length ? d.snapshots.map((x) => `<div class="card" style="margin-bottom:10px"><div class="card-h"><h4 style="font-size:15px">${esc(x.title || "同期")}</h4><span class="muted">${esc(fmtDateTime(x.created_at))}</span></div>
+        <div class="card-b">
+          ${x.added.length ? `<div class="kv"><span>入れたファイル</span><span>${esc(x.added.join(", "))}</span></div>` : ""}
+          ${x.removed.length ? `<div class="kv"><span>退避したファイル</span><span>${esc(x.removed.map((r) => r.name).join(", "))}</span></div>` : ""}
+          ${x.rolled_back ? `<div class="result">${esc(fmtDateTime(x.rolled_back))} に巻き戻しました</div>`
+            : `<div class="chips need-editor" style="margin-top:8px"><button class="btn small tinted" type="button" data-rb="${x.id}">${icon("arrows")}この前の状態に戻す</button></div>`}
+        </div></div>`).join("") : `<div class="empty">まだ履歴がありません</div>`}`;
+    form.addEventListener("click", async (e) => {
+      const b = e.target.closest("[data-rb]"); if (!b) return;
+      const restart = confirm("巻き戻したあとにサーバーを再起動しますか?(キャンセルで再起動しない)");
+      try { jobStarted(await api(`/api/servers/${s.id}/snapshots/${b.dataset.rb}/rollback`, { json: { restart } })); done(null); }
+      catch (ex) { toast(ex.message, true); }
+    });
+  }, { wide: true });
+}
+
+/* ---------------- サーバーの比較(Apple の製品比較のように横並び) ---------------- */
+async function renderCompare() {
+  const list = state.servers || [];
+  const body = $("#srvBody");
+  if (list.length < 2) { body.innerHTML = `<div class="card"><div class="empty"><div class="big">⚖️</div>比較するには 2 台以上のサーバーを連携してください</div></div>`; return; }
+  state.cmpSel = state.cmpSel || list.slice(0, 4).map((s) => s.id);
+  body.innerHTML = `<div class="cmp-pick">${list.map((s) => `<button class="seg" type="button" data-cmp="${s.id}" aria-pressed="${state.cmpSel.includes(s.id)}">${esc(s.name)}</button>`).join("")}
+      <label class="cmp-diff"><input type="checkbox" class="switch" id="cmpDiff"${state.cmpDiff ? " checked" : ""}> 違いだけ表示</label></div>
+    <div id="cmpTable"><div class="empty"><span class="spinner lg"></span><p>各サーバーの中身を確認しています…</p></div></div>`;
+  body.querySelectorAll("[data-cmp]").forEach((b) => b.onclick = () => {
+    const id = Number(b.dataset.cmp);
+    state.cmpSel = state.cmpSel.includes(id) ? state.cmpSel.filter((x) => x !== id) : [...state.cmpSel, id];
+    renderCompare();
+  });
+  $("#cmpDiff").onchange = (e) => { state.cmpDiff = e.target.checked; drawCompare(); };
+  const sel = list.filter((s) => state.cmpSel.includes(s.id));
+  state.cmpData = {};
+  await Promise.all(sel.map(async (s) => {
+    try { state.cmpData[s.id] = await api(`/api/servers/${s.id}/inventory`); }
+    catch (ex) { state.cmpData[s.id] = { error: ex.message, files: [], missing: [] }; }
+  }));
+  drawCompare();
+}
+function drawCompare() {
+  const sel = (state.servers || []).filter((s) => (state.cmpSel || []).includes(s.id));
+  const box = $("#cmpTable"); if (!box) return;
+  if (!sel.length) { box.innerHTML = `<div class="empty">比較するサーバーを選んでください</div>`; return; }
+  const rows = new Map();
+  for (const s of sel) {
+    for (const f of (state.cmpData[s.id] || {}).files || []) {
+      const key = f.item_id ? `i${f.item_id}` : `n${(f.plugin_name || f.name).toLowerCase().replace(/[\W_]+/g, "")}`;
+      if (!rows.has(key)) rows.set(key, { name: f.item_name || f.plugin_name || f.name, item_id: f.item_id, latest: f.latest_version, cells: {} });
+      rows.get(key).cells[s.id] = f;
+    }
+  }
+  let list = [...rows.values()].sort((a, b) => a.name.localeCompare(b.name, "ja", { numeric: true }));
+  const differs = (r) => { const vals = sel.map((s) => (r.cells[s.id] ? r.cells[s.id].version || "?" : "-")); return new Set(vals).size > 1; };
+  if (state.cmpDiff) list = list.filter(differs);
+  const cell = (f, r) => {
+    if (!f) return `<td class="cmp-cell none"><span class="cmp-dash">—</span></td>`;
+    const cls = f.status === "latest" ? "ok" : f.status === "outdated" ? "upd" : f.status === "unregistered" ? "unk" : "";
+    return `<td class="cmp-cell"><span class="cmp-mark ${cls}">${icon(f.status === "outdated" ? "refresh" : "check")}</span><div class="cmp-ver">${esc(f.version || "?")}</div>
+      <div class="cmp-sub">${f.status === "outdated" ? `→ ${esc(r.latest || "")}` : f.status === "unregistered" ? "未登録" : f.status === "different" ? "別のファイル" : "最新"}</div></td>`;
+  };
+  box.innerHTML = `<div class="cmp-wrap"><table class="cmp">
+    <thead><tr><th class="cmp-name"></th>${sel.map((s) => {
+      const d = state.cmpData[s.id] || {};
+      return `<th><div class="cmp-head"><span class="cicon c-teal">${icon("server")}</span><div class="cmp-title">${esc(s.name)}</div>
+        <div class="cmp-sub">${d.error ? esc(d.error) : `${(d.files || []).length} 個 · ${esc(s.plugin_dir)}`}</div>
+        ${d.files && d.files.some((f) => f.status === "outdated") ? `<span class="badge upd">更新あり ${d.files.filter((f) => f.status === "outdated").length}</span>` : d.error ? "" : '<span class="badge ok">最新</span>'}</div></th>`;
+    }).join("")}</tr></thead>
+    <tbody>${list.map((r) => `<tr class="${differs(r) ? "diff" : ""}"><th class="cmp-name">${r.item_id ? `<button class="linkish" type="button" data-open="${r.item_id}">${esc(r.name)}</button>` : esc(r.name)}</th>${sel.map((s) => cell(r.cells[s.id], r)).join("")}</tr>`).join("")
+      || `<tr><td colspan="${sel.length + 1}"><div class="empty">${state.cmpDiff ? "違いはありません 🎉" : "プラグインがありません"}</div></td></tr>`}</tbody>
+  </table></div>`;
+  box.onclick = (e) => { const o = e.target.closest("[data-open]"); if (o) openPanel(Number(o.dataset.open)); };
+}
+
 const INV_STATUS = { latest: ["ok", "最新"], outdated: ["upd", "更新あり"], different: ["", "ライブラリと別のファイル"], unregistered: ["err", "未登録"] };
 async function inventoryDialog(s) {
   await sheet(`${sheetHead(`「${s.name}」の ${s.plugin_dir}`)}<div class="db" id="invBody"><div style="text-align:center;padding:24px"><span class="spinner lg"></span><p style="margin-top:10px">サーバーのファイルを確認しています…(初回はファイルを読み込むため時間がかかります)</p></div></div>`, async (form, done) => {
@@ -820,70 +958,112 @@ function closePanel() {
 $("#scrim").addEventListener("click", closePanel);
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#dlg").open && state.selected) closePanel(); });
 
+/* ---------------- 対応MCバージョンの範囲(前提プラグインとの対応確認) ---------------- */
+function mcRange(text) {
+  if (!text) return null;
+  const t = String(text).replace(/\s/g, "");
+  let m;
+  if ((m = t.match(/^([\d.]+)以降$/)) || (m = t.match(/^>=?([\d.]+)$/)) || (m = t.match(/^\[([\d.]+),\)$/))) return [verNums(m[1]), null];
+  if ((m = t.match(/^([\d.]+)[〜~\-–]([\d.]+)$/)) || (m = t.match(/^\[([\d.]+),([\d.]+)[)\]]$/))) return [verNums(m[1]), verNums(m[2])];
+  const parts = t.split(/[,、]/).map(verNums).filter((x) => x.length >= 2).sort(cmpVer);
+  return parts.length ? [parts[0], parts[parts.length - 1]] : null;
+}
+/* true = 重なる / false = 重ならない / null = 判定できない */
+function mcCompatible(a, b) {
+  const ra = mcRange(a), rb = mcRange(b);
+  if (!ra || !rb) return null;
+  const minor = (v) => v.slice(0, 2);
+  const loA = minor(ra[0]), hiA = ra[1] ? minor(ra[1]) : [99, 99], loB = minor(rb[0]), hiB = rb[1] ? minor(rb[1]) : [99, 99];
+  return cmpVer(loA, hiB) <= 0 && cmpVer(loB, hiA) <= 0;
+}
+
+/* ---------------- 詳細パネル ---------------- */
+function sectOpen(key, def) { try { const v = localStorage.getItem(`craftshelf.sect.${key}`); return v === null ? def : v === "1"; } catch { return def; } }
 function renderPanel() {
   const it = state.items.find((i) => i.id === state.selected);
   if (!it) return;
   const vs = state.verOrder === "desc" ? it.versions : [...it.versions].reverse();
   const latest = it.versions.find((v) => v.id === it.latest_id) || it.versions[0];
+  const page = it.source && safeUrl(it.source.page_url) !== "#" ? safeUrl(it.source.page_url) : "";
   const tags = (v) => [v.meta.loader, v.meta.mc && "MC " + v.meta.mc, v.meta.pack_format && "pack_format " + v.meta.pack_format]
     .filter(Boolean).map((t) => `<span class="badge">${esc(t)}</span>`).join("");
+  const nDeps = (it.dep_status || []).length, nMissing = (it.missing_deps || []).length;
   $("#panel").innerHTML = `
     <div class="side-head">
       <div class="nav"><span class="badge cat c-${it.category}">${CATS[it.category]}</span>
-        <button class="close-x" type="button" data-act="close" aria-label="閉じる">${icon("x")}</button></div>
+        <div class="navbtns">
+          ${page ? `<a class="icon-btn sm" href="${esc(page)}" target="_blank" rel="noopener noreferrer" title="配布ページを開く" aria-label="配布ページを開く">${icon("external")}</a>` : ""}
+          <button class="icon-btn sm need-editor" type="button" data-act="edit-item" title="情報を編集" aria-label="情報を編集">${icon("edit")}</button>
+          <button class="icon-btn sm" type="button" data-act="more" title="その他" aria-label="その他の操作">${icon("more")}</button>
+          <button class="close-x" type="button" data-act="close" aria-label="閉じる">${icon("x")}</button>
+        </div></div>
       <h3>${esc(it.name)}</h3>
-      <p class="desc">${it.versions.length} バージョン · 合計 ${fmtSize(it.total_size)}</p>
-      <p class="desc">対応MCバージョン: <b style="color:var(--label)">${esc(mcOf(it) || "不明")}</b>${it.mc_versions ? "(手入力)" : it.mc_auto ? "(自動で判定)" : ""}</p>
+      <p class="desc">${esc(verLabel(latest.version))} · ${it.versions.length} バージョン · ${fmtSize(it.total_size)}${mcOf(it) ? ` · MC ${esc(mcOf(it))}` : ""}</p>
       ${latest.meta.description ? `<p class="desc">${esc(latest.meta.description)}</p>` : ""}
-      <div class="chips">
-        ${it.source && safeUrl(it.source.page_url) !== "#" ? `<a class="btn small tinted" href="${esc(safeUrl(it.source.page_url))}" target="_blank" rel="noopener noreferrer">${icon("external")}配布ページ</a>` : ""}
-        <button class="btn small need-editor" type="button" data-act="edit-item">${icon("edit")}情報を編集</button>
-        <button class="btn small need-editor" type="button" data-act="push">${icon("server")}サーバーへ転送</button>
-        <button class="btn small" type="button" data-act="order">${icon("arrows")}${state.verOrder === "desc" ? "新しい順" : "古い順"}</button>
-        <button class="btn small danger need-editor" type="button" data-act="del-item">${icon("trash")}すべて削除</button>
-      </div>
+      ${(it.tags || []).length ? `<div class="chips">${it.tags.map((t) => `<button class="tagchip" type="button" data-act="tag" data-tag="${esc(t)}">#${esc(t)}</button>`).join("")}</div>` : ""}
     </div>
     <div class="side-body">
       <div class="group-title">配布元</div>
       <div class="group">${sourceBoxHTML(it)}</div>
-      ${depsHTML(it)}
-      <div class="group-title">保存しているバージョン</div>
-      <div class="group">
-      ${vs.map((v) => `
-        <div class="ver${v.missing ? " missing" : ""}" data-vid="${v.id}">
-          <div class="vh"><span class="vnum">${esc(verLabel(v.version))}</span>
-            ${v.id === it.latest_id ? '<span class="badge ok">最新</span>' : ""}
-            ${v.missing ? '<span class="badge err">ファイルが見つかりません</span>' : ""}${tags(v)}</div>
-          <div class="file">${esc(v.filename)} · ${fmtSize(v.size)} · ${fmtDateTime(v.added_at)}</div>
-          ${v.note ? `<div class="note">${esc(v.note)}</div>` : ""}
-          <div class="acts">
-            ${v.missing ? "" : `<a class="btn small tinted" href="/api/versions/${v.id}/download">${icon("download")}ダウンロード</a>`}
-            <button class="btn small need-editor" type="button" data-act="edit-ver">編集</button>
-            <button class="btn small danger need-editor" type="button" data-act="del-ver">削除</button>
-          </div>
-        </div>`).join("")}
-      </div>
+      ${nDeps ? `<details class="sect" data-sect="deps"${sectOpen("deps", nMissing > 0) || nMissing ? " open" : ""}>
+        <summary><span>前提プラグイン・Mod</span><span class="sum-r">${nMissing ? `<span class="badge err">${nMissing} 件が不足</span>` : '<span class="badge ok">そろっています</span>'}${icon("chev", "i chev")}</span></summary>
+        <div class="group">${depsHTML(it)}</div></details>` : ""}
+      <details class="sect" data-sect="vers"${sectOpen("vers", true) ? " open" : ""}>
+        <summary><span>保存しているバージョン(${it.versions.length})</span><span class="sum-r">
+          <button class="btn plain small" type="button" data-act="order" title="並び順を切り替え">${icon("arrows")}${state.verOrder === "desc" ? "新しい順" : "古い順"}</button>${icon("chev", "i chev")}</span></summary>
+        <div class="group">
+        ${vs.map((v) => `
+          <div class="ver${v.missing ? " missing" : ""}" data-vid="${v.id}">
+            <div class="vrow">
+              <div class="vmain">
+                <div class="vh"><span class="vnum">${esc(verLabel(v.version))}</span>
+                  ${v.id === it.latest_id ? '<span class="badge ok">最新</span>' : ""}
+                  ${v.missing ? '<span class="badge err">ファイルが見つかりません</span>' : ""}${tags(v)}</div>
+                <div class="file">${esc(v.filename)} · ${fmtSize(v.size)} · ${fmtDateTime(v.added_at)}</div>
+              </div>
+              <div class="vacts">
+                ${v.missing ? "" : `<a class="icon-btn sm" href="/api/versions/${v.id}/download" title="ダウンロード" aria-label="ダウンロード">${icon("download")}</a>`}
+                <button class="icon-btn sm need-editor" type="button" data-act="edit-ver" title="バージョン・メモを編集" aria-label="編集">${icon("edit")}</button>
+                <button class="icon-btn sm danger need-editor" type="button" data-act="del-ver" title="削除" aria-label="削除">${icon("trash")}</button>
+              </div>
+            </div>
+            ${v.note ? `<div class="note">${esc(v.note)}</div>` : ""}
+          </div>`).join("")}
+        </div></details>
     </div>`;
+  $("#panel").querySelectorAll("details.sect").forEach((d) => d.addEventListener("toggle", () => {
+    try { localStorage.setItem(`craftshelf.sect.${d.dataset.sect}`, d.open ? "1" : "0"); } catch { /* */ }
+  }));
 }
 $("#panel").addEventListener("click", async (e) => {
-  const b = e.target.closest("[data-act]"); if (!b) return;
+  const b = e.target.closest("[data-act], [data-open]"); if (!b) return;
   const it = state.items.find((i) => i.id === state.selected); if (!it) return;
+  if (b.dataset.open) { e.preventDefault(); openPanel(Number(b.dataset.open)); return; }
+  const act = b.dataset.act;
+  if (act === "order") { e.preventDefault(); state.verOrder = state.verOrder === "desc" ? "asc" : "desc"; renderPanel(); return; }
   const vid = Number(b.closest("[data-vid]")?.dataset.vid);
   const v = it.versions.find((x) => x.id === vid);
-  const act = b.dataset.act;
   if (act.startsWith("src-")) { await sourceAction(it, act, b); return; }
+  if (act.startsWith("dep-")) { await depAction(it, act, b); return; }
   if (act === "close") closePanel();
-  else if (act === "push") pushDialog({ item: it });
-  else if (act === "order") { state.verOrder = state.verOrder === "desc" ? "asc" : "desc"; renderPanel(); }
-  else if (act === "edit-item") editItem(it);
+  else if (act === "tag") { state.tag = b.dataset.tag; closePanel(); setView("library"); render(); }
+  else if (act === "more") {
+    openMenu(b, [
+      ...(isEditor() ? [{ label: "情報・タグを編集", icon: "edit", run: () => editItem(it) },
+        { label: "サーバーへ転送", icon: "server", run: () => pushDialog({ item: it }) },
+        { label: "セットに追加", icon: "stack", run: () => addToSet(it) }] : []),
+      { label: state.verOrder === "desc" ? "古い順に並べる" : "新しい順に並べる", icon: "arrows", run: () => { state.verOrder = state.verOrder === "desc" ? "asc" : "desc"; renderPanel(); } },
+      ...(isEditor() ? ["-", { label: "すべて削除", icon: "trash", danger: true, run: async () => {
+        if (await confirmSheet(`「${it.name}」をすべて削除しますか?`, `保存している ${it.versions.length} 個のファイルがすべて削除され、元に戻せません。`, "すべて削除")) {
+          await run(() => api(`/api/items/${it.id}`, { method: "DELETE" }), "削除しました");
+        }
+      } }] : []),
+    ]);
+  } else if (act === "edit-item") editItem(it);
   else if (act === "edit-ver") editVersion(v);
   else if (act === "del-ver") {
     if (await confirmSheet(`${verLabel(v.version)} を削除しますか?`, `${v.filename}\n保存先のファイルも削除され、元に戻せません。`, "削除")) {
       await run(() => api(`/api/versions/${v.id}`, { method: "DELETE" }), "削除しました");
-    }
-  } else if (act === "del-item") {
-    if (await confirmSheet(`「${it.name}」をすべて削除しますか?`, `保存している ${it.versions.length} 個のファイルがすべて削除され、元に戻せません。`, "すべて削除")) {
-      await run(() => api(`/api/items/${it.id}`, { method: "DELETE" }), "削除しました");
     }
   }
 });
@@ -891,17 +1071,22 @@ async function run(fn, okMsg) {
   try { await fn(); if (okMsg) toast(okMsg); await refresh(); return true; }
   catch (e) { toast(e.message, true); return false; }
 }
+const allTags = () => [...new Set(state.items.flatMap((i) => i.tags || []))].sort((a, b) => a.localeCompare(b, "ja"));
 async function editItem(it) {
-  const r = await formSheet("情報を編集", `<p>同じ名前・種類のものが既にある場合は、そちらに統合されます。</p>
+  const r = await formSheet("情報を編集", `
     ${field("名前", `<input type="text" name="name" value="${esc(it.name)}" required>`)}
     ${field("種類", `<select name="category">${Object.entries(CATS).map(([k, n]) => `<option value="${k}"${k === it.category ? " selected" : ""}>${n}</option>`).join("")}</select>`)}
+    <p style="font-size:12.5px">同じ名前・種類のものが既にある場合は、そちらに統合されます。</p>
+    ${field("タグ(カンマ区切り。例: 必須, テスト中, サバイバル用)", `<input type="text" name="tags" value="${esc((it.tags || []).join(", "))}" list="tagList" autocomplete="off"><datalist id="tagList">${allTags().map((t) => `<option value="${esc(t)}">`).join("")}</datalist>`)}
+    ${allTags().length ? `<div class="chips">${allTags().map((t) => `<button class="tagchip" type="button" data-addtag="${esc(t)}">#${esc(t)}</button>`).join("")}</div>` : ""}
     ${field("対応MCバージョン(例: 1.20.1〜1.21.4 / 1.20 以降)", `<input type="text" name="mc_versions" value="${esc(it.mc_versions || "")}" placeholder="${esc(it.mc_auto || "空欄なら自動で判定します")}">`)}
     <p style="font-size:12.5px">空欄のままにすると、ファイルの中身や配布元から自動で判定した${it.mc_auto ? `「${esc(it.mc_auto)}」` : "バージョン"}を表示します。</p>
     ${field("古いバージョンの自動整理", `<select name="keep_versions">${[[0, "しない(すべて残す)"], [1, "最新だけ残す"], [3, "新しい方から 3 つ残す"], [5, "新しい方から 5 つ残す"], [10, "新しい方から 10 個残す"]].map(([n, l]) => `<option value="${n}"${Number(it.keep_versions || 0) === n ? " selected" : ""}>${l}</option>`).join("")}</select>`)}
-    <p style="font-size:12.5px">新しいバージョンを追加したときに、残す数を超えた古いものを自動で削除します(セットで固定しているバージョンは残します)。</p>`);
+    <p style="font-size:12.5px">新しいバージョンを追加したときに、残す数を超えた古いものを自動で削除します(セットで固定しているバージョンは残します)。</p>`, "保存");
   if (!r) return;
   await run(async () => {
     r.keep_versions = Number(r.keep_versions || 0);
+    r.tags = String(r.tags || "").split(/[,、]/).map((t) => t.trim()).filter(Boolean);
     if (r.keep_versions && r.keep_versions < it.versions.length && !(await confirmSheet("古いバージョンを削除しますか?", `「${it.name}」は ${it.versions.length} 個のバージョンを保存しています。新しい方から ${r.keep_versions} 個を残し、それより古いものを削除します(元に戻せません)。`, "削除して保存"))) return;
     const res = await api(`/api/items/${it.id}`, { method: "PATCH", json: r });
     if (res.removed && res.removed.length) toast(`古いバージョンを ${res.removed.length} 個削除しました`);
@@ -911,6 +1096,13 @@ async function editItem(it) {
     if (t) openPanel(t.id);
   }, "保存しました");
 }
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-addtag]"); if (!b) return;
+  const inp = b.closest("form")?.querySelector("[name=tags]"); if (!inp) return;
+  const cur = inp.value.split(/[,、]/).map((t) => t.trim()).filter(Boolean);
+  if (!cur.includes(b.dataset.addtag)) cur.push(b.dataset.addtag);
+  inp.value = cur.join(", ");
+});
 async function editVersion(v) {
   const r = await formSheet("バージョン情報", `<p>${esc(v.filename)}</p>
     ${field("バージョン", `<input type="text" name="version" value="${esc(v.version)}">`)}
@@ -918,16 +1110,55 @@ async function editVersion(v) {
   if (!r) return;
   await run(() => api(`/api/versions/${v.id}`, { method: "PATCH", json: r }), "保存しました");
 }
+async function addToSet(it) {
+  if (!state.sets) { try { state.sets = (await api("/api/sets")).sets; } catch { state.sets = []; } }
+  if (!state.sets.length) { toast("先に「セット」タブでセットを作成してください", true); return; }
+  const r = await formSheet("セットに追加", field("セット", `<select name="sid">${state.sets.map((s) => `<option value="${s.id}">${esc(s.name)}(${s.items.length} 件)</option>`).join("")}</select>`), "追加");
+  if (!r) return;
+  const s = state.sets.find((x) => x.id === Number(r.sid));
+  const items = s.items.filter((x) => x.item_id !== it.id).concat([{ item_id: it.id, version_id: null }]);
+  try { await api(`/api/sets/${s.id}`, { method: "PATCH", json: { items } }); toast(`「${s.name}」に追加しました`); state.sets = null; }
+  catch (e) { toast(e.message, true); }
+}
 
 /* ---------------- 前提(依存)プラグイン ---------------- */
 function depsHTML(it) {
-  const deps = it.depends || [], soft = it.softdepends || [];
-  if (!deps.length && !soft.length) return "";
-  const have = new Set(state.items.flatMap((i) => i.dep_key || []));
-  const has = (d) => have.has(d.toLowerCase().replace(/[\W_]+/g, ""));
-  const row = (d, req) => `<div class="row noicon"><span class="main"><span class="title">${esc(d)}</span><span class="subtitle">${req ? "必須" : "任意(あると連携機能が使える)"}</span></span>
-    <span class="trail">${has(d) ? '<span class="badge ok">ライブラリにあります</span>' : req ? '<span class="badge err">ライブラリにありません</span>' : '<span class="badge">なし</span>'}</span></div>`;
-  return `<div class="group-title">前提プラグイン・Mod</div><div class="group">${deps.map((d) => row(d, true)).join("")}${soft.map((d) => row(d, false)).join("")}</div>`;
+  return (it.dep_status || []).map((d) => {
+    const dep = d.item_id ? state.items.find((i) => i.id === d.item_id) : null;
+    if (dep) {
+      const dv = dep.versions.find((v) => v.id === dep.latest_id) || dep.versions[0];
+      const comp = mcCompatible(mcOf(it), mcOf(dep));
+      return `<div class="row" role="button" tabindex="0" data-open="${dep.id}">
+        <span class="cicon sm c-${dep.category}">${CAT_LETTER[dep.category]}</span>
+        <span class="main"><span class="title">${esc(d.name)}${dep.name.toLowerCase() !== d.name.toLowerCase() ? ` <span class="muted">→ ${esc(dep.name)}</span>` : ""}</span>
+          <span class="subtitle">${d.required ? "必須" : "任意"} · ${esc(verLabel(dv.version))}${mcOf(dep) ? ` · MC ${esc(mcOf(dep))}` : ""}${d.manual ? " · 手動で紐付け" : ""}</span></span>
+        <span class="trail">${dep.source && dep.source.status === "update" ? '<span class="badge upd">更新あり</span>' : ""}
+          ${comp === true ? '<span class="badge ok" title="対応MCバージョンが重なっています">MC対応</span>' : comp === false ? '<span class="badge err" title="対応MCバージョンが重なっていません">MC要確認</span>' : ""}
+          ${d.manual ? `<button class="icon-btn sm need-editor" type="button" data-act="dep-unlink" data-dep="${esc(d.name)}" title="紐付けを解除" aria-label="紐付けを解除">${icon("x")}</button>` : ""}
+          ${icon("chev", "i chev")}</span></div>`;
+    }
+    return `<div class="row">
+      <span class="cicon sm c-other">?</span>
+      <span class="main"><span class="title">${esc(d.name)}</span><span class="subtitle">${d.required ? "必須 · ライブラリにありません" : "任意 · ライブラリにありません(あると連携機能が使えます)"}</span></span>
+      <span class="trail">${d.required ? '<span class="badge err">不足</span>' : ""}
+        <button class="icon-btn sm need-editor" type="button" data-act="dep-search" data-dep="${esc(d.name)}" title="配布サイトで探す" aria-label="配布サイトで探す">${icon("search")}</button>
+        <button class="icon-btn sm need-editor" type="button" data-act="dep-link" data-dep="${esc(d.name)}" title="ライブラリのアイテムと紐付け" aria-label="ライブラリのアイテムと紐付け">${icon("link")}</button></span></div>`;
+  }).join("");
+}
+async function depAction(it, act, btn) {
+  const name = btn.dataset.dep;
+  try {
+    if (act === "dep-search") { openSearch({ q: name, kind: it.category === "mod" ? "mod" : "plugin" }); return; }
+    if (act === "dep-unlink") { await api("/api/deps/link", { json: { name, item_id: null } }); toast("紐付けを解除しました"); }
+    if (act === "dep-link") {
+      const items = [...state.items].filter((i) => i.id !== it.id).sort((a, b) => a.name.localeCompare(b.name, "ja", { numeric: true }));
+      const r = await formSheet(`「${name}」を紐付け`, `<p>名前が違っていても同じものの場合(例: 前提が「Vault」、ライブラリでは「VaultAPI」)に、ライブラリのアイテムと結び付けます。</p>
+        ${field("ライブラリのアイテム", `<select name="item_id">${items.map((i) => `<option value="${i.id}">${esc(i.name)}(${CATS[i.category]})</option>`).join("")}</select>`)}`, "紐付け");
+      if (!r) return;
+      await api("/api/deps/link", { json: { name, item_id: Number(r.item_id) } }); toast("紐付けました");
+    }
+    await refresh();
+  } catch (e) { toast(e.message, true); }
 }
 
 /* ---------------- 配布元(更新) ---------------- */
@@ -937,16 +1168,17 @@ function sourceBoxHTML(it) {
   if (!s) {
     return `<div class="srcbox">
       <div class="sh"><span class="cicon sm c-teal">${icon("link")}</span><div class="main"><div class="title" style="font-weight:600">未連携</div>
-        <div class="muted" style="margin:0">Modrinth / SpigotMC / CurseForge と紐付けると、最新版の確認とダウンロードができます</div></div></div>
+        <div class="muted" style="margin:0">Modrinth / SpigotMC / CurseForge と紐付けると、最新バージョンの確認とダウンロードができます</div></div></div>
       <div class="acts need-editor">
         <button class="btn small filled" type="button" data-act="src-detect">${icon("wand")}自動で探す</button>
-        <button class="btn small" type="button" data-act="src-link">${icon("link")}URLで紐付け</button>
+        <button class="btn small" type="button" data-act="src-search">${icon("search")}検索</button>
+        <button class="btn small" type="button" data-act="src-link">${icon("link")}URL</button>
       </div>
       ${cands ? (cands.length ? `<div class="muted">候補から選んでください</div>${cands.map((c, i) => `
         <div class="cand"><div class="main">${esc(c.title)}${c.exact ? ' <span class="badge ok">名前が一致</span>' : ""}<small>${esc(PROVIDERS[c.provider])} · ${(c.downloads || 0).toLocaleString()} DL${c.summary ? " · " + esc(c.summary.slice(0, 70)) : ""}</small></div>
-          <a class="btn small" href="${esc(safeUrl(c.page_url))}" target="_blank" rel="noopener noreferrer">開く</a>
+          <a class="icon-btn sm" href="${esc(safeUrl(c.page_url))}" target="_blank" rel="noopener noreferrer" title="配布ページを開く" aria-label="配布ページを開く">${icon("external")}</a>
           <button class="btn small tinted need-editor" type="button" data-act="src-pick" data-i="${i}">選択</button></div>`).join("")}`
-        : `<div class="muted">見つかりませんでした。配布ページのURLで紐付けてください。</div>`) : ""}
+        : `<div class="muted">見つかりませんでした。「検索」か「URL」で紐付けてください。</div>`) : ""}
     </div>`;
   }
   const L = s.latest || {};
@@ -954,27 +1186,33 @@ function sourceBoxHTML(it) {
     : `<span class="badge${s.status === "error" ? " err" : ""}">${esc(SRC_STATUS[s.status] || s.status)}</span>`;
   return `<div class="srcbox">
     <div class="sh"><span class="cicon sm c-teal">${icon("link")}</span>
-      <div class="main"><a href="${esc(safeUrl(s.page_url))}" target="_blank" rel="noopener noreferrer" style="font-weight:600">${esc(s.title)}</a>
-        <div class="muted" style="margin:0">${esc(s.provider_label)}${s.linked_by === "name" ? " · 名前から推定" : ""}</div></div>${st}</div>
-    ${L.version ? `<div class="latest">配布元の最新: <b>${esc(L.version)}</b>${L.date ? ` <span class="muted">(${fmtDate(L.date)})</span>` : ""}
-      ${L.file_name ? `<div class="muted" style="margin-top:2px">${esc(L.file_name)}</div>` : ""}</div>` : ""}
-    ${s.message ? `<div class="muted">${esc(s.message)}</div>` : ""}
-    <div class="muted">絞り込み: ローダー ${s.loaders.length ? esc(s.loaders.join(", ")) : "指定なし"} / MC ${s.game_versions.length ? esc(s.game_versions.join(", ")) : "指定なし"}${s.checked_at ? ` · 確認 ${fmtDateTime(s.checked_at)}` : ""}</div>
-    <div class="acts">
-      ${safeUrl(s.page_url) !== "#" ? `<a class="btn small tinted" href="${esc(safeUrl(s.page_url))}" target="_blank" rel="noopener noreferrer">${icon("external")}配布ページを開く</a>` : ""}
-    </div>
+      <div class="main"><a href="${esc(safeUrl(s.page_url))}" target="_blank" rel="noopener noreferrer" style="font-weight:600">${esc(s.title)} ${icon("external", "i ext")}</a>
+        <div class="muted" style="margin:0">${esc(s.provider_label)}${s.linked_by === "name" ? " · 名前から推定" : ""}${s.checked_at ? ` · ${fmtDateTime(s.checked_at)} に確認` : ""}</div></div>${st}</div>
+    ${L.version ? `<div class="latest"><div>配布元の最新: <b>${esc(L.version)}</b>${L.date ? ` <span class="muted">(${fmtDate(L.date)})</span>` : ""}</div>
+      ${L.file_name ? `<div class="muted brk">${esc(L.file_name)}</div>` : ""}</div>` : ""}
+    ${s.message ? `<div class="muted brk">${esc(s.message)}</div>` : ""}
     <div class="acts need-editor">
-      ${s.status === "update" && L.downloadable ? `<button class="btn small filled" type="button" data-act="src-download">${icon("download")}${esc(L.version || "最新版")} を保存</button>` : ""}
+      ${s.status === "update" && L.downloadable ? `<button class="btn small filled" type="button" data-act="src-download">${icon("download")}${esc(L.version || "最新バージョン")} を保存</button>` : ""}
       <button class="btn small" type="button" data-act="src-check">${icon("refresh")}確認</button>
       <button class="btn small" type="button" data-act="src-changelog">${icon("doc")}変更履歴</button>
-      <button class="btn small" type="button" data-act="src-filter">絞り込み</button>
-      <button class="btn small" type="button" data-act="src-link">紐付け直す</button>
-      <button class="btn small danger" type="button" data-act="src-unlink">解除</button>
+      <button class="icon-btn sm" type="button" data-act="src-more" title="その他" aria-label="配布元のその他の操作">${icon("more")}</button>
     </div>
   </div>`;
 }
 async function sourceAction(it, act, btn) {
   try {
+    if (act === "src-more") {
+      const s = it.source;
+      openMenu(btn, [
+        { label: `絞り込み(ローダー: ${s.loaders.join(", ") || "なし"} / MC: ${s.game_versions.join(", ") || "なし"})`, icon: "search", run: () => sourceAction(it, "src-filter", btn) },
+        { label: "配布サイトから探し直す", icon: "search", run: () => sourceAction(it, "src-search", btn) },
+        { label: "URLで紐付け直す", icon: "link", run: () => sourceAction(it, "src-link", btn) },
+        "-",
+        { label: "紐付けを解除", icon: "x", danger: true, run: () => sourceAction(it, "src-unlink", btn) },
+      ]);
+      return;
+    }
+    if (act === "src-search") { openSearch({ q: it.name, kind: it.category, linkTo: it }); return; }
     if (act === "src-detect") {
       const r = await busy(btn, () => api(`/api/items/${it.id}/source/detect`, { method: "POST" }), "探しています…");
       if (r.linked) { toast(r.how); delete state.candidates[it.id]; }
@@ -1003,10 +1241,10 @@ async function sourceAction(it, act, btn) {
       toast(r.source.message || SRC_STATUS[r.source.status], r.source.status === "error");
     } else if (act === "src-download") {
       const r = await busy(btn, () => api(`/api/items/${it.id}/source/download`, { method: "POST" }), "ダウンロード中…");
-      toast(r.status === "added" ? `保存しました: ${r.version || ""}` : (r.message || "すでに保存済みです"));
+      toast(r.status === "added" ? `保存しました: ${r.version || ""}` : (r.message || "すでに保存しています"));
     } else if (act === "src-filter") {
       const s = it.source;
-      const r = await formSheet("絞り込み条件", `<p>最新版を探すときの条件です。Mod は Minecraft のバージョンを指定しないと、別のバージョン向けのものが「最新」になることがあります。カンマ区切りで複数指定できます。</p>
+      const r = await formSheet("絞り込み条件", `<p>最新バージョンを探すときの条件です。Mod は Minecraft のバージョンを指定しないと、別のバージョン向けのものが「最新」になることがあります。カンマ区切りで複数指定できます。</p>
         ${field("ローダー(例: paper, spigot / fabric / neoforge / forge)", `<input type="text" name="loaders" value="${esc(s.loaders.join(", "))}">`)}
         ${field("Minecraft のバージョン(例: 1.20.1, 1.21.1)", `<input type="text" name="game_versions" value="${esc(s.game_versions.join(", "))}">`)}`, "保存して確認");
       if (!r) return;
@@ -1018,6 +1256,93 @@ async function sourceAction(it, act, btn) {
     await refresh();
   } catch (e) { toast(e.message, true); renderPanel(); }
 }
+
+/* ---------------- 配布サイトから探す ---------------- */
+const SEARCH_LOADERS = { "": "すべてのローダー", paper: "Paper", spigot: "Spigot", velocity: "Velocity", fabric: "Fabric", neoforge: "NeoForge", forge: "Forge", quilt: "Quilt" };
+async function openSearch({ q = "", kind = "", linkTo = null } = {}) {
+  const st = { provider: "modrinth", q, kind: kind === "other" ? "" : kind, loader: "", mc: "" };
+  await sheet(`${sheetHead(linkTo ? `「${linkTo.name}」の配布元を探す` : "配布サイトから探す")}
+    <div class="db">
+      <div class="segmented" id="srProv">${Object.entries(PROVIDERS).map(([k, n]) => `<button class="seg" type="button" data-prov="${k}" aria-pressed="${k === st.provider}">${n}</button>`).join("")}</div>
+      <label class="search"><span>${icon("search")}</span><input type="search" id="srQ" value="${esc(q)}" placeholder="名前で検索"></label>
+      <div class="chips">
+        <select id="srKind" class="compact"><option value="">すべての種類</option>${Object.entries(CATS).filter(([k]) => k !== "other").map(([k, n]) => `<option value="${k}"${k === st.kind ? " selected" : ""}>${n}</option>`).join("")}</select>
+        <select id="srLoader" class="compact">${Object.entries(SEARCH_LOADERS).map(([k, n]) => `<option value="${k}">${n}</option>`).join("")}</select>
+        <select id="srMc" class="compact"><option value="">すべてのMC</option>${["1.21.4", "1.21.1", "1.21", "1.20.6", "1.20.4", "1.20.1", "1.19.4", "1.18.2", "1.16.5", "1.12.2"].map((v) => `<option value="${v}">MC ${v}</option>`).join("")}</select>
+      </div>
+      <div id="srRes" class="group"></div>
+    </div>`, (form, done) => {
+    let timer = null, seq = 0;
+    const go = async () => {
+      const my = ++seq;
+      const box = $("#srRes", form);
+      box.innerHTML = `<div class="empty"><span class="spinner lg"></span></div>`;
+      try {
+        const p = new URLSearchParams({ provider: st.provider, q: st.q, kind: st.kind, loader: st.loader, mc: st.mc });
+        const { results } = await api(`/api/search?${p}`);
+        if (my !== seq) return;
+        box.innerHTML = results.length ? results.map((r, i) => `<div class="row result-row">
+          ${r.icon && safeUrl(r.icon) !== "#" || String(r.icon).startsWith("data:image/png;base64,") ? `<img class="ricon" src="${esc(r.icon)}" alt="" loading="lazy">` : `<span class="cicon c-teal">${icon("box")}</span>`}
+          <span class="main"><span class="title">${esc(r.title)}${r.item_id ? ' <span class="badge ok">ライブラリにあります</span>' : ""}</span>
+            <span class="subtitle">${r.author ? `${esc(r.author)} · ` : ""}${(r.downloads || 0).toLocaleString()} DL${r.kind ? ` · ${esc(CATS[r.kind] || r.kind)}` : ""}</span>
+            <span class="subtitle brk">${esc((r.summary || "").slice(0, 140))}</span></span>
+          <span class="trail">
+            <a class="icon-btn sm" href="${esc(safeUrl(r.page_url))}" target="_blank" rel="noopener noreferrer" title="配布ページを開く" aria-label="配布ページを開く">${icon("external")}</a>
+            ${linkTo ? `<button class="btn small filled" type="button" data-pick="${i}">紐付け</button>`
+              : r.item_id ? `<button class="btn small" type="button" data-show="${r.item_id}">表示</button>`
+              : `<button class="btn small filled need-editor" type="button" data-add="${i}">追加</button>`}
+          </span></div>`).join("") : `<div class="empty">見つかりませんでした</div>`;
+        box._results = results;
+      } catch (ex) { if (my === seq) box.innerHTML = `<div class="result err">${esc(ex.message)}</div>`; }
+    };
+    form.addEventListener("click", async (e) => {
+      const pv = e.target.closest("[data-prov]");
+      if (pv) { st.provider = pv.dataset.prov; form.querySelectorAll("[data-prov]").forEach((b) => b.setAttribute("aria-pressed", String(b === pv))); go(); return; }
+      const res = $("#srRes", form)._results || [];
+      const add = e.target.closest("[data-add]");
+      if (add) {
+        const r = res[Number(add.dataset.add)];
+        await busy(add, async () => {
+          try {
+            const d = await api("/api/import", { json: { provider: r.provider, project_id: r.project_id, loaders: st.loader, game_versions: st.mc, category: st.kind || (r.kind in CATS ? r.kind : "") } });
+            toast(d.status === "added" ? `追加しました: ${d.name} ${d.version || ""}` : `登録済みです: ${d.name}`);
+            r.item_id = d.item_id; add.outerHTML = `<button class="btn small" type="button" data-show="${d.item_id}">表示</button>`;
+            refresh();
+          } catch (ex) { toast(ex.message, true); }
+        }, "追加中…");
+      }
+      const pick = e.target.closest("[data-pick]");
+      if (pick) {
+        const r = res[Number(pick.dataset.pick)];
+        await busy(pick, async () => {
+          try { await api(`/api/items/${linkTo.id}/source`, { json: { provider: r.provider, project_id: r.project_id } }); toast("紐付けました"); done(true); refresh(); }
+          catch (ex) { toast(ex.message, true); }
+        }, "");
+      }
+      const show = e.target.closest("[data-show]");
+      if (show) { done(null); await refresh(); openPanel(Number(show.dataset.show)); }
+    });
+    $("#srQ", form).addEventListener("input", (e) => { st.q = e.target.value.trim(); clearTimeout(timer); timer = setTimeout(go, 400); });
+    $("#srKind", form).onchange = (e) => { st.kind = e.target.value; go(); };
+    $("#srLoader", form).onchange = (e) => { st.loader = e.target.value; go(); };
+    $("#srMc", form).onchange = (e) => { st.mc = e.target.value; go(); };
+    go();
+  }, { wide: true });
+}
+
+/* ---------------- Modパックの読み込み ---------------- */
+async function importModpack(file) {
+  const r = await formSheet("Modパックを読み込む", `<p>「${esc(file.name)}」の中の Mod をダウンロードしてライブラリに登録します。Modrinth(.mrpack)と CurseForge(zip。APIキーが必要)に対応しています。</p>
+    <div class="group">${toggle("set", "セットを作る", "パックの中身を 1 つのセットとして保存します", true)}${toggle("client", "クライアント専用の Mod も含める", "サーバーでは使わない Mod(描画系など)も登録します", false)}</div>`, "読み込む");
+  if (!r) return;
+  const tp = toastProgress("アップロードしています…");
+  try {
+    const job = await api(`/api/modpack?filename=${encodeURIComponent(file.name)}&set=${r.set ? 1 : 0}&client=${r.client ? 1 : 0}`, { method: "PUT", body: file, headers: { "Content-Type": "application/zip" } });
+    jobStarted(job);
+  } catch (e) { toast(e.message, true); }
+  finally { tp.remove(); }
+}
+
 async function runUpdates(opts) {
   try { jobStarted(await api("/api/updates/run", { json: opts })); } catch (e) { toast(e.message, true); }
 }
@@ -1035,7 +1360,9 @@ $("#searchIcon").innerHTML = icon("search");
 $("#addBtn").addEventListener("click", (e) => openMenu(e.currentTarget, [
   { label: "ファイルを選択", icon: "doc", run: () => $("#fileInput").click() },
   { label: "フォルダを選択", icon: "folder", run: () => $("#dirInput").click() },
+  { label: "配布サイトから探して追加", icon: "search", run: () => openSearch({}) },
   { label: "URLから追加", icon: "link", run: importFromUrl },
+  { label: "Modパックを読み込む(.mrpack / zip)", icon: "stack", run: () => $("#packInput").click() },
   "-",
   { label: "inbox を取り込む", icon: "tray", run: scanInbox },
 ]));
@@ -1161,29 +1488,32 @@ const SETTINGS_PAGES = {
       const u = state.user;
       const upd = state.selfUpd && state.selfUpd.update_available;
       body.innerHTML = `
-        <div class="group">${rowBtn("appearance", "sparkle", "c-resourcepack", "テーマと背景", `<span class="val">${esc(themeName(state.prefs))}</span>`)}</div>
-        <div class="group-title">アカウント</div>
-        <div class="group"><div class="row"><span class="cicon c-teal">${icon("person")}</span>
-          <span class="main"><span class="title">${esc(u.username)}</span><span class="subtitle">${esc(u.role_label)}</span></span></div>
-          ${rowBtn("password", "key", "c-gray", "パスワードを変更")}
-          <button class="row danger" type="button" data-go="logout"><span class="cicon sm c-red">${icon("logout")}</span><span class="main"><span class="title">ログアウト</span></span></button>
-        </div>
+        <div class="group"><button class="row account-row" type="button" data-go="account">
+          <span class="avatar">${esc((u.username || "?").slice(0, 1).toUpperCase())}</span>
+          <span class="main"><span class="title">${esc(u.username)}</span><span class="subtitle">${esc(u.role_label)} · アカウント・セキュリティ・連携の状況</span></span>
+          <span class="trail">${icon("chev", "i chev")}</span></button></div>
         ${isAdmin() ? `<div class="group-title">管理</div><div class="group">
           ${rowBtn("storage", "server", "c-plugin", "ストレージ", `<span class="val">${esc(state.storage?.target?.name || "")}</span>`)}
           ${rowBtn("users", "users", "c-resourcepack", "ユーザー")}
           ${rowBtn("updates", "clock", "c-datapack", "配布元の更新確認")}
+        </div>
+        <div class="group-title">連携</div><div class="group">
+          ${rowBtn("ptero", "server", "c-teal", "Pterodactyl")}
+          ${rowBtn("discord", "bell", "c-plugin", "Discord 通知")}
           ${rowBtn("curseforge", "key", "c-other", "CurseForge APIキー")}
         </div>
-        <div class="group-title">連携と運用</div><div class="group">
-          ${rowBtn("ptero", "server", "c-teal", "Pterodactyl 連携")}
-          ${rowBtn("discord", "sparkle", "c-plugin", "Discord 通知")}
+        <div class="group-title">運用</div><div class="group">
           ${rowBtn("backup", "download", "c-mod", "バックアップ")}
           ${rowBtn("audit", "doc", "c-gray", "操作の記録")}
         </div>` : ""}
+        <div class="group-title">表示</div><div class="group">
+          ${rowBtn("appearance", "sparkle", "c-resourcepack", "テーマと背景", `<span class="val">${esc(themeName(state.prefs))}</span>`)}
+        </div>
         <div class="group-title">CraftShelf</div><div class="group">
           ${isAdmin() ? rowBtn("selfupdate", "sparkle", "c-mod", "パネルのアップデート", upd ? `<span class="badge upd">v${esc(state.selfUpd.latest)}</span>` : `<span class="val">v${esc(state.version || "")}</span>`)
           : `<div class="row"><span class="cicon sm c-mod">${icon("sparkle")}</span><span class="main"><span class="title">バージョン</span></span><span class="trail">v${esc(state.version || "")}</span></div>`}
         </div>
+        <div class="group" style="margin-top:18px"><button class="row danger" type="button" data-go="logout"><span class="cicon sm c-red">${icon("logout")}</span><span class="main"><span class="title">ログアウト</span></span></button></div>
         <div class="group-foot">CraftShelf v${esc(state.version || "")}${state.build ? ` · ${esc(state.build)}` : ""}</div>`;
       body.onclick = async (e) => {
         const b = e.target.closest("[data-go]"); if (!b) return;
@@ -1193,6 +1523,115 @@ const SETTINGS_PAGES = {
         }
         pushSettings(b.dataset.go);
       };
+    },
+  },
+  account: {
+    title: () => "アカウント",
+    async render(body) {
+      const [me, st] = await Promise.all([api("/api/auth/me"), api("/api/settings")]);
+      state.user = me.user;
+      const u = me.user;
+      const stat = (ok, on, off) => `<span class="trail"><span class="status-dot ${ok ? "ok" : ""}"></span>${ok ? on : off}${icon("chev", "i chev")}</span>`;
+      const go = (page, ic, color, title, trail) => `<button class="row" type="button" data-go="${page}"${!isAdmin() && ["ptero", "discord", "curseforge", "backup"].includes(page) ? " disabled" : ""}><span class="cicon sm ${color}">${icon(ic)}</span><span class="main"><span class="title">${esc(title)}</span></span>${trail}</button>`;
+      body.innerHTML = `
+        <div class="big-version"><span class="avatar lg">${esc(u.username.slice(0, 1).toUpperCase())}</span><div class="v">${esc(u.username)}</div><p>${esc(u.role_label)}${u.last_login ? ` · 最終ログイン ${esc(fmtDateTime(u.last_login))}` : ""}</p></div>
+        <div class="group-title">プロフィール</div><div class="group">
+          ${rowBtn("username", "person", "c-teal", "ユーザー名を変更", `<span class="val">${esc(u.username)}</span>`)}
+          ${rowBtn("password", "key", "c-gray", "パスワードを変更")}
+        </div>
+        <div class="group-title">セキュリティ</div><div class="group">
+          ${rowBtn("totp", "shield", "c-mod", "二段階認証", u.totp_enabled ? '<span class="badge ok">オン</span>' : '<span class="badge">オフ</span>')}
+          ${rowBtn("tokens", "key", "c-plugin", "APIトークン")}
+        </div>
+        <div class="group-title">連携の状況</div><div class="group">
+          ${go("ptero", "server", "c-teal", "Pterodactyl", stat(st.ptero_url && st.ptero_key_set, "接続先を設定済み", "未設定"))}
+          ${go("discord", "bell", "c-plugin", "Discord 通知", stat(st.discord_set, `${st.discord_events.length} 種類を通知`, "未設定"))}
+          ${go("curseforge", "key", "c-other", "CurseForge APIキー", stat(st.cf_api_key_set, "登録済み", "未登録"))}
+          ${go("backup", "download", "c-mod", "自動バックアップ", stat(st.backup_target_id, st.last_backup ? `前回 ${fmtDateTime(st.last_backup)}` : "毎日", "オフ"))}
+          ${go("updates", "clock", "c-datapack", "更新の自動確認", stat(st.check_interval_hours, `${st.check_interval_hours} 時間ごと`, "オフ"))}
+        </div>
+        ${!isAdmin() ? `<div class="group-foot">連携の設定は管理者が行います</div>` : ""}`;
+      body.onclick = (e) => { const b = e.target.closest("[data-go]:not([disabled])"); if (b) pushSettings(b.dataset.go); };
+    },
+  },
+  username: {
+    title: () => "ユーザー名を変更",
+    async render(body) {
+      body.innerHTML = `${field("新しいユーザー名", `<input type="text" name="username" value="${esc(state.user.username)}" autocomplete="username">`)}
+        ${field("確認のため現在のパスワード", `<input type="password" name="password" autocomplete="current-password">`)}
+        <button class="btn filled block" type="button" id="unSave">変更する</button>`;
+      $("#unSave", body).onclick = (e) => busy(e.currentTarget, async () => {
+        try {
+          await api("/api/auth/username", { json: { username: $("[name=username]", body).value.trim(), password: $("[name=password]", body).value } });
+          state.user = (await api("/api/auth/me")).user; toast("ユーザー名を変更しました"); popSettings();
+        } catch (ex) { toast(ex.message, true); }
+      });
+    },
+  },
+  totp: {
+    title: () => "二段階認証",
+    async render(body) {
+      const u = (await api("/api/auth/me")).user;
+      if (u.totp_enabled) {
+        body.innerHTML = `<div class="result ok">二段階認証はオンです。ログインのときに、認証アプリの 6 桁のコードが必要です。</div>
+          ${field("オフにするには現在のパスワードを入力", `<input type="password" name="password" autocomplete="current-password">`)}
+          <button class="btn danger block" type="button" id="tfOff">二段階認証をオフにする</button>`;
+        $("#tfOff", body).onclick = (e) => busy(e.currentTarget, async () => {
+          try { await api("/api/me/totp/disable", { json: { password: $("[name=password]", body).value } }); toast("オフにしました"); renderSettings(); }
+          catch (ex) { toast(ex.message, true); }
+        });
+        return;
+      }
+      body.innerHTML = `<p>パスワードに加えて、スマホの認証アプリ(Google Authenticator、1Password、Microsoft Authenticator など)に表示される 6 桁のコードでログインするようにします。</p>
+        <button class="btn filled block" type="button" id="tfStart">設定を始める</button><div id="tfBody"></div>`;
+      const startBtn = $("#tfStart", body);
+      startBtn.onclick = () => busy(startBtn, async () => {
+        let s;
+        try { s = await api("/api/me/totp/setup", { method: "POST" }); } catch (ex) { toast(ex.message, true); return; }
+        startBtn.hidden = true;
+        $("#tfBody", body).innerHTML = `
+          <div class="group-title">1. 認証アプリで QR コードを読み取る</div>
+          <div class="qr">${s.qr_svg || ""}</div>
+          <p style="font-size:12.5px;word-break:break-all">読み取れない場合はキーを入力: <code>${esc(s.secret)}</code></p>
+          <div class="group-title">2. アプリに表示された 6 桁のコードを入力</div>
+          ${field("確認コード", `<input type="text" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="123456">`)}
+          <button class="btn filled block" type="button" id="tfOn">オンにする</button>`;
+        $("#tfOn", body).onclick = (ev) => busy(ev.currentTarget, async () => {
+          try {
+            const r = await api("/api/me/totp/enable", { json: { code: $("[name=code]", body).value } });
+            $("#tfBody", body).innerHTML = `<div class="result ok">二段階認証をオンにしました。</div>
+              <div class="group-title">回復コード(必ず保存してください)</div>
+              <p style="font-size:12.5px">スマホをなくしたときに、6 桁のコードの代わりに使えます。それぞれ 1 回だけ使えます。この画面を閉じると二度と表示されません。</p>
+              <div class="filelist">${esc(r.recovery_codes.join("\n"))}</div>`;
+            state.user.totp_enabled = true;
+          } catch (ex) { toast(ex.message, true); }
+        });
+      }, "準備中…");
+    },
+  },
+  tokens: {
+    title: () => "APIトークン",
+    async render(body) {
+      const { tokens } = await api("/api/me/tokens");
+      body.innerHTML = `<p>外部のスクリプトや CI から CraftShelf を操作するためのトークンです。<code>Authorization: Bearer cs_…</code> ヘッダーで送ります。トークンの権限は、あなたの権限以下で選べます。</p>
+        <div class="group">${tokens.map((t) => `<div class="row noicon"><span class="main"><span class="title">${esc(t.name)}</span>
+          <span class="subtitle">${esc(t.prefix)}… · ${esc((state.roles || {})[t.role] || t.role)} · 作成 ${esc(fmtDate(t.created_at))}${t.last_used ? ` · 最終使用 ${esc(fmtDateTime(t.last_used))}` : " · 未使用"}</span></span>
+          <button class="icon-btn sm danger" type="button" data-del="${t.id}" title="削除" aria-label="削除">${icon("trash")}</button></div>`).join("") || `<div class="empty">まだありません</div>`}</div>
+        <div class="group-title">新しいトークン</div>
+        ${field("名前(用途)", `<input type="text" name="name" placeholder="例: 自動デプロイ用">`)}
+        ${field("権限", `<select name="role">${Object.entries(state.roles || {}).filter(([k]) => ["viewer", "editor", "admin"].indexOf(k) <= ["viewer", "editor", "admin"].indexOf(state.user.role)).map(([k, n]) => `<option value="${k}"${k === "viewer" ? " selected" : ""}>${esc(n)}</option>`).join("")}</select>`)}
+        <button class="btn filled block" type="button" id="tkNew">作成</button><div id="tkOut"></div>`;
+      body.onclick = async (e) => {
+        const d = e.target.closest("[data-del]"); if (!d) return;
+        if (!confirm("このトークンを削除しますか?(使っているスクリプトは動かなくなります)")) return;
+        try { await api(`/api/me/tokens/${d.dataset.del}`, { method: "DELETE" }); toast("削除しました"); renderSettings(); } catch (ex) { toast(ex.message, true); }
+      };
+      $("#tkNew", body).onclick = (e) => busy(e.currentTarget, async () => {
+        try {
+          const r = await api("/api/me/tokens", { json: { name: $("[name=name]", body).value, role: $("[name=role]", body).value } });
+          $("#tkOut", body).innerHTML = `<div class="result ok">作成しました。このトークンは今しか表示されません。コピーして保管してください。</div><div class="filelist">${esc(r.token)}</div>`;
+        } catch (ex) { toast(ex.message, true); }
+      });
     },
   },
   appearance: {
@@ -1438,7 +1877,12 @@ const SETTINGS_PAGES = {
         ${field("権限", `<select name="role">${roleOpts}</select>`)}
         ${field(u ? "新しいパスワード(変更する場合のみ・8文字以上)" : "パスワード(8文字以上)", `<input type="password" name="password" autocomplete="new-password">`)}
         <button class="btn filled block" type="button" id="uSave">${u ? "保存" : "追加"}</button>
+        ${u && u.totp_enabled && u.id !== state.user.id ? `<button class="btn block" type="button" id="uTotp">二段階認証をリセット(スマホを紛失した場合)</button>` : ""}
         ${u && u.id !== state.user.id ? `<button class="btn danger block" type="button" id="uDel">このユーザーを削除</button>` : ""}`;
+      $("#uTotp", body)?.addEventListener("click", (e) => busy(e.currentTarget, async () => {
+        if (!confirm(`「${u.username}」の二段階認証をリセットしますか?`)) return;
+        try { await api(`/api/users/${u.id}`, { method: "PATCH", json: { reset_totp: true } }); toast("リセットしました"); popSettings(); } catch (ex) { toast(ex.message, true); }
+      }));
       $("#uSave", body).onclick = (e) => busy(e.currentTarget, async () => {
         const d = { role: $("[name=role]", body).value };
         const pw = $("[name=password]", body).value;
@@ -1760,6 +2204,7 @@ $("#queueClear").addEventListener("click", () => {
   if (!tasks.length) $("#queue").hidden = true; else drawQueue();
 });
 $("#pickFiles").addEventListener("click", () => $("#fileInput").click());
+$("#packInput").addEventListener("change", (e) => { const f = e.target.files[0]; e.target.value = ""; if (f) importModpack(f); });
 $("#pickDir").addEventListener("click", () => $("#dirInput").click());
 $("#fileInput").addEventListener("change", (e) => { enqueue([...e.target.files]); e.target.value = ""; });
 $("#dirInput").addEventListener("change", (e) => { enqueue([...e.target.files].filter((f) => OKEXT.test(f.name))); e.target.value = ""; });

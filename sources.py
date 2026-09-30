@@ -400,11 +400,18 @@ def download(url, dest, expected_sha1=""):
         if p.scheme != "https" or not any(host == h or host.endswith("." + h) for h in _ALLOWED_DL_HOSTS):
             raise SourceError(f"想定外のダウンロード先のため中止しました: {host}")
 
-    check_host(url)
-    r = _req("GET", url, stream=True, timeout=(TIMEOUT, 120))
-    for h in r.history:
-        check_host(h.headers.get("location") or h.url)
-    check_host(r.url)
+    # リダイレクトは自動で追わず、行き先を確かめてから1段ずつ進む(想定外のホストへ接続しないため)
+    for _ in range(6):
+        check_host(url)
+        r = _req("GET", url, stream=True, timeout=(TIMEOUT, 120), allow_redirects=False,
+                 ok=(200, 301, 302, 303, 307, 308))
+        if r.status_code in (301, 302, 303, 307, 308):
+            url = requests.compat.urljoin(url, r.headers.get("location", ""))
+            r.close()
+            continue
+        break
+    else:
+        raise SourceError("リダイレクトが多すぎます")
     sha1 = hashlib.sha1()
     total = 0
     with open(dest, "wb") as out:

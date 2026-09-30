@@ -85,6 +85,7 @@ PROTOCOLS = {"local": "ローカル", "smb": "SMB", "webdav": "WebDAV"}
 REMOTE_PROTOCOLS = ("smb", "webdav")
 
 LOCK = threading.RLock()
+MAX_UPLOAD = int(os.environ.get("MAX_UPLOAD_MB", "1024")) * 1024 * 1024
 app = Flask(__name__, static_folder=None)
 
 
@@ -1042,6 +1043,7 @@ def _login(u):
     db().commit()
 
 
+_DUMMY_HASH = generate_password_hash(secrets.token_hex(16))
 _USERNAME_RE = re.compile(r"^[\w.@-]{1,40}$")
 
 
@@ -1060,6 +1062,9 @@ _FAILS_LOCK = threading.Lock()
 def _too_many_failures(ip, add=False):
     now = time.monotonic()
     with _FAILS_LOCK:
+        if len(_FAILS) > 5000:  # 大量のユーザー名で試されてもメモリを使い切らないように
+            for k in [k for k, v in _FAILS.items() if not v or now - v[-1] >= 600]:
+                del _FAILS[k]
         lst = [t for t in _FAILS.get(ip, []) if now - t < 600]
         if add:
             lst.append(now)
@@ -1139,7 +1144,7 @@ def check_auth():
     if request.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
         if request.headers.get("X-Requested-With") != "mcpl":
             raise ApiError("不正なリクエストです(画面を再読み込みしてください)", 403)
-    if request.path in PUBLIC_PATHS:
+    if request.path in PUBLIC_PATHS or request.path.startswith("/static/"):
         return None
     if not current_user():
         raise ApiError("ログインしてください", 401)
@@ -1162,12 +1167,31 @@ def handle_error(e):
     if isinstance(e, HTTPException):
         return jsonify(error=e.description), e.code
     app.logger.exception("unhandled error")
-    return jsonify(error=f"サーバーエラー: {e}"), 500
+    return jsonify(error="サーバー内部でエラーが発生しました(詳しくはコンテナのログを確認してください)"), 500
 
 
 @app.get("/")
 def index():
     return send_from_directory(BASE_DIR / "static", "index.html", max_age=0)
+
+
+@app.get("/static/<path:name>")
+def static_file(name):
+    return send_from_directory(BASE_DIR / "static", name, max_age=0)
+
+
+@app.after_request
+def security_headers(resp):
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "same-origin")
+    resp.headers.setdefault(
+        "Content-Security-Policy",
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+        "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+    if request.path.startswith("/api/"):
+        resp.headers.setdefault("Cache-Control", "no-store")
+    return resp
 
 
 APP_NAME = "CraftShelf"
@@ -1231,11 +1255,15 @@ def api_upload():
         raise ApiError("category が不正です")
     tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
     try:
+        total = 0
         with open(tmp, "wb") as f:
             while True:
                 chunk = request.stream.read(1024 * 1024)
                 if not chunk:
                     break
+                total += len(chunk)
+                if total > MAX_UPLOAD:
+                    raise ApiError(f"ファイルが大きすぎます(上限 {MAX_UPLOAD // 1024 // 1024} MB)", 413)
                 f.write(chunk)
         result = ingest(tmp, filename, force)
     finally:
@@ -1591,13 +1619,18 @@ def api_auth_setup():
 
 @app.post("/api/auth/login")
 def api_auth_login():
-    ip = request.headers.get("X-Forwarded-For", request.remote_addr or "").split(",")[0].strip()
-    if _too_many_failures(ip):
-        raise ApiError("ログインの失敗が続いたため、しばらく(10分ほど)待ってからお試しください", 429)
+    # X-Forwarded-For は送信側で自由に書き換えられるので使わない(回数制限を回避されるため)
     data = request.get_json(silent=True) or {}
-    u = db().execute("SELECT * FROM users WHERE username=?", (str(data.get("username", "")).strip(),)).fetchone()
-    if not u or not check_password_hash(u["password_hash"], str(data.get("password", ""))):
-        _too_many_failures(ip, add=True)
+    username = str(data.get("username", "")).strip()[:40]
+    keys = ("ip:" + (request.remote_addr or ""), "user:" + username.lower())
+    if any(_too_many_failures(k) for k in keys):
+        raise ApiError("ログインの失敗が続いたため、しばらく(10分ほど)待ってからお試しください", 429)
+    u = db().execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+    # ユーザーが存在しない場合も同じだけ時間をかけ、応答時間からユーザー名を推測されないようにする
+    ok = check_password_hash(u["password_hash"] if u else _DUMMY_HASH, str(data.get("password", "")))
+    if not u or not ok:
+        for k in keys:
+            _too_many_failures(k, add=True)
         raise ApiError("ユーザー名かパスワードが違います", 401)
     _login(u)
     return jsonify(ok=True, user=user_public(u))

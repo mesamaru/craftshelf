@@ -560,7 +560,9 @@ button.kv.linkish span:last-child { color: var(--tint); }
 @media (max-width: 700px) {
   .tabbar { left: 8px; right: 8px; transform: none; justify-content: space-between; }
   .tabbar button { min-width: 0; flex: 1; padding: 6px 4px; font-size: 10.5px; }
-  #mcSel { display: none; }
+  .toolbar .row1 { flex-wrap: wrap; }
+  .toolbar .search { flex-basis: 100%; }
+  .toolbar .row1 select.compact { flex: 1; }
 }
 
 /* role based visibility */

@@ -41,6 +41,16 @@ class SourceError(Exception):
 
 
 _S = requests.Session()
+MOJANG_MANIFEST = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json"
+
+
+def mc_releases():
+    """Mojang の公式一覧から、正式リリースの MC バージョンを新しい順で返す。"""
+    r = _S.get(MOJANG_MANIFEST, timeout=15)
+    r.raise_for_status()
+    return [v["id"] for v in r.json().get("versions", []) if v.get("type") == "release"]
+
+
 _S.headers["User-Agent"] = UA
 
 
@@ -393,6 +403,53 @@ def latest(provider, project_id, *, loaders=None, game_versions=None, stable_onl
 
 
 _ALLOWED_DL_HOSTS = ("modrinth.com", "spiget.org", "forgecdn.net", "curseforge.com", "spigotmc.org")
+
+
+ICON_HOSTS = ("modrinth.com", "forgecdn.net", "curseforge.com")
+
+
+def image_type(b):
+    """画像の種類(PNG / JPEG / GIF / WebP)を中身から判定する。SVG などは扱わない。"""
+    if b[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if b[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if b[:6] in (b"GIF87a", b"GIF89a"):
+        return "image/gif"
+    if b[:4] == b"RIFF" and b[8:12] == b"WEBP":
+        return "image/webp"
+    return ""
+
+
+def fetch_icon(provider, project_id, api_key=None, limit=1024 * 1024):
+    """配布元のプロジェクトのアイコン画像(bytes)を返す。無ければ None。"""
+    if provider == "spigot":
+        d = _json("GET", f"{SPIGET}/resources/{int(project_id)}")
+        data = (d.get("icon") or {}).get("data") or ""
+        if not data:
+            return None
+        b = base64.b64decode(data, validate=False)
+        return b if image_type(b) and len(b) <= limit else None
+    if provider == "modrinth":
+        url = _json("GET", f"{MODRINTH}/project/{quote(str(project_id), safe='')}").get("icon_url") or ""
+    elif provider == "curseforge":
+        _need_key(api_key)
+        m = _json("GET", f"{CURSEFORGE}/mods/{int(project_id)}", api_key=api_key)["data"]
+        url = (m.get("logo") or {}).get("thumbnailUrl") or ""
+    else:
+        return None
+    host = (urlsplit(url).hostname or "").lower()
+    if not url.startswith("https://") or not any(host == h or host.endswith("." + h) for h in ICON_HOSTS):
+        return None
+    with _S.get(url, timeout=20, stream=True, allow_redirects=False) as r:
+        if r.status_code != 200:
+            return None
+        b = b""
+        for chunk in r.iter_content(65536):
+            b += chunk
+            if len(b) > limit:
+                return None
+    return b if image_type(b) else None
 
 
 def download(url, dest, expected_sha1="", extra_hosts=()):

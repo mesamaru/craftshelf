@@ -355,6 +355,7 @@ async function refresh() {
     const d = await api("/api/library");
     state.items = d.items; state.storage = d.storage; state.version = d.version; state.build = d.build;
     await loadPresence();
+    if (!state.mcLoaded) { state.mcLoaded = true; loadMcVersions(); }
     if (state.selected && !state.items.some((i) => i.id === state.selected)) closePanel();
     render();
   } catch (e) { if (state.user) toast("読み込みに失敗しました: " + e.message, true); }
@@ -427,12 +428,14 @@ function render() {
   for (const k of Object.keys(CATS)) counts[k] = state.items.filter((i) => i.category === k).length;
   const nUpd = state.items.filter((i) => i.source && i.source.status === "update").length;
   const nDeps = state.items.filter((i) => (i.missing_deps || []).length).length;
-  $("#chips").innerHTML = ["all", ...Object.keys(CATS)].filter((k) => k !== "other" || counts[k] > 0 || state.cat === k)
+  const emptyCats = Object.keys(CATS).filter((k) => !counts[k] && state.cat !== k && k !== "other");
+  $("#chips").innerHTML = ["all", ...Object.keys(CATS)].filter((k) => k === "all" || counts[k] > 0 || state.cat === k)
     .map((k) => `<button class="seg${k !== "all" && !counts[k] ? " zero" : ""}" type="button" data-cat="${k}" aria-pressed="${state.cat === k}">${k === "all" ? "" : `<span class="segi c-${k}">${catGlyph(k)}</span>`}${k === "all" ? "すべて" : CATS[k]}<span class="n">${counts[k]}</span></button>`).join("")
     + (nUpd || state.cat === "__upd" ? `<button class="seg upd" type="button" data-cat="__upd" aria-pressed="${state.cat === "__upd"}">更新あり<span class="n">${nUpd}</span></button>` : "")
     + (nDeps || state.cat === "__deps" ? `<button class="seg upd" type="button" data-cat="__deps" aria-pressed="${state.cat === "__deps"}">前提が不足<span class="n">${nDeps}</span></button>` : "")
     + (state.cat === "__unlinked" ? `<button class="seg" type="button" data-cat="__unlinked" aria-pressed="true">未連携<span class="n">${state.items.filter((i) => !i.source).length}</span></button>` : "")
-    + (state.cat === "__nomc" ? `<button class="seg" type="button" data-cat="__nomc" aria-pressed="true">MC不明<span class="n">${state.items.filter((i) => !mcOf(i)).length}</span></button>` : "");
+    + (state.cat === "__nomc" ? `<button class="seg" type="button" data-cat="__nomc" aria-pressed="true">MC不明<span class="n">${state.items.filter((i) => !mcOf(i)).length}</span></button>` : "")
+    + (emptyCats.length ? `<select class="compact seg-more" id="catMore" aria-label="ほかの種類"><option value="">ほかの種類</option>${emptyCats.map((k) => `<option value="${k}">${CATS[k]}(0)</option>`).join("")}</select>` : "");
   const tags = [...new Set(state.items.flatMap((i) => i.tags || []))].sort((a, b) => a.localeCompare(b, "ja"));
   if (state.tag && !tags.includes(state.tag)) state.tag = "";
   $("#tagChips").hidden = !tags.length;
@@ -460,7 +463,7 @@ function render() {
       const picked = state.selMode && state.sel.has(it.id);
       return `<div class="row${state.selected === it.id ? " sel" : ""}${picked ? " picked" : ""}" role="button" tabindex="0" data-id="${it.id}">
         ${state.selMode ? `<span class="pick${picked ? " on" : ""}" aria-hidden="true">${picked ? icon("check") : ""}</span>` : ""}
-        <span class="cicon c-${it.category}">${catGlyph(it.category)}</span>
+        ${itemIcon(it)}
         <span class="main"><span class="title" translate="no">${esc(it.name)}</span>
           <span class="subtitle">${plat ? `<span class="plat" translate="no">${esc(plat)}</span>` : ""}${esc(verLabel(latest.version))}${mc ? ` · MC ${esc(mc)}` : ""} · ${it.versions.length} バージョン<span class="hide-s"> · ${fmtSize(it.total_size)} · ${fmtDate(it.last_added)}</span></span>
           ${(it.tags || []).length ? `<span class="rtags">${it.tags.slice(0, 4).map((t) => `<span class="tagchip mini" translate="no">#${esc(t)}</span>`).join("")}</span>` : ""}</span>
@@ -486,6 +489,11 @@ function renderStorage() {
   $("#drop").classList.toggle("disabled", !!s.error);
 }
 
+$("#chips").addEventListener("change", (e) => {
+  if (e.target.id !== "catMore" || !e.target.value) return;
+  state.cat = e.target.value; render();
+  try { localStorage.setItem("craftshelf.cat", state.cat); } catch { /* */ }
+});
 $("#chips").addEventListener("click", (e) => {
   const b = e.target.closest("[data-cat]"); if (!b) return;
   state.cat = b.dataset.cat; render();
@@ -535,8 +543,23 @@ function setView(view) {
 $("#tabbar").addEventListener("click", (e) => { const b = e.target.closest("[data-view]"); if (b) setView(b.dataset.view); });
 
 /* ---------------- 対応MCバージョンでの絞り込み ---------------- */
-const MC_LINES = ["1.21", "1.20", "1.19", "1.18", "1.17", "1.16", "1.15", "1.14", "1.13", "1.12", "1.8"];
-const MC_VERSIONS = ["1.21.4", "1.21.3", "1.21.1", "1.21", "1.20.6", "1.20.4", "1.20.2", "1.20.1", "1.19.4", "1.19.2", "1.18.2", "1.17.1", "1.16.5", "1.15.2", "1.14.4", "1.13.2", "1.12.2", "1.8.9"];
+let MC_LINES = ["1.21", "1.20", "1.19", "1.18", "1.17", "1.16", "1.15", "1.14", "1.13", "1.12", "1.8"];
+let MC_VERSIONS = ["1.21.4", "1.21.3", "1.21.1", "1.21", "1.20.6", "1.20.4", "1.20.2", "1.20.1", "1.19.4", "1.19.2", "1.18.2", "1.17.1", "1.16.5", "1.15.2", "1.14.4", "1.13.2", "1.12.2", "1.8.9"];
+/* Mojang の公式一覧から、系列(1.21 / 26.1 など)と主なバージョンを作り直す */
+async function loadMcVersions() {
+  let list;
+  try { list = (await api("/api/mc/versions")).versions; } catch { return; }
+  if (!list || !list.length) return;
+  const lineOf = (v) => verNums(v).slice(0, 2).join(".");
+  const lines = [...new Set(list.map(lineOf))].filter((l) => cmpVer(verNums(l), [1, 8]) >= 0);
+  const recent = new Set(lines.slice(0, 2));  // 直近 2 系列は全部、それより前は各系列の最新と定番だけ
+  const keep = new Set(MC_VERSIONS);
+  const vers = list.filter((v, i) => cmpVer(verNums(v), [1, 8]) >= 0 && (recent.has(lineOf(v)) || keep.has(v) || list.findIndex((x) => lineOf(x) === lineOf(v)) === i));
+  MC_LINES = lines.filter((l) => cmpVer(verNums(l), [1, 12]) >= 0 || l === "1.8");
+  MC_VERSIONS = vers;
+  const mcSel = $("#mcSel");
+  if (mcSel) { const cur = mcSel.value; mcSel.length = 1; mcSel.insertAdjacentHTML("beforeend", MC_LINES.map((v) => `<option value="${v}">MC ${v}</option>`).join("")); mcSel.value = cur; }
+}
 const verNums = (v) => (String(v).match(/\d+(?:\.\d+)*/) || [""])[0].split(".").filter(Boolean).map(Number);
 const cmpVer = (a, b) => { for (let i = 0; i < Math.max(a.length, b.length); i++) { const d = (a[i] || 0) - (b[i] || 0); if (d) return d; } return 0; };
 /* 「1.20 以降」「1.20.1〜1.21.4」「1.20.1, 1.20.2」「[1.20.1,1.21)」などを解釈し、指定の系列(例 1.21)で使えるか判定する */
@@ -573,7 +596,7 @@ async function renderDash() {
   if (!state.dashSettings) { try { state.dashSettings = await api("/api/settings"); } catch { state.dashSettings = {}; } }
   const st = state.dashSettings;
   const itemRow = (it, trail) => `<div class="row" role="button" tabindex="0" data-open="${it.id}">
-      <span class="cicon sm c-${it.category}">${catGlyph(it.category)}</span>
+      ${itemIcon(it, true)}
       <span class="main"><span class="title">${esc(it.name)}</span><span class="subtitle">${esc(verLabel((it.versions.find((v) => v.id === it.latest_id) || it.versions[0]).version))}${mcOf(it) ? ` · MC ${esc(mcOf(it))}` : ""}</span></span>
       <span class="trail">${trail}${icon("chev", "i chev")}</span></div>`;
   const intervalLabel = { 0: "しない", 6: "6時間ごと", 12: "12時間ごと", 24: "1日ごと", 168: "1週間ごと" }[st.check_interval_hours] || `${st.check_interval_hours || 0}時間ごと`;
@@ -692,6 +715,28 @@ function arrangeDash() {
       : `<button class="btn small" type="button" data-de="edit">${icon("edit")}ウィジェットを編集</button>`}</div>`;
   dash.appendChild(grid);
   if (edit) wireDashDrag(grid);
+  else if (DASH_WIDE.matches) packDash(grid);
+}
+/* 半分の幅のウィジェットを、低いほうの列へ順に積んでいく(横の行でそろえないので隙間ができない) */
+const DASH_WIDE = window.matchMedia("(min-width: 901px)");
+DASH_WIDE.addEventListener("change", () => { if (state.view === "dash") renderDash(); });
+function packDash(grid) {
+  const ws = [...grid.children];
+  const hs = new Map(ws.map((w) => [w, w.getBoundingClientRect().height]));
+  grid.classList.add("packed");
+  grid.textContent = "";
+  let cols = null;
+  for (const w of ws) {
+    if (w.classList.contains("full")) { grid.appendChild(w); cols = null; continue; }
+    if (!cols) {
+      const box = document.createElement("div"); box.className = "dash-cols";
+      cols = [[document.createElement("div"), 0], [document.createElement("div"), 0]];
+      for (const [c] of cols) { c.className = "dash-col"; box.appendChild(c); }
+      grid.appendChild(box);
+    }
+    const t = cols[0][1] <= cols[1][1] ? cols[0] : cols[1];
+    t[0].appendChild(w); t[1] += hs.get(w) + 14;
+  }
 }
 async function saveDash(L) {
   state.prefs = { ...state.prefs, dash: L };
@@ -740,6 +785,12 @@ $("#dash").addEventListener("click", async (e) => {
   if (sg) { setView("servers"); }
 }, true);
 
+/* 配布元から取得したアイコンがあれば画像で、無ければ種類のアイコンで表示する */
+function itemIcon(it, sm = false) {
+  const v = it.source && it.source.icon_v;
+  if (v) return `<span class="cicon img${sm ? " sm" : ""}"><img src="/api/items/${it.id}/icon?v=${v}" alt="" loading="lazy" decoding="async"></span>`;
+  return `<span class="cicon${sm ? " sm" : ""} c-${it.category}">${catGlyph(it.category)}</span>`;
+}
 function gotoLibrary(cat) {
   state.cat = cat; state.mc = state.mc || ""; setView("library"); render();
 }
@@ -797,7 +848,7 @@ function renderSets() {
           ${s.description ? `<p class="muted" style="margin:0 0 8px">${esc(s.description)}</p>` : ""}
           ${miss.length ? `<div class="result err" style="margin-bottom:8px">前提が足りません: ${esc(miss.join(" / "))}</div>` : ""}
           ${s.items.map((x) => { const it = byId[x.item_id]; if (!it) return ""; const v = it.versions.find((vv) => vv.id === (x.version_id || it.latest_id)) || {};
-            return `<div class="row" role="button" tabindex="0" data-open="${it.id}"><span class="cicon sm c-${it.category}">${catGlyph(it.category)}</span>
+            return `<div class="row" role="button" tabindex="0" data-open="${it.id}">${itemIcon(it, true)}
               <span class="main"><span class="title">${esc(it.name)}</span><span class="subtitle">${esc(verLabel(v.version))}${x.version_id ? "(固定)" : "(常に最新)"}</span></span>${icon("chev", "i chev")}</div>`; }).join("")}
           <div class="chips" style="margin-top:10px">
             <a class="btn small tinted" href="/api/sets/${s.id}/download">${icon("download")}zip でダウンロード</a>
@@ -830,7 +881,7 @@ async function editSet(set) {
       ${field("メモ(任意)", `<input type="text" name="description" value="${esc(set?.description || "")}">`)}
       <label class="search"><span>${icon("search")}</span><input type="search" id="setQ" placeholder="絞り込み"></label>
       <div class="group scroll" id="setItems">${items.map((it) => `<div class="toggle-row pick" data-name="${esc(it.name.toLowerCase())}">
-          <span class="cicon sm c-${it.category}">${catGlyph(it.category)}</span>
+          ${itemIcon(it, true)}
           <label class="main" for="si-${it.id}">${esc(it.name)}</label>
           <select data-ver="${it.id}" class="compact" aria-label="${esc(it.name)} のバージョン">
             <option value="">常に最新(${esc(verLabel(it.versions[0].version))})</option>
@@ -1098,7 +1149,7 @@ async function pushDialog({ server = null, set = null, item = null, itemIds = nu
       ${field("転送先のサーバー", `<select name="srv">${state.servers.map((x) => `<option value="${x.id}"${server && x.id === server.id ? " selected" : ""}>${esc(x.name)}(${esc(x.plugin_dir)})</option>`).join("")}</select>`)}
       ${field("送るもの", `<select name="mode"><option value="set"${set ? " selected" : ""}>セット</option><option value="items"${!set ? " selected" : ""}>アイテムを選ぶ</option></select>`)}
       <div id="pSet">${field("セット", `<select name="set_id">${state.sets.map((x) => `<option value="${x.id}"${set && x.id === set.id ? " selected" : ""}>${esc(x.name)}(${x.items.length} 件)</option>`).join("") || "<option value=''>セットがありません</option>"}</select>`)}</div>
-      <div id="pItems"><div class="group scroll">${items.map((it) => `<label class="toggle-row"><span class="cicon sm c-${it.category}">${catGlyph(it.category)}</span>
+      <div id="pItems"><div class="group scroll">${items.map((it) => `<label class="toggle-row">${itemIcon(it, true)}
         <span class="main">${esc(it.name)}<small>${esc(verLabel(it.versions[0].version))}(最新)</small></span>
         <input type="checkbox" class="switch" data-pi="${it.id}"${(item && item.id === it.id) || (itemIds && itemIds.includes(it.id)) ? " checked" : ""}></label>`).join("")}</div></div>
       <div class="group">${toggle("restart", "完了後にサーバーを再起動", "", false)}</div>

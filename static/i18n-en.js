@@ -5,6 +5,9 @@
 window.CS_EN = {
   // ---- 長い説明文 ----
   // ---- ダッシュボードの編集 ----
+  "ほかの種類": "More types",
+  "サーバーソフトで絞り込み": "Filter by server software",
+  "サーバーソフト": "Server software",
   "Pterodactyl のサーバーを連携すると、ここに同期の状況が表示されます": "Link Pterodactyl servers to see their sync status here",
   "まだ中身を確認していません": "Not checked yet",
   "件を管理中": "items tracked",

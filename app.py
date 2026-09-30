@@ -68,6 +68,7 @@ CONFIG_DIR = Path(os.environ.get(
 )).resolve()
 LOCAL_DIR = Path(os.environ.get("DATA_DIR", BASE_DIR / "data")).resolve()
 TMP_DIR = CONFIG_DIR / ".tmp"
+ICON_DIR = CONFIG_DIR / "icons"  # 配布元から取得したアイコン(アイテムID ごと)
 DB_PATH = CONFIG_DIR / "index.db"
 SECRET_KEY_PATH = CONFIG_DIR / "secret.key"
 SESSION_KEY_PATH = CONFIG_DIR / "session.key"
@@ -2441,7 +2442,50 @@ def source_public(r):
         "loaders": _jl(r["loaders"], []), "game_versions": _jl(r["game_versions"], []),
         "linked_by": r["linked_by"], "status": r["status"], "message": r["message"],
         "latest": _jl(r["latest"], {}), "checked_at": r["checked_at"],
+        "icon_v": _icon_version(r["item_id"]),
     }
+
+
+def _icon_path(item_id):
+    return ICON_DIR / str(int(item_id))
+
+
+def _icon_version(item_id):
+    try:
+        return int(_icon_path(item_id).stat().st_mtime)
+    except OSError:
+        return 0
+
+
+def fetch_item_icon(item_id, provider, project_id):
+    """配布元のアイコンを取得して保存する(取れなくても処理は続ける)。"""
+    try:
+        b = src.fetch_icon(provider, project_id, api_key=cf_api_key())
+    except Exception:  # noqa: BLE001
+        return False
+    if not b:
+        return False
+    ICON_DIR.mkdir(parents=True, exist_ok=True)
+    tmp = _icon_path(item_id).with_suffix(".tmp")
+    tmp.write_bytes(b)
+    os.replace(tmp, _icon_path(item_id))
+    return True
+
+
+@app.get("/api/items/<int:iid>/icon")
+def api_item_icon(iid):
+    p = _icon_path(iid)
+    try:
+        b = p.read_bytes()
+    except OSError:
+        raise ApiError("アイコンがありません", 404)
+    mt = src.image_type(b)
+    if not mt:
+        raise ApiError("アイコンがありません", 404)
+    r = Response(b, mimetype=mt)
+    r.headers["Cache-Control"] = "private, max-age=86400"
+    r.headers["X-Content-Type-Options"] = "nosniff"
+    return r
 
 
 def _item_versions(conn, item_id):
@@ -2589,6 +2633,8 @@ def check_item(conn, item):
                 message = "新しいバージョンが公開されています" + (f"({info['note']})" if info.get("note") else "")
     except src.SourceError as e:
         message = e.message
+    if not _icon_version(item["id"]):
+        fetch_item_icon(item["id"], s["provider"], s["project_id"])
     with LOCK:
         conn.execute("UPDATE item_sources SET status=?, message=?, latest=?, checked_at=? WHERE item_id=?",
                      (status, message, json.dumps(info, ensure_ascii=False), utcnow(), item["id"]))
@@ -2869,6 +2915,21 @@ def api_import():
         except (ApiError, src.SourceError) as e:
             deps_out.append({"title": pid, "status": "error", "message": getattr(e, "message", str(e))})
     return jsonify({**result, "source_title": info["title"], "deps": deps_out})
+
+
+_MC_CACHE = {"at": 0.0, "list": []}
+
+
+@app.get("/api/mc/versions")
+def api_mc_versions():
+    # 新しい MC が出たら自動で選択肢に出るよう、Mojang の一覧を 12 時間ごとに取り直す(失敗したら前回の値)
+    if time.time() - _MC_CACHE["at"] > 12 * 3600:
+        try:
+            _MC_CACHE["list"] = src.mc_releases()
+            _MC_CACHE["at"] = time.time()
+        except Exception:  # noqa: BLE001
+            _MC_CACHE["at"] = time.time() - 11 * 3600  # 1 時間後にもう一度試す
+    return jsonify(versions=_MC_CACHE["list"])
 
 
 @app.get("/api/search/versions")

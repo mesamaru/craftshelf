@@ -96,6 +96,6 @@ CraftShelf is designed for use on a LAN. If you expose it to the internet, put i
 
 ## License
 
-See [LICENSE](LICENSE).
+Released under the [MIT License](LICENSE).
 
 Minecraft is a trademark of Mojang Studios. CraftShelf is an unofficial tool and is not affiliated with Mojang Studios, Microsoft or any of the distribution sites.

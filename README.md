@@ -7,7 +7,7 @@ Minecraft のプラグイン・Mod・データパック・リソースパック�
 ドラッグ&ドロップで整理・保管し、更新の確認からサーバーへの反映までまとめて行うセルフホストの Web パネル
 </p>
 
-<p align="center"><a href="README.en.md">English</a> · <a href="CHANGELOG.md">変更履歴</a></p>
+<p align="center"><a href="README.en.md">English</a> · <a href="CHANGELOG.md">変更履歴</a> · <a href="LICENSE">MIT License</a></p>
 
 ---
 
@@ -330,6 +330,6 @@ python app.py
 
 ## ライセンス
 
-[LICENSE](LICENSE) を参照してください。
+[MIT License](LICENSE) で公開しています。自由に使用・改変・再配布できます(著作権表示とライセンス文を残してください)。
 
 Minecraft は Mojang Studios の商標です。CraftShelf は Mojang Studios・Microsoft・各配布サイトとは関係のない非公式のツールです。

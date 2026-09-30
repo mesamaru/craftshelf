@@ -29,7 +29,7 @@ SPIGET = "https://api.spiget.org/v2"
 CURSEFORGE = "https://api.curseforge.com/v1"
 CF_GAME_MINECRAFT = 432
 # CurseForge の分類(classId)
-CF_CLASSES = {6: "mod", 5: "plugin", 12: "resourcepack", 6945: "datapack"}
+CF_CLASSES = {6: "mod", 5: "plugin", 12: "resourcepack", 6945: "datapack", 6552: "shader", 4471: "modpack"}
 # CurseForge の modLoaderType
 CF_LOADERS = {"forge": 1, "fabric": 4, "quilt": 5, "neoforge": 6}
 
@@ -123,6 +123,8 @@ def default_loaders(category, loader_label):
         return ["datapack"]
     if category == "resourcepack":
         return ["minecraft"]
+    if category in ("shader", "modpack"):
+        return []
     if "neoforge" in lab:
         return ["neoforge"]
     if "forge" in lab:
@@ -309,7 +311,7 @@ def curseforge_project(id_or_slug, api_key, class_hint=None):
     _need_key(api_key)
     if str(id_or_slug).isdigit():
         return _cf_project_dict(_json("GET", f"{CURSEFORGE}/mods/{id_or_slug}", api_key=api_key)["data"])
-    hint = {"mc-mods": 6, "bukkit-plugins": 5, "texture-packs": 12, "data-packs": 6945}.get(class_hint or "")
+    hint = {"mc-mods": 6, "bukkit-plugins": 5, "texture-packs": 12, "data-packs": 6945, "shaders": 6552, "modpacks": 4471}.get(class_hint or "")
     for class_id in ([hint] if hint else []) + [c for c in CF_CLASSES if c != hint]:
         d = _json("GET", f"{CURSEFORGE}/mods/search", api_key=api_key,
                   params={"gameId": CF_GAME_MINECRAFT, "classId": class_id, "slug": id_or_slug})
@@ -521,8 +523,8 @@ def changelogs(provider, project_id, *, have_versions=(), loaders=None, game_ver
 # --------------------------------------------------------------------------
 # 検索(パネルから配布サイトを探す)
 # --------------------------------------------------------------------------
-_MR_TYPES = {"plugin": "plugin", "mod": "mod", "datapack": "datapack", "resourcepack": "resourcepack"}
-_CF_CLASS_OF = {"mod": 6, "plugin": 5, "resourcepack": 12, "datapack": 6945}
+_MR_TYPES = {"plugin": "plugin", "mod": "mod", "datapack": "datapack", "resourcepack": "resourcepack", "shader": "shader", "modpack": "modpack"}
+_CF_CLASS_OF = {"mod": 6, "plugin": 5, "resourcepack": 12, "datapack": 6945, "shader": 6552, "modpack": 4471}
 
 
 def search(provider, q, *, kind=None, loader=None, mc=None, api_key=None, size=24):
@@ -588,4 +590,101 @@ def curseforge_files(file_ids, api_key):
         for f in d.get("data") or []:
             info = _cf_file(f)
             out[int(f["id"])] = {"url": info["url"], "file_name": info["file_name"], "sha1": info["sha1"]}
+    return out
+
+
+# --------------------------------------------------------------------------
+# バージョンの一覧(検索画面で、条件に合う版を選んでダウンロードする)
+# --------------------------------------------------------------------------
+def _mr_deps(version):
+    out = []
+    for d in version.get("dependencies") or []:
+        if d.get("project_id") and d.get("dependency_type") in ("required", "optional"):
+            out.append({"provider": "modrinth", "project_id": d["project_id"], "required": d["dependency_type"] == "required"})
+    return out
+
+
+def _cf_deps(f):
+    out = []
+    for d in f.get("dependencies") or []:
+        if d.get("modId") and d.get("relationType") in (2, 3):  # 2=任意 3=必須
+            out.append({"provider": "curseforge", "project_id": str(d["modId"]), "required": d["relationType"] == 3})
+    return out
+
+
+def versions(provider, project_id, *, loaders=None, game_versions=None, api_key=None, limit=30):
+    """条件に合う版の一覧(新しい順)。各版に前提(deps)も付ける。"""
+    out = []
+    if provider == "modrinth":
+        params = {"include_changelog": "false"}
+        if loaders:
+            params["loaders"] = json.dumps(loaders)
+        if game_versions:
+            params["game_versions"] = json.dumps(game_versions)
+        vs = _json("GET", f"{MODRINTH}/project/{quote(project_id, safe='')}/version", params=params)
+        vs.sort(key=lambda v: v.get("date_published") or "", reverse=True)
+        for v in vs[:limit]:
+            f = _mr_file(v)
+            if f:
+                f.update(type=v.get("version_type") or "release", deps=_mr_deps(v))
+                out.append(f)
+    elif provider == "curseforge":
+        _need_key(api_key)
+        params = {"pageSize": 50}
+        ids = [CF_LOADERS[x] for x in (loaders or []) if x in CF_LOADERS]
+        if len(ids) == 1:
+            params["modLoaderType"] = ids[0]
+        if game_versions:
+            params["gameVersion"] = game_versions[0]
+        files = _json("GET", f"{CURSEFORGE}/mods/{int(project_id)}/files", api_key=api_key, params=params).get("data") or []
+        files.sort(key=lambda f: f.get("fileDate") or "", reverse=True)
+        for f in files[:limit]:
+            info = _cf_file(f)
+            info.update(type={1: "release", 2: "beta", 3: "alpha"}.get(f.get("releaseType"), "release"), deps=_cf_deps(f))
+            out.append(info)
+    elif provider == "spigot":
+        info = spigot_latest(project_id)  # Spiget は最新版しかダウンロードできない
+        info.update(type="release", deps=[])
+        out.append(info)
+    else:
+        raise SourceError("未対応の配布元です")
+    return out
+
+
+def version_info(provider, project_id, version_id, api_key=None):
+    """特定の版の情報(ダウンロード用)。"""
+    if provider == "modrinth":
+        v = _json("GET", f"{MODRINTH}/version/{quote(str(version_id), safe='')}")
+        if v.get("project_id") != project_id:
+            raise SourceError("バージョンの指定が正しくありません")
+        f = _mr_file(v)
+        f.update(deps=_mr_deps(v))
+        return f
+    if provider == "curseforge":
+        _need_key(api_key)
+        f = _json("GET", f"{CURSEFORGE}/mods/{int(project_id)}/files/{int(version_id)}", api_key=api_key).get("data") or {}
+        info = _cf_file(f)
+        info.update(deps=_cf_deps(f))
+        return info
+    if provider == "spigot":
+        info = spigot_latest(project_id)
+        info.update(deps=[])
+        return info
+    raise SourceError("未対応の配布元です")
+
+
+def project_titles(provider, ids, api_key=None):
+    """前提の名前を表示するため、プロジェクトIDから名前を引く。{id: {"title", "page_url"}}"""
+    ids = [i for i in dict.fromkeys(ids) if i]
+    if not ids:
+        return {}
+    out = {}
+    if provider == "modrinth":
+        for p in _json("GET", f"{MODRINTH}/projects", params={"ids": json.dumps(ids)}):
+            out[p["id"]] = {"title": p.get("title") or p["id"],
+                            "page_url": f"https://modrinth.com/{p.get('project_type', 'project')}/{p.get('slug') or p['id']}"}
+    elif provider == "curseforge" and api_key:
+        d = _json("POST", f"{CURSEFORGE}/mods", api_key=api_key, json={"modIds": [int(i) for i in ids]})
+        for m in d.get("data") or []:
+            out[str(m["id"])] = {"title": m.get("name") or str(m["id"]), "page_url": (m.get("links") or {}).get("websiteUrl") or ""}
     return out

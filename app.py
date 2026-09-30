@@ -85,6 +85,8 @@ CATEGORIES = {
     "mod": ("mods", "Mod"),
     "datapack": ("datapacks", "データパック"),
     "resourcepack": ("resourcepacks", "リソースパック"),
+    "shader": ("shaderpacks", "シェーダー"),
+    "modpack": ("modpacks", "Modパック"),
     "other": ("other", "その他"),
 }
 PROTOCOLS = {"local": "ローカル", "smb": "SMB", "webdav": "WebDAV"}
@@ -630,6 +632,30 @@ def _analyze_zip(z, info):
                 mc=m0.get("mcversion") or None,
             )
             return
+
+    # ---- Modパック(Modrinth .mrpack / CurseForge) ----
+    if "modrinth.index.json" in nameset:
+        d = _json(z, "modrinth.index.json") or {}
+        deps = d.get("dependencies") or {}
+        loader = next((k.replace("-loader", "").capitalize() for k in deps if k != "minecraft"), None)
+        info.update(category="modpack", loader=f"Modrinth / {loader}" if loader else "Modrinth", name=d.get("name"),
+                    version=d.get("versionId"), description=_short(d.get("summary")),
+                    mc=str(deps["minecraft"]) if deps.get("minecraft") else None)
+        return
+    if "manifest.json" in nameset and any(n.startswith("overrides/") for n in names):
+        d = _json(z, "manifest.json") or {}
+        mc = (d.get("minecraft") or {})
+        loader = ((mc.get("modLoaders") or [{}])[0].get("id") or "").split("-")[0].capitalize() or None
+        info.update(category="modpack", loader=f"CurseForge / {loader}" if loader else "CurseForge", name=d.get("name"),
+                    version=d.get("version"), description=_short(d.get("author") and f"by {d['author']}"),
+                    mc=str(mc["version"]) if mc.get("version") else None)
+        return
+
+    # ---- シェーダー(Iris / OptiFine) ----
+    tops = {n.split("/", 1)[0] for n in names}
+    if "shaders" in tops or any(n.split("/")[1:2] == ["shaders"] for n in names if n.count("/") >= 2):
+        info.update(category="shader", loader="Iris / OptiFine")
+        return
 
     # ---- データパック / リソースパック ----
     mcmeta = None
@@ -2072,6 +2098,10 @@ def api_me_prefs():
     data = request.get_json(silent=True) or {}
     u = current_user()
     prefs = user_prefs(u)
+    if "lang" in data:
+        if data["lang"] not in ("ja", "en"):
+            raise ApiError("言語の指定が不正です")
+        prefs["lang"] = data["lang"]
     if "theme" in data:
         theme = str(data["theme"] or "")
         if not _THEME_ID.match(theme):
@@ -2457,7 +2487,8 @@ def _ensure_hashes(conn, store, versions, want_cf):
     return out
 
 
-_PROJECT_TYPES = {"plugin": "plugin", "mod": "mod", "datapack": "datapack", "resourcepack": "resourcepack"}
+_PROJECT_TYPES = {"plugin": "plugin", "mod": "mod", "datapack": "datapack", "resourcepack": "resourcepack",
+                  "shader": "shader", "modpack": "modpack"}
 
 
 def detect_source(conn, store, item):
@@ -2743,48 +2774,109 @@ def api_updates_run():
     return jsonify(job.public())
 
 
+def _import_version(info, ver, loaders, game_versions, force_cat=None):
+    """配布元の特定の版をダウンロードして登録し、配布元も紐付ける。登録結果を返す。"""
+    if not ver.get("downloadable") or not ver.get("url"):
+        raise ApiError(ver.get("note") or "この配布元からは自動ダウンロードできません")
+    tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
+    try:
+        try:
+            src.download(ver["url"], tmp, ver.get("sha1") or "")
+        except src.SourceError as e:
+            raise ApiError(e.message, 502)
+        result = ingest(tmp, ver.get("file_name") or f"{safe_name(info['title'])}.jar", force_cat)
+    finally:
+        tmp.unlink(missing_ok=True)
+    conn = db()
+    item = conn.execute("SELECT * FROM items WHERE id=?", (result["item_id"],)).fetchone()
+    if not conn.execute("SELECT 1 FROM item_sources WHERE item_id=?", (item["id"],)).fetchone():
+        link_source(conn, item, info, "import", matched=ver)
+        if loaders or game_versions:
+            cur = _jl(conn.execute("SELECT loaders FROM item_sources WHERE item_id=?", (item["id"],)).fetchone()[0], [])
+            conn.execute("UPDATE item_sources SET loaders=?, game_versions=? WHERE item_id=?",
+                         (json.dumps(loaders or cur), json.dumps(game_versions), item["id"]))
+            conn.commit()
+        check_item(conn, item)
+    return result
+
+
+def _in_library(conn, target_id, provider, project_id, title=""):
+    r = conn.execute("SELECT s.item_id FROM item_sources s JOIN items i ON i.id=s.item_id "
+                     "WHERE i.target_id=? AND s.provider=? AND s.project_id=?", (target_id, provider, str(project_id))).fetchone()
+    if r:
+        return r[0]
+    if title:
+        key = norm_key(title)
+        for row in conn.execute("SELECT id, name FROM items WHERE target_id=?", (target_id,)):
+            if norm_key(row["name"]) == key:
+                return row["id"]
+    return None
+
+
 @app.post("/api/import")
 @require("editor")
 def api_import():
-    """配布ページのURLから最新版をダウンロードして登録し、配布元も紐付ける。"""
+    """配布元からダウンロードして登録する。version_id を指定するとその版、無ければ条件に合う最新版。
+    with_deps に前提のプロジェクトIDを渡すと、ライブラリに無いものを同じ条件でまとめて登録する。"""
     data = request.get_json(silent=True) or {}
     info = _source_from_request(data)
     loaders = [x.strip().lower() for x in str(data.get("loaders") or "").split(",") if x.strip()]
     game_versions = [x.strip() for x in str(data.get("game_versions") or "").split(",") if x.strip()]
+    force = data.get("category") if data.get("category") in CATEGORIES else None
     try:
-        latest = src.latest(info["provider"], info["project_id"], loaders=loaders, game_versions=game_versions,
-                            stable_only=get_setting("stable_only", "1") == "1", api_key=cf_api_key())
+        if data.get("version_id"):
+            ver = src.version_info(info["provider"], info["project_id"], str(data["version_id"]), cf_api_key())
+        else:
+            ver = src.latest(info["provider"], info["project_id"], loaders=loaders, game_versions=game_versions,
+                             stable_only=get_setting("stable_only", "1") == "1", api_key=cf_api_key())
     except src.SourceError as e:
         raise ApiError(e.message, 502)
-    if not latest:
-        raise ApiError("条件に合う版が見つかりません(ローダー・MCバージョンを確認してください)")
-    if not latest.get("downloadable"):
-        raise ApiError(latest.get("note") or "この配布元からは自動ダウンロードできません")
-    tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
-    try:
-        try:
-            src.download(latest["url"], tmp, latest.get("sha1") or "")
-        except src.SourceError as e:
-            raise ApiError(e.message, 502)
-        force = data.get("category") if data.get("category") in CATEGORIES else None
-        result = ingest(tmp, latest.get("file_name") or f"{safe_name(info['title'])}.jar", force)
-    finally:
-        try:
-            tmp.unlink()
-        except FileNotFoundError:
-            pass
+    if not ver:
+        raise ApiError("条件に合うバージョンが見つかりません(サーバーソフト・MCバージョンを確認してください)")
+    result = _import_version(info, ver, loaders, game_versions, force)
+    deps_out = []
+    _store, target = active_store()
     conn = db()
-    item = conn.execute("SELECT * FROM items WHERE id=?", (result["item_id"],)).fetchone()
-    if not conn.execute("SELECT 1 FROM item_sources WHERE item_id=?", (item["id"],)).fetchone():
-        link_source(conn, item, info, "import", matched=latest)
-        if loaders or game_versions:
-            conn.execute("UPDATE item_sources SET loaders=?, game_versions=? WHERE item_id=?",
-                         (json.dumps(loaders or _jl(conn.execute("SELECT loaders FROM item_sources WHERE item_id=?",
-                                                                   (item["id"],)).fetchone()[0], [])),
-                          json.dumps(game_versions), item["id"]))
-            conn.commit()
-        check_item(conn, item)
-    return jsonify({**result, "source_title": info["title"]})
+    for pid in [str(x) for x in data.get("with_deps") or []][:30]:
+        try:
+            dinfo = src.project_info(info["provider"], pid, cf_api_key())
+            if _in_library(conn, target["id"], info["provider"], pid, dinfo["title"]):
+                deps_out.append({"title": dinfo["title"], "status": "exists"})
+                continue
+            dver = src.latest(info["provider"], pid, loaders=loaders, game_versions=game_versions,
+                              stable_only=get_setting("stable_only", "1") == "1", api_key=cf_api_key())
+            if not dver:
+                deps_out.append({"title": dinfo["title"], "status": "notfound"})
+                continue
+            r = _import_version(dinfo, dver, loaders, game_versions)
+            deps_out.append({"title": dinfo["title"], "status": r["status"], "version": r.get("version")})
+        except (ApiError, src.SourceError) as e:
+            deps_out.append({"title": pid, "status": "error", "message": getattr(e, "message", str(e))})
+    return jsonify({**result, "source_title": info["title"], "deps": deps_out})
+
+
+@app.get("/api/search/versions")
+def api_search_versions():
+    provider, pid = request.args.get("provider", ""), str(request.args.get("project_id") or "")
+    loaders = [x for x in [(request.args.get("loader") or "").strip().lower()] if x]
+    mc = [x for x in [(request.args.get("mc") or "").strip()] if x]
+    if provider not in src.PROVIDERS or not pid:
+        raise ApiError("配布元とプロジェクトを指定してください")
+    try:
+        vers = src.versions(provider, pid, loaders=loaders, game_versions=mc, api_key=cf_api_key())
+        dep_ids = [d["project_id"] for v in vers[:10] for d in v.get("deps") or []]
+        titles = src.project_titles(provider, dep_ids, cf_api_key())
+    except src.SourceError as e:
+        raise ApiError(e.message, 502)
+    _store, target = active_store()
+    conn = db()
+    for v in vers:
+        for d in v.get("deps") or []:
+            t = titles.get(d["project_id"], {})
+            d["title"] = t.get("title") or d["project_id"]
+            d["page_url"] = t.get("page_url") or ""
+            d["item_id"] = _in_library(conn, target["id"], provider, d["project_id"], d["title"])
+    return jsonify(versions=vers)
 
 
 # --------------------------------------------------------------------------
@@ -3434,6 +3526,44 @@ def server_inventory(conn, srv_row, target, note=lambda m: None):
                 missing.append({"item_id": item["id"], "item_name": item["name"], "version": ver["version"],
                                 "version_id": ver["id"]})
     return out, missing
+
+
+@app.get("/api/servers/presence")
+def api_servers_presence():
+    """各アイテムがどのサーバーに入っているか(最後に確認したときの内容から)。"""
+    _store, target = active_store()
+    conn = db()
+    by_sha = {v["sha256"]: v for v in conn.execute("SELECT * FROM versions WHERE target_id=?", (target["id"],))}
+    items = {r["id"]: r for r in conn.execute("SELECT * FROM items WHERE target_id=?", (target["id"],))}
+    by_key = {}
+    for it in items.values():
+        by_key.setdefault(norm_key(it["name"]), it["id"])
+    latest = {iid: (_item_versions(conn, iid) or [None])[0] for iid in items}
+    out = {}
+    servers = []
+    for srv in conn.execute("SELECT * FROM servers ORDER BY name").fetchall():
+        rows = conn.execute("SELECT * FROM server_files WHERE server_id=?", (srv["id"],)).fetchall()
+        servers.append({"id": srv["id"], "name": srv["name"], "checked": bool(rows)})
+        present = set()
+        for f in rows:
+            v = by_sha.get(f["sha256"])
+            iid = v["item_id"] if v else by_key.get(norm_key(f["plugin_name"]))
+            if not iid or iid not in items:
+                continue
+            present.add(iid)
+            lv = latest.get(iid)
+            if v and lv and v["id"] == lv["id"]:
+                status = "latest"
+            elif lv and src.same_version(lv["version"], f["version"]):
+                status = "latest"
+            else:
+                status = "outdated"
+            out.setdefault(iid, []).append({"server_id": srv["id"], "server": srv["name"], "status": status, "version": f["version"]})
+        if srv["set_id"] and rows:
+            for r in conn.execute("SELECT item_id FROM set_items WHERE set_id=?", (srv["set_id"],)):
+                if r[0] in items and r[0] not in present:
+                    out.setdefault(r[0], []).append({"server_id": srv["id"], "server": srv["name"], "status": "missing", "version": ""})
+    return jsonify(items=out, servers=servers)
 
 
 @app.get("/api/servers/<int:srv>/inventory")
@@ -4313,6 +4443,21 @@ def _maintenance_tick():
             if target and any(_jl(r[0], {}).get("deps_v") != DEPS_VERSION
                               for r in db().execute("SELECT meta FROM versions WHERE target_id=?", (target["id"],))):
                 start_job("deps", "依存関係の読み取り", _rescan_deps_job, target["id"], user="(自動)")
+        except ApiError:
+            pass
+    if get_setting("ptero_url") and get_setting("ptero_key") and _due("last_inventory_refresh", 6):
+        set_setting("last_inventory_refresh", utcnow())
+
+        def refresh_all(job):
+            conn = db()
+            target = conn.execute("SELECT * FROM storage_targets WHERE active=1").fetchone()
+            for srv in conn.execute("SELECT * FROM servers").fetchall():
+                try:
+                    server_inventory(conn, srv, target)
+                except Exception as e:  # noqa: BLE001
+                    job.note(f"{srv['name']}: {getattr(e, 'message', e)}")
+        try:
+            start_job("inventory", "サーバーの中身の確認", refresh_all, user="(自動)")
         except ApiError:
             pass
     if _due("last_audit_prune", 24):

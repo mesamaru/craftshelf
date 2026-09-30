@@ -7,4 +7,5 @@
   - CHANGELOG の見出しは `## 01.02.03 - YYYY-MM-DD タイトル`(画面の「パネルの更新」がこの形式を読む)。
 - 稼働中のパネルは GitHub (`mesamaru/craftshelf` の `main`) の `VERSION` を見て更新を検知し、`git clone` → `rsync` で /app を入れ替えて再起動する(`selfupdate.py`)。`main` に push した時点で配布されるので、動作確認してから push すること。
 - 構成: `app.py`(Flask本体)/ `storage.py`(ローカル・SMB・WebDAV)/ `sources.py`(Modrinth・Spiget・CurseForge)/ `selfupdate.py` / `ptero.py`(Pterodactyl Client API)/ `notify.py`(Discord Webhook)/ `static/index.html`・`app.css`・`app.js`(画面。CSP のためインラインの script は使わない)。
+- 英語表示は `static/i18n-en.js` の辞書(日本語→英語)で画面の文字を置き換えている。**画面に新しい日本語の文言を足したら、この辞書にも英訳を追加する。** 利用者が入力した名前・メモなどには `translate="no"` を付けて翻訳させない。
 - デザインは Apple の Liquid Glass(iOS 26 以降)を参考にしている(半透明のガラス素材・グループリスト・シート・カプセル型ボタン)。

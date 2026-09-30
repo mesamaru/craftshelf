@@ -225,6 +225,18 @@ CREATE TABLE IF NOT EXISTS api_tokens (
     created_at  TEXT NOT NULL,
     last_used   TEXT NOT NULL DEFAULT ''
 );
+-- 共有リンク(ログイン不要でダウンロードできる、期限付きのリンク)
+CREATE TABLE IF NOT EXISTS shares (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    token_hash  TEXT NOT NULL UNIQUE,
+    name        TEXT NOT NULL,
+    target_id   INTEGER NOT NULL,
+    versions    TEXT NOT NULL DEFAULT '[]',
+    created_by  TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT NOT NULL,
+    downloads   INTEGER NOT NULL DEFAULT 0
+);
 -- 操作の記録
 CREATE TABLE IF NOT EXISTS audit (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1452,7 +1464,7 @@ def check_auth():
     if request.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
         if request.headers.get("X-Requested-With") != "mcpl":
             raise ApiError("不正なリクエストです(画面を再読み込みしてください)", 403)
-    if request.path in PUBLIC_PATHS or request.path.startswith("/static/"):
+    if request.path in PUBLIC_PATHS or request.path.startswith(("/static/", "/s/")):
         return None
     if not current_user():
         raise ApiError("ログインしてください", 401)
@@ -1483,7 +1495,7 @@ def index():
     # 更新後に古い画面ファイルがブラウザに残らないよう、読み込むファイルにバージョンを付ける
     html = (BASE_DIR / "static" / "index.html").read_text(encoding="utf-8")
     v = quote(running_version() + "-" + str(int((BASE_DIR / "static" / "app.js").stat().st_mtime)))
-    html = html.replace('/static/app.css"', f'/static/app.css?v={v}"').replace('/static/app.js"', f'/static/app.js?v={v}"')
+    html = html.replace('/static/app.css"', f'/static/app.css?v={v}"').replace('/static/app.js"', f'/static/app.js?v={v}"').replace('/static/i18n-en.js"', f'/static/i18n-en.js?v={v}"')
     return Response(html, mimetype="text/html", headers={"Cache-Control": "no-cache"})
 
 
@@ -2098,6 +2110,10 @@ def api_me_prefs():
     data = request.get_json(silent=True) or {}
     u = current_user()
     prefs = user_prefs(u)
+    if "dash" in data:
+        d = data["dash"] if isinstance(data["dash"], dict) else {}
+        clean = lambda xs: [str(x) for x in (xs if isinstance(xs, list) else []) if re.fullmatch(r"[a-z]{1,20}", str(x))][:30]  # noqa: E731
+        prefs["dash"] = {"order": clean(d.get("order")), "hidden": clean(d.get("hidden")), "full": clean(d.get("full"))}
     if "lang" in data:
         if data["lang"] not in ("ja", "en"):
             raise ApiError("言語の指定が不正です")
@@ -2933,7 +2949,7 @@ AUDIT_LABELS = {
     "api_servers_create": "サーバーを連携", "api_servers_update": "サーバー設定を変更", "api_servers_delete": "サーバーの連携を解除",
     "api_servers_sync": "サーバーを同期", "api_servers_push": "サーバーへ転送", "api_servers_import": "サーバーから取り込み",
     "api_servers_power": "サーバーの電源操作", "api_backup_run": "バックアップを開始", "api_deps_rescan": "依存関係の読み取りを開始",
-    "api_deps_link": "前提プラグインを紐付け", "api_modpack": "Modパックの読み込みを開始", "api_server_rollback": "巻き戻しを開始",
+    "api_deps_link": "前提プラグインを紐付け", "api_shares_create": "共有リンクを作成", "api_shares_delete": "共有リンクを削除", "api_modpack": "Modパックの読み込みを開始", "api_server_rollback": "巻き戻しを開始",
 
 }
 
@@ -3310,23 +3326,8 @@ def api_sets_download(sid):
     pairs = resolve_set_versions(conn, sid)
     if not pairs:
         raise ApiError("セットが空です")
-    zpath = TMP_DIR / (uuid.uuid4().hex + ".zip")
-    try:
-        with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
-            for item, v in pairs:
-                tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
-                try:
-                    store.fetch(lib_rel(v["relpath"]), tmp)
-                    z.write(tmp, f"{CATEGORIES[item['category']][0]}/{v['filename']}")
-                finally:
-                    tmp.unlink(missing_ok=True)
-    except Exception:
-        zpath.unlink(missing_ok=True)
-        raise
     audit("セットをダウンロード", row["name"], f"{len(pairs)} ファイル")
-    resp = send_file(zpath, as_attachment=True, download_name=f"{safe_name(row['name'], 'set')}.zip")
-    resp.call_on_close(lambda: zpath.unlink(missing_ok=True))
-    return resp
+    return _send_zip(store, pairs, f"{safe_name(row['name'], 'set')}.zip")
 
 
 # ==========================================================================
@@ -4386,6 +4387,137 @@ def api_auth_username():
     conn.commit()
     audit("ユーザー名を変更", f"{u['username']} → {new}", "")
     return jsonify(ok=True)
+
+
+# ==========================================================================
+# まとめてダウンロード・共有リンク
+# ==========================================================================
+def _zip_versions(store, pairs, zpath):
+    """[(item, version)] を種類ごとのフォルダに分けて zip にする。"""
+    with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
+        used = set()
+        for item, v in pairs:
+            arc = f"{CATEGORIES[item['category']][0]}/{v['filename']}"
+            if arc in used:
+                continue
+            used.add(arc)
+            tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
+            try:
+                store.fetch(lib_rel(v["relpath"]), tmp)
+                z.write(tmp, arc)
+            finally:
+                tmp.unlink(missing_ok=True)
+
+
+def _latest_pairs(conn, target_id, item_ids):
+    pairs = []
+    for iid in item_ids:
+        item = conn.execute("SELECT * FROM items WHERE id=? AND target_id=?", (iid, target_id)).fetchone()
+        vs = _item_versions(conn, iid) if item else []
+        if item and vs:
+            pairs.append((item, vs[0]))
+    return pairs
+
+
+def _send_zip(store, pairs, name):
+    zpath = TMP_DIR / (uuid.uuid4().hex + ".zip")
+    try:
+        _zip_versions(store, pairs, zpath)
+    except Exception:
+        zpath.unlink(missing_ok=True)
+        raise
+    resp = send_file(zpath, as_attachment=True, download_name=name)
+    resp.call_on_close(lambda: zpath.unlink(missing_ok=True))
+    return resp
+
+
+@app.get("/api/items/zip")
+def api_items_zip():
+    """選んだアイテムの最新バージョンをまとめて zip でダウンロードする。"""
+    try:
+        ids = [int(x) for x in str(request.args.get("ids") or "").split(",") if x.strip()][:500]
+    except ValueError:
+        raise ApiError("ids の指定が不正です")
+    store, target = active_store()
+    pairs = _latest_pairs(db(), target["id"], ids)
+    if not pairs:
+        raise ApiError("ダウンロードするものを選んでください")
+    audit("まとめてダウンロード", f"{len(pairs)} 件", ", ".join(i["name"] for i, _v in pairs)[:500])
+    return _send_zip(store, pairs, f"craftshelf-{datetime.now().strftime('%Y%m%d-%H%M')}.zip")
+
+
+@app.post("/api/shares")
+@require("editor")
+def api_shares_create():
+    data = request.get_json(silent=True) or {}
+    ids = [int(x) for x in data.get("item_ids") or []][:500]
+    _store, target = active_store()
+    conn = db()
+    pairs = _latest_pairs(conn, target["id"], ids)
+    if not pairs:
+        raise ApiError("共有するものを選んでください")
+    try:
+        hours = max(1, min(24 * 30, int(data.get("hours") or 168)))
+    except (TypeError, ValueError):
+        raise ApiError("有効期限は数字で指定してください")
+    token = secrets.token_urlsafe(24)
+    default_name = f"{pairs[0][0]['name']} ほか {len(pairs) - 1} 件" if len(pairs) > 1 else pairs[0][0]["name"]
+    name = str(data.get("name") or "").strip()[:80] or default_name
+    expires = (datetime.now(timezone.utc) + timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    conn.execute("INSERT INTO shares (token_hash, name, target_id, versions, created_by, created_at, expires_at) "
+                 "VALUES (?,?,?,?,?,?,?)",
+                 (hashlib.sha256(token.encode()).hexdigest(), name, target["id"], json.dumps([v["id"] for _i, v in pairs]),
+                  current_user()["username"], utcnow(), expires))
+    conn.commit()
+    return jsonify(url=f"{request.host_url.rstrip('/')}/s/{token}", expires_at=expires, name=name)
+
+
+@app.get("/api/shares")
+@require("editor")
+def api_shares_list():
+    rows = db().execute("SELECT id, name, created_by, created_at, expires_at, downloads, versions FROM shares ORDER BY id DESC").fetchall()
+    now = utcnow()
+    return jsonify(shares=[{**{k: r[k] for k in ("id", "name", "created_by", "created_at", "expires_at", "downloads")},
+                            "count": len(_jl(r["versions"], [])), "expired": r["expires_at"] < now} for r in rows])
+
+
+@app.delete("/api/shares/<int:shid>")
+@require("editor")
+def api_shares_delete(shid):
+    conn = db()
+    conn.execute("DELETE FROM shares WHERE id=?", (shid,))
+    conn.commit()
+    return jsonify(ok=True)
+
+
+@app.get("/s/<token>")
+def share_download(token):
+    """共有リンク(ログイン不要)。有効期限内なら、共有されたファイルを zip(1つならそのまま)で返す。"""
+    conn = db()
+    r = conn.execute("SELECT * FROM shares WHERE token_hash=?", (hashlib.sha256(token.encode()).hexdigest(),)).fetchone()
+    if not r or r["expires_at"] < utcnow():
+        return Response("このリンクは無効か、有効期限が切れています。\nThis link is invalid or has expired.", 404,
+                        mimetype="text/plain; charset=utf-8")
+    target = conn.execute("SELECT * FROM storage_targets WHERE id=?", (r["target_id"],)).fetchone()
+    store = open_store(target)
+    pairs = []
+    for vid in _jl(r["versions"], []):
+        v = conn.execute("SELECT * FROM versions WHERE id=?", (vid,)).fetchone()
+        item = conn.execute("SELECT * FROM items WHERE id=?", (v["item_id"],)).fetchone() if v else None
+        if v and item:
+            pairs.append((item, v))
+    if not pairs:
+        return Response("共有されたファイルは削除されています。", 404, mimetype="text/plain; charset=utf-8")
+    conn.execute("UPDATE shares SET downloads=downloads+1 WHERE id=?", (r["id"],))
+    conn.commit()
+    if len(pairs) == 1:
+        item, v = pairs[0]
+        rel = lib_rel(v["relpath"])
+        if store.is_local:
+            return send_file(store.local_path(rel), as_attachment=True, download_name=v["filename"])
+        return send_file(store.open_read(rel), as_attachment=True, download_name=v["filename"],
+                         mimetype="application/octet-stream", conditional=False)
+    return _send_zip(store, pairs, f"{safe_name(r['name'], 'craftshelf')}.zip")
 
 
 # --------------------------------------------------------------------------

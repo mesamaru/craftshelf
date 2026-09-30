@@ -7,15 +7,17 @@
 <meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
 <title>CraftShelf</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%233ad16a'/%3E%3Cstop offset='1' stop-color='%231f8f47'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='url(%23g)'/%3E%3Cpath d='M8 12l8-4 8 4v9l-8 4-8-4z M8 12l8 4 8-4 M16 16v9' fill='none' stroke='white' stroke-width='1.8' stroke-linejoin='round'/%3E%3C/svg%3E">
+<link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/static/icon.svg">
 <link rel="stylesheet" href="/static/app.css">
+<script src="/static/i18n-en.js" defer></script>
 <script src="/static/app.js" defer></script>
 </head>
 <body>
 <div id="app" hidden>
   <header class="topbar glass">
     <div class="brand">
-      <div class="logo" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M4 8l8-4 8 4v8l-8 4-8-4z M4 8l8 4 8-4 M12 12v8"/></svg></div>
+      <img class="logo" src="/static/icon.svg" alt="" aria-hidden="true">
       <div style="min-width:0"><h1>CraftShelf</h1><div class="sub" id="stats"></div></div>
     </div>
     <div class="top-actions">
@@ -58,7 +60,9 @@
     <div class="toolbar glass">
       <div class="row1">
         <label class="search"><span id="searchIcon"></span><input type="search" id="search" placeholder="検索" aria-label="検索"></label>
+        <select id="platSel" class="compact" aria-label="サーバーソフトで絞り込み"><option value="">サーバーソフト: すべて</option></select>
         <select id="mcSel" class="compact" aria-label="対応MCバージョンで絞り込み"><option value="">MC: すべて</option></select>
+        <button class="btn small" type="button" id="selBtn">選択</button>
         <select id="sortSel" class="compact" aria-label="並び順">
           <option value="name:1">名前順</option>
           <option value="added:-1">追加が新しい順</option>
@@ -75,6 +79,7 @@
     <section id="setsView" hidden></section>
     <section id="serversView" hidden></section>
   </main>
+  <div class="selbar glass" id="selBar" hidden></div>
   <nav class="tabbar glass" id="tabbar" role="tablist" aria-label="画面の切り替え">
     <button type="button" role="tab" data-view="library" aria-selected="true"><span class="ti" id="tiLib"></span><span>ライブラリ</span></button>
     <button type="button" role="tab" data-view="dash" aria-selected="false"><span class="ti" id="tiDash"></span><span>ダッシュボード</span></button>

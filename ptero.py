@@ -63,10 +63,13 @@ class Ptero:
             detail = ""
         raise PteroError(f"Pterodactyl からエラーが返りました (HTTP {r.status_code}){' ' + detail[:200] if detail else ''}")
 
-    def servers(self):
+    def _list(self, type_=None):
         out, page = [], 1
         while True:
-            d = self._req("GET", "/api/client", params={"page": page, "per_page": 100}).json()
+            params = {"page": page, "per_page": 100}
+            if type_:
+                params["type"] = type_
+            d = self._req("GET", "/api/client", params=params).json()
             for x in d.get("data") or []:
                 a = x.get("attributes") or {}
                 out.append({"identifier": a.get("identifier"), "uuid": a.get("uuid"), "name": a.get("name") or "",
@@ -75,6 +78,24 @@ class Ptero:
             if page >= int(pg.get("total_pages") or 1):
                 return out
             page += 1
+
+    def servers(self):
+        """操作できるサーバーの一覧。
+
+        標準では「そのユーザーが所有者・サブユーザーのサーバー」しか返らないため、
+        パネルの管理者のキーなら type=admin-all で全サーバーも取得して合わせる。
+        """
+        out = self._list()
+        try:
+            out += self._list("admin-all")
+        except PteroError:
+            pass  # 管理者ではないキー
+        seen, uniq = set(), []
+        for s in out:
+            if s["identifier"] and s["identifier"] not in seen:
+                seen.add(s["identifier"])
+                uniq.append(s)
+        return uniq
 
     def _srv(self, ident):
         if not ident or not all(c.isalnum() or c == "-" for c in ident):

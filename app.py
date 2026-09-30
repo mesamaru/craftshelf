@@ -30,10 +30,13 @@ import zipfile
 from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
+from urllib.parse import quote
 
-from flask import Flask, g, jsonify, request, send_file, send_from_directory, session
+from flask import Flask, Response, g, jsonify, request, send_file, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
+import notify
+import ptero
 import selfupdate
 import sources as src
 
@@ -153,6 +156,51 @@ CREATE TABLE IF NOT EXISTS settings (
     key   TEXT PRIMARY KEY,
     value TEXT NOT NULL DEFAULT ''
 );
+-- サーバー構成セット(同じ保存先のアイテムの組み合わせ。version_id が NULL なら常に最新)
+CREATE TABLE IF NOT EXISTS sets (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    target_id   INTEGER NOT NULL,
+    name        TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL,
+    updated_at  TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS set_items (
+    set_id      INTEGER NOT NULL REFERENCES sets(id) ON DELETE CASCADE,
+    item_id     INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    version_id  INTEGER REFERENCES versions(id) ON DELETE SET NULL,
+    PRIMARY KEY (set_id, item_id)
+);
+-- Pterodactyl のサーバーとの連携
+CREATE TABLE IF NOT EXISTS servers (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    identifier  TEXT NOT NULL UNIQUE,
+    name        TEXT NOT NULL,
+    plugin_dir  TEXT NOT NULL DEFAULT '/plugins',
+    set_id      INTEGER,
+    last_sync   TEXT NOT NULL DEFAULT '',
+    created_at  TEXT NOT NULL
+);
+-- サーバー上のファイルのハッシュ(毎回ダウンロードしないためのキャッシュ)
+CREATE TABLE IF NOT EXISTS server_files (
+    server_id   INTEGER NOT NULL,
+    name        TEXT NOT NULL,
+    size        INTEGER NOT NULL DEFAULT 0,
+    modified    TEXT NOT NULL DEFAULT '',
+    sha256      TEXT NOT NULL DEFAULT '',
+    plugin_name TEXT NOT NULL DEFAULT '',
+    version     TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (server_id, name)
+);
+-- 操作の記録
+CREATE TABLE IF NOT EXISTS audit (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    at        TEXT NOT NULL,
+    username  TEXT NOT NULL DEFAULT '',
+    action    TEXT NOT NULL,
+    target    TEXT NOT NULL DEFAULT '',
+    detail    TEXT NOT NULL DEFAULT ''
+);
 -- アイテムと配布元(Modrinth / SpigotMC / CurseForge)の紐付け、および最新版の確認結果
 CREATE TABLE IF NOT EXISTS item_sources (
     item_id        INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
@@ -229,6 +277,8 @@ def migrate_schema(conn):
     conn.execute("UPDATE storage_targets SET protocol='smb' WHERE protocol='cifs'")
     if "sha1" not in _table_cols(conn, "versions"):  # 配布サイトとの照合に使う
         conn.execute("ALTER TABLE versions ADD COLUMN sha1 TEXT NOT NULL DEFAULT ''")
+    if "keep_versions" not in _table_cols(conn, "items"):  # 古いバージョンの自動整理(残す数。0 = しない)
+        conn.execute("ALTER TABLE items ADD COLUMN keep_versions INTEGER NOT NULL DEFAULT 0")
     if "mc_versions" not in _table_cols(conn, "items"):  # 対応MCバージョン(手入力。空なら自動)
         conn.execute("ALTER TABLE items ADD COLUMN mc_versions TEXT NOT NULL DEFAULT ''")
     if "prefs" not in _table_cols(conn, "users"):  # テーマ・背景などの個人設定
@@ -560,6 +610,119 @@ def _analyze_zip(z, info):
             info["pack_format"] = str(fmt)
 
 
+# --------------------------------------------------------------------------
+# 前提(依存)プラグイン・Mod の読み取り
+# --------------------------------------------------------------------------
+# ローダーやゲーム本体など、ライブラリで管理しない依存は無視する
+_IGNORE_DEPS = {"minecraft", "java", "fabricloader", "fabricloader", "fabric-loader", "quiltloader", "quilt_loader",
+                "forge", "neoforge", "fml", "javafml", "lowcodefml", "quiltbase", "quilted_fabric_api_base"}
+
+
+def _yaml_list(text, key):
+    """plugin.yml の「depend: [A, B]」「depend:\\n  - A」形式の一覧を読む。"""
+    lines = (text or "").splitlines()
+    for i, line in enumerate(lines):
+        m = re.match(rf"^{re.escape(key)}\s*:\s*(.*?)\s*$", line)
+        if not m:
+            continue
+        val = re.sub(r"\s+#.*$", "", m.group(1)).strip()
+        if val.startswith("["):
+            return [x.strip().strip("'\"") for x in val.strip("[]").split(",") if x.strip().strip("'\"")]
+        if val and val not in ("|", ">", "[]"):
+            return [val.strip("'\"")]
+        out = []
+        for nxt in lines[i + 1:]:
+            mm = re.match(r"^\s*-\s*(.+?)\s*$", nxt)
+            if mm:
+                out.append(mm.group(1).strip("'\""))
+            elif nxt.strip() and not nxt.lstrip().startswith("#"):
+                break
+        return out
+    return []
+
+
+def _paper_deps(text):
+    """paper-plugin.yml の dependencies: server: 名前: {required: true} を読む。"""
+    req, soft = [], []
+    lines = (text or "").splitlines()
+    in_deps = in_server = False
+    cur = None
+    name_indent = None
+    for line in lines:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        indent = len(line) - len(line.lstrip())
+        s = line.strip()
+        if indent == 0:
+            in_deps = s.startswith("dependencies:")
+            in_server = False
+            continue
+        if not in_deps:
+            continue
+        if s.startswith("server:") and (name_indent is None or indent < name_indent):
+            in_server, name_indent, cur = True, None, None
+            continue
+        if not in_server:
+            continue
+        m = re.match(r"^([^:#]+):\s*$", s)
+        if m and (name_indent is None or indent == name_indent):
+            name_indent = indent
+            cur = m.group(1).strip().strip("'\"")
+            soft.append(cur)
+            continue
+        if cur and re.match(r"^required\s*:\s*true\b", s):
+            if cur in soft:
+                soft.remove(cur)
+            req.append(cur)
+    return req, soft
+
+
+def _analyze_deps(z, info):
+    names = set(z.namelist())
+    deps, soft, mod_id = [], [], None
+    if "paper-plugin.yml" in names:
+        deps, soft = _paper_deps(_read(z, "paper-plugin.yml"))
+    elif "plugin.yml" in names or "bungee.yml" in names:
+        text = _read(z, "plugin.yml" if "plugin.yml" in names else "bungee.yml")
+        deps = _yaml_list(text, "depend") + _yaml_list(text, "depends")
+        soft = _yaml_list(text, "softdepend") + _yaml_list(text, "softDepends")
+    elif "velocity-plugin.json" in names:
+        d = _json(z, "velocity-plugin.json") or {}
+        mod_id = d.get("id")
+        for dep in d.get("dependencies") or []:
+            if isinstance(dep, dict) and dep.get("id"):
+                (soft if dep.get("optional") else deps).append(dep["id"])
+    elif "fabric.mod.json" in names:
+        d = _json(z, "fabric.mod.json") or {}
+        mod_id = d.get("id")
+        deps = [k for k in (d.get("depends") or {}) if isinstance(k, str)]
+        soft = [k for k in (d.get("recommends") or {}) if isinstance(k, str)]
+    elif "quilt.mod.json" in names:
+        ql = (_json(z, "quilt.mod.json") or {}).get("quilt_loader") or {}
+        mod_id = ql.get("id")
+        for dep in ql.get("depends") or []:
+            dep_id = dep.get("id") if isinstance(dep, dict) else dep if isinstance(dep, str) else None
+            if dep_id:
+                (soft if isinstance(dep, dict) and dep.get("optional") else deps).append(dep_id)
+    else:
+        for path in ("META-INF/neoforge.mods.toml", "META-INF/mods.toml"):
+            if path in names:
+                data = _toml(_read(z, path)) or {}
+                mods = data.get("mods") or [{}]
+                mod_id = (mods[0] if isinstance(mods, list) and mods else {}).get("modId")
+                for lst in (data.get("dependencies") or {}).values():
+                    for dep in lst if isinstance(lst, list) else []:
+                        if not isinstance(dep, dict) or not dep.get("modId"):
+                            continue
+                        required = dep.get("mandatory") is True or str(dep.get("type", "")).lower() == "required"
+                        (deps if required else soft).append(dep["modId"])
+                break
+    clean = lambda xs: sorted({x.strip() for x in xs if x and x.strip().lower() not in _IGNORE_DEPS})[:50]  # noqa: E731
+    info["depends"], info["softdepends"] = clean(deps), clean(soft)
+    if mod_id:
+        info["mod_id"] = str(mod_id)[:80]
+
+
 def analyze(path, filename):
     info = dict(category="other", name=None, version=None, loader=None,
                 mc=None, description=None, pack_format=None)
@@ -567,6 +730,10 @@ def analyze(path, filename):
         try:
             with zipfile.ZipFile(path) as z:
                 _analyze_zip(z, info)
+                try:
+                    _analyze_deps(z, info)
+                except Exception:  # noqa: BLE001
+                    pass
         except Exception:
             pass
     fn_name, fn_ver = parse_filename(filename)
@@ -840,6 +1007,16 @@ def remove_file(store, relpath):
     store.rmdir_if_empty(parent_rel(rel))  # 空のときだけ消える
 
 
+META_KEYS = ("loader", "mc", "description", "pack_format", "depends", "softdepends", "mod_id")
+DEPS_VERSION = 1  # 依存関係の読み取り方式を変えたら上げる(古いものは読み取り直す)
+
+
+def meta_from_info(info):
+    meta = {k: info[k] for k in META_KEYS if info.get(k)}
+    meta["deps_v"] = DEPS_VERSION
+    return meta
+
+
 def ingest(local, filename, force_cat=None, default_cat=None, src_rel=None, item_id=None,
            store=None, target=None):
     """ファイルを解析して、保存先の library に登録する。
@@ -861,7 +1038,7 @@ def ingest(local, filename, force_cat=None, default_cat=None, src_rel=None, item
     sha1 = src.sha1_file(local)
     info = analyze(local, filename)
     cat = force_cat or (info["category"] if info["category"] != "other" else (default_cat or "other"))
-    meta = {k: info[k] for k in ("loader", "mc", "description", "pack_format") if info.get(k)}
+    meta = meta_from_info(info)
 
     with LOCK:
         conn = db()
@@ -906,6 +1083,10 @@ def ingest(local, filename, force_cat=None, default_cat=None, src_rel=None, item
         except Exception:
             conn.rollback()
             raise
+    try:
+        prune_versions(db(), store, item["id"])
+    except Exception:  # noqa: BLE001
+        app.logger.exception("prune")
     return {"status": "added", "filename": filename, "name": item["name"],
             "version": info["version"], "category": cat, "item_id": item["id"],
             "new_item": created}
@@ -975,6 +1156,7 @@ def build_library(conn, store, target):
         it.pop("key", None)
         it.pop("folder", None)
         out.append(it)
+    dependency_report(out)
     return out
 
 
@@ -1163,6 +1345,7 @@ def start_job(kind, title, fn, *args, user=""):
                 job.status = "error"
                 job.note(f"エラー: {getattr(e, 'message', e)}")
                 app.logger.exception("job failed")
+                notify_event("errors", f"{job.title} が失敗しました", [str(getattr(e, "message", e))[:500]], "error")
             finally:
                 job.finished = utcnow()
 
@@ -1217,7 +1400,11 @@ def handle_error(e):
 
 @app.get("/")
 def index():
-    return send_from_directory(BASE_DIR / "static", "index.html", max_age=0)
+    # 更新後に古い画面ファイルがブラウザに残らないよう、読み込むファイルにバージョンを付ける
+    html = (BASE_DIR / "static" / "index.html").read_text(encoding="utf-8")
+    v = quote(running_version() + "-" + str(int((BASE_DIR / "static" / "app.js").stat().st_mtime)))
+    html = html.replace('/static/app.css"', f'/static/app.css?v={v}"').replace('/static/app.js"', f'/static/app.js?v={v}"')
+    return Response(html, mimetype="text/html", headers={"Cache-Control": "no-cache"})
 
 
 @app.get("/static/<path:name>")
@@ -1465,6 +1652,10 @@ def api_patch_item(iid):
     if not new_name:
         raise ApiError("名前を入力してください")
     mc_versions = str(data.get("mc_versions", item["mc_versions"]) or "").strip()[:100]
+    try:
+        keep_versions = max(0, min(100, int(data.get("keep_versions", item["keep_versions"]) or 0)))
+    except (TypeError, ValueError):
+        raise ApiError("残すバージョン数は数字で指定してください")
 
     moved = []  # (dest, src) 失敗時に戻す用
     with LOCK:
@@ -1486,7 +1677,8 @@ def api_patch_item(iid):
                         (target["id"], dest[len("library/"):], dest.rsplit("/", 1)[-1], v["id"]),
                     )
                 conn.execute("DELETE FROM items WHERE id=?", (iid,))
-            conn.execute("UPDATE items SET mc_versions=? WHERE id=?", (mc_versions, target["id"]))
+            conn.execute("UPDATE items SET mc_versions=?, keep_versions=? WHERE id=?",
+                         (mc_versions, keep_versions, target["id"]))
             conn.commit()
         except Exception:
             conn.rollback()
@@ -1498,7 +1690,8 @@ def api_patch_item(iid):
             raise
         # 空になった旧フォルダを片付ける
         store.rmdir_if_empty(join_rel("library", CATEGORIES[item["category"]][0], item["folder"]))
-    return jsonify(ok=True)
+    removed = prune_versions(conn, store, target["id"], user=current_user()["username"]) if keep_versions else []
+    return jsonify(ok=True, removed=removed)
 
 
 # --------------------------------------------------------------------------
@@ -1895,6 +2088,15 @@ def settings_public():
         "stable_only": get_setting("stable_only", "1") == "1",
         "last_auto_check": get_setting("last_auto_check", ""),
         "self_auto_update": get_setting("self_auto_update", "0") == "1",
+        "ptero_url": get_setting("ptero_url", ""),
+        "ptero_key_set": bool(get_setting("ptero_key")),
+        "ptero_insecure": get_setting("ptero_insecure", "0") == "1",
+        "discord_set": bool(get_setting("discord_webhook")),
+        "discord_events": _jl(get_setting("discord_events", ""), DEFAULT_EVENTS),
+        "discord_event_labels": notify.EVENTS,
+        "backup_target_id": int(get_setting("backup_target_id", "0") or 0),
+        "backup_keep": int(get_setting("backup_keep", "14") or 14),
+        "last_backup": get_setting("last_backup", ""),
     }
 
 
@@ -1916,9 +2118,40 @@ def api_settings_update():
         except (TypeError, ValueError):
             raise ApiError("確認間隔は数字で指定してください")
         set_setting("check_interval_hours", hours)
-    for key in ("auto_download", "stable_only", "self_auto_update"):
+    for key in ("auto_download", "stable_only", "self_auto_update", "ptero_insecure"):
         if key in data:
             set_setting(key, "1" if _truthy(data[key]) else "0")
+    if "ptero_url" in data:
+        url = str(data["ptero_url"] or "").strip().rstrip("/")
+        if url and not re.match(r"^https?://[^\s/]+", url):
+            raise ApiError("Pterodactyl の URL は http:// または https:// から入力してください")
+        set_setting("ptero_url", url)
+    if "ptero_key" in data:
+        set_setting("ptero_key", encrypt_secret(str(data["ptero_key"] or "").strip()))
+    if "discord_webhook" in data:
+        url = str(data["discord_webhook"] or "").strip()
+        if url:
+            try:
+                notify.validate_webhook(url)
+            except notify.NotifyError as e:
+                raise ApiError(e.message)
+        set_setting("discord_webhook", encrypt_secret(url))
+    if "discord_events" in data:
+        evs = [e for e in (data["discord_events"] or []) if e in notify.EVENTS]
+        set_setting("discord_events", json.dumps(evs))
+    if "backup_target_id" in data:
+        try:
+            tid = int(data["backup_target_id"] or 0)
+        except (TypeError, ValueError):
+            raise ApiError("バックアップ先の指定が不正です")
+        if tid and not db().execute("SELECT 1 FROM storage_targets WHERE id=?", (tid,)).fetchone():
+            raise ApiError("バックアップ先が見つかりません")
+        set_setting("backup_target_id", tid)
+    if "backup_keep" in data:
+        try:
+            set_setting("backup_keep", max(1, min(365, int(data["backup_keep"]))))
+        except (TypeError, ValueError):
+            raise ApiError("残す数は数字で指定してください")
     return jsonify(settings_public())
 
 
@@ -2420,6 +2653,15 @@ def _bulk_job(job, target_id, do_detect, do_check, do_download):
     job.note("完了: " + " / ".join(f"{k} {v}" for k, v in {
         "紐付け": stats["linked"], "確認": stats["checked"], "更新あり": stats["updates"],
         "保存": stats["downloaded"], "失敗": stats["errors"]}.items()))
+    upd_lines = [x.replace("更新あり: ", "・") for x in job.log if x.startswith("更新あり: ")]
+    if upd_lines:
+        notify_event("updates", f"新しいバージョンが {len(upd_lines)} 件あります", upd_lines[:30])
+    if stats["downloaded"]:
+        notify_event("downloaded", f"{stats['downloaded']} 件の新しいバージョンを保存しました",
+                     [x.replace("保存しました: ", "・") for x in job.log if x.startswith("保存しました: ")][:30])
+    if stats["errors"]:
+        notify_event("errors", f"更新の確認で {stats['errors']} 件のエラー",
+                     [x for x in job.log if x.startswith(("確認できません", "失敗"))][:20], "warn")
 
 
 @app.post("/api/updates/run")
@@ -2497,7 +2739,9 @@ def api_system_update_check():
 def _self_update_job(job):
     old, new = selfupdate.apply(note=job.note)
     job.result = {"from": old, "to": new}
-    job.note(f"{old} → {new} に更新しました。再起動します(数秒で画面が新しい版に切り替わります)")
+    audit("パネルをアップデート", f"{old} → {new}", "", user=job.user)
+    notify_event("selfupdate", f"CraftShelf を v{new} にアップデートしました", [f"v{old} → v{new}"])
+    job.note(f"{old} → {new} に更新しました。再起動します(数秒で画面が新しいバージョンに切り替わります)")
     selfupdate.restart()
 
 
@@ -2512,6 +2756,874 @@ def api_system_update_apply():
     job = start_job("selfupdate", f"{APP_NAME} の更新 ({info['current']} → {info['latest']})",
                     _self_update_job, user=current_user()["username"])
     return jsonify(job.public())
+
+
+# ==========================================================================
+# 操作の記録(監査ログ)
+# ==========================================================================
+AUDIT_LABELS = {
+    "api_upload": "ファイルを登録", "api_scan": "inbox を取り込み", "api_patch_version": "バージョン情報を編集",
+    "api_delete_version": "バージョンを削除", "api_delete_item": "アイテムを削除", "api_patch_item": "アイテム情報を編集",
+    "api_storage_create": "保存先を追加", "api_storage_update": "保存先を編集", "api_storage_delete": "保存先を削除",
+    "api_storage_activate": "保存先を切り替え", "api_storage_migrate": "保存先の移行を開始",
+    "api_source_link": "配布元を紐付け", "api_source_update": "配布元の絞り込みを変更", "api_source_unlink": "配布元の紐付けを解除",
+    "api_source_download": "最新バージョンを保存", "api_updates_run": "更新の確認を開始", "api_import": "URLから追加",
+    "api_auth_setup": "初期設定(管理者を作成)", "api_auth_login": "ログイン", "api_auth_logout": "ログアウト",
+    "api_auth_password": "パスワードを変更", "api_users_create": "ユーザーを追加", "api_users_update": "ユーザーを変更",
+    "api_users_delete": "ユーザーを削除", "api_settings_update": "設定を変更", "api_system_update_apply": "パネルのアップデートを開始",
+    "api_sets_create": "セットを作成", "api_sets_update": "セットを編集", "api_sets_delete": "セットを削除",
+    "api_servers_create": "サーバーを連携", "api_servers_update": "サーバー設定を変更", "api_servers_delete": "サーバーの連携を解除",
+    "api_servers_sync": "サーバーを同期", "api_servers_push": "サーバーへ転送", "api_servers_import": "サーバーから取り込み",
+    "api_servers_power": "サーバーの電源操作", "api_backup_run": "バックアップを開始", "api_deps_rescan": "依存関係の読み取りを開始",
+}
+
+
+def audit(action, target="", detail="", user=None):
+    try:
+        if user is None:
+            try:
+                u = current_user()
+                user = u["username"] if u else "(未ログイン)"
+            except RuntimeError:
+                user = "(自動)"
+        conn = db()
+        conn.execute("INSERT INTO audit (at, username, action, target, detail) VALUES (?,?,?,?,?)",
+                     (utcnow(), str(user)[:60], action[:100], str(target)[:200], str(detail)[:1000]))
+        conn.commit()
+    except Exception:  # noqa: BLE001
+        app.logger.exception("audit")
+
+
+@app.before_request
+def audit_prepare():
+    """削除などで消えてしまう前に、操作対象の名前を控えておく。"""
+    ep = request.endpoint or ""
+    if request.method in ("GET", "HEAD", "OPTIONS") or ep not in AUDIT_LABELS:
+        return None
+    va = request.view_args or {}
+    target = ""
+    try:
+        conn = db()
+        if "vid" in va:
+            r = conn.execute("SELECT i.name, v.version, v.filename FROM versions v JOIN items i ON i.id=v.item_id "
+                             "WHERE v.id=?", (va["vid"],)).fetchone()
+            target = f"{r['name']} {r['version'] or r['filename']}" if r else ""
+        elif "iid" in va:
+            r = conn.execute("SELECT name FROM items WHERE id=?", (va["iid"],)).fetchone()
+            target = r["name"] if r else ""
+        elif "tid" in va:
+            r = conn.execute("SELECT name FROM storage_targets WHERE id=?", (va["tid"],)).fetchone()
+            target = r["name"] if r else ""
+        elif "uid" in va:
+            r = conn.execute("SELECT username FROM users WHERE id=?", (va["uid"],)).fetchone()
+            target = r["username"] if r else ""
+        elif "sid" in va:
+            r = conn.execute("SELECT name FROM sets WHERE id=?", (va["sid"],)).fetchone()
+            target = r["name"] if r else ""
+        elif "srv" in va:
+            r = conn.execute("SELECT name FROM servers WHERE id=?", (va["srv"],)).fetchone()
+            target = r["name"] if r else ""
+    except Exception:  # noqa: BLE001
+        pass
+    g.audit_target = target
+    if ep == "api_auth_logout":  # ログアウト後は誰だったか分からなくなるので先に控える
+        u = current_user()
+        g.audit_user = u["username"] if u else None
+    return None
+
+
+@app.after_request
+def audit_write(resp):
+    ep = request.endpoint or ""
+    if request.method in ("GET", "HEAD", "OPTIONS") or ep not in AUDIT_LABELS:
+        return resp
+    data = request.get_json(silent=True) if request.is_json else None
+    data = data if isinstance(data, dict) else {}
+    ok = resp.status_code < 400
+    if not ok and ep != "api_auth_login":
+        return resp
+    target, detail = getattr(g, "audit_target", ""), ""
+    try:
+        body = resp.get_json(silent=True) or {}
+    except Exception:  # noqa: BLE001
+        body = {}
+    if ep in ("api_upload", "api_import", "api_source_download") and isinstance(body, dict):
+        target = target or f"{body.get('name', '')} {body.get('version', '')}".strip()
+        detail = {"added": "追加", "duplicate": "登録済み"}.get(body.get("status"), "")
+    elif ep == "api_scan" and isinstance(body, dict):
+        detail = f"{body.get('added', 0)} 件追加"
+    elif ep in ("api_auth_login", "api_auth_setup"):
+        target = str(data.get("username", ""))[:40]
+        if not ok:
+            audit("ログインに失敗", target, request.remote_addr or "", user="(未ログイン)")
+            return resp
+    elif ep in ("api_users_create",):
+        target = str(data.get("username", ""))[:40]
+        detail = str(data.get("role", ""))
+    elif ep in ("api_users_update",):
+        detail = ", ".join(f"{k}" for k in data if k != "password") + (" / パスワード再設定" if data.get("password") else "")
+    elif ep == "api_settings_update":
+        detail = ", ".join(sorted(k for k in data))
+    elif ep in ("api_patch_item", "api_sets_create", "api_sets_update", "api_storage_create", "api_servers_create"):
+        target = target or str(data.get("name", ""))[:80]
+        if ep == "api_patch_item":
+            detail = ", ".join(f"{k}: {v}" for k, v in data.items() if k in ("name", "category", "mc_versions", "keep_versions"))
+    elif ep == "api_servers_power":
+        detail = str(data.get("signal", ""))
+    user = None
+    if ep == "api_auth_logout":
+        user = getattr(g, "audit_user", None) or "(未ログイン)"
+    elif ep in ("api_auth_login", "api_auth_setup"):
+        user = target
+    audit(AUDIT_LABELS[ep], target, detail, user=user)
+    return resp
+
+
+@app.get("/api/audit")
+@require("admin")
+def api_audit():
+    try:
+        limit = max(1, min(500, int(request.args.get("limit", 100))))
+        offset = max(0, int(request.args.get("offset", 0)))
+    except ValueError:
+        raise ApiError("数値で指定してください")
+    q = str(request.args.get("q") or "").strip()
+    where, args = "", []
+    if q:
+        where = "WHERE username LIKE ? OR action LIKE ? OR target LIKE ? OR detail LIKE ?"
+        args = [f"%{q}%"] * 4
+    conn = db()
+    rows = conn.execute(f"SELECT * FROM audit {where} ORDER BY id DESC LIMIT ? OFFSET ?", args + [limit, offset]).fetchall()
+    total = conn.execute(f"SELECT COUNT(*) FROM audit {where}", args).fetchone()[0]
+    return jsonify(entries=[dict(r) for r in rows], total=total)
+
+
+def prune_audit(conn):
+    conn.execute("DELETE FROM audit WHERE id <= (SELECT id FROM audit ORDER BY id DESC LIMIT 1 OFFSET 20000)")
+
+
+# ==========================================================================
+# Discord 通知
+# ==========================================================================
+DEFAULT_EVENTS = ["updates", "downloaded", "errors", "servers", "backup", "selfupdate"]
+
+
+def notify_event(event, title, lines, level="info"):
+    try:
+        url = decrypt_secret(get_setting("discord_webhook"))
+        if not url:
+            return
+        events = _jl(get_setting("discord_events", ""), DEFAULT_EVENTS) or []
+        if event in events:
+            notify.send(url, f"CraftShelf: {title}", lines, level)
+    except Exception:  # noqa: BLE001
+        app.logger.exception("notify")
+
+
+@app.post("/api/settings/discord/test")
+@require("admin")
+def api_discord_test():
+    data = request.get_json(silent=True) or {}
+    url = str(data.get("url") or "").strip() or decrypt_secret(get_setting("discord_webhook"))
+    if not url:
+        raise ApiError("Webhook の URL を入力してください")
+    try:
+        notify.send_now(url, "CraftShelf: テスト通知", ["CraftShelf からのテスト通知です。この通知が見えていれば設定は正しくできています。"])
+    except notify.NotifyError as e:
+        raise ApiError(e.message, 502)
+    return jsonify(ok=True)
+
+
+# ==========================================================================
+# 古いバージョンの自動整理
+# ==========================================================================
+def pinned_version_ids(conn):
+    return {r[0] for r in conn.execute("SELECT version_id FROM set_items WHERE version_id IS NOT NULL")}
+
+
+def prune_versions(conn, store, item_id, user="(自動)"):
+    """アイテムの「残す数」を超えた古いバージョンを削除する(最新・セットで指定中のものは残す)。"""
+    item = conn.execute("SELECT * FROM items WHERE id=?", (item_id,)).fetchone()
+    keep = int(item["keep_versions"] or 0) if item else 0
+    if keep <= 0:
+        return []
+    vs = _item_versions(conn, item_id)
+    pinned = pinned_version_ids(conn)
+    removed = []
+    for v in vs[keep:]:
+        if v["id"] in pinned:
+            continue
+        with LOCK:
+            conn.execute("DELETE FROM versions WHERE id=?", (v["id"],))
+            conn.commit()
+        try:
+            remove_file(store, v["relpath"])
+        except (StorageError, ApiError):
+            pass
+        removed.append(v["version"] or v["filename"])
+    if removed:
+        audit("古いバージョンを自動で整理", item["name"], ", ".join(removed), user=user)
+    return removed
+
+
+# ==========================================================================
+# 依存関係(前提プラグイン・Mod)
+# ==========================================================================
+def dependency_report(items):
+    """build_library の結果に「足りない前提」を書き足す。"""
+    have = set()
+    for it in items:
+        have.add(norm_key(it["name"]))
+        latest = next((v for v in it["versions"] if v["id"] == it["latest_id"]), it["versions"][0])
+        if latest["meta"].get("mod_id"):
+            have.add(norm_key(latest["meta"]["mod_id"]))
+    for it in items:
+        latest = next((v for v in it["versions"] if v["id"] == it["latest_id"]), it["versions"][0])
+        it["depends"] = latest["meta"].get("depends") or []
+        it["softdepends"] = latest["meta"].get("softdepends") or []
+        it["dep_key"] = sorted({norm_key(it["name"])} | ({norm_key(latest["meta"]["mod_id"])} if latest["meta"].get("mod_id") else set()))
+        it["missing_deps"] = [d for d in it["depends"] if norm_key(d) not in have]
+        it["deps_scanned"] = bool(latest["meta"].get("deps_v"))
+
+
+def _rescan_deps_job(job, target_id):
+    conn = db()
+    target = conn.execute("SELECT * FROM storage_targets WHERE id=?", (target_id,)).fetchone()
+    store = open_store(target)
+    rows = conn.execute("SELECT v.* FROM versions v WHERE v.target_id=?", (target_id,)).fetchall()
+    todo = [v for v in rows if _jl(v["meta"], {}).get("deps_v") != DEPS_VERSION]
+    job.total = len(todo)
+    for v in todo:
+        job.done += 1
+        tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
+        try:
+            store.fetch(lib_rel(v["relpath"]), tmp)
+            info = analyze(tmp, v["filename"])
+            meta = _jl(v["meta"], {})
+            meta.update(meta_from_info(info))
+            with LOCK:
+                conn.execute("UPDATE versions SET meta=? WHERE id=?", (json.dumps(meta, ensure_ascii=False), v["id"]))
+                conn.commit()
+        except Exception as e:  # noqa: BLE001
+            job.note(f"読み取れません: {v['filename']}: {getattr(e, 'message', e)}")
+        finally:
+            tmp.unlink(missing_ok=True)
+    job.note(f"完了: {len(todo)} 件のファイルから依存関係を読み取りました")
+
+
+@app.post("/api/deps/rescan")
+@require("editor")
+def api_deps_rescan():
+    _store, target = active_store()
+    job = start_job("deps", "依存関係の読み取り", _rescan_deps_job, target["id"], user=current_user()["username"])
+    return jsonify(job.public())
+
+
+# ==========================================================================
+# サーバー構成セット
+# ==========================================================================
+def set_public(conn, row):
+    items = [dict(r) for r in conn.execute("SELECT item_id, version_id FROM set_items WHERE set_id=?", (row["id"],))]
+    return {"id": row["id"], "name": row["name"], "description": row["description"], "items": items,
+            "created_at": row["created_at"], "updated_at": row["updated_at"]}
+
+
+def _set_row(sid):
+    _store, target = active_store()
+    row = db().execute("SELECT * FROM sets WHERE id=? AND target_id=?", (sid, target["id"])).fetchone()
+    if not row:
+        raise ApiError("セットが見つかりません(別の保存先のセットかもしれません)", 404)
+    return row
+
+
+def _set_items_from(conn, target_id, data):
+    out = []
+    for x in data.get("items") or []:
+        try:
+            iid = int(x.get("item_id") if isinstance(x, dict) else x)
+            vid = x.get("version_id") if isinstance(x, dict) else None
+            vid = int(vid) if vid else None
+        except (TypeError, ValueError):
+            raise ApiError("items の指定が不正です")
+        if not conn.execute("SELECT 1 FROM items WHERE id=? AND target_id=?", (iid, target_id)).fetchone():
+            continue
+        if vid and not conn.execute("SELECT 1 FROM versions WHERE id=? AND item_id=?", (vid, iid)).fetchone():
+            vid = None
+        out.append((iid, vid))
+    return out
+
+
+@app.get("/api/sets")
+def api_sets():
+    _store, target = active_store()
+    conn = db()
+    rows = conn.execute("SELECT * FROM sets WHERE target_id=? ORDER BY name", (target["id"],)).fetchall()
+    return jsonify(sets=[set_public(conn, r) for r in rows])
+
+
+@app.post("/api/sets")
+@require("editor")
+def api_sets_create():
+    data = request.get_json(silent=True) or {}
+    _store, target = active_store()
+    name = str(data.get("name") or "").strip()[:80]
+    if not name:
+        raise ApiError("セットの名前を入力してください")
+    conn = db()
+    with LOCK:
+        cur = conn.execute("INSERT INTO sets (target_id, name, description, created_at, updated_at) VALUES (?,?,?,?,?)",
+                           (target["id"], name, str(data.get("description") or "")[:500], utcnow(), utcnow()))
+        for iid, vid in _set_items_from(conn, target["id"], data):
+            conn.execute("INSERT OR REPLACE INTO set_items (set_id, item_id, version_id) VALUES (?,?,?)", (cur.lastrowid, iid, vid))
+        conn.commit()
+    return jsonify(set=set_public(conn, conn.execute("SELECT * FROM sets WHERE id=?", (cur.lastrowid,)).fetchone()))
+
+
+@app.patch("/api/sets/<int:sid>")
+@require("editor")
+def api_sets_update(sid):
+    row = _set_row(sid)
+    data = request.get_json(silent=True) or {}
+    conn = db()
+    with LOCK:
+        if "name" in data:
+            name = str(data["name"] or "").strip()[:80]
+            if not name:
+                raise ApiError("セットの名前を入力してください")
+            conn.execute("UPDATE sets SET name=? WHERE id=?", (name, sid))
+        if "description" in data:
+            conn.execute("UPDATE sets SET description=? WHERE id=?", (str(data["description"] or "")[:500], sid))
+        if "items" in data:
+            conn.execute("DELETE FROM set_items WHERE set_id=?", (sid,))
+            for iid, vid in _set_items_from(conn, row["target_id"], data):
+                conn.execute("INSERT OR REPLACE INTO set_items (set_id, item_id, version_id) VALUES (?,?,?)", (sid, iid, vid))
+        conn.execute("UPDATE sets SET updated_at=? WHERE id=?", (utcnow(), sid))
+        conn.commit()
+    return jsonify(set=set_public(conn, conn.execute("SELECT * FROM sets WHERE id=?", (sid,)).fetchone()))
+
+
+@app.delete("/api/sets/<int:sid>")
+@require("editor")
+def api_sets_delete(sid):
+    _set_row(sid)
+    conn = db()
+    with LOCK:
+        conn.execute("UPDATE servers SET set_id=NULL WHERE set_id=?", (sid,))
+        conn.execute("DELETE FROM sets WHERE id=?", (sid,))
+        conn.commit()
+    return jsonify(ok=True)
+
+
+def resolve_set_versions(conn, sid):
+    """セットの各アイテムについて、使うバージョン(指定がなければ最新)を返す。[(item_row, version_row)]"""
+    out = []
+    for r in conn.execute("SELECT * FROM set_items WHERE set_id=?", (sid,)).fetchall():
+        item = conn.execute("SELECT * FROM items WHERE id=?", (r["item_id"],)).fetchone()
+        if not item:
+            continue
+        v = conn.execute("SELECT * FROM versions WHERE id=?", (r["version_id"],)).fetchone() if r["version_id"] else None
+        if not v:
+            vs = _item_versions(conn, item["id"])
+            v = vs[0] if vs else None
+        if v:
+            out.append((item, v))
+    return out
+
+
+@app.get("/api/sets/<int:sid>/download")
+def api_sets_download(sid):
+    row = _set_row(sid)
+    store, _target = active_store()
+    conn = db()
+    pairs = resolve_set_versions(conn, sid)
+    if not pairs:
+        raise ApiError("セットが空です")
+    zpath = TMP_DIR / (uuid.uuid4().hex + ".zip")
+    try:
+        with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
+            for item, v in pairs:
+                tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
+                try:
+                    store.fetch(lib_rel(v["relpath"]), tmp)
+                    z.write(tmp, f"{CATEGORIES[item['category']][0]}/{v['filename']}")
+                finally:
+                    tmp.unlink(missing_ok=True)
+    except Exception:
+        zpath.unlink(missing_ok=True)
+        raise
+    audit("セットをダウンロード", row["name"], f"{len(pairs)} ファイル")
+    resp = send_file(zpath, as_attachment=True, download_name=f"{safe_name(row['name'], 'set')}.zip")
+    resp.call_on_close(lambda: zpath.unlink(missing_ok=True))
+    return resp
+
+
+# ==========================================================================
+# Pterodactyl 連携
+# ==========================================================================
+def ptero_client():
+    url, key = get_setting("ptero_url"), decrypt_secret(get_setting("ptero_key"))
+    try:
+        return ptero.Ptero(url, key, verify_tls=get_setting("ptero_insecure", "0") != "1")
+    except ptero.PteroError as e:
+        raise ApiError(e.message)
+
+
+def _pcall(fn, *a, **kw):
+    try:
+        return fn(*a, **kw)
+    except ptero.PteroError as e:
+        raise ApiError(e.message, 502)
+
+
+@app.post("/api/ptero/test")
+@require("admin")
+def api_ptero_test():
+    data = request.get_json(silent=True) or {}
+    url = str(data.get("url") or get_setting("ptero_url") or "")
+    key = str(data.get("key") or "") or decrypt_secret(get_setting("ptero_key"))
+    insecure = _truthy(data["insecure"]) if "insecure" in data else get_setting("ptero_insecure", "0") == "1"
+    try:
+        servers = ptero.Ptero(url, key, verify_tls=not insecure).servers()
+    except ptero.PteroError as e:
+        return jsonify(ok=False, message=e.message)
+    return jsonify(ok=True, message=f"接続できました(操作できるサーバー: {len(servers)} 台)")
+
+
+@app.get("/api/ptero/servers")
+@require("admin")
+def api_ptero_servers():
+    servers = _pcall(ptero_client().servers)
+    linked = {r["identifier"]: r["id"] for r in db().execute("SELECT id, identifier FROM servers")}
+    for s in servers:
+        s["linked_id"] = linked.get(s["identifier"])
+    return jsonify(servers=servers)
+
+
+def server_public(conn, r):
+    d = dict(r)
+    if r["set_id"]:
+        s = conn.execute("SELECT name FROM sets WHERE id=?", (r["set_id"],)).fetchone()
+        d["set_name"] = s["name"] if s else ""
+    return d
+
+
+@app.get("/api/servers")
+def api_servers():
+    conn = db()
+    rows = conn.execute("SELECT * FROM servers ORDER BY name").fetchall()
+    return jsonify(servers=[server_public(conn, r) for r in rows],
+                   configured=bool(get_setting("ptero_url") and get_setting("ptero_key")))
+
+
+def _clean_dir(d):
+    d = "/" + str(d or "/plugins").strip().strip("/")
+    if ".." in d.split("/"):
+        raise ApiError("フォルダの指定が不正です")
+    return d
+
+
+@app.post("/api/servers")
+@require("admin")
+def api_servers_create():
+    data = request.get_json(silent=True) or {}
+    ident = str(data.get("identifier") or "").strip()
+    if not ident:
+        raise ApiError("サーバーを選んでください")
+    conn = db()
+    if conn.execute("SELECT 1 FROM servers WHERE identifier=?", (ident,)).fetchone():
+        raise ApiError("このサーバーはすでに連携しています")
+    set_id = int(data["set_id"]) if data.get("set_id") else None
+    with LOCK:
+        conn.execute("INSERT INTO servers (identifier, name, plugin_dir, set_id, created_at) VALUES (?,?,?,?,?)",
+                     (ident, str(data.get("name") or ident)[:80], _clean_dir(data.get("plugin_dir")), set_id, utcnow()))
+        conn.commit()
+    return jsonify(ok=True)
+
+
+def _server_row(srv):
+    r = db().execute("SELECT * FROM servers WHERE id=?", (srv,)).fetchone()
+    if not r:
+        raise ApiError("サーバーが見つかりません", 404)
+    return r
+
+
+@app.patch("/api/servers/<int:srv>")
+@require("admin")
+def api_servers_update(srv):
+    _server_row(srv)
+    data = request.get_json(silent=True) or {}
+    conn = db()
+    with LOCK:
+        if "name" in data:
+            conn.execute("UPDATE servers SET name=? WHERE id=?", (str(data["name"] or "")[:80] or "server", srv))
+        if "plugin_dir" in data:
+            conn.execute("UPDATE servers SET plugin_dir=? WHERE id=?", (_clean_dir(data["plugin_dir"]), srv))
+            conn.execute("DELETE FROM server_files WHERE server_id=?", (srv,))
+        if "set_id" in data:
+            conn.execute("UPDATE servers SET set_id=? WHERE id=?", (int(data["set_id"]) if data["set_id"] else None, srv))
+        conn.commit()
+    return jsonify(ok=True)
+
+
+@app.delete("/api/servers/<int:srv>")
+@require("admin")
+def api_servers_delete(srv):
+    _server_row(srv)
+    conn = db()
+    with LOCK:
+        conn.execute("DELETE FROM server_files WHERE server_id=?", (srv,))
+        conn.execute("DELETE FROM servers WHERE id=?", (srv,))
+        conn.commit()
+    return jsonify(ok=True)
+
+
+def server_inventory(conn, srv_row, target, note=lambda m: None):
+    """サーバーのプラグインフォルダの中身を、ライブラリと照らし合わせる。"""
+    p = ptero_client()
+    ident, pdir = srv_row["identifier"], srv_row["plugin_dir"]
+    files = [f for f in _pcall(p.list_dir, ident, pdir)
+             if f["is_file"] and f["name"].lower().endswith((".jar", ".zip")) and not f["name"].startswith(".")]
+    cache = {r["name"]: r for r in conn.execute("SELECT * FROM server_files WHERE server_id=?", (srv_row["id"],))}
+    by_sha = {}
+    for v in conn.execute("SELECT * FROM versions WHERE target_id=?", (target["id"],)):
+        by_sha.setdefault(v["sha256"], v)
+    items = {r["id"]: r for r in conn.execute("SELECT * FROM items WHERE target_id=?", (target["id"],))}
+    by_key = {}
+    for it in items.values():
+        by_key.setdefault(norm_key(it["name"]), it)
+    out = []
+    for f in files:
+        c = cache.get(f["name"])
+        if c and c["size"] == f["size"] and c["modified"] == f["modified"] and c["sha256"]:
+            sha, pname, pver = c["sha256"], c["plugin_name"], c["version"]
+        else:
+            note(f"サーバーのファイルを確認しています: {f['name']}")
+            tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
+            try:
+                _pcall(p.download, ident, f"{pdir}/{f['name']}", tmp)
+                sha = sha256_file(tmp)
+                info = analyze(tmp, f["name"])
+                pname, pver = info["name"], info["version"]
+            finally:
+                tmp.unlink(missing_ok=True)
+            with LOCK:
+                conn.execute("INSERT OR REPLACE INTO server_files (server_id, name, size, modified, sha256, plugin_name, version) "
+                             "VALUES (?,?,?,?,?,?,?)", (srv_row["id"], f["name"], f["size"], f["modified"], sha, pname, pver))
+                conn.commit()
+        entry = {"name": f["name"], "size": f["size"], "modified": f["modified"], "plugin_name": pname, "version": pver,
+                 "status": "unregistered", "item_id": None, "item_name": None, "latest_version": None, "latest_version_id": None}
+        v = by_sha.get(sha)
+        item = items.get(v["item_id"]) if v else by_key.get(norm_key(pname))
+        if item:
+            vs = _item_versions(conn, item["id"])
+            entry.update(item_id=item["id"], item_name=item["name"],
+                         latest_version=vs[0]["version"] if vs else None, latest_version_id=vs[0]["id"] if vs else None)
+            if v and vs and v["id"] == vs[0]["id"]:
+                entry["status"] = "latest"
+            elif v:
+                entry["status"] = "outdated"
+            else:
+                newer = vs and version_key(vs[0]["version"]) > version_key(pver or "")
+                entry["status"] = "outdated" if newer else "different"
+            entry["version_id"] = v["id"] if v else None
+        out.append(entry)
+    with LOCK:
+        names = [f["name"] for f in files]
+        conn.execute(f"DELETE FROM server_files WHERE server_id=? AND name NOT IN ({','.join('?' * len(names)) or 'NULL'})",
+                     [srv_row["id"]] + names)
+        conn.commit()
+    missing = []
+    if srv_row["set_id"]:
+        present = {e["item_id"] for e in out if e["item_id"]}
+        for item, ver in resolve_set_versions(conn, srv_row["set_id"]):
+            if item["id"] not in present:
+                missing.append({"item_id": item["id"], "item_name": item["name"], "version": ver["version"],
+                                "version_id": ver["id"]})
+    return out, missing
+
+
+@app.get("/api/servers/<int:srv>/inventory")
+@require("editor")
+def api_servers_inventory(srv):
+    row = _server_row(srv)
+    _store, target = active_store()
+    files, missing = server_inventory(db(), row, target)
+    return jsonify(files=files, missing=missing, plugin_dir=row["plugin_dir"])
+
+
+def _push_versions(job, conn, srv_row, store, pairs, inventory):
+    """(item, version) をサーバーへ送り、同じアイテムの別の版があれば消す。"""
+    p = ptero_client()
+    ident, pdir = srv_row["identifier"], srv_row["plugin_dir"]
+    sent = 0
+    for item, v in pairs:
+        job.done += 1
+        old = [e for e in inventory if e["item_id"] == item["id"]]
+        if any(e.get("version_id") == v["id"] for e in old):
+            job.note(f"送信不要(同じファイルがあります): {item['name']} {v['version']}")
+            continue
+        tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
+        try:
+            store.fetch(lib_rel(v["relpath"]), tmp)
+            _pcall(p.upload, ident, pdir, tmp, v["filename"])
+        finally:
+            tmp.unlink(missing_ok=True)
+        stale = [e["name"] for e in old if e["name"] != v["filename"]]
+        if stale:
+            _pcall(p.delete, ident, pdir, stale)
+        sent += 1
+        job.note(f"送信しました: {item['name']} {v['version']}" + (f"(古いファイルを削除: {', '.join(stale)})" if stale else ""))
+    with LOCK:
+        conn.execute("DELETE FROM server_files WHERE server_id=?", (srv_row["id"],))
+        conn.execute("UPDATE servers SET last_sync=? WHERE id=?", (utcnow(), srv_row["id"]))
+        conn.commit()
+    return sent
+
+
+def _server_job(job, srv, target_id, mode, item_ids, version_ids, restart, user):
+    conn = db()
+    srv_row = conn.execute("SELECT * FROM servers WHERE id=?", (srv,)).fetchone()
+    target = conn.execute("SELECT * FROM storage_targets WHERE id=?", (target_id,)).fetchone()
+    store = open_store(target)
+    job.note(f"「{srv_row['name']}」の {srv_row['plugin_dir']} を確認しています…")
+    inventory, missing = server_inventory(conn, srv_row, target, note=job.note)
+    pairs = []
+    if mode == "sync":
+        for e in inventory:
+            if e["status"] == "outdated" and e["latest_version_id"]:
+                pairs.append((conn.execute("SELECT * FROM items WHERE id=?", (e["item_id"],)).fetchone(),
+                              conn.execute("SELECT * FROM versions WHERE id=?", (e["latest_version_id"],)).fetchone()))
+        if srv_row["set_id"]:
+            chosen = {i["id"]: v for i, v in resolve_set_versions(conn, srv_row["set_id"])}
+            pairs = [(i, chosen.get(i["id"], v)) for i, v in pairs]
+            for m in missing:
+                pairs.append((conn.execute("SELECT * FROM items WHERE id=?", (m["item_id"],)).fetchone(),
+                              conn.execute("SELECT * FROM versions WHERE id=?", (m["version_id"],)).fetchone()))
+    else:
+        vmap = {int(k): int(v) for k, v in (version_ids or {}).items() if v}
+        for iid in item_ids:
+            item = conn.execute("SELECT * FROM items WHERE id=? AND target_id=?", (iid, target_id)).fetchone()
+            if not item:
+                continue
+            v = conn.execute("SELECT * FROM versions WHERE id=? AND item_id=?", (vmap[iid], iid)).fetchone() if iid in vmap else None
+            v = v or (_item_versions(conn, iid) or [None])[0]
+            if v:
+                pairs.append((item, v))
+    job.total = len(pairs)
+    if not pairs:
+        job.note("送信するものはありません(すべて最新です)")
+    sent = _push_versions(job, conn, srv_row, store, pairs, inventory)
+    if restart and sent:
+        _pcall(ptero_client().power, srv_row["identifier"], "restart")
+        job.note("サーバーを再起動しました")
+    job.result = {"sent": sent}
+    label = "同期" if mode == "sync" else "転送"
+    job.note(f"完了: {sent} 件を{label}しました")
+    audit(f"サーバーへの{label}が完了", srv_row["name"], f"{sent} 件" + ("・再起動" if restart and sent else ""), user=user)
+    if sent:
+        notify_event("servers", f"{srv_row['name']} に{label}しました",
+                     [f"・{i['name']} {v['version']}" for i, v in pairs][:30] + (["サーバーを再起動しました"] if restart else []))
+
+
+@app.post("/api/servers/<int:srv>/sync")
+@require("editor")
+def api_servers_sync(srv):
+    row = _server_row(srv)
+    _store, target = active_store()
+    data = request.get_json(silent=True) or {}
+    job = start_job(f"server-{srv}", f"「{row['name']}」を同期", _server_job, srv, target["id"], "sync", [], {},
+                    _truthy(data.get("restart")), current_user()["username"], user=current_user()["username"])
+    return jsonify(job.public())
+
+
+@app.post("/api/servers/<int:srv>/push")
+@require("editor")
+def api_servers_push(srv):
+    row = _server_row(srv)
+    _store, target = active_store()
+    data = request.get_json(silent=True) or {}
+    item_ids = [int(x) for x in data.get("item_ids") or []]
+    version_ids = {}
+    if data.get("set_id"):
+        conn = db()
+        s = conn.execute("SELECT * FROM sets WHERE id=? AND target_id=?", (int(data["set_id"]), target["id"])).fetchone()
+        if not s:
+            raise ApiError("セットが見つかりません", 404)
+        for i, v in resolve_set_versions(conn, s["id"]):
+            item_ids.append(i["id"])
+            version_ids[i["id"]] = v["id"]
+    if not item_ids:
+        raise ApiError("送るものを選んでください")
+    job = start_job(f"server-{srv}", f"「{row['name']}」へ転送", _server_job, srv, target["id"], "push",
+                    item_ids, version_ids, _truthy(data.get("restart")), current_user()["username"],
+                    user=current_user()["username"])
+    return jsonify(job.public())
+
+
+def _server_import_job(job, srv, target_id, names, user):
+    conn = db()
+    srv_row = conn.execute("SELECT * FROM servers WHERE id=?", (srv,)).fetchone()
+    target = conn.execute("SELECT * FROM storage_targets WHERE id=?", (target_id,)).fetchone()
+    store = open_store(target)
+    p = ptero_client()
+    job.total = len(names)
+    added = 0
+    for n in names:
+        job.done += 1
+        if "/" in n or n.startswith("."):
+            continue
+        tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
+        try:
+            _pcall(p.download, srv_row["identifier"], f"{srv_row['plugin_dir']}/{n}", tmp)
+            r = ingest(tmp, n, store=store, target=target)
+            added += r.get("status") == "added"
+            job.note(f"{'取り込みました' if r.get('status') == 'added' else '登録済みです'}: {r.get('name')} {r.get('version', '')}")
+        except Exception as e:  # noqa: BLE001
+            job.note(f"失敗: {n}: {getattr(e, 'message', e)}")
+        finally:
+            tmp.unlink(missing_ok=True)
+    job.result = {"added": added}
+    audit("サーバーから取り込みが完了", srv_row["name"], f"{added} 件", user=user)
+
+
+@app.post("/api/servers/<int:srv>/import")
+@require("editor")
+def api_servers_import(srv):
+    row = _server_row(srv)
+    _store, target = active_store()
+    names = [str(x) for x in (request.get_json(silent=True) or {}).get("names") or []][:200]
+    if not names:
+        raise ApiError("取り込むファイルを選んでください")
+    job = start_job(f"server-{srv}", f"「{row['name']}」から取り込み", _server_import_job, srv, target["id"], names,
+                    current_user()["username"], user=current_user()["username"])
+    return jsonify(job.public())
+
+
+@app.post("/api/servers/<int:srv>/power")
+@require("editor")
+def api_servers_power(srv):
+    row = _server_row(srv)
+    signal = str((request.get_json(silent=True) or {}).get("signal") or "")
+    _pcall(ptero_client().power, row["identifier"], signal)
+    return jsonify(ok=True)
+
+
+@app.get("/api/servers/<int:srv>/status")
+def api_servers_status(srv):
+    row = _server_row(srv)
+    try:
+        return jsonify(ptero_client().resources(row["identifier"]))
+    except (ptero.PteroError, ApiError) as e:
+        return jsonify(state="unknown", error=getattr(e, "message", str(e)))
+
+
+# ==========================================================================
+# 自動バックアップ
+# ==========================================================================
+BACKUP_DIR = "_craftshelf_backup"
+_BACKUP_NAME = re.compile(r"^craftshelf-\d{8}-\d{6}\.zip$")
+
+
+def _backup_job(job, user):
+    conn = db()
+    tid = int(get_setting("backup_target_id", "0") or 0)
+    target = conn.execute("SELECT * FROM storage_targets WHERE id=?", (tid,)).fetchone()
+    if not target:
+        raise ApiError("バックアップ先が設定されていません")
+    store = open_store(target)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    dbcopy = TMP_DIR / f"backup-{uuid.uuid4().hex}.db"
+    zpath = TMP_DIR / f"craftshelf-{stamp}.zip"
+    try:
+        job.note("登録情報(index.db)を書き出しています…")
+        dst = sqlite3.connect(dbcopy)
+        conn.backup(dst)
+        dst.close()
+        with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
+            z.write(dbcopy, "index.db")
+            for f in (SECRET_KEY_PATH,):
+                if f.exists():
+                    z.write(f, f.name)
+            if BG_DIR.exists():
+                for f in BG_DIR.iterdir():
+                    z.write(f, f"backgrounds/{f.name}")
+            z.writestr("README.txt", "CraftShelf のバックアップ\n\nindex.db と secret.key を CONFIG_DIR(既定 /data)に戻すと復元できます。\n"
+                                     "secret.key は保存先のパスワードなどの暗号鍵です。取り扱いに注意してください。\n")
+        job.note(f"「{target['name']}」に保存しています…")
+        store.ensure_dir(BACKUP_DIR)
+        store.put(zpath, f"{BACKUP_DIR}/craftshelf-{stamp}.zip")
+        keep = max(1, int(get_setting("backup_keep", "14") or 14))
+        olds = sorted(n for n in store.listdir(BACKUP_DIR) if _BACKUP_NAME.match(n))
+        for n in olds[:-keep]:
+            store.delete(f"{BACKUP_DIR}/{n}")
+            job.note(f"古いバックアップを削除: {n}")
+        set_setting("last_backup", utcnow())
+        job.note(f"完了: craftshelf-{stamp}.zip")
+        audit("バックアップを作成", target["name"], f"craftshelf-{stamp}.zip", user=user)
+        notify_event("backup", "バックアップを作成しました", [f"保存先: {target['name']}", f"ファイル: craftshelf-{stamp}.zip"])
+    finally:
+        dbcopy.unlink(missing_ok=True)
+        zpath.unlink(missing_ok=True)
+
+
+@app.post("/api/backup/run")
+@require("admin")
+def api_backup_run():
+    job = start_job("backup", "バックアップ", _backup_job, current_user()["username"], user=current_user()["username"])
+    return jsonify(job.public())
+
+
+def _backup_store():
+    tid = int(get_setting("backup_target_id", "0") or 0)
+    target = db().execute("SELECT * FROM storage_targets WHERE id=?", (tid,)).fetchone()
+    if not target:
+        raise ApiError("バックアップ先が設定されていません")
+    return open_store(target), target
+
+
+@app.get("/api/backup/list")
+@require("admin")
+def api_backup_list():
+    store, target = _backup_store()
+    try:
+        names = sorted((n for n in store.listdir(BACKUP_DIR) if _BACKUP_NAME.match(n)), reverse=True)
+    except StorageError:
+        names = []
+    return jsonify(target=target["name"], files=names)
+
+
+@app.get("/api/backup/download/<name>")
+@require("admin")
+def api_backup_download(name):
+    if not _BACKUP_NAME.match(name):
+        raise ApiError("見つかりません", 404)
+    store, _t = _backup_store()
+    rel = f"{BACKUP_DIR}/{name}"
+    if not store.exists(rel):
+        raise ApiError("見つかりません", 404)
+    if store.is_local:
+        return send_file(store.local_path(rel), as_attachment=True, download_name=name)
+    return send_file(store.open_read(rel), as_attachment=True, download_name=name, mimetype="application/zip",
+                     conditional=False)
+
+
+# ==========================================================================
+# 変更履歴(配布元のチェンジログ)
+# ==========================================================================
+@app.get("/api/items/<int:iid>/source/changelog")
+def api_source_changelog(iid):
+    conn = db()
+    s = conn.execute("SELECT * FROM item_sources WHERE item_id=?", (iid,)).fetchone()
+    if not s:
+        raise ApiError("配布元が紐付けられていません")
+    have = [v["version"] for v in conn.execute("SELECT version FROM versions WHERE item_id=?", (iid,)) if v["version"]]
+    try:
+        entries = src.changelogs(s["provider"], s["project_id"], have_versions=have, loaders=_jl(s["loaders"], []),
+                                 game_versions=_jl(s["game_versions"], []),
+                                 stable_only=get_setting("stable_only", "1") == "1", api_key=cf_api_key())
+    except src.SourceError as e:
+        raise ApiError(e.message, 502)
+    return jsonify(entries=entries, page_url=s["page_url"])
 
 
 # --------------------------------------------------------------------------
@@ -2541,6 +3653,42 @@ def _self_update_tick():
                   _self_update_job, user="(自動)")
 
 
+def _due(key, hours):
+    last = get_setting(key, "")
+    if not last:
+        return True
+    try:
+        last_dt = datetime.strptime(last, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return True
+    return datetime.now(timezone.utc) - last_dt >= timedelta(hours=hours)
+
+
+def _maintenance_tick():
+    """1日1回のバックアップ、依存関係の読み取り(古いデータ向け)、操作記録の整理。"""
+    if int(get_setting("backup_target_id", "0") or 0) and _due("last_backup", 24):
+        try:
+            set_setting("last_backup_try", utcnow())
+            if _due("last_backup_try_gate", 1):
+                set_setting("last_backup_try_gate", utcnow())
+                start_job("backup", "定期バックアップ", _backup_job, "(自動)", user="(自動)")
+        except ApiError:
+            pass
+    if not getattr(_maintenance_tick, "deps_done", False):
+        _maintenance_tick.deps_done = True
+        try:
+            target = db().execute("SELECT * FROM storage_targets WHERE active=1").fetchone()
+            if target and any(_jl(r[0], {}).get("deps_v") != DEPS_VERSION
+                              for r in db().execute("SELECT meta FROM versions WHERE target_id=?", (target["id"],))):
+                start_job("deps", "依存関係の読み取り", _rescan_deps_job, target["id"], user="(自動)")
+        except ApiError:
+            pass
+    if _due("last_audit_prune", 24):
+        set_setting("last_audit_prune", utcnow())
+        prune_audit(db())
+        db().commit()
+
+
 def _scheduler_loop():
     while True:
         time.sleep(60)
@@ -2550,6 +3698,7 @@ def _scheduler_loop():
                     _self_update_tick()
                 except ApiError:
                     pass
+                _maintenance_tick()
                 hours = int(get_setting("check_interval_hours", "0") or 0)
                 if hours <= 0:
                     continue

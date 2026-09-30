@@ -27,13 +27,7 @@
 
   <main class="wrap">
     <div class="large-title">
-      <div class="lt-left">
-        <h2 id="viewTitle">ライブラリ</h2>
-        <div class="segmented viewsw glass" id="viewSw" role="tablist" aria-label="表示の切り替え">
-          <button class="seg" type="button" role="tab" data-view="library" aria-pressed="true">ライブラリ</button>
-          <button class="seg" type="button" role="tab" data-view="dash" aria-pressed="false">ダッシュボード</button>
-        </div>
-      </div>
+      <h2 id="viewTitle">ライブラリ</h2>
       <div class="pill" id="storageInfo"></div>
     </div>
     <div class="banner" id="storageBanner" hidden></div>
@@ -63,6 +57,7 @@
     <div class="toolbar glass">
       <div class="row1">
         <label class="search"><span id="searchIcon"></span><input type="search" id="search" placeholder="検索" aria-label="検索"></label>
+        <select id="mcSel" class="compact" aria-label="対応MCバージョンで絞り込み"><option value="">MC: すべて</option></select>
         <select id="sortSel" class="compact" aria-label="並び順">
           <option value="name:1">名前順</option>
           <option value="added:-1">追加が新しい順</option>
@@ -75,7 +70,15 @@
 
     <section class="group" id="list"></section>
     </div>
+    <section id="setsView" hidden></section>
+    <section id="serversView" hidden></section>
   </main>
+  <nav class="tabbar glass" id="tabbar" role="tablist" aria-label="画面の切り替え">
+    <button type="button" role="tab" data-view="library" aria-selected="true"><span class="ti" id="tiLib"></span><span>ライブラリ</span></button>
+    <button type="button" role="tab" data-view="dash" aria-selected="false"><span class="ti" id="tiDash"></span><span>ダッシュボード</span></button>
+    <button type="button" role="tab" data-view="sets" aria-selected="false"><span class="ti" id="tiSets"></span><span>セット</span></button>
+    <button type="button" role="tab" data-view="servers" aria-selected="false"><span class="ti" id="tiSrv"></span><span>サーバー</span></button>
+  </nav>
 </div>
 
 <div class="scrim" id="scrim"></div>

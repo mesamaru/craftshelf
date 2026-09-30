@@ -9,6 +9,7 @@ NeoForge / Forge / Fabric は「Mod ローダー」の種類で、Mod 自体は 
 
 このモジュールは Flask にも DB にも依存せず、辞書を返すだけにしてある。
 """
+import base64
 import hashlib
 import json
 import re
@@ -426,3 +427,92 @@ def download(url, dest, expected_sha1=""):
     if expected_sha1 and sha1.hexdigest() != expected_sha1.lower():
         raise SourceError("ダウンロードしたファイルが壊れています(ハッシュ不一致)")
     return sha1.hexdigest()
+
+
+# --------------------------------------------------------------------------
+# 変更履歴(チェンジログ)
+# --------------------------------------------------------------------------
+class _TextOnly(__import__("html.parser", fromlist=["HTMLParser"]).HTMLParser):
+    """HTML からテキストだけを取り出す(タグは一切残さないので、画面に出しても安全)。"""
+    BLOCK = {"p", "div", "br", "li", "ul", "ol", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "pre", "blockquote"}
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.out = []
+        self.skip = 0
+
+    def handle_starttag(self, tag, attrs):
+        if tag in ("script", "style"):
+            self.skip += 1
+        if tag in self.BLOCK:
+            self.out.append("\n")
+        if tag == "li":
+            self.out.append("・")
+
+    def handle_endtag(self, tag):
+        if tag in ("script", "style") and self.skip:
+            self.skip -= 1
+        if tag in self.BLOCK:
+            self.out.append("\n")
+
+    def handle_data(self, data):
+        if not self.skip:
+            self.out.append(data)
+
+
+def html_to_text(html_text, limit=4000):
+    p = _TextOnly()
+    try:
+        p.feed(html_text or "")
+    except Exception:  # noqa: BLE001
+        return re.sub(r"<[^>]+>", "", html_text or "")[:limit]
+    text = "".join(p.out)
+    text = re.sub(r"[ \t ]+\n", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text[:limit]
+
+
+def changelogs(provider, project_id, *, have_versions=(), loaders=None, game_versions=None,
+               stable_only=True, api_key=None, limit=5):
+    """保存している版より新しい版の変更内容を、新しい順に最大 limit 件返す。[{version, date, text}]"""
+    out = []
+
+    def seen(v):
+        return any(same_version(v, h) for h in have_versions)
+
+    if provider == "modrinth":
+        params = {"include_changelog": "true"}
+        if loaders:
+            params["loaders"] = json.dumps(loaders)
+        if game_versions:
+            params["game_versions"] = json.dumps(game_versions)
+        vs = _json("GET", f"{MODRINTH}/project/{quote(project_id, safe='')}/version", params=params)
+        if stable_only:
+            vs = [v for v in vs if v.get("version_type") == "release"] or vs
+        vs.sort(key=lambda v: v.get("date_published") or "", reverse=True)
+        for v in vs:
+            if seen(v.get("version_number")) or len(out) >= limit:
+                break
+            out.append({"version": v.get("version_number") or "", "date": v.get("date_published") or "",
+                        "text": (v.get("changelog") or "").strip()[:4000] or "(変更内容の記載はありません)"})
+    elif provider == "spigot":
+        ups = _json("GET", f"{SPIGET}/resources/{int(project_id)}/updates", ok=(200, 404),
+                    params={"size": limit, "sort": "-date"})
+        from datetime import datetime, timezone
+        for u in ups if isinstance(ups, list) else []:
+            desc = u.get("description") or ""
+            try:
+                desc = base64.b64decode(desc).decode("utf-8", errors="replace")
+            except (ValueError, TypeError):
+                pass
+            date = datetime.fromtimestamp(int(u["date"]), timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if u.get("date") else ""
+            out.append({"version": u.get("title") or "", "date": date,
+                        "text": html_to_text(desc) or "(変更内容の記載はありません)"})
+    elif provider == "curseforge":
+        info = curseforge_latest(project_id, api_key, loaders, game_versions, stable_only)
+        if info and info.get("version_id"):
+            d = _json("GET", f"{CURSEFORGE}/mods/{int(project_id)}/files/{int(info['version_id'])}/changelog",
+                      api_key=api_key)
+            out.append({"version": info.get("version") or "", "date": info.get("date") or "",
+                        "text": html_to_text(d.get("data") or "") or "(変更内容の記載はありません)"})
+    return out

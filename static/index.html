@@ -955,7 +955,7 @@ function customDialog(html, setup, wide = false) {
 async function checkAuth() {
   let me;
   try { me = await api("/api/auth/me"); } catch (e) { toast(e.message, true); return; }
-  state.roles = me.roles;
+  state.roles = me.roles; state.appVersion = me.version;
   if (!me.user) { showAuth(me.setup_required); return; }
   state.user = me.user;
   $("#auth").hidden = true;
@@ -992,6 +992,7 @@ function showAuth(setup) {
     <label>パスワード<input type="password" name="password" autocomplete="current-password" required></label>
     <div class="err" id="authErr"></div>
     <button class="btn primary" type="submit">ログイン</button>`;
+  if (state.appVersion) f.insertAdjacentHTML("beforeend", `<p style="text-align:right;font-size:12px">CraftShelf v${esc(state.appVersion)}</p>`);
   f.onsubmit = async (e) => {
     e.preventDefault();
     const d = Object.fromEntries(new FormData(f).entries());

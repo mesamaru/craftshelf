@@ -1569,7 +1569,7 @@ def api_auth_me():
     u = current_user()
     setup = db().execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
     return jsonify(user=user_public(u) if u else None, setup_required=setup,
-                   roles={k: v[1] for k, v in ROLES.items()})
+                   roles={k: v[1] for k, v in ROLES.items()}, app_name=APP_NAME, version=running_version())
 
 
 @app.post("/api/auth/setup")

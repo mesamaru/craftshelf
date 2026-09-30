@@ -393,12 +393,12 @@ def latest(provider, project_id, *, loaders=None, game_versions=None, stable_onl
 _ALLOWED_DL_HOSTS = ("modrinth.com", "spiget.org", "forgecdn.net", "curseforge.com", "spigotmc.org")
 
 
-def download(url, dest, expected_sha1=""):
+def download(url, dest, expected_sha1="", extra_hosts=()):
     """配布サイトからファイルをダウンロードする(https・既知のホストのみ、サイズ上限あり)。"""
     def check_host(u):
         p = urlsplit(u)
         host = (p.hostname or "").lower()
-        if p.scheme != "https" or not any(host == h or host.endswith("." + h) for h in _ALLOWED_DL_HOSTS):
+        if p.scheme != "https" or not any(host == h or host.endswith("." + h) for h in _ALLOWED_DL_HOSTS + tuple(extra_hosts)):
             raise SourceError(f"想定外のダウンロード先のため中止しました: {host}")
 
     # リダイレクトは自動で追わず、行き先を確かめてから1段ずつ進む(想定外のホストへ接続しないため)
@@ -515,4 +515,77 @@ def changelogs(provider, project_id, *, have_versions=(), loaders=None, game_ver
                       api_key=api_key)
             out.append({"version": info.get("version") or "", "date": info.get("date") or "",
                         "text": html_to_text(d.get("data") or "") or "(変更内容の記載はありません)"})
+    return out
+
+
+# --------------------------------------------------------------------------
+# 検索(パネルから配布サイトを探す)
+# --------------------------------------------------------------------------
+_MR_TYPES = {"plugin": "plugin", "mod": "mod", "datapack": "datapack", "resourcepack": "resourcepack"}
+_CF_CLASS_OF = {"mod": 6, "plugin": 5, "resourcepack": 12, "datapack": 6945}
+
+
+def search(provider, q, *, kind=None, loader=None, mc=None, api_key=None, size=24):
+    out = []
+    if provider == "modrinth":
+        facets = []
+        if kind in _MR_TYPES:
+            facets.append([f"project_type:{_MR_TYPES[kind]}"])
+        if loader:
+            facets.append([f"categories:{loader}"])
+        if mc:
+            facets.append([f"versions:{mc}"])
+        params = {"query": q, "limit": size, "index": "relevance" if q else "downloads"}
+        if facets:
+            params["facets"] = json.dumps(facets)
+        d = _json("GET", f"{MODRINTH}/search", params=params)
+        for h in d.get("hits") or []:
+            out.append({"provider": "modrinth", "project_id": h["project_id"], "title": h.get("title") or "",
+                        "summary": h.get("description") or "", "author": h.get("author") or "",
+                        "downloads": h.get("downloads") or 0, "icon": h.get("icon_url") or "",
+                        "kind": h.get("project_type") or "", "updated": h.get("date_modified") or "",
+                        "page_url": f"https://modrinth.com/{h.get('project_type', 'project')}/{h.get('slug')}"})
+    elif provider == "curseforge":
+        _need_key(api_key)
+        params = {"gameId": CF_GAME_MINECRAFT, "searchFilter": q, "pageSize": size, "sortField": 2, "sortOrder": "desc"}
+        if kind in _CF_CLASS_OF:
+            params["classId"] = _CF_CLASS_OF[kind]
+        if loader in CF_LOADERS:
+            params["modLoaderType"] = CF_LOADERS[loader]
+        if mc:
+            params["gameVersion"] = mc
+        d = _json("GET", f"{CURSEFORGE}/mods/search", api_key=api_key, params=params)
+        for m in d.get("data") or []:
+            out.append({"provider": "curseforge", "project_id": str(m["id"]), "title": m.get("name") or "",
+                        "summary": m.get("summary") or "", "author": ((m.get("authors") or [{}])[0]).get("name", ""),
+                        "downloads": int(m.get("downloadCount") or 0), "icon": (m.get("logo") or {}).get("thumbnailUrl") or "",
+                        "kind": CF_CLASSES.get(m.get("classId"), ""), "updated": m.get("dateModified") or "",
+                        "page_url": (m.get("links") or {}).get("websiteUrl") or ""})
+    elif provider == "spigot":
+        qq = re.sub(r"[^\w\s.-]+", " ", q or "").strip()
+        if qq:
+            d = _json("GET", f"{SPIGET}/search/resources/{quote(qq, safe='')}", ok=(200, 404),
+                      params={"field": "name", "size": size, "sort": "-downloads"})
+        else:
+            d = _json("GET", f"{SPIGET}/resources", params={"size": size, "sort": "-downloads"})
+        for x in d if isinstance(d, list) else []:
+            icon = (x.get("icon") or {}).get("data") or ""
+            out.append({"provider": "spigot", "project_id": str(x["id"]), "title": x.get("name") or "",
+                        "summary": x.get("tag") or "", "author": "", "downloads": x.get("downloads") or 0,
+                        "icon": f"data:image/png;base64,{icon}" if icon and re.fullmatch(r"[A-Za-z0-9+/=]+", icon) else "",
+                        "kind": "plugin", "updated": "", "page_url": f"https://www.spigotmc.org/resources/{x['id']}/"})
+    else:
+        raise SourceError("未対応の配布元です")
+    return out
+
+
+def curseforge_files(file_ids, api_key):
+    """{fileId: {url, file_name, sha1}}(Modパックの読み込み用)"""
+    _need_key(api_key)
+    out = {}
+    for i in range(0, len(file_ids), 100):
+        d = _json("POST", f"{CURSEFORGE}/mods/files", api_key=api_key, json={"fileIds": file_ids[i:i + 100]})
+        for f in d.get("data") or []:
+            info = _cf_file(f)
+            out[int(f["id"])] = {"url": info["url"], "file_name": info["file_name"], "sha1": info["sha1"]}
     return out

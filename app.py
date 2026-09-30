@@ -18,11 +18,14 @@ SMB / WebDAV はアプリ自身が直接通信するので、OSの mount や特�
 """
 import base64
 import hashlib
+import hmac
 import json
 import os
 import re
 import secrets
+import shutil
 import sqlite3
+import struct
 import threading
 import time
 import uuid
@@ -192,6 +195,34 @@ CREATE TABLE IF NOT EXISTS server_files (
     version     TEXT NOT NULL DEFAULT '',
     PRIMARY KEY (server_id, name)
 );
+-- 前提プラグインの手動の紐付け(名前が違う場合)
+CREATE TABLE IF NOT EXISTS dep_links (
+    target_id   INTEGER NOT NULL,
+    dep_key     TEXT NOT NULL,
+    item_id     INTEGER NOT NULL REFERENCES items(id) ON DELETE CASCADE,
+    PRIMARY KEY (target_id, dep_key)
+);
+-- 同期・転送の前にサーバーから退避したファイル(巻き戻し用)
+CREATE TABLE IF NOT EXISTS server_snapshots (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    server_id   INTEGER NOT NULL,
+    created_at  TEXT NOT NULL,
+    title       TEXT NOT NULL DEFAULT '',
+    removed     TEXT NOT NULL DEFAULT '[]',
+    added       TEXT NOT NULL DEFAULT '[]',
+    rolled_back TEXT NOT NULL DEFAULT ''
+);
+-- 外部から操作するための APIトークン
+CREATE TABLE IF NOT EXISTS api_tokens (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    name        TEXT NOT NULL,
+    token_hash  TEXT NOT NULL UNIQUE,
+    prefix      TEXT NOT NULL,
+    role        TEXT NOT NULL,
+    created_at  TEXT NOT NULL,
+    last_used   TEXT NOT NULL DEFAULT ''
+);
 -- 操作の記録
 CREATE TABLE IF NOT EXISTS audit (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -277,6 +308,17 @@ def migrate_schema(conn):
     conn.execute("UPDATE storage_targets SET protocol='smb' WHERE protocol='cifs'")
     if "sha1" not in _table_cols(conn, "versions"):  # 配布サイトとの照合に使う
         conn.execute("ALTER TABLE versions ADD COLUMN sha1 TEXT NOT NULL DEFAULT ''")
+    if "tags" not in _table_cols(conn, "items"):  # 自由に付けられるタグ
+        conn.execute("ALTER TABLE items ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'")
+    for col, ddl in (("sched_mode", "TEXT NOT NULL DEFAULT 'off'"), ("sched_time", "TEXT NOT NULL DEFAULT '04:00'"),
+                     ("sched_dow", "INTEGER NOT NULL DEFAULT 0"), ("sched_restart", "INTEGER NOT NULL DEFAULT 1"),
+                     ("last_sched", "TEXT NOT NULL DEFAULT ''")):
+        if col not in _table_cols(conn, "servers"):  # 予約同期
+            conn.execute(f"ALTER TABLE servers ADD COLUMN {col} {ddl}")
+    for col, ddl in (("totp_secret", "TEXT NOT NULL DEFAULT ''"), ("totp_enabled", "INTEGER NOT NULL DEFAULT 0"),
+                     ("recovery", "TEXT NOT NULL DEFAULT '[]'")):
+        if col not in _table_cols(conn, "users"):  # 二段階認証
+            conn.execute(f"ALTER TABLE users ADD COLUMN {col} {ddl}")
     if "keep_versions" not in _table_cols(conn, "items"):  # 古いバージョンの自動整理(残す数。0 = しない)
         conn.execute("ALTER TABLE items ADD COLUMN keep_versions INTEGER NOT NULL DEFAULT 0")
     if "mc_versions" not in _table_cols(conn, "items"):  # 対応MCバージョン(手入力。空なら自動)
@@ -1151,12 +1193,14 @@ def build_library(conn, store, target):
         it["versions"] = vs
         it["latest_id"] = vs[0]["id"]
         it["mc_auto"] = auto_mc_versions(vs[0]["meta"], it["category"], it.get("source"))
+        it["tags"] = _jl(it.get("tags"), [])
         it["total_size"] = sum(v["size"] for v in vs)
         it["last_added"] = max(v["added_at"] for v in vs)
         it.pop("key", None)
         it.pop("folder", None)
         out.append(it)
-    dependency_report(out)
+    dependency_report(out, {r["dep_key"]: r["item_id"] for r in conn.execute(
+        "SELECT dep_key, item_id FROM dep_links WHERE target_id=?", (tid,))})
     return out
 
 
@@ -1258,7 +1302,7 @@ def user_prefs(u):
 def user_public(u):
     return {"id": u["id"], "username": u["username"], "role": u["role"],
             "role_label": ROLES.get(u["role"], (0, u["role"]))[1],
-            "created_at": u["created_at"], "last_login": u["last_login"]}
+            "created_at": u["created_at"], "last_login": u["last_login"], "totp_enabled": bool(u["totp_enabled"])}
 
 
 def _login(u):
@@ -1363,11 +1407,21 @@ def open_store(target):
 # --------------------------------------------------------------------------
 # HTTP
 # --------------------------------------------------------------------------
-PUBLIC_PATHS = {"/", "/api/auth/me", "/api/auth/login", "/api/auth/setup", "/api/auth/logout"}
+PUBLIC_PATHS = {"/", "/api/auth/me", "/api/auth/login", "/api/auth/setup", "/api/auth/logout", "/api/auth/totp"}
 
 
 @app.before_request
 def check_auth():
+    auth = request.headers.get("Authorization", "")
+    if request.path.startswith("/api/") and auth.startswith("Bearer cs_"):
+        # APIトークン(Cookie を使わないので CSRF の心配はない)
+        u = user_from_token(auth[len("Bearer "):].strip())
+        if not u:
+            raise ApiError("APIトークンが無効です", 401)
+        if request.path.startswith(("/api/auth/", "/api/me/totp", "/api/users")):
+            raise ApiError("この操作は APIトークンでは行えません", 403)
+        g.user, g.via_token = u, True
+        return None
     # CSRF対策: 画面(同じオリジンのJavaScript)からしか付けられないヘッダーを、変更系の操作に必須にする
     if request.path.startswith("/api/") and request.method not in ("GET", "HEAD", "OPTIONS"):
         if request.headers.get("X-Requested-With") != "mcpl":
@@ -1419,7 +1473,7 @@ def security_headers(resp):
     resp.headers.setdefault("Referrer-Policy", "same-origin")
     resp.headers.setdefault(
         "Content-Security-Policy",
-        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
+        "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; "
         "connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
     if request.path.startswith("/api/"):
         resp.headers.setdefault("Cache-Control", "no-store")
@@ -1652,6 +1706,11 @@ def api_patch_item(iid):
     if not new_name:
         raise ApiError("名前を入力してください")
     mc_versions = str(data.get("mc_versions", item["mc_versions"]) or "").strip()[:100]
+    if "tags" in data:
+        raw = data["tags"] if isinstance(data["tags"], list) else str(data["tags"] or "").split(",")
+        tags = list(dict.fromkeys(str(t).strip()[:30] for t in raw if str(t).strip()))[:20]
+    else:
+        tags = _jl(item["tags"], [])
     try:
         keep_versions = max(0, min(100, int(data.get("keep_versions", item["keep_versions"]) or 0)))
     except (TypeError, ValueError):
@@ -1677,8 +1736,8 @@ def api_patch_item(iid):
                         (target["id"], dest[len("library/"):], dest.rsplit("/", 1)[-1], v["id"]),
                     )
                 conn.execute("DELETE FROM items WHERE id=?", (iid,))
-            conn.execute("UPDATE items SET mc_versions=?, keep_versions=? WHERE id=?",
-                         (mc_versions, keep_versions, target["id"]))
+            conn.execute("UPDATE items SET mc_versions=?, keep_versions=?, tags=? WHERE id=?",
+                         (mc_versions, keep_versions, json.dumps(tags, ensure_ascii=False), target["id"]))
             conn.commit()
         except Exception:
             conn.rollback()
@@ -1872,6 +1931,11 @@ def api_auth_login():
         for k in keys:
             _too_many_failures(k, add=True)
         raise ApiError("ユーザー名かパスワードが違います", 401)
+    if u["totp_enabled"]:
+        # パスワードは合っている。二段階認証のコードを待つ(5分以内)
+        session.clear()
+        session["pre_uid"], session["pre_at"] = u["id"], time.time()
+        return jsonify(ok=True, need_totp=True)
     _login(u)
     return jsonify(ok=True, user=user_public(u))
 
@@ -1940,6 +2004,8 @@ def api_users_update(uid):
         if u["role"] == "admin" and data["role"] != "admin" and _admin_count(conn) <= 1:
             raise ApiError("管理者が1人もいなくなるため変更できません")
         conn.execute("UPDATE users SET role=? WHERE id=?", (data["role"], uid))
+    if data.get("reset_totp"):
+        conn.execute("UPDATE users SET totp_secret='', totp_enabled=0, recovery='[]' WHERE id=?", (uid,))
     if data.get("password"):
         _check_new_credentials("", str(data["password"]), need_username=False)
         conn.execute("UPDATE users SET password_hash=? WHERE id=?",
@@ -2775,6 +2841,8 @@ AUDIT_LABELS = {
     "api_servers_create": "サーバーを連携", "api_servers_update": "サーバー設定を変更", "api_servers_delete": "サーバーの連携を解除",
     "api_servers_sync": "サーバーを同期", "api_servers_push": "サーバーへ転送", "api_servers_import": "サーバーから取り込み",
     "api_servers_power": "サーバーの電源操作", "api_backup_run": "バックアップを開始", "api_deps_rescan": "依存関係の読み取りを開始",
+    "api_deps_link": "前提プラグインを紐付け", "api_modpack": "Modパックの読み込みを開始", "api_server_rollback": "巻き戻しを開始",
+
 }
 
 
@@ -2854,6 +2922,8 @@ def audit_write(resp):
         detail = f"{body.get('added', 0)} 件追加"
     elif ep in ("api_auth_login", "api_auth_setup"):
         target = str(data.get("username", ""))[:40]
+        if ok and isinstance(body, dict) and body.get("need_totp"):
+            return resp  # 二段階認証の確認後に記録する
         if not ok:
             audit("ログインに失敗", target, request.remote_addr or "", user="(未ログイン)")
             return resp
@@ -2969,20 +3039,30 @@ def prune_versions(conn, store, item_id, user="(自動)"):
 # ==========================================================================
 # 依存関係(前提プラグイン・Mod)
 # ==========================================================================
-def dependency_report(items):
-    """build_library の結果に「足りない前提」を書き足す。"""
-    have = set()
+def dependency_report(items, aliases=None):
+    """build_library の結果に、前提プラグインの状況(ライブラリにあるか・どれか)を書き足す。"""
+    aliases = aliases or {}
+    by_key = {}
+    ids = {it["id"] for it in items}
     for it in items:
-        have.add(norm_key(it["name"]))
         latest = next((v for v in it["versions"] if v["id"] == it["latest_id"]), it["versions"][0])
+        keys = {norm_key(it["name"])}
         if latest["meta"].get("mod_id"):
-            have.add(norm_key(latest["meta"]["mod_id"]))
+            keys.add(norm_key(latest["meta"]["mod_id"]))
+        it["dep_key"] = sorted(keys)
+        for k in keys:
+            by_key.setdefault(k, it["id"])
+    for k, iid in aliases.items():
+        if iid in ids:
+            by_key[k] = iid
+            next(it for it in items if it["id"] == iid)["dep_key"].append(k)
     for it in items:
         latest = next((v for v in it["versions"] if v["id"] == it["latest_id"]), it["versions"][0])
         it["depends"] = latest["meta"].get("depends") or []
         it["softdepends"] = latest["meta"].get("softdepends") or []
-        it["dep_key"] = sorted({norm_key(it["name"])} | ({norm_key(latest["meta"]["mod_id"])} if latest["meta"].get("mod_id") else set()))
-        it["missing_deps"] = [d for d in it["depends"] if norm_key(d) not in have]
+        it["dep_status"] = [{"name": d, "required": req, "item_id": by_key.get(norm_key(d)), "manual": norm_key(d) in aliases}
+                            for req, lst in ((True, it["depends"]), (False, it["softdepends"])) for d in lst]
+        it["missing_deps"] = [d["name"] for d in it["dep_status"] if d["required"] and not d["item_id"]]
         it["deps_scanned"] = bool(latest["meta"].get("deps_v"))
 
 
@@ -3261,6 +3341,18 @@ def api_servers_update(srv):
             conn.execute("DELETE FROM server_files WHERE server_id=?", (srv,))
         if "set_id" in data:
             conn.execute("UPDATE servers SET set_id=? WHERE id=?", (int(data["set_id"]) if data["set_id"] else None, srv))
+        if "sched_mode" in data:
+            if data["sched_mode"] not in ("off", "daily", "weekly"):
+                raise ApiError("予約の指定が不正です")
+            conn.execute("UPDATE servers SET sched_mode=? WHERE id=?", (data["sched_mode"], srv))
+        if "sched_time" in data:
+            if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", str(data["sched_time"])):
+                raise ApiError("時刻は 04:00 のように入力してください")
+            conn.execute("UPDATE servers SET sched_time=? WHERE id=?", (data["sched_time"], srv))
+        if "sched_dow" in data:
+            conn.execute("UPDATE servers SET sched_dow=? WHERE id=?", (max(0, min(6, int(data["sched_dow"]))), srv))
+        if "sched_restart" in data:
+            conn.execute("UPDATE servers SET sched_restart=? WHERE id=?", (1 if _truthy(data["sched_restart"]) else 0, srv))
         conn.commit()
     return jsonify(ok=True)
 
@@ -3351,10 +3443,30 @@ def api_servers_inventory(srv):
     return jsonify(files=files, missing=missing, plugin_dir=row["plugin_dir"])
 
 
-def _push_versions(job, conn, srv_row, store, pairs, inventory):
-    """(item, version) をサーバーへ送り、同じアイテムの別の版があれば消す。"""
+def _push_versions(job, conn, srv_row, store, pairs, inventory, title=""):
+    """(item, version) をサーバーへ送り、同じアイテムの別のバージョンがあれば消す。
+
+    置き換え・削除するファイルは先にダウンロードして退避し、あとで巻き戻せるようにする。
+    """
     p = ptero_client()
     ident, pdir = srv_row["identifier"], srv_row["plugin_dir"]
+    on_server = {e["name"] for e in inventory}
+    snap = {"id": None, "removed": [], "added": []}
+
+    def keep(name):
+        if snap["id"] is None:
+            with LOCK:
+                cur = conn.execute("INSERT INTO server_snapshots (server_id, created_at, title) VALUES (?,?,?)",
+                                   (srv_row["id"], utcnow(), title))
+                conn.commit()
+            snap["id"] = cur.lastrowid
+            (SNAP_DIR / str(snap["id"])).mkdir(parents=True, exist_ok=True)
+        if any(r["name"] == name for r in snap["removed"]):
+            return
+        stored = f"{len(snap['removed'])}-{safe_name(name, 'file', 150)}"
+        _pcall(p.download, ident, f"{pdir}/{name}", SNAP_DIR / str(snap["id"]) / stored)
+        snap["removed"].append({"name": name, "stored": stored})
+
     sent = 0
     for item, v in pairs:
         job.done += 1
@@ -3362,21 +3474,37 @@ def _push_versions(job, conn, srv_row, store, pairs, inventory):
         if any(e.get("version_id") == v["id"] for e in old):
             job.note(f"送信不要(同じファイルがあります): {item['name']} {v['version']}")
             continue
+        for e in old:
+            keep(e["name"])
+        if v["filename"] in on_server:
+            keep(v["filename"])  # 同じ名前のファイルを上書きする場合も退避
+        if snap["id"] is None:
+            with LOCK:
+                cur = conn.execute("INSERT INTO server_snapshots (server_id, created_at, title) VALUES (?,?,?)",
+                                   (srv_row["id"], utcnow(), title))
+                conn.commit()
+            snap["id"] = cur.lastrowid
         tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
         try:
             store.fetch(lib_rel(v["relpath"]), tmp)
             _pcall(p.upload, ident, pdir, tmp, v["filename"])
         finally:
             tmp.unlink(missing_ok=True)
+        snap["added"].append(v["filename"])
         stale = [e["name"] for e in old if e["name"] != v["filename"]]
         if stale:
             _pcall(p.delete, ident, pdir, stale)
         sent += 1
         job.note(f"送信しました: {item['name']} {v['version']}" + (f"(古いファイルを削除: {', '.join(stale)})" if stale else ""))
     with LOCK:
+        if snap["id"] is not None:
+            conn.execute("UPDATE server_snapshots SET removed=?, added=? WHERE id=?",
+                         (json.dumps(snap["removed"], ensure_ascii=False), json.dumps(snap["added"], ensure_ascii=False), snap["id"]))
         conn.execute("DELETE FROM server_files WHERE server_id=?", (srv_row["id"],))
         conn.execute("UPDATE servers SET last_sync=? WHERE id=?", (utcnow(), srv_row["id"]))
         conn.commit()
+    if snap["id"] is not None:
+        prune_snapshots(conn, srv_row["id"])
     return sent
 
 
@@ -3412,7 +3540,7 @@ def _server_job(job, srv, target_id, mode, item_ids, version_ids, restart, user)
     job.total = len(pairs)
     if not pairs:
         job.note("送信するものはありません(すべて最新です)")
-    sent = _push_versions(job, conn, srv_row, store, pairs, inventory)
+    sent = _push_versions(job, conn, srv_row, store, pairs, inventory, title=job.title)
     if restart and sent:
         _pcall(ptero_client().power, srv_row["identifier"], "restart")
         job.note("サーバーを再起動しました")
@@ -3626,6 +3754,508 @@ def api_source_changelog(iid):
     return jsonify(entries=entries, page_url=s["page_url"])
 
 
+# ==========================================================================
+# 前提プラグインの紐付け(名前が違うときに、ライブラリのアイテムと手動で結び付ける)
+# ==========================================================================
+@app.post("/api/deps/link")
+@require("editor")
+def api_deps_link():
+    data = request.get_json(silent=True) or {}
+    _store, target = active_store()
+    key = norm_key(str(data.get("name") or ""))
+    if not key:
+        raise ApiError("前提プラグインの名前が必要です")
+    conn = db()
+    with LOCK:
+        if data.get("item_id"):
+            iid = int(data["item_id"])
+            if not conn.execute("SELECT 1 FROM items WHERE id=? AND target_id=?", (iid, target["id"])).fetchone():
+                raise ApiError("アイテムが見つかりません", 404)
+            conn.execute("INSERT OR REPLACE INTO dep_links (target_id, dep_key, item_id) VALUES (?,?,?)", (target["id"], key, iid))
+        else:
+            conn.execute("DELETE FROM dep_links WHERE target_id=? AND dep_key=?", (target["id"], key))
+        conn.commit()
+    return jsonify(ok=True)
+
+
+# ==========================================================================
+# 配布サイトの検索
+# ==========================================================================
+@app.get("/api/search")
+def api_search():
+    provider = request.args.get("provider", "modrinth")
+    q = str(request.args.get("q") or "").strip()[:100]
+    kind = request.args.get("kind") or None
+    if kind and kind not in ("plugin", "mod", "datapack", "resourcepack"):
+        kind = None
+    loader = (request.args.get("loader") or "").strip().lower()[:20] or None
+    mc = (request.args.get("mc") or "").strip()[:20] or None
+    try:
+        results = src.search(provider, q, kind=kind, loader=loader, mc=mc, api_key=cf_api_key())
+    except src.SourceError as e:
+        raise ApiError(e.message, 502)
+    _store, target = active_store()
+    conn = db()
+    linked = {(r["provider"], r["project_id"]): r["item_id"] for r in conn.execute(
+        "SELECT s.provider, s.project_id, s.item_id FROM item_sources s JOIN items i ON i.id=s.item_id WHERE i.target_id=?",
+        (target["id"],))}
+    names = {norm_key(r["name"]): r["id"] for r in conn.execute("SELECT id, name FROM items WHERE target_id=?", (target["id"],))}
+    for r in results:
+        r["item_id"] = linked.get((r["provider"], r["project_id"])) or names.get(norm_key(r["title"]))
+    return jsonify(results=results)
+
+
+# ==========================================================================
+# Modパックの読み込み(.mrpack / CurseForge のModパック zip)
+# ==========================================================================
+_MRPACK_HOSTS = ("github.com", "githubusercontent.com", "gitlab.com")
+
+
+def _modpack_job(job, path, filename, make_set, include_client, target_id, user):
+    conn = db()
+    target = conn.execute("SELECT * FROM storage_targets WHERE id=?", (target_id,)).fetchone()
+    store = open_store(target)
+    added_items, stats = [], {"added": 0, "duplicate": 0, "skipped": 0, "failed": 0}
+    pack_name, links = Path(filename).stem, []  # links: (item_id, provider, project_id)
+
+    def take(local, name, force_cat=None):
+        try:
+            r = ingest(local, name, force_cat, store=store, target=target)
+            stats["added" if r["status"] == "added" else "duplicate"] += 1
+            added_items.append(r["item_id"])
+            return r
+        except Exception as e:  # noqa: BLE001
+            stats["failed"] += 1
+            job.note(f"登録できません: {name}: {getattr(e, 'message', e)}")
+            return None
+
+    try:
+        with zipfile.ZipFile(path) as z:
+            names = z.namelist()
+            if "modrinth.index.json" in names:
+                idx = json.loads(z.read("modrinth.index.json").decode("utf-8"))
+                pack_name = f"{idx.get('name') or pack_name} {idx.get('versionId') or ''}".strip()
+                files = idx.get("files") or []
+                job.total = len(files)
+                job.note(f"Modrinth のModパック「{pack_name}」({len(files)} ファイル)を読み込みます")
+                sha_by_item = {}
+                for f in files:
+                    job.done += 1
+                    fpath = str(f.get("path") or "")
+                    base = fpath.rsplit("/", 1)[-1]
+                    top = fpath.split("/", 1)[0]
+                    if top not in ("mods", "resourcepacks", "datapacks") or not base or ".." in fpath:
+                        stats["skipped"] += 1
+                        continue
+                    if not include_client and (f.get("env") or {}).get("server") == "unsupported":
+                        stats["skipped"] += 1
+                        job.note(f"クライアント専用のため省略: {base}")
+                        continue
+                    url = next((u for u in f.get("downloads") or []), None)
+                    if not url:
+                        stats["failed"] += 1
+                        continue
+                    tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
+                    try:
+                        sha1 = (f.get("hashes") or {}).get("sha1", "")
+                        src.download(url, tmp, sha1, extra_hosts=_MRPACK_HOSTS)
+                        cat = {"resourcepacks": "resourcepack", "datapacks": "datapack"}.get(top)
+                        r = take(tmp, base, cat)
+                        if r and sha1:
+                            sha_by_item[sha1] = r["item_id"]
+                    except src.SourceError as e:
+                        stats["failed"] += 1
+                        job.note(f"ダウンロードできません: {base}: {e.message}")
+                    finally:
+                        tmp.unlink(missing_ok=True)
+                try:
+                    found = src.modrinth_by_hashes(list(sha_by_item))
+                    for h, ver in found.items():
+                        links.append((sha_by_item[h], "modrinth", ver["project_id"]))
+                except src.SourceError:
+                    pass
+            elif "manifest.json" in names:
+                man = json.loads(z.read("manifest.json").decode("utf-8"))
+                pack_name = f"{man.get('name') or pack_name} {man.get('version') or ''}".strip()
+                files = man.get("files") or []
+                job.total = len(files)
+                job.note(f"CurseForge のModパック「{pack_name}」({len(files)} ファイル)を読み込みます")
+                key = cf_api_key()
+                if not key:
+                    raise ApiError("CurseForge のModパックを読み込むには、設定で CurseForge の APIキーを登録してください")
+                try:
+                    infos = src.curseforge_files([int(f["fileID"]) for f in files if f.get("fileID")], key)
+                except src.SourceError as e:
+                    raise ApiError(e.message, 502)
+                for f in files:
+                    job.done += 1
+                    info = infos.get(int(f.get("fileID") or 0))
+                    if not info:
+                        stats["failed"] += 1
+                        continue
+                    if not info.get("url"):
+                        stats["failed"] += 1
+                        job.note(f"作者が外部からのダウンロードを許可していないため取得できません: {info.get('file_name')}")
+                        continue
+                    tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
+                    try:
+                        src.download(info["url"], tmp, info.get("sha1") or "")
+                        r = take(tmp, info.get("file_name") or f"{f['fileID']}.jar")
+                        if r:
+                            links.append((r["item_id"], "curseforge", str(f.get("projectID"))))
+                    except src.SourceError as e:
+                        stats["failed"] += 1
+                        job.note(f"ダウンロードできません: {info.get('file_name')}: {e.message}")
+                    finally:
+                        tmp.unlink(missing_ok=True)
+            else:
+                raise ApiError("Modパックとして読み込めません(modrinth.index.json / manifest.json がありません)")
+            # overrides に同梱されている jar も取り込む
+            for n in names:
+                parts = n.split("/")
+                if len(parts) >= 3 and parts[0] in ("overrides", "server-overrides") and parts[1] == "mods" \
+                        and n.lower().endswith(".jar") and ".." not in parts:
+                    tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
+                    try:
+                        tmp.write_bytes(z.read(n))
+                        take(tmp, parts[-1])
+                    finally:
+                        tmp.unlink(missing_ok=True)
+    finally:
+        Path(path).unlink(missing_ok=True)
+    for iid, provider, pid in links:
+        if conn.execute("SELECT 1 FROM item_sources WHERE item_id=?", (iid,)).fetchone():
+            continue
+        try:
+            item = conn.execute("SELECT * FROM items WHERE id=?", (iid,)).fetchone()
+            link_source(conn, item, src.project_info(provider, pid, cf_api_key()), "hash")
+        except Exception:  # noqa: BLE001
+            pass
+    uniq = list(dict.fromkeys(added_items))
+    if make_set and uniq:
+        with LOCK:
+            cur = conn.execute("INSERT INTO sets (target_id, name, description, created_at, updated_at) VALUES (?,?,?,?,?)",
+                               (target_id, pack_name[:80], f"Modパック「{filename}」から作成", utcnow(), utcnow()))
+            for iid in uniq:
+                conn.execute("INSERT OR IGNORE INTO set_items (set_id, item_id) VALUES (?,?)", (cur.lastrowid, iid))
+            conn.commit()
+        job.note(f"セット「{pack_name}」を作成しました")
+    job.result = stats
+    job.note(f"完了: 追加 {stats['added']} / 登録済み {stats['duplicate']} / 省略 {stats['skipped']} / 失敗 {stats['failed']}")
+    audit("Modパックを読み込み", pack_name, f"追加 {stats['added']} 件", user=user)
+
+
+@app.put("/api/modpack")
+@require("editor")
+def api_modpack():
+    filename = os.path.basename((request.args.get("filename") or "modpack.zip").replace("\\", "/"))
+    _store, target = active_store()
+    tmp = TMP_DIR / (uuid.uuid4().hex + ".pack")
+    total = 0
+    with open(tmp, "wb") as f:
+        while True:
+            chunk = request.stream.read(1024 * 1024)
+            if not chunk:
+                break
+            total += len(chunk)
+            if total > MAX_UPLOAD:
+                tmp.unlink(missing_ok=True)
+                raise ApiError("ファイルが大きすぎます", 413)
+            f.write(chunk)
+    if not zipfile.is_zipfile(tmp):
+        tmp.unlink(missing_ok=True)
+        raise ApiError(".mrpack または CurseForge のModパック(zip)を選んでください")
+    job = start_job("modpack", f"Modパックの読み込み({filename})", _modpack_job, str(tmp), filename,
+                    _truthy(request.args.get("set", "1")), _truthy(request.args.get("client", "0")), target["id"],
+                    current_user()["username"], user=current_user()["username"])
+    return jsonify(job.public())
+
+
+# ==========================================================================
+# サーバーの巻き戻し(同期・転送の前のファイルを保存しておく)
+# ==========================================================================
+SNAP_DIR = CONFIG_DIR / "snapshots"
+SNAP_KEEP = 10
+
+
+def prune_snapshots(conn, server_id):
+    olds = conn.execute("SELECT id FROM server_snapshots WHERE server_id=? ORDER BY id DESC LIMIT -1 OFFSET ?",
+                        (server_id, SNAP_KEEP)).fetchall()
+    for r in olds:
+        shutil.rmtree(SNAP_DIR / str(r["id"]), ignore_errors=True)
+        conn.execute("DELETE FROM server_snapshots WHERE id=?", (r["id"],))
+    conn.commit()
+
+
+@app.get("/api/servers/<int:srv>/snapshots")
+@require("editor")
+def api_server_snapshots(srv):
+    _server_row(srv)
+    rows = db().execute("SELECT * FROM server_snapshots WHERE server_id=? ORDER BY id DESC", (srv,)).fetchall()
+    return jsonify(snapshots=[{**dict(r), "removed": _jl(r["removed"], []), "added": _jl(r["added"], [])} for r in rows])
+
+
+def _rollback_job(job, srv, snap_id, restart, user):
+    conn = db()
+    srv_row = conn.execute("SELECT * FROM servers WHERE id=?", (srv,)).fetchone()
+    snap = conn.execute("SELECT * FROM server_snapshots WHERE id=? AND server_id=?", (snap_id, srv)).fetchone()
+    removed, added = _jl(snap["removed"], []), _jl(snap["added"], [])
+    p = ptero_client()
+    ident, pdir = srv_row["identifier"], srv_row["plugin_dir"]
+    job.total = len(removed) + 1
+    restore_names = {r["name"] for r in removed}
+    to_delete = [n for n in added if n not in restore_names]
+    if to_delete:
+        try:
+            _pcall(p.delete, ident, pdir, to_delete)
+            job.note(f"同期で入れたファイルを削除: {', '.join(to_delete)}")
+        except ApiError as e:
+            job.note(f"削除できないファイルがあります(すでに無いかもしれません): {e.message}")
+    job.done += 1
+    for r in removed:
+        job.done += 1
+        f = SNAP_DIR / str(snap_id) / r["stored"]
+        if not f.exists():
+            job.note(f"保存したファイルが見つかりません: {r['name']}")
+            continue
+        _pcall(p.upload, ident, pdir, f, r["name"])
+        job.note(f"元に戻しました: {r['name']}")
+    with LOCK:
+        conn.execute("UPDATE server_snapshots SET rolled_back=? WHERE id=?", (utcnow(), snap_id))
+        conn.execute("DELETE FROM server_files WHERE server_id=?", (srv,))
+        conn.commit()
+    if restart:
+        _pcall(p.power, ident, "restart")
+        job.note("サーバーを再起動しました")
+    audit("サーバーを巻き戻し", srv_row["name"], snap["title"], user=user)
+    notify_event("servers", f"{srv_row['name']} を巻き戻しました", [snap["title"], f"{fmt_local(snap['created_at'])} の状態に戻しました"], "warn")
+
+
+def fmt_local(iso):
+    try:
+        return datetime.strptime(iso, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).astimezone().strftime("%Y/%m/%d %H:%M")
+    except (ValueError, TypeError):
+        return iso
+
+
+@app.post("/api/servers/<int:srv>/snapshots/<int:snap>/rollback")
+@require("editor")
+def api_server_rollback(srv, snap):
+    row = _server_row(srv)
+    if not db().execute("SELECT 1 FROM server_snapshots WHERE id=? AND server_id=?", (snap, srv)).fetchone():
+        raise ApiError("見つかりません", 404)
+    data = request.get_json(silent=True) or {}
+    job = start_job(f"server-{srv}", f"「{row['name']}」を巻き戻し", _rollback_job, srv, snap, _truthy(data.get("restart")),
+                    current_user()["username"], user=current_user()["username"])
+    return jsonify(job.public())
+
+
+# ==========================================================================
+# 予約同期(サーバーごとに、毎日・毎週の決まった時刻に同期)
+# ==========================================================================
+def _server_schedule_tick():
+    now = datetime.now().astimezone()
+    conn = db()
+    for s in conn.execute("SELECT * FROM servers WHERE sched_mode IN ('daily','weekly')").fetchall():
+        try:
+            hh, mm = (int(x) for x in (s["sched_time"] or "04:00").split(":"))
+        except ValueError:
+            continue
+        due = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        if s["sched_mode"] == "weekly" and now.weekday() != int(s["sched_dow"] or 0):
+            continue
+        if now < due or (now - due) > timedelta(hours=2):
+            continue
+        stamp = due.strftime("%Y-%m-%dT%H:%M")
+        if (s["last_sched"] or "") >= stamp:
+            continue
+        target = conn.execute("SELECT * FROM storage_targets WHERE active=1").fetchone()
+        with LOCK:
+            conn.execute("UPDATE servers SET last_sched=? WHERE id=?", (stamp, s["id"]))
+            conn.commit()
+        try:
+            start_job(f"server-{s['id']}", f"「{s['name']}」の予約同期", _server_job, s["id"], target["id"], "sync", [], {},
+                      bool(s["sched_restart"]), "(予約)", user="(予約)")
+        except ApiError:
+            pass
+
+
+# ==========================================================================
+# APIトークン(外部のスクリプトから操作する)
+# ==========================================================================
+def _token_hash(token):
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def user_from_token(token):
+    r = db().execute("SELECT t.id AS tid, t.role AS trole, u.* FROM api_tokens t JOIN users u ON u.id=t.user_id "
+                     "WHERE t.token_hash=?", (_token_hash(token),)).fetchone()
+    if not r:
+        return None
+    u = dict(r)
+    if ROLES.get(u["trole"], (0,))[0] < ROLES.get(u["role"], (0,))[0]:
+        u["role"] = u["trole"]  # トークンの権限は、作ったユーザーの権限以下に制限する
+    db().execute("UPDATE api_tokens SET last_used=? WHERE id=?", (utcnow(), u["tid"]))
+    db().commit()
+    return u
+
+
+@app.get("/api/me/tokens")
+def api_tokens_list():
+    rows = db().execute("SELECT id, name, prefix, role, created_at, last_used FROM api_tokens WHERE user_id=? ORDER BY id DESC",
+                        (current_user()["id"],)).fetchall()
+    return jsonify(tokens=[dict(r) for r in rows])
+
+
+@app.post("/api/me/tokens")
+def api_tokens_create():
+    if getattr(g, "via_token", False):
+        raise ApiError("APIトークンではトークンを作れません", 403)
+    data = request.get_json(silent=True) or {}
+    u = current_user()
+    name = str(data.get("name") or "").strip()[:60]
+    if not name:
+        raise ApiError("トークンの名前(用途)を入力してください")
+    role = data.get("role") or u["role"]
+    if role not in ROLES or ROLES[role][0] > ROLES[u["role"]][0]:
+        raise ApiError("自分より強い権限のトークンは作れません")
+    token = "cs_" + secrets.token_urlsafe(32)
+    conn = db()
+    conn.execute("INSERT INTO api_tokens (user_id, name, token_hash, prefix, role, created_at) VALUES (?,?,?,?,?,?)",
+                 (u["id"], name, _token_hash(token), token[:10], role, utcnow()))
+    conn.commit()
+    audit("APIトークンを作成", name, ROLES[role][1])
+    return jsonify(token=token)
+
+
+@app.delete("/api/me/tokens/<int:tid>")
+def api_tokens_delete(tid):
+    if getattr(g, "via_token", False):
+        raise ApiError("APIトークンではトークンを削除できません", 403)
+    conn = db()
+    r = conn.execute("SELECT name FROM api_tokens WHERE id=? AND user_id=?", (tid, current_user()["id"])).fetchone()
+    if not r:
+        raise ApiError("見つかりません", 404)
+    conn.execute("DELETE FROM api_tokens WHERE id=?", (tid,))
+    conn.commit()
+    audit("APIトークンを削除", r["name"])
+    return jsonify(ok=True)
+
+
+# ==========================================================================
+# 二段階認証(TOTP。Google Authenticator などのアプリで 6 桁のコードを表示)
+# ==========================================================================
+def totp_code(secret, counter):
+    key = base64.b32decode(secret.upper() + "=" * (-len(secret) % 8))
+    h = hmac.new(key, struct.pack(">Q", counter), "sha1").digest()
+    o = h[-1] & 15
+    return f"{(struct.unpack('>I', h[o:o + 4])[0] & 0x7FFFFFFF) % 1000000:06d}"
+
+
+def totp_verify(secret, code):
+    code = re.sub(r"\s", "", str(code or ""))
+    if not secret or not re.fullmatch(r"\d{6}", code):
+        return False
+    now = int(time.time() // 30)
+    return any(hmac.compare_digest(totp_code(secret, now + d), code) for d in (-1, 0, 1))
+
+
+def _qr_svg(text):
+    try:
+        import segno
+        return segno.make(text, error="m").svg_inline(scale=5, border=2, dark="#000", light="#fff")
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _use_recovery(u, code):
+    code = re.sub(r"[\s-]", "", str(code or "")).lower()
+    codes = _jl(u["recovery"], [])
+    h = hashlib.sha256(code.encode()).hexdigest()
+    if code and h in codes:
+        codes.remove(h)
+        db().execute("UPDATE users SET recovery=? WHERE id=?", (json.dumps(codes), u["id"]))
+        db().commit()
+        return True
+    return False
+
+
+@app.post("/api/auth/totp")
+def api_auth_totp():
+    uid, at = session.get("pre_uid"), session.get("pre_at", 0)
+    if not uid or time.time() - at > 300:
+        session.clear()
+        raise ApiError("時間が経ちすぎました。もう一度ログインしてください", 401)
+    if _too_many_failures(f"totp:{uid}"):
+        raise ApiError("失敗が続いたため、しばらく待ってからお試しください", 429)
+    u = db().execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
+    code = (request.get_json(silent=True) or {}).get("code")
+    if not u or not (totp_verify(u["totp_secret"], code) or _use_recovery(u, code)):
+        _too_many_failures(f"totp:{uid}", add=True)
+        raise ApiError("確認コードが違います", 401)
+    _login(u)
+    audit("ログイン(二段階認証)", u["username"], "", user=u["username"])
+    return jsonify(ok=True, user=user_public(u))
+
+
+@app.post("/api/me/totp/setup")
+def api_totp_setup():
+    u = current_user()
+    secret = base64.b32encode(secrets.token_bytes(20)).decode().rstrip("=")
+    session["totp_pending"] = secret
+    uri = f"otpauth://totp/CraftShelf:{quote(u['username'])}?secret={secret}&issuer=CraftShelf&digits=6&period=30"
+    return jsonify(secret=secret, uri=uri, qr_svg=_qr_svg(uri))
+
+
+@app.post("/api/me/totp/enable")
+def api_totp_enable():
+    u = current_user()
+    secret = session.get("totp_pending")
+    if not secret:
+        raise ApiError("もう一度最初からやり直してください")
+    if not totp_verify(secret, (request.get_json(silent=True) or {}).get("code")):
+        raise ApiError("確認コードが違います。アプリに表示されている 6 桁の数字を入力してください")
+    codes = [secrets.token_hex(4) + "-" + secrets.token_hex(4) for _ in range(8)]
+    conn = db()
+    conn.execute("UPDATE users SET totp_secret=?, totp_enabled=1, recovery=? WHERE id=?",
+                 (secret, json.dumps([hashlib.sha256(c.replace("-", "").encode()).hexdigest() for c in codes]), u["id"]))
+    conn.commit()
+    session.pop("totp_pending", None)
+    audit("二段階認証を有効化", u["username"])
+    return jsonify(ok=True, recovery_codes=codes)
+
+
+@app.post("/api/me/totp/disable")
+def api_totp_disable():
+    u = current_user()
+    if not check_password_hash(u["password_hash"], str((request.get_json(silent=True) or {}).get("password", ""))):
+        raise ApiError("パスワードが違います")
+    db().execute("UPDATE users SET totp_secret='', totp_enabled=0, recovery='[]' WHERE id=?", (u["id"],))
+    db().commit()
+    audit("二段階認証を無効化", u["username"])
+    return jsonify(ok=True)
+
+
+@app.post("/api/auth/username")
+def api_auth_username():
+    if getattr(g, "via_token", False):
+        raise ApiError("APIトークンでは変更できません", 403)
+    data = request.get_json(silent=True) or {}
+    u = current_user()
+    if not check_password_hash(u["password_hash"], str(data.get("password", ""))):
+        raise ApiError("パスワードが違います")
+    new = str(data.get("username") or "").strip()
+    if not _USERNAME_RE.match(new):
+        raise ApiError("ユーザー名は1〜40文字の英数字・記号(. _ - @)で入力してください")
+    conn = db()
+    if conn.execute("SELECT 1 FROM users WHERE username=? AND id<>?", (new, u["id"])).fetchone():
+        raise ApiError("そのユーザー名はすでに使われています")
+    conn.execute("UPDATE users SET username=? WHERE id=?", (new, u["id"]))
+    conn.commit()
+    audit("ユーザー名を変更", f"{u['username']} → {new}", "")
+    return jsonify(ok=True)
+
+
 # --------------------------------------------------------------------------
 # 定期的な更新確認
 # --------------------------------------------------------------------------
@@ -3699,6 +4329,7 @@ def _scheduler_loop():
                 except ApiError:
                     pass
                 _maintenance_tick()
+                _server_schedule_tick()
                 hours = int(get_setting("check_interval_hours", "0") or 0)
                 if hours <= 0:
                     continue

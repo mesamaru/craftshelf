@@ -6,6 +6,18 @@ window.CS_EN = {
   // ---- 長い説明文 ----
   // ---- ダッシュボードの編集 ----
   "ほかの種類": "More types",
+  "配布ページのURL(Modrinth / SpigotMC / CurseForge)": "Project page URL (Modrinth / SpigotMC / CurseForge)",
+  "URL を変えると紐付け直し、空にすると紐付けを解除します。": "Changing the URL re-links the item; clearing it unlinks it.",
+  "更新を探すローダー(カンマ区切り。例: paper, spigot / fabric)": "Loaders to search updates for (comma-separated, e.g. paper, spigot / fabric)",
+  "更新を探すMCバージョン(カンマ区切り。例: 1.21.1, 1.21.4)": "Minecraft versions to search updates for (comma-separated, e.g. 1.21.1, 1.21.4)",
+  "ローダー・サーバーソフト(例: Paper / Fabric / NeoForge)": "Loader / server software (e.g. Paper / Fabric / NeoForge)",
+  "対応MCバージョン(例: 1.21.1 / 1.20.1〜1.21.4)": "Supported Minecraft versions (e.g. 1.21.1 / 1.20.1–1.21.4)",
+  "空欄にすると、ファイルから読み取った値に戻ります。": "Leave empty to use the value read from the file.",
+  "バージョン・ローダー・MC・メモを編集": "Edit version, loader, MC and note",
+  "サーバーソフト・ローダー": "Server software / loader",
+  "空欄ならすべて": "Empty = all",
+  "空欄なら自動": "Empty = automatic",
+  "自動で判定": "Automatic",
   "この保存先は容量の情報を返しません": "This storage does not report its capacity",
   "接続できないため取得できません": "Unavailable while disconnected",
   "CraftShelf の使用量": "Used by CraftShelf",

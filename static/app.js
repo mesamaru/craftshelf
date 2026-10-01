@@ -1296,7 +1296,7 @@ function renderPanel() {
               </div>
               <div class="vacts">
                 ${v.missing ? "" : `<a class="icon-btn sm" href="/api/versions/${v.id}/download" title="ダウンロード" aria-label="ダウンロード">${icon("download")}</a>`}
-                <button class="icon-btn sm need-editor" type="button" data-act="edit-ver" title="バージョン・メモを編集" aria-label="編集">${icon("edit")}</button>
+                <button class="icon-btn sm need-editor" type="button" data-act="edit-ver" title="バージョン・ローダー・MC・メモを編集" aria-label="編集">${icon("edit")}</button>
                 <button class="icon-btn sm danger need-editor" type="button" data-act="del-ver" title="削除" aria-label="削除">${icon("trash")}</button>
               </div>
             </div>
@@ -1361,6 +1361,12 @@ async function editItem(it) {
     ${allTags().length ? `<div class="chips">${allTags().map((t) => `<button class="tagchip" type="button" data-addtag="${esc(t)}">#${esc(t)}</button>`).join("")}</div>` : ""}
     ${field("対応MCバージョン(例: 1.20.1〜1.21.4 / 1.20 以降)", `<input type="text" name="mc_versions" value="${esc(it.mc_versions || "")}" placeholder="${esc(it.mc_auto || "空欄なら自動で判定します")}">`)}
     <p style="font-size:12.5px">空欄のままにすると、ファイルの中身や配布元から自動で判定した${it.mc_auto ? `「${esc(it.mc_auto)}」` : "バージョン"}を表示します。</p>
+    ${field("サーバーソフト・ローダー", `<select name="platform"><option value="">自動で判定(${esc(platformOf({ ...it, platform: "" }) || "不明")})</option>${PLATFORMS.map((p) => `<option value="${esc(p)}"${p === it.platform ? " selected" : ""} translate="no">${esc(p)}</option>`).join("")}</select>`)}
+    <div class="group-title" style="margin-top:14px">配布元</div>
+    ${field("配布ページのURL(Modrinth / SpigotMC / CurseForge)", `<input type="url" name="source_url" value="${esc((it.source && it.source.page_url) || "")}" placeholder="https://modrinth.com/plugin/…">`)}
+    <p style="font-size:12.5px">URL を変えると紐付け直し、空にすると紐付けを解除します。</p>
+    ${it.source ? `${field("更新を探すローダー(カンマ区切り。例: paper, spigot / fabric)", `<input type="text" name="src_loaders" value="${esc((it.source.loaders || []).join(", "))}" placeholder="空欄ならすべて">`)}
+      ${field("更新を探すMCバージョン(カンマ区切り。例: 1.21.1, 1.21.4)", `<input type="text" name="src_mc" value="${esc((it.source.game_versions || []).join(", "))}" placeholder="空欄ならすべて">`)}` : ""}
     ${field("古いバージョンの自動整理", `<select name="keep_versions">${[[0, "しない(すべて残す)"], [1, "最新だけ残す"], [3, "新しい方から 3 つ残す"], [5, "新しい方から 5 つ残す"], [10, "新しい方から 10 個残す"]].map(([n, l]) => `<option value="${n}"${Number(it.keep_versions || 0) === n ? " selected" : ""}>${l}</option>`).join("")}</select>`)}
     <p style="font-size:12.5px">新しいバージョンを追加したときに、残す数を超えた古いものを自動で削除します(セットで固定しているバージョンは残します)。</p>`, "保存");
   if (!r) return;
@@ -1368,8 +1374,20 @@ async function editItem(it) {
     r.keep_versions = Number(r.keep_versions || 0);
     r.tags = String(r.tags || "").split(/[,、]/).map((t) => t.trim()).filter(Boolean);
     if (r.keep_versions && r.keep_versions < it.versions.length && !(await confirmSheet("古いバージョンを削除しますか?", `「${it.name}」は ${it.versions.length} 個のバージョンを保存しています。新しい方から ${r.keep_versions} 個を残し、それより古いものを削除します(元に戻せません)。`, "削除して保存"))) return;
+    const { source_url: srcUrl = "", src_loaders: srcLoaders, src_mc: srcMc } = r;
+    delete r.source_url; delete r.src_loaders; delete r.src_mc;
     const res = await api(`/api/items/${it.id}`, { method: "PATCH", json: r });
     if (res.removed && res.removed.length) toast(`古いバージョンを ${res.removed.length} 個削除しました`);
+    // 配布元: URL が変わったら紐付け直し、空なら解除。条件だけ変わったら条件を保存
+    const oldUrl = (it.source && it.source.page_url) || "";
+    const url = String(srcUrl).trim();
+    if (url !== oldUrl.trim()) {
+      if (url) await api(`/api/items/${it.id}/source`, { json: { url } });
+      else if (it.source) await api(`/api/items/${it.id}/source`, { method: "DELETE" });
+    } else if (it.source && srcLoaders !== undefined
+      && (srcLoaders !== (it.source.loaders || []).join(", ") || srcMc !== (it.source.game_versions || []).join(", "))) {
+      await api(`/api/items/${it.id}/source`, { method: "PATCH", json: { loaders: srcLoaders, game_versions: srcMc } });
+    }
     await refresh();
     const norm = (s) => s.toLowerCase().replace(/[\W_]+/g, "");
     const t = state.items.find((i) => i.category === r.category && norm(i.name) === norm(r.name));
@@ -1384,8 +1402,13 @@ document.addEventListener("click", (e) => {
   inp.value = cur.join(", ");
 });
 async function editVersion(v) {
+  const m = v.meta || {};
+  const autoLoader = "auto_loader" in m ? m.auto_loader : m.loader, autoMc = "auto_mc" in m ? m.auto_mc : m.mc;
   const r = await formSheet("バージョン情報", `<p>${esc(v.filename)}</p>
     ${field("バージョン", `<input type="text" name="version" value="${esc(v.version)}">`)}
+    ${field("ローダー・サーバーソフト(例: Paper / Fabric / NeoForge)", `<input type="text" name="loader" value="${esc(m.user_loader ? m.loader : "")}" placeholder="${esc(autoLoader || "空欄なら自動")}" list="loaderList"><datalist id="loaderList">${PLATFORMS.map((p) => `<option value="${esc(p)}">`).join("")}</datalist>`)}
+    ${field("対応MCバージョン(例: 1.21.1 / 1.20.1〜1.21.4)", `<input type="text" name="mc" value="${esc(m.user_mc ? m.mc : "")}" placeholder="${esc(autoMc || "空欄なら自動")}">`)}
+    <p style="font-size:12.5px">空欄にすると、ファイルから読み取った値に戻ります。</p>
     ${field("メモ(使っているサーバー、注意点など)", `<textarea name="note" rows="3">${esc(v.note)}</textarea>`)}`);
   if (!r) return;
   await run(() => api(`/api/versions/${v.id}`, { method: "PATCH", json: r }), "保存しました");
@@ -2688,6 +2711,7 @@ const cfm = (m) => confirm(trText(m));
 /* ---------------- サーバーソフト(プラットフォーム)の分類 ---------------- */
 const PLATFORMS = ["Paper", "Spigot / Paper", "Folia", "Velocity", "BungeeCord", "Fabric", "Quilt", "Forge", "NeoForge", "Iris / OptiFine", "Datapack", "Minecraft"];
 function platformOf(it) {
+  if (it.platform) return it.platform;
   const latest = it.versions.find((v) => v.id === it.latest_id) || it.versions[0] || { meta: {} };
   const lab = String(latest.meta.loader || "").toLowerCase();
   const srcL = ((it.source && it.source.loaders) || []).join(" ");

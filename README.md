@@ -234,6 +234,8 @@ plugin.yml(depend / softdepend)、paper-plugin.yml、Fabric・Quilt・Forge・Ne
 
 ファイルの中身(plugin.yml の api-version、fabric.mod.json、mods.toml)や配布元の情報から自動で判定して表示します。違っている場合は、詳細の「情報を編集」で書き換えられます(空欄に戻すと自動判定に戻ります)。
 
+同じ「情報を編集」で、サーバーソフト・ローダー(Paper / Forge / Fabric など)と配布元(配布ページの URL・更新を探す条件)も変更できます。バージョンごとのローダーと対応MCバージョンは、各バージョンの編集ボタンから変えられます。
+
 ## テーマと背景
 
 右上の ⚙(設定)→「テーマと背景」で、パネルの背景を変えられます(アカウントごとに保存)。

@@ -338,6 +338,8 @@ def migrate_schema(conn):
         conn.execute("ALTER TABLE items ADD COLUMN keep_versions INTEGER NOT NULL DEFAULT 0")
     if "mc_versions" not in _table_cols(conn, "items"):  # 対応MCバージョン(手入力。空なら自動)
         conn.execute("ALTER TABLE items ADD COLUMN mc_versions TEXT NOT NULL DEFAULT ''")
+    if "platform" not in _table_cols(conn, "items"):  # サーバーソフト(手で選んだもの。空なら自動)
+        conn.execute("ALTER TABLE items ADD COLUMN platform TEXT NOT NULL DEFAULT ''")
     if "prefs" not in _table_cols(conn, "users"):  # テーマ・背景などの個人設定
         conn.execute("ALTER TABLE users ADD COLUMN prefs TEXT NOT NULL DEFAULT '{}'")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_versions_item ON versions(item_id)")
@@ -1719,8 +1721,19 @@ def api_patch_version(vid):
         raise ApiError("見つかりません", 404)
     version = str(data.get("version", row["version"])).strip()[:64]
     note = str(data.get("note", row["note"])).strip()[:1000]
+    meta = _jl(row["meta"], {})
+    for key in ("loader", "mc"):
+        if key not in data:
+            continue
+        auto_key = f"auto_{key}"
+        if auto_key not in meta:
+            meta[auto_key] = meta.get(key, "")
+        val = str(data[key] or "").strip()[:60]
+        meta[key] = val or meta[auto_key]
+        meta[f"user_{key}"] = bool(val)
     with LOCK:
-        conn.execute("UPDATE versions SET version=?, note=? WHERE id=?", (version, note, vid))
+        conn.execute("UPDATE versions SET version=?, note=?, meta=? WHERE id=?",
+                     (version, note, json.dumps(meta, ensure_ascii=False), vid))
         conn.commit()
     return jsonify(ok=True)
 
@@ -1777,6 +1790,7 @@ def api_patch_item(iid):
     if not new_name:
         raise ApiError("名前を入力してください")
     mc_versions = str(data.get("mc_versions", item["mc_versions"]) or "").strip()[:100]
+    platform = str(data.get("platform", item["platform"]) or "").strip()[:40]
     if "tags" in data:
         raw = data["tags"] if isinstance(data["tags"], list) else str(data["tags"] or "").split(",")
         tags = list(dict.fromkeys(str(t).strip()[:30] for t in raw if str(t).strip()))[:20]
@@ -1807,8 +1821,8 @@ def api_patch_item(iid):
                         (target["id"], dest[len("library/"):], dest.rsplit("/", 1)[-1], v["id"]),
                     )
                 conn.execute("DELETE FROM items WHERE id=?", (iid,))
-            conn.execute("UPDATE items SET mc_versions=?, keep_versions=?, tags=? WHERE id=?",
-                         (mc_versions, keep_versions, json.dumps(tags, ensure_ascii=False), target["id"]))
+            conn.execute("UPDATE items SET mc_versions=?, keep_versions=?, tags=?, platform=? WHERE id=?",
+                         (mc_versions, keep_versions, json.dumps(tags, ensure_ascii=False), platform, target["id"]))
             conn.commit()
         except Exception:
             conn.rollback()

@@ -3205,10 +3205,19 @@ async function shareDialog(items) {
     ok.onclick = () => busy(ok, async () => {
       try {
         const r = await api("/api/shares", { json: { item_ids: items.map((i) => i.id), name: form.querySelector("[name=name]").value, hours: Number(form.querySelector("[name=hours]").value) } });
+        const sq = (s) => `'${String(s).replace(/'/g, "'\\''")}'`;  // シェル用にシングルクォートで囲む
+        const cmdWget = `wget -O ${sq(r.filename)} ${sq(r.url)}`, cmdCurl = `curl -fL -o ${sq(r.filename)} ${sq(r.url)}`;
         $("#shOut", form).innerHTML = `<div class="result ok">リンクを作りました(${esc(fmtDateTime(r.expires_at))} まで有効)</div>
-          <div class="sharelink"><input type="text" readonly value="${esc(r.url)}" translate="no"><button class="btn small tinted" type="button" data-copy>コピー</button>
-          ${navigator.share ? `<button class="btn small" type="button" data-nshare>${icon("share")}送る</button>` : ""}</div>`;
-        $("[data-copy]", form).onclick = async () => { try { await navigator.clipboard.writeText(r.url); toast("コピーしました"); } catch { form.querySelector(".sharelink input").select(); } };
+          <div class="sharelink"><input type="text" readonly value="${esc(r.url)}" translate="no"><button class="btn small tinted" type="button" data-copy="url">コピー</button>
+          ${navigator.share ? `<button class="btn small" type="button" data-nshare>${icon("share")}送る</button>` : ""}</div>
+          <div class="group-title" style="margin-top:12px">Linux・サーバーでダウンロードするとき</div>
+          <div class="sharelink"><input type="text" readonly value="${esc(cmdWget)}" translate="no"><button class="btn small tinted" type="button" data-copy="wget">コピー</button></div>
+          <div class="sharelink"><input type="text" readonly value="${esc(cmdCurl)}" translate="no"><button class="btn small tinted" type="button" data-copy="curl">コピー</button></div>
+          <div class="group-foot">サーバーのプラグインフォルダで実行すると、そのまま置けます(例: <code translate="no">cd plugins</code> してから貼り付け)。</div>`;
+        form.querySelectorAll("[data-copy]").forEach((b) => { b.onclick = async () => {
+          const text = { url: r.url, wget: cmdWget, curl: cmdCurl }[b.dataset.copy];
+          try { await navigator.clipboard.writeText(text); toast("コピーしました"); } catch { b.previousElementSibling.select(); }
+        }; });
         $("[data-nshare]", form)?.addEventListener("click", () => navigator.share({ title: r.name, url: r.url }).catch(() => {}));
         ok.hidden = true;
       } catch (ex) { toast(ex.message, true); }

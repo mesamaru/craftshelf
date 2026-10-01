@@ -5,6 +5,9 @@
 window.CS_EN = {
   // ---- 長い説明文 ----
   // ---- ダッシュボードの編集 ----
+  "Linux・サーバーでダウンロードするとき": "Downloading on Linux / a server",
+  "サーバーのプラグインフォルダで実行すると、そのまま置けます(例: ": "Run it in the server’s plugins folder to place the file directly (e.g. ",
+  " してから貼り付け)。": " first, then paste).",
   "保存先の管理": "Storage management",
   "保存先の追加・切り替え・移行・バックアップ": "Add, switch, migrate and back up storage",
   "ユーザーの管理": "User management",

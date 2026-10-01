@@ -5061,7 +5061,10 @@ def api_shares_create():
                  (hashlib.sha256(token.encode()).hexdigest(), name, target["id"], json.dumps([v["id"] for _i, v in pairs]),
                   current_user()["username"], utcnow(), expires))
     conn.commit()
-    return jsonify(url=f"{request.host_url.rstrip('/')}/s/{token}", expires_at=expires, name=name)
+    # URL の最後をファイル名にしておくと、wget / curl -O でもそのままの名前で保存される
+    fname = pairs[0][1]["filename"] if len(pairs) == 1 else f"{safe_name(name, 'craftshelf')}.zip"
+    url = f"{request.host_url.rstrip('/')}/s/{token}/{quote(fname)}"
+    return jsonify(url=url, expires_at=expires, name=name, filename=fname)
 
 
 @app.get("/api/shares")
@@ -5080,6 +5083,12 @@ def api_shares_delete(shid):
     conn.execute("DELETE FROM shares WHERE id=?", (shid,))
     conn.commit()
     return jsonify(ok=True)
+
+
+@app.get("/s/<token>/<path:_fname>")
+def share_download_named(token, _fname):
+    """/s/<token>/<ファイル名> でも同じものを返す(wget などでファイル名を保つため)。"""
+    return share_download(token)
 
 
 @app.get("/s/<token>")

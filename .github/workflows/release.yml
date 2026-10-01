@@ -3,7 +3,7 @@ name: Release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["v*", "dev-v*"]
   workflow_dispatch:
 
 permissions:
@@ -51,7 +51,7 @@ jobs:
         run: |
           python3 - <<'EOF'
           import os, re
-          ver = os.environ["GITHUB_REF_NAME"].lstrip("v")
+          ver = re.sub(r"^(dev-)?v", "", os.environ["GITHUB_REF_NAME"])
           text = open("CHANGELOG.md", encoding="utf-8").read()
           m = re.search(rf"^## {re.escape(ver)} - .*?$(.*?)(?=^## |\Z)", text, re.M | re.S)
           body = (m.group(1).strip() if m else "") + "\n\n---\n" + open("packaging/release-notes.md", encoding="utf-8").read()
@@ -60,6 +60,8 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           name: CraftShelf ${{ github.ref_name }}
+          prerelease: ${{ startsWith(github.ref_name, 'dev-') }}
+          make_latest: ${{ !startsWith(github.ref_name, 'dev-') }}
           body_path: notes.md
           files: |
             artifacts/*

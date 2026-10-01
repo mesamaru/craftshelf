@@ -447,8 +447,9 @@ function render() {
   $("#tagChips").hidden = !tags.length;
   $("#tagChips").innerHTML = tags.length ? `<span class="tag-lab">${icon("tag")}</span>` + tags.map((t) => `<button class="tagchip" type="button" data-tagf="${esc(t)}" aria-pressed="${state.tag === t}">#${esc(t)}</button>`).join("") : "";
   const platSel = $("#platSel");
-  const plats = PLATFORMS.map((p) => [p, state.items.filter((i) => platformOf(i) === p).length]).filter(([p, n]) => n || p === state.plat);
-  platSel.innerHTML = `<option value="">サーバーソフト: すべて</option>` + plats.map(([p, n]) => `<option value="${esc(p)}" translate="no">${esc(p)}(${n})</option>`).join("");
+  const platCounts = {};
+  for (const i of state.items) { const p = platformOf(i); if (p) platCounts[p] = (platCounts[p] || 0) + 1; }
+  platSel.innerHTML = `<option value="">サーバーソフト: すべて</option>` + platOptions(state.plat, platCounts);
   platSel.value = state.plat || "";
   const mcSel = $("#mcSel");
   if (mcSel.options.length === 1) mcSel.insertAdjacentHTML("beforeend", MC_LINES.map((v) => `<option value="${v}">MC ${v}</option>`).join(""));
@@ -473,12 +474,10 @@ function render() {
         ${state.selMode ? `<span class="pick${picked ? " on" : ""}" aria-hidden="true">${picked ? icon("check") : ""}</span>` : ""}
         ${itemIcon(it)}
         <span class="main"><span class="title" translate="no">${esc(it.name)}</span>
-          <span class="subtitle">${plat ? `<span class="plat" translate="no">${esc(plat)}</span>` : ""}${esc(verLabel(latest.version))}${mc ? ` · MC ${esc(mc)}` : ""} · ${it.versions.length} バージョン<span class="hide-s"> · ${fmtSize(it.total_size)} · ${fmtDate(it.last_added)}</span></span>
+          <span class="subtitle">${plat ? `<span class="plat" translate="no">${esc(platShort(plat))}</span>` : ""}${esc(verLabel(latest.version))}${mc ? ` · MC ${esc(mc)}` : ""} · ${it.versions.length} バージョン<span class="hide-s"> · ${fmtSize(it.total_size)} · ${fmtDate(it.last_added)}</span></span>
           ${(it.tags || []).length ? `<span class="rtags">${it.tags.slice(0, 4).map((t) => `<span class="tagchip mini" translate="no">#${esc(t)}</span>`).join("")}</span>` : ""}</span>
-        <span class="trail">${missing ? '<span class="badge err">欠損</span>' : ""}${(it.missing_deps || []).length ? `<span class="badge err" title="足りない前提: ${esc(it.missing_deps.join(", "))}">前提が不足</span>` : ""}${upd ? `<span class="badge upd">更新 ${esc(it.source.latest.version || "")}</span>` : ""}
-          ${presenceBadge(it)}
-          ${page !== "" && page !== "#" ? `<a class="plink" href="${esc(page)}" target="_blank" rel="noopener noreferrer" title="${esc(it.source.provider_label)} の配布ページを開く">${providerBadge(it.source.provider, `${it.source.provider_label}(${SRC_STATUS[it.source.status] || ""})`)}</a>` : ""}
-          ${icon("chev", "i chev")}</span>
+        ${trailOf(it, upd, missing, page)}
+        ${icon("chev", "i chev rowchev")}
       </div>`;
     }).join("") + webFind;
   }
@@ -860,6 +859,15 @@ function itemIcon(it, sm = false) {
   const v = it.source && it.source.icon_v;
   if (v) return `<span class="cicon img${sm ? " sm" : ""}"><img src="/api/items/${it.id}/icon?v=${v}" alt="" loading="lazy" decoding="async"></span>`;
   return `<span class="cicon${sm ? " sm" : ""} c-${it.category}">${catGlyph(it.category)}</span>`;
+}
+/* 一覧の行の右側(状態のバッジ・サーバー・配布元)。何も無ければ空文字 */
+function trailOf(it, upd, missing, page) {
+  const t = [missing ? '<span class="badge err">欠損</span>' : "",
+    (it.missing_deps || []).length ? `<span class="badge err" title="足りない前提: ${esc(it.missing_deps.join(", "))}">前提が不足</span>` : "",
+    upd ? `<span class="badge upd">更新 ${esc(it.source.latest.version || "")}</span>` : "",
+    presenceBadge(it),
+    page !== "" && page !== "#" ? `<a class="plink" href="${esc(page)}" target="_blank" rel="noopener noreferrer" title="${esc(it.source.provider_label)} の配布ページを開く">${providerBadge(it.source.provider, `${it.source.provider_label}(${SRC_STATUS[it.source.status] || ""})`)}</a>` : ""].join("").trim();
+  return t ? `<span class="trail">${t}</span>` : "";
 }
 function gotoLibrary(cat) {
   state.cat = cat; state.mc = state.mc || ""; setView("library"); render();
@@ -1276,6 +1284,7 @@ async function pushDialog({ server = null, set = null, item = null, itemIds = nu
 
 /* ---------------- detail panel ---------------- */
 function openPanel(id) {
+  if (state.selected !== id) { state.panelSub = null; state.linkDraft = null; }
   state.selected = id;
   $("#panel").classList.add("on"); $("#panel").setAttribute("aria-hidden", "false");
   $("#scrim").classList.add("on");
@@ -1315,6 +1324,10 @@ function sectOpen(key, def) { try { const v = localStorage.getItem(`craftshelf.s
 function renderPanel() {
   const it = state.items.find((i) => i.id === state.selected);
   if (!it) return;
+  if (state.panelSub === "link" && it.source) {
+    $("#panel").innerHTML = linkPageHTML(it);
+    return;
+  }
   const vs = state.verOrder === "desc" ? it.versions : [...it.versions].reverse();
   const latest = it.versions.find((v) => v.id === it.latest_id) || it.versions[0];
   const page = it.source && safeUrl(it.source.page_url) !== "#" ? safeUrl(it.source.page_url) : "";
@@ -1375,6 +1388,7 @@ $("#panel").addEventListener("click", async (e) => {
   if (b.dataset.open) { e.preventDefault(); openPanel(Number(b.dataset.open)); return; }
   const act = b.dataset.act;
   if (act === "order") { e.preventDefault(); state.verOrder = state.verOrder === "desc" ? "asc" : "desc"; renderPanel(); return; }
+  if (act === "panel-back") { state.panelSub = null; state.linkDraft = null; renderPanel(); $("#panel").scrollTop = 0; return; }
   const vid = Number(b.closest("[data-vid]")?.dataset.vid);
   const v = it.versions.find((x) => x.id === vid);
   if (act.startsWith("src-")) { await sourceAction(it, act, b); return; }
@@ -1422,7 +1436,7 @@ async function editItem(it) {
     ${allTags().length ? `<div class="chips">${allTags().map((t) => `<button class="tagchip" type="button" data-addtag="${esc(t)}">#${esc(t)}</button>`).join("")}</div>` : ""}
     ${field("対応MCバージョン(例: 1.20.1〜1.21.4 / 1.20 以降)", `<input type="text" name="mc_versions" value="${esc(it.mc_versions || "")}" placeholder="${esc(it.mc_auto || "空欄なら自動で判定します")}">`)}
     <p style="font-size:12.5px">空欄のままにすると、ファイルの中身や配布元から自動で判定した${it.mc_auto ? `「${esc(it.mc_auto)}」` : "バージョン"}を表示します。</p>
-    ${field("サーバーソフト・ローダー", `<select name="platform"><option value="">自動で判定(${esc(platformOf({ ...it, platform: "" }) || "不明")})</option>${PLATFORMS.map((p) => `<option value="${esc(p)}"${p === it.platform ? " selected" : ""} translate="no">${esc(p)}</option>`).join("")}</select>`)}
+    ${field("サーバーソフト・ローダー", `<select name="platform"><option value="">自動で判定(${esc(platLabel(platformOf({ ...it, platform: "" })) || "不明")})</option>${platOptions(it.platform ? platformOf(it) : "")}</select>`)}
     <div class="group-title" style="margin-top:14px">配布元</div>
     ${field("配布ページのURL(Modrinth / SpigotMC / CurseForge)", `<input type="url" name="source_url" value="${esc((it.source && it.source.page_url) || "")}" placeholder="https://modrinth.com/plugin/…">`)}
     <p style="font-size:12.5px">URL を変えると紐付け直し、空にすると紐付けを解除します。</p>
@@ -1467,7 +1481,7 @@ async function editVersion(v) {
   const autoLoader = "auto_loader" in m ? m.auto_loader : m.loader, autoMc = "auto_mc" in m ? m.auto_mc : m.mc;
   const r = await formSheet("バージョン情報", `<p>${esc(v.filename)}</p>
     ${field("バージョン", `<input type="text" name="version" value="${esc(v.version)}">`)}
-    ${field("ローダー・サーバーソフト(例: Paper / Fabric / NeoForge)", `<input type="text" name="loader" value="${esc(m.user_loader ? m.loader : "")}" placeholder="${esc(autoLoader || "空欄なら自動")}" list="loaderList"><datalist id="loaderList">${PLATFORMS.map((p) => `<option value="${esc(p)}">`).join("")}</datalist>`)}
+    ${field("ローダー・サーバーソフト(例: Paper / Fabric / NeoForge)", `<input type="text" name="loader" value="${esc(m.user_loader ? m.loader : "")}" placeholder="${esc(autoLoader || "空欄なら自動")}" list="loaderList"><datalist id="loaderList">${PLATFORM_DEFS.map((p) => `<option value="${esc(p.short)}">`).join("")}</datalist>`)}
     ${field("対応MCバージョン(例: 1.21.1 / 1.20.1〜1.21.4)", `<input type="text" name="mc" value="${esc(m.user_mc ? m.mc : "")}" placeholder="${esc(autoMc || "空欄なら自動")}">`)}
     <p style="font-size:12.5px">空欄にすると、ファイルから読み取った値に戻ります。</p>
     ${field("メモ(使っているサーバー、注意点など)", `<textarea name="note" rows="3">${esc(v.note)}</textarea>`)}`);
@@ -1531,6 +1545,63 @@ function srcRow(act, ic, color, title, sub, extra = "") {
   return `<button class="row" type="button" data-act="${act}"${extra}><span class="cicon sm ${color}">${icon(ic)}</span>
     <span class="main"><span class="title">${title}</span>${sub ? `<span class="subtitle">${sub}</span>` : ""}</span>${icon("chev", "i chev")}</button>`;
 }
+/* アイコン付きの大きめのボタン(配布元の操作) */
+function qa(act, ic, label, primary = false, cls = "") {
+  return `<button class="qa${primary ? " primary" : ""}${cls ? " " + cls : ""}" type="button" data-act="${act}"><span class="qi">${icon(ic)}</span><span class="ql">${label}</span></button>`;
+}
+/* 「紐づけ」を押した先のページ: 紐づけ先の変更・探す条件・解除 */
+const LINK_LOADERS = {
+  plugin: ["paper", "spigot", "bukkit", "purpur", "folia", "velocity", "bungeecord", "waterfall", "sponge"],
+  mod: ["fabric", "quilt", "forge", "neoforge"], modpack: ["fabric", "quilt", "forge", "neoforge"],
+  shader: ["iris", "optifine"], datapack: ["datapack"], resourcepack: ["minecraft"], other: [],
+};
+function linkPageHTML(it) {
+  const s = it.source;
+  const d = state.linkDraft && state.linkDraft.id === it.id ? state.linkDraft
+    : (state.linkDraft = { id: it.id, loaders: [...s.loaders], mc: s.game_versions.join(", ") });
+  const known = LINK_LOADERS[it.category] || [];
+  const extra = d.loaders.filter((l) => !known.includes(l));
+  const cands = state.candidates[it.id];
+  return `<div class="side-head">
+      <div class="nav"><button class="btn plain small backbtn" type="button" data-act="panel-back">${icon("chev", "i back")}戻る</button>
+        <div class="navbtns"><button class="close-x" type="button" data-act="close" aria-label="閉じる">${icon("x")}</button></div></div>
+      <h3>配布元の紐づけ</h3><p class="desc" translate="no">${esc(it.name)}</p></div>
+    <div class="side-body">
+      <div class="group-title">いまの紐づけ先</div>
+      <div class="group"><div class="srcbox"><div class="sh">${s.icon_v ? `<span class="srcicon"><img src="/api/items/${it.id}/icon?v=${s.icon_v}" alt="" decoding="async">${providerBadge(s.provider)}</span>`
+        : providerBadge(s.provider).replace('class="pbadge"', 'class="pbadge lg"')}
+        <div class="main"><a href="${esc(safeUrl(s.page_url))}" target="_blank" rel="noopener noreferrer" style="font-weight:600">${esc(s.title)} ${icon("external", "i ext")}</a>
+          <div class="muted brk" style="margin:0">${esc(s.provider_label)}${s.linked_by === "name" ? " · 名前から推定(違っていたら変えてください)" : s.linked_by === "hash" ? " · ファイルの中身で一致" : ""}</div></div></div></div></div>
+
+      <div class="need-editor">
+        <div class="group-title">紐づけ先を変える</div>
+        <div class="group srcrows">
+          ${srcRow("src-detect", "wand", "c-teal", "自動で探し直す", "ファイルの中身と名前から、配布元を探し直します")}
+          ${srcRow("src-search", "search", "c-plugin", "配布サイトで検索して選ぶ", "Modrinth / SpigotMC / CurseForge を名前で検索")}
+          ${srcRow("src-link", "link", "c-gray", "配布ページの URL を入力", "例: https://modrinth.com/plugin/…")}
+        </div>
+        ${cands ? (cands.length ? `<div class="group-title">候補</div><div class="group">${cands.map((c, i) => `
+          <div class="cand"><div class="main">${esc(c.title)}${c.exact ? ' <span class="badge ok">名前が一致</span>' : ""}<small>${esc(PROVIDERS[c.provider])} · ${(c.downloads || 0).toLocaleString()} DL</small></div>
+            <a class="icon-btn sm" href="${esc(safeUrl(c.page_url))}" target="_blank" rel="noopener noreferrer" title="配布ページを開く" aria-label="配布ページを開く">${icon("external")}</a>
+            <button class="btn small tinted" type="button" data-act="src-pick" data-i="${i}">これにする</button></div>`).join("")}</div>` : `<div class="group-foot">候補が見つかりませんでした</div>`) : ""}
+
+        <div class="group-title">新しいバージョンを探す条件</div>
+        <div class="group"><div class="card-b" style="padding:12px 14px">
+          <div class="flabel">サーバーソフト・ローダー(選んだものに対応する版だけを探します。何も選ばなければすべて)</div>
+          <div class="chips">${[...known, ...extra].map((l) => `<button class="tagchip" type="button" data-act="src-loader" data-l="${esc(l)}" aria-pressed="${d.loaders.includes(l)}" translate="no">${esc(l)}</button>`).join("")}
+            <button class="tagchip" type="button" data-act="src-loader-add">＋ ほかを追加</button></div>
+          <label class="field" style="margin-top:12px"><span>Minecraft のバージョン(カンマ区切り。空欄ならすべて)</span>
+            <input type="text" id="lkMc" value="${esc(d.mc)}" placeholder="例: 1.21.1, 1.21.4"></label>
+          <button class="btn filled block" type="button" data-act="src-savefilter" style="margin-top:10px">保存して確認</button>
+        </div></div>
+
+        <div class="group srcrows" style="margin-top:18px">
+          <button class="row danger" type="button" data-act="src-unlink"><span class="cicon sm c-red">${icon("x")}</span>
+            <span class="main"><span class="title">紐づけを解除</span><span class="subtitle">保存しているファイルはそのまま残ります</span></span></button>
+        </div>
+      </div>
+    </div>`;
+}
 function sourceBoxHTML(it) {
   const s = it.source;
   const cands = state.candidates[it.id];
@@ -1539,10 +1610,10 @@ function sourceBoxHTML(it) {
       <div class="sh"><span class="cicon sm c-teal">${icon("link")}</span><div class="main"><div class="title" style="font-weight:600">配布元が未設定です</div>
         <div class="muted" style="margin:0">Modrinth / SpigotMC / CurseForge と紐付けると、新しいバージョンの確認とダウンロード、対応MCバージョンの表示ができます</div></div></div>
       <div class="need-editor">
-        <button class="btn filled block" type="button" data-act="src-detect">${icon("wand")}配布元を自動で探す</button>
-        <div class="srcrows">
-          ${srcRow("src-search", "search", "c-plugin", "配布サイトで検索して選ぶ", "名前で検索して、候補から選びます")}
-          ${srcRow("src-link", "link", "c-gray", "配布ページの URL を入力", "例: https://modrinth.com/plugin/…")}
+        <div class="qacts">
+          ${qa("src-detect", "wand", "自動で探す", true)}
+          ${qa("src-search", "search", "検索して選ぶ")}
+          ${qa("src-link", "link", "URL で紐づけ")}
         </div>
       </div>
       ${cands ? (cands.length ? `<div class="muted" style="margin-top:10px">候補から選んでください</div>${cands.map((c, i) => `
@@ -1577,11 +1648,12 @@ function sourceBoxHTML(it) {
         <div class="muted" style="margin:0">${esc(s.provider_label)}${s.linked_by === "name" ? " · 名前から推定" : ""}</div></div></div>
     ${state_}
     ${main}
-    <div class="srcrows">
-      ${s.status !== "error" && s.status !== "unchecked" ? srcRow("src-check", "refresh", "c-teal", "更新を確認し直す", s.checked_at ? `前回の確認: ${fmtDateTime(s.checked_at)}` : "", ' data-editor="1"') : ""}
-      ${srcRow("src-changelog", "doc", "c-plugin", "変更内容を見る", "配布元で公開されている更新履歴")}
-      ${srcRow("src-more", "gear", "c-gray", "配布元の設定", `探す条件・紐付け直し・解除${s.loaders.length || s.game_versions.length ? `(${esc([...s.loaders, ...s.game_versions].join(", "))})` : ""}`, ' data-editor="1"')}
+    <div class="qacts">
+      ${qa("src-check", "refresh", "更新を確認", false, "need-editor")}
+      ${qa("src-linkpage", "link", "紐づけ")}
+      ${qa("src-changelog", "doc", "更新内容")}
     </div>
+    ${s.checked_at ? `<div class="qfoot">前回の確認: ${fmtDateTime(s.checked_at)}</div>` : ""}
   </div>`;
 }
 async function sourceAction(it, act, btn) {
@@ -1598,6 +1670,28 @@ async function sourceAction(it, act, btn) {
       return;
     }
     if (act === "src-search") { openSearch({ q: it.name, kind: it.category, linkTo: it }); return; }
+    if (act === "src-linkpage") { state.panelSub = "link"; state.linkDraft = null; renderPanel(); $("#panel").scrollTop = 0; return; }
+    if (act === "src-loader" || act === "src-loader-add") {
+      const d = state.linkDraft;
+      d.mc = $("#lkMc")?.value ?? d.mc;
+      if (act === "src-loader") {
+        const l = btn.dataset.l;
+        d.loaders = d.loaders.includes(l) ? d.loaders.filter((x) => x !== l) : [...d.loaders, l];
+      } else {
+        const r = await formSheet("ローダーを追加", field("ローダーの名前(例: purpur, mohist)", `<input type="text" name="l" required>`), "追加");
+        const l = r && String(r.l || "").trim().toLowerCase();
+        if (l && !d.loaders.includes(l)) d.loaders.push(l);
+      }
+      renderPanel(); return;
+    }
+    if (act === "src-savefilter") {
+      const d = state.linkDraft;
+      const mc = $("#lkMc").value;
+      const r = await busy(btn, () => api(`/api/items/${it.id}/source`, { method: "PATCH", json: { loaders: d.loaders.join(","), game_versions: mc } }), "保存しています…");
+      state.linkDraft = null;
+      toast(r.source.status === "error" ? (r.source.message || "保存しました(確認できませんでした)") : "保存して確認しました", r.source.status === "error");
+      await refresh(); return;
+    }
     if (act === "src-detect") {
       const r = await busy(btn, () => api(`/api/items/${it.id}/source/detect`, { method: "POST" }), "探しています…");
       if (r.linked) { toast(r.how); delete state.candidates[it.id]; }
@@ -1637,6 +1731,7 @@ async function sourceAction(it, act, btn) {
     } else if (act === "src-unlink") {
       if (!(await confirmSheet("紐付けを解除しますか?", "保存しているファイルはそのまま残ります。", "解除"))) return;
       await api(`/api/items/${it.id}/source`, { method: "DELETE" });
+      state.panelSub = null; state.linkDraft = null;
     }
     await refresh();
   } catch (e) { toast(e.message, true); renderPanel(); }
@@ -1962,7 +2057,7 @@ const SETTINGS_PAGES = {
           ${rowBtn("lang", "globe", "c-plugin", "言語 / Language", `<span class="val" translate="no">${I18N.lang === "en" ? "English" : "日本語"}</span>`)}
         </div>
         <div class="group-title">CraftShelf</div><div class="group">
-          ${isAdmin() ? rowBtn("selfupdate", "sparkle", "c-mod", "パネルのアップデート", upd ? `<span class="badge upd">v${esc(state.selfUpd.latest)}</span>` : `<span class="val">v${esc(state.version || "")}</span>`)
+          ${isAdmin() ? rowBtn("selfupdate", "sparkle", "c-mod", "パネルのアップデート", upd ? `<span class="badge upd">v${esc(state.selfUpd.latest)}</span>` : `<span class="val">v${esc(state.version || "")}${state.selfUpd && state.selfUpd.channel === "dev" ? "(開発ビルド)" : ""}</span>`)
           : `<div class="row"><span class="cicon sm c-mod">${icon("sparkle")}</span><span class="main"><span class="title">バージョン</span></span><span class="trail">v${esc(state.version || "")}</span></div>`}
         </div>
         <div class="group" style="margin-top:18px"><button class="row danger" type="button" data-go="logout"><span class="cicon sm c-red">${icon("logout")}</span><span class="main"><span class="title">ログアウト</span></span></button></div>
@@ -2574,9 +2669,17 @@ const SETTINGS_PAGES = {
     async render(body) {
       const d = await checkSelfUpdate(true);
       if (!d) throw new Error("確認できませんでした");
+      const dev = d.channel === "dev";
       body.innerHTML = `<div class="big-version"><img class="logo" src="/static/icon.svg" alt="" aria-hidden="true">
-          <div class="v">${d.update_available ? `v${esc(d.latest)}` : `v${esc(d.current)}`}</div>
-          <p>${d.error ? esc(d.error) : d.update_available ? `現在 v${esc(d.current)} · 新しいバージョンがあります` : "CraftShelf は最新です"}</p></div>
+          <div class="v">${d.update_available ? `v${esc(d.latest)}` : `v${esc(d.current)}`}${dev ? ' <span class="badge upd">開発ビルド</span>' : ""}</div>
+          <p>${d.error ? esc(d.error) : d.update_available ? `現在 v${esc(d.current)} · 新しいバージョンがあります`
+            : d.downgrade ? `いまは開発ビルド v${esc(d.current)} です。安定版の最新は v${esc(d.latest)} です` : "CraftShelf は最新です"}</p></div>
+        <div class="group-title">受け取るアップデート</div>
+        <div class="segmented seg-wide" role="group" aria-label="受け取るアップデート">
+          <button class="seg" type="button" data-ch="stable" aria-pressed="${!dev}">安定版(おすすめ)</button>
+          <button class="seg" type="button" data-ch="dev" aria-pressed="${dev}">開発ビルド</button></div>
+        <div class="group-foot">${dev ? "開発ビルドは新しい機能をいち早く試せる代わりに、不具合が含まれることがあります。大切なデータはバックアップしてからお使いください。" : "動作を確認した正式なバージョンだけを受け取ります。"}</div>
+        ${d.downgrade ? `<button class="btn tinted block" type="button" id="suDown">${icon("download")}安定版 v${esc(d.latest)} に戻す</button>` : ""}
         ${d.notes && d.notes.length ? `<div class="notes">${d.notes.map((n) => `<h4>v${esc(n.version)} ${esc(n.title)}</h4><div class="body">${esc(n.body)}</div>`).join("")}</div>` : ""}
         ${d.update_available && d.mode === "installer" && !d.can_apply ? `<a class="btn filled block" href="${esc(safeUrl(d.download_url))}" target="_blank" rel="noopener noreferrer">${icon("download")}新しいインストーラーをダウンロード</a>
           <div class="group-foot" style="text-align:center">ダウンロードしたインストーラーを実行すると、上書きでアップデートされます。保存したファイルや登録情報はそのまま残ります。</div>`
@@ -2584,9 +2687,19 @@ const SETTINGS_PAGES = {
           <div class="group-foot" style="text-align:center">インストール後に自動で再起動します(数秒〜数十秒)。保存したファイルや登録情報はそのまま残ります。</div>`
           : `<button class="btn tinted block" type="button" id="suRe">${icon("refresh")}もう一度確認</button>`}
         ${d.mode === "installer" && !d.can_apply ? "" : `<div class="group" style="margin-top:6px">${toggle("self_auto_update", "自動アップデート", "6時間ごとに確認し、新しいバージョンがあれば自動でインストールします", (await api("/api/settings")).self_auto_update)}</div>`}
-        <div class="group-foot">取得元: <a href="https://github.com/${esc(d.repo)}" target="_blank" rel="noopener noreferrer">github.com/${esc(d.repo)}</a> (${esc(d.branch)})</div>`;
+        <div class="group-foot">取得元: <a href="https://github.com/${esc(d.repo)}" target="_blank" rel="noopener noreferrer">github.com/${esc(d.repo)}</a> (${esc(d.branch)}${d.mode === "installer" ? " · リリース" : ""})</div>`;
       $("#suRe", body)?.addEventListener("click", (e) => busy(e.currentTarget, () => renderSettings(), "確認中…"));
       $("#suGo", body)?.addEventListener("click", (e) => busy(e.currentTarget, () => startSelfUpdate(d), "開始しています…"));
+      $("#suDown", body)?.addEventListener("click", async (e) => {
+        if (!(await confirmSheet(`安定版 v${d.latest} に戻しますか?`, "開発ビルドで追加された機能は使えなくなります。登録したファイルや情報はそのまま残りますが、念のためバックアップをおすすめします。", "安定版に戻す"))) return;
+        busy(e.currentTarget, () => startSelfUpdate(d), "開始しています…");
+      });
+      body.querySelectorAll("[data-ch]").forEach((b) => b.addEventListener("click", async () => {
+        if (b.dataset.ch === d.channel) return;
+        if (b.dataset.ch === "dev" && !(await confirmSheet("開発ビルドを受け取りますか?", "開発中の新しい機能をいち早く試せますが、不具合が含まれることがあります。あとで安定版に戻すこともできます。", "開発ビルドにする"))) return;
+        try { await api("/api/settings", { method: "PATCH", json: { update_channel: b.dataset.ch } }); toast(b.dataset.ch === "dev" ? "開発ビルドを受け取ります" : "安定版を受け取ります"); renderSettings(); }
+        catch (ex) { toast(ex.message, true); }
+      }));
       body.onchange = async (e) => {
         if (e.target.name !== "self_auto_update") return;
         try { await api("/api/settings", { method: "PATCH", json: { self_auto_update: e.target.checked } }); toast("保存しました"); }
@@ -2833,24 +2946,58 @@ function setLang(lang) {
 const cfm = (m) => confirm(trText(m));
 
 /* ---------------- サーバーソフト(プラットフォーム)の分類 ---------------- */
-const PLATFORMS = ["Paper", "Spigot / Paper", "Folia", "Velocity", "BungeeCord", "Fabric", "Quilt", "Forge", "NeoForge", "Iris / OptiFine", "Datapack", "Minecraft"];
+/* サーバーソフト・ローダー。id は保存用、label は選択肢、short は一覧の小さな表示 */
+const PLATFORM_DEFS = [
+  { id: "bukkit", group: "サーバー(プラグイン)", label: "Bukkit 系(Spigot / Paper / Purpur など)", short: "Spigot / Paper" },
+  { id: "paper", group: "サーバー(プラグイン)", label: "Paper 専用(paper-plugin.yml)", short: "Paper" },
+  { id: "purpur", group: "サーバー(プラグイン)", label: "Purpur 専用", short: "Purpur" },
+  { id: "folia", group: "サーバー(プラグイン)", label: "Folia", short: "Folia" },
+  { id: "sponge", group: "サーバー(プラグイン)", label: "Sponge", short: "Sponge" },
+  { id: "velocity", group: "プロキシ", label: "Velocity", short: "Velocity" },
+  { id: "bungee", group: "プロキシ", label: "BungeeCord / Waterfall", short: "BungeeCord" },
+  { id: "fabric", group: "Mod ローダー", label: "Fabric", short: "Fabric" },
+  { id: "quilt", group: "Mod ローダー", label: "Quilt", short: "Quilt" },
+  { id: "forge", group: "Mod ローダー", label: "Forge", short: "Forge" },
+  { id: "neoforge", group: "Mod ローダー", label: "NeoForge", short: "NeoForge" },
+  { id: "shader", group: "そのほか", label: "シェーダー(Iris / OptiFine)", short: "Iris / OptiFine" },
+  { id: "datapack", group: "そのほか", label: "データパック(バニラ)", short: "データパック" },
+  { id: "resourcepack", group: "そのほか", label: "リソースパック(バニラ)", short: "リソースパック" },
+];
+const PLATFORMS = PLATFORM_DEFS.map((p) => p.id);
+const PLAT = Object.fromEntries(PLATFORM_DEFS.map((p) => [p.id, p]));
+// 以前の版で保存した表示名 → id
+const PLAT_LEGACY = { "paper": "paper", "spigot / paper": "bukkit", "folia": "folia", "velocity": "velocity", "bungeecord": "bungee",
+  "fabric": "fabric", "quilt": "quilt", "forge": "forge", "neoforge": "neoforge", "iris / optifine": "shader", "datapack": "datapack", "minecraft": "resourcepack" };
+const platLabel = (id) => (PLAT[id] ? PLAT[id].label : id || "");
+const platShort = (id) => (PLAT[id] ? PLAT[id].short : id || "");
+/* <select> の選択肢(グループ分け)。counts を渡すと件数を付け、0 件のものは出さない */
+function platOptions(selected, counts = null) {
+  const groups = [...new Set(PLATFORM_DEFS.map((p) => p.group))];
+  return groups.map((g) => {
+    const opts = PLATFORM_DEFS.filter((p) => p.group === g && (!counts || counts[p.id] || p.id === selected));
+    return opts.length ? `<optgroup label="${esc(g)}">${opts.map((p) => `<option value="${p.id}"${p.id === selected ? " selected" : ""}>${esc(counts ? p.short : p.label)}${counts ? `(${counts[p.id] || 0})` : ""}</option>`).join("")}</optgroup>` : "";
+  }).join("");
+}
 function platformOf(it) {
-  if (it.platform) return it.platform;
+  if (it.platform) return PLAT[it.platform] ? it.platform : (PLAT_LEGACY[String(it.platform).toLowerCase()] || "");
   const latest = it.versions.find((v) => v.id === it.latest_id) || it.versions[0] || { meta: {} };
   const lab = String(latest.meta.loader || "").toLowerCase();
   const srcL = ((it.source && it.source.loaders) || []).join(" ");
-  if (lab.includes("velocity") || (!lab && srcL === "velocity")) return "Velocity";
-  if (lab.includes("bungee")) return "BungeeCord";
-  if (lab === "paper") return "Paper";
-  if (lab.includes("bukkit") || lab.includes("spigot")) return srcL.includes("folia") && !srcL.includes("spigot") ? "Folia" : "Spigot / Paper";
-  if (lab.includes("neoforge")) return "NeoForge";
-  if (lab.includes("forge")) return "Forge";
-  if (lab.includes("quilt")) return "Quilt";
-  if (lab.includes("fabric")) return "Fabric";
-  if (it.category === "shader") return "Iris / OptiFine";
-  if (it.category === "datapack") return "Datapack";
-  if (it.category === "resourcepack") return "Minecraft";
-  if (it.category === "plugin") return "Spigot / Paper";
+  if (lab.includes("velocity") || (!lab && srcL === "velocity")) return "velocity";
+  if (lab.includes("bungee") || lab.includes("waterfall")) return "bungee";
+  if (lab.includes("sponge")) return "sponge";
+  if (lab.includes("purpur") && !lab.includes("spigot")) return "purpur";
+  if (lab === "paper" || lab.includes("paper 専用")) return "paper";
+  if (lab.includes("folia") && !lab.includes("spigot")) return "folia";
+  if (lab.includes("bukkit") || lab.includes("spigot")) return srcL.includes("folia") && !srcL.includes("spigot") && !srcL.includes("paper") ? "folia" : "bukkit";
+  if (lab.includes("neoforge")) return "neoforge";
+  if (lab.includes("forge")) return "forge";
+  if (lab.includes("quilt")) return "quilt";
+  if (lab.includes("fabric")) return "fabric";
+  if (it.category === "shader") return "shader";
+  if (it.category === "datapack") return "datapack";
+  if (it.category === "resourcepack") return "resourcepack";
+  if (it.category === "plugin") return "bukkit";
   return "";
 }
 

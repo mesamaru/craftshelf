@@ -340,6 +340,8 @@ def migrate_schema(conn):
         conn.execute("ALTER TABLE items ADD COLUMN mc_versions TEXT NOT NULL DEFAULT ''")
     if "platform" not in _table_cols(conn, "items"):  # サーバーソフト(手で選んだもの。空なら自動)
         conn.execute("ALTER TABLE items ADD COLUMN platform TEXT NOT NULL DEFAULT ''")
+    for old, new in _PLATFORM_LEGACY.items():  # 01.09.00 は表示名で保存していた
+        conn.execute("UPDATE items SET platform=? WHERE platform=?", (new, old))
     if "prefs" not in _table_cols(conn, "users"):  # テーマ・背景などの個人設定
         conn.execute("ALTER TABLE users ADD COLUMN prefs TEXT NOT NULL DEFAULT '{}'")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_versions_item ON versions(item_id)")
@@ -561,6 +563,8 @@ def _analyze_zip(z, info):
     ):
         if fname in nameset:
             y = _yaml_top(_read(z, fname))
+            if fname == "plugin.yml" and str(y.get("folia-supported") or "").lower() == "true":
+                loader = "Bukkit / Spigot / Paper / Folia"
             info.update(
                 category="plugin", loader=loader, name=y.get("name"),
                 version=y.get("version"), description=_short(y.get("description")),
@@ -1196,6 +1200,13 @@ def mc_max(versions):
     return max(vs, key=_mc_key) if vs else ""
 
 
+PLATFORM_IDS = {"bukkit", "paper", "purpur", "folia", "sponge", "velocity", "bungee", "fabric", "quilt", "forge",
+                "neoforge", "shader", "datapack", "resourcepack"}
+_PLATFORM_LEGACY = {"Paper": "paper", "Spigot / Paper": "bukkit", "Folia": "folia", "Velocity": "velocity",
+                    "BungeeCord": "bungee", "Fabric": "fabric", "Quilt": "quilt", "Forge": "forge", "NeoForge": "neoforge",
+                    "Iris / OptiFine": "shader", "Datapack": "datapack", "Minecraft": "resourcepack"}
+
+
 def auto_mc_versions(meta, category, source):
     """保存しているファイルの中身・配布元の情報から、対応MCバージョンを推定する。"""
     mc = str((meta or {}).get("mc") or "").strip()
@@ -1804,6 +1815,8 @@ def api_patch_item(iid):
         raise ApiError("名前を入力してください")
     mc_versions = str(data.get("mc_versions", item["mc_versions"]) or "").strip()[:100]
     platform = str(data.get("platform", item["platform"]) or "").strip()[:40]
+    if platform and platform not in PLATFORM_IDS:
+        raise ApiError("サーバーソフトの指定が不正です")
     if "tags" in data:
         raw = data["tags"] if isinstance(data["tags"], list) else str(data["tags"] or "").split(",")
         tags = list(dict.fromkeys(str(t).strip()[:30] for t in raw if str(t).strip()))[:20]
@@ -2275,6 +2288,7 @@ def settings_public():
         "stable_only": get_setting("stable_only", "1") == "1",
         "last_auto_check": get_setting("last_auto_check", ""),
         "self_auto_update": get_setting("self_auto_update", "0") == "1",
+        "update_channel": selfupdate.CHANNEL,
         "ptero_url": get_setting("ptero_url", ""),
         "ptero_key_set": bool(get_setting("ptero_key")),
         "ptero_insecure": get_setting("ptero_insecure", "0") == "1",
@@ -2310,6 +2324,8 @@ def api_settings_update():
     for key in ("auto_download", "stable_only", "self_auto_update", "ptero_insecure"):
         if key in data:
             set_setting(key, "1" if _truthy(data[key]) else "0")
+    if "update_channel" in data:
+        _set_channel("dev" if data["update_channel"] == "dev" else "stable")
     if "ptero_url" in data:
         url = str(data["ptero_url"] or "").strip().rstrip("/")
         if url and not re.match(r"^https?://[^\s/]+", url):
@@ -2583,6 +2599,12 @@ def _default_filters(conn, item, matched=None):
     # Mod は MC のバージョンが合わないと動かないので、一致した版の対応バージョンで絞る。
     # プラグインは新しい版が古いMCを切り捨てることが多いので絞らない。
     game_versions = (matched.get("game_versions") or []) if (matched and item["category"] == "mod") else []
+    if item["category"] == "mod" and not game_versions and vs:
+        # URL や検索で紐付けたときも、ファイルに書かれた MC バージョン(例 1.20.1)で絞る。
+        # 絞らないと、別の MC 向けの版(例 26.x 用)が「新しいバージョン」として出てしまう
+        mc = str(_jl(vs[0]["meta"], {}).get("mc") or "").strip().lstrip("~^=")
+        if _MC_REL.match(mc):
+            game_versions = [mc]
     return loaders, game_versions
 
 
@@ -3042,7 +3064,7 @@ def api_search_versions():
 @app.get("/api/system/info")
 def api_system_info():
     return jsonify(name=APP_NAME, version=running_version(), build=selfupdate.build_info(),
-                   repo=selfupdate.REPO, branch=selfupdate.BRANCH)
+                   repo=selfupdate.REPO, branch=selfupdate.branch(), channel=selfupdate.CHANNEL)
 
 
 @app.get("/api/system/update")
@@ -3066,7 +3088,7 @@ def api_system_update_apply():
     info = selfupdate.check(force=True)
     if info["error"]:
         raise ApiError(info["error"], 502)
-    if not info["update_available"]:
+    if not info["update_available"] and not info.get("downgrade"):
         raise ApiError(f"すでに最新です({info['current']})", 409)
     job = start_job("selfupdate", f"{APP_NAME} の更新 ({info['current']} → {info['latest']})",
                     _self_update_job, user=current_user()["username"])
@@ -4773,7 +4795,39 @@ def start_scheduler():
     threading.Thread(target=_scheduler_loop, daemon=True, name="scheduler").start()
 
 
+def _set_channel(ch):
+    """受け取る版を切り替える。Docker の起動スクリプトも読めるよう、ファイルにも書いておく。"""
+    set_setting("update_channel", ch)
+    selfupdate.set_channel(ch)
+    try:
+        (CONFIG_DIR / "update-channel").write_text(ch + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _migrate_mod_filters():
+    """01.12.00: MC バージョンで絞っていない Mod の紐付けに、ファイルの MC バージョンを一度だけ設定する。"""
+    if get_setting("mig_mod_mc_filter") == "1":
+        return
+    conn = db()
+    rows = conn.execute("SELECT s.item_id FROM item_sources s JOIN items i ON i.id=s.item_id "
+                        "WHERE i.category='mod' AND (s.game_versions='[]' OR s.game_versions='')").fetchall()
+    for (iid,) in rows:
+        vs = _item_versions(conn, iid)
+        mc = str(_jl(vs[0]["meta"], {}).get("mc") or "").strip().lstrip("~^=") if vs else ""
+        if _MC_REL.match(mc):
+            conn.execute("UPDATE item_sources SET game_versions=?, status='unchecked' WHERE item_id=?", (json.dumps([mc]), iid))
+    conn.commit()
+    set_setting("mig_mod_mc_filter", "1")
+
+
 init_storage()
+with app.app_context():
+    selfupdate.set_channel(get_setting("update_channel", "stable"))
+    try:
+        _migrate_mod_filters()
+    except Exception:  # noqa: BLE001
+        app.logger.exception("migrate mod filters")
 start_scheduler()
 
 if __name__ == "__main__":

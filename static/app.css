@@ -472,7 +472,19 @@ dialog.sheet form { display: flex; flex-direction: column; min-height: 0; flex: 
   dialog.sheet, dialog.sheet.wide { width: 100%; max-width: 100%; margin: auto 0 0; border-radius: var(--r-sheet) var(--r-sheet) 0 0; max-height: 92vh; }
   dialog.sheet[open] { animation: sheetUp .42s var(--ease); }
   .hide-s { display: none !important; }
-  .dropcard { display: none; }
+  /* スマホ: 追加の欄はボタンだけの小さな形にする(ドラッグ&ドロップは使えないため) */
+  .dropcard { padding: 10px; margin-bottom: 10px; border-style: solid; }
+  .dropcard .dz, .dropcard #catOverride, .dropcard #pickDir { display: none; }
+  .dropcard .acts { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
+  .dropcard .acts .btn { justify-content: center; }
+  /* 一覧: 状態のバッジは名前の下の行へ(名前が切れないように) */
+  #list .row[data-id] { flex-wrap: wrap; row-gap: 4px; }
+  #list .row[data-id] > .main { flex: 1 1 0; min-width: 0; }
+  #list .row[data-id] > .trail { order: 3; flex-basis: 100%; justify-content: flex-start; padding-left: 52px; }
+  #list .row[data-id] > .trail:empty { display: none; }
+  #list .row[data-id] > .rowchev { order: 2; }
+  /* 種類のボタンは折り返して全部見えるように */
+  #chips.segmented { flex-wrap: wrap; overflow-x: visible; }
   .queue .qrow { grid-template-columns: 1fr; gap: 2px; }
 }
 @keyframes sheetUp { from { transform: translateY(100%); } }
@@ -717,7 +729,7 @@ img.logo { background: none; box-shadow: none; display: block; object-fit: conta
 .wbar .wname { font-weight: 700; font-size: 13px; }
 .whandle { display: grid; place-items: center; color: var(--label-2); cursor: grab; }
 
-.dash-grid.packed { display: flex; flex-direction: column; gap: 14px; }
+.dash-grid.packed { display: flex; flex-direction: column; align-items: stretch; gap: 14px; }
 .dash-cols { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
 .dash-col { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
 .seg.seg-more { flex-shrink: 0; display: inline-flex; align-items: center; gap: 4px; color: var(--label-2); }
@@ -771,3 +783,23 @@ body:not(.can-edit) [data-editor] { display: none !important; }
 .banner.info .sp { flex: 1; }
 .banner.info svg.i { width: 16px; height: 16px; vertical-align: -3px; color: var(--tint); }
 @media (max-width: 700px) { .banner.info { flex-wrap: wrap; } }
+
+/* ---------- 配布元の操作(アイコンのボタン) ---------- */
+.qacts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 10px; }
+.qa { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 6px 10px; border: 0; border-radius: 14px;
+  background: var(--fill); color: var(--label); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; transition: transform .15s, background .15s; }
+.qa:hover { background: var(--fill-2); }
+.qa:active { transform: scale(.96); }
+.qa .qi { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 50%; background: color-mix(in srgb, var(--tint) 16%, transparent); color: var(--tint); }
+.qa .qi svg.i { width: 20px; height: 20px; }
+.qa.primary { background: var(--tint-fill); color: #fff; }
+.qa.primary .qi { background: rgba(255,255,255,.22); color: #fff; }
+.qa .ql { text-align: center; line-height: 1.25; }
+.qfoot { margin-top: 8px; font-size: 12px; color: var(--label-2); text-align: center; }
+.backbtn { display: inline-flex; align-items: center; gap: 2px; padding-left: 4px; }
+.backbtn svg.back { transform: rotate(180deg); width: 16px; height: 16px; }
+.flabel { font-size: 12.5px; color: var(--label-2); margin-bottom: 8px; }
+.row.danger .title { color: var(--red); }
+
+#list .row[data-id] > .trail { margin-left: auto; }
+#list .row[data-id] > .trail:empty { display: none; }

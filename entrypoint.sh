@@ -9,6 +9,11 @@ VERSION_FILE="/app/.version"
 
 if [ "${AUTO_UPDATE:-true}" = "true" ] && [ -n "${GITHUB_REPO:-}" ]; then
     BRANCH="${GITHUB_BRANCH:-main}"
+    # パネルの設定で「開発ビルド」を選んでいれば dev ブランチから取得する
+    CH_FILE="${CONFIG_DIR:-${DB_DIR:-${DATA_DIR:-/data}}}/update-channel"
+    if [ -f "$CH_FILE" ] && [ "$(tr -d '[:space:]' < "$CH_FILE")" = "dev" ]; then
+        BRANCH="${GITHUB_DEV_BRANCH:-dev}"
+    fi
     echo "[update] https://github.com/${GITHUB_REPO} (${BRANCH}) を確認しています..."
     TMP_DIR="$(mktemp -d)"
     if git clone --depth 1 --branch "$BRANCH" "https://github.com/${GITHUB_REPO}.git" "$TMP_DIR" > /tmp/update.log 2>&1; then

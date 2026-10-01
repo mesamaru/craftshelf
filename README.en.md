@@ -78,6 +78,10 @@ Edit `docker-compose.yml` first if needed: the left side of `volumes` is where f
 
 The panel checks GitHub for new versions. Docker and script installs can update from ⚙ → "Panel update" with one click (auto-update is off by default); Docker containers also pull the latest code on start unless `AUTO_UPDATE=false`. Installer builds update the same way (the build for your OS is downloaded from GitHub Releases and verified).
 
+### Stable and development builds
+
+Under ⚙ → "Panel update" you can choose the update channel: **Stable** (the `main` branch / official releases, recommended) or **Development build** (the `dev` branch / pre-releases, may contain bugs). You can switch back to stable at any time.
+
 ## Security
 
 CraftShelf is designed for use on a LAN. If you expose it to the internet, put it behind an HTTPS reverse proxy and enable two-factor authentication (a VPN such as Tailscale is safer). Please report vulnerabilities as described in [SECURITY.md](SECURITY.md).

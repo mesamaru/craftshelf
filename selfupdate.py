@@ -19,6 +19,22 @@ import requests
 BASE_DIR = Path(__file__).resolve().parent
 REPO = (os.environ.get("GITHUB_REPO") or "").strip() or "mesamaru/craftshelf"
 BRANCH = (os.environ.get("GITHUB_BRANCH") or "").strip() or "main"
+DEV_BRANCH = (os.environ.get("GITHUB_DEV_BRANCH") or "").strip() or "dev"
+# 受け取る版: "stable"(main ブランチ・正式リリース)/ "dev"(dev ブランチ・プレリリース)。app.py が設定から入れる
+CHANNEL = "stable"
+_cache_lock = threading.Lock()
+_cache = {"at": 0.0, "data": None}
+
+
+def set_channel(ch):
+    global CHANNEL
+    CHANNEL = "dev" if ch == "dev" else "stable"
+    with _cache_lock:
+        _cache.update(at=0.0, data=None)
+
+
+def branch():
+    return DEV_BRANCH if CHANNEL == "dev" else BRANCH
 CHECK_TTL = 600  # 秒。GitHub への確認結果をこの間は使い回す
 # インストーラー版(実行ファイル)は自分自身を書き換えられないので、GitHub のリリースを見て
 # 新しいインストーラーのダウンロードを案内する。それ以外(Docker・git から入れたもの)はコードを入れ替える。
@@ -59,17 +75,17 @@ def _github_file(path):
     """GitHub API 経由でファイルを取得(raw.githubusercontent.com はキャッシュで数分遅れることがあるため)。"""
     url = f"https://api.github.com/repos/{REPO}/contents/{path}"
     try:
-        r = requests.get(url, params={"ref": BRANCH}, timeout=15,
+        r = requests.get(url, params={"ref": branch()}, timeout=15,
                          headers={"Accept": "application/vnd.github.raw", "User-Agent": "craftshelf"})
         if r.status_code == 200:
             return r.text
         if r.status_code == 404:
-            raise UpdateError(f"GitHub に {path} が見つかりません({REPO} / {BRANCH})")
+            raise UpdateError(f"GitHub に {path} が見つかりません({REPO} / {branch()})")
     except requests.RequestException:
         pass
     # API の回数制限などで失敗したら raw を試す
     try:
-        r = requests.get(f"https://raw.githubusercontent.com/{REPO}/{BRANCH}/{path}", timeout=15,
+        r = requests.get(f"https://raw.githubusercontent.com/{REPO}/{branch()}/{path}", timeout=15,
                          headers={"User-Agent": "craftshelf"})
     except requests.RequestException:
         raise UpdateError("GitHub に接続できません(インターネット接続を確認してください)")
@@ -93,8 +109,6 @@ def parse_changelog(text):
     return out
 
 
-_cache = {"at": 0.0, "data": None}
-_cache_lock = threading.Lock()
 
 
 def check(force=False):
@@ -102,7 +116,8 @@ def check(force=False):
         if not force and _cache["data"] and time.monotonic() - _cache["at"] < CHECK_TTL:
             return dict(_cache["data"], current=current_version())
     cur = current_version()
-    data = {"repo": REPO, "branch": BRANCH, "current": cur, "latest": None, "update_available": False,
+    data = {"repo": REPO, "branch": branch(), "channel": CHANNEL, "current": cur, "latest": None, "update_available": False,
+            "downgrade": False,
             "notes": [], "error": None, "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "mode": MODE, "download_url": f"https://github.com/{REPO}/releases/latest"}
     try:
@@ -117,6 +132,8 @@ def check(force=False):
             raise UpdateError(f"GitHub の VERSION の形式が不正です: {latest[:20]}")
         data["latest"] = latest
         data["update_available"] = parse_version(latest) > parse_version(cur)
+        # 開発ビルドから安定版に戻すとき(安定版の方が古い)は「安定版に戻す」を出す
+        data["downgrade"] = CHANNEL == "stable" and parse_version(latest) < parse_version(cur)
         try:
             notes = parse_changelog(_github_file("CHANGELOG.md"))
         except UpdateError:
@@ -135,6 +152,11 @@ def _latest_release():
     return _release_info()[0]
 
 
+def _tag_version(tag):
+    """v01.02.03 / dev-v01.02.03 → 01.02.03"""
+    return re.sub(r"^(dev-)?[vV]", "", str(tag or "")).strip()
+
+
 def _asset_suffix():
     """この OS 向けの配布ファイルの名前の末尾。"""
     import platform
@@ -147,9 +169,9 @@ def _asset_suffix():
 
 def _release_info():
     """(バージョン, この OS 向けの配布ファイル {name, url, size, sha256} または None)。"""
+    url = f"https://api.github.com/repos/{REPO}/releases" + ("?per_page=30" if CHANNEL == "dev" else "/latest")
     try:
-        r = requests.get(f"https://api.github.com/repos/{REPO}/releases/latest", timeout=15,
-                         headers={"Accept": "application/vnd.github+json", "User-Agent": "craftshelf"})
+        r = requests.get(url, timeout=15, headers={"Accept": "application/vnd.github+json", "User-Agent": "craftshelf"})
     except requests.RequestException as e:
         raise UpdateError(f"GitHub に接続できません: {e}") from e
     if r.status_code == 404:
@@ -157,7 +179,12 @@ def _release_info():
     if r.status_code != 200:
         raise UpdateError(f"GitHub からリリース情報を取得できません(HTTP {r.status_code})")
     d = r.json()
-    ver = str(d.get("tag_name") or "").lstrip("vV").strip()
+    if isinstance(d, list):  # 開発ビルド: 一覧からいちばん新しい版
+        d = [x for x in d if not x.get("draft") and parse_version(_tag_version(x.get("tag_name")))]
+        if not d:
+            raise UpdateError("GitHub にリリースがまだありません")
+        d = max(d, key=lambda x: parse_version(_tag_version(x.get("tag_name"))))
+    ver = _tag_version(d.get("tag_name"))
     asset = None
     for a in d.get("assets") or []:
         if str(a.get("name", "")).endswith(_asset_suffix()) and str(a.get("name", "")).startswith("CraftShelf"):
@@ -187,13 +214,13 @@ def apply(note=print):
     old = current_version()
     work = Path(tempfile.mkdtemp(prefix="craftshelf-update-"))
     try:
-        note(f"GitHub ({REPO} / {BRANCH}) から最新版をダウンロードしています…")
-        _run(["git", "clone", "--depth", "1", "--branch", BRANCH, f"https://github.com/{REPO}.git", str(work / "src")])
+        note(f"GitHub ({REPO} / {branch()}) から最新版をダウンロードしています…")
+        _run(["git", "clone", "--depth", "1", "--branch", branch(), f"https://github.com/{REPO}.git", str(work / "src")])
         src = work / "src"
         new = (src / "VERSION").read_text(encoding="utf-8").strip() if (src / "VERSION").exists() else ""
         if not parse_version(new):
             raise UpdateError("取得したコードに正しい VERSION がありません")
-        if parse_version(new) <= parse_version(old):
+        if parse_version(new) == parse_version(old) or (parse_version(new) < parse_version(old) and CHANNEL != "stable"):
             raise UpdateError(f"すでに最新です(現在 {old} / GitHub {new})")
         if not (src / "app.py").exists():
             raise UpdateError("取得したコードに app.py がありません")
@@ -265,7 +292,7 @@ def _apply_installer(note):
     info = check(force=True)
     if info["error"]:
         raise UpdateError(info["error"])
-    if not info["update_available"]:
+    if not info["update_available"] and not info.get("downgrade"):
         raise UpdateError("すでに最新です")
     asset = info.get("asset")
     work = Path(tempfile.mkdtemp(prefix="craftshelf-update-"))

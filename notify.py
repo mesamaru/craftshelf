@@ -34,6 +34,19 @@ def validate_webhook(url):
     return url.strip()
 
 
+def webhook_info(url):
+    """Webhook の名前など(登録済みの内容を画面に出すため)。取れなければ空の dict。"""
+    try:
+        r = requests.get(validate_webhook(url), timeout=10)
+        if r.status_code == 200:
+            d = r.json()
+            return {"name": str(d.get("name") or "")[:80], "channel_id": str(d.get("channel_id") or ""),
+                    "guild_id": str(d.get("guild_id") or "")}
+    except (requests.RequestException, ValueError, NotifyError):
+        pass
+    return {}
+
+
 def _payload(title, lines, level):
     desc = "\n".join(str(x) for x in lines)[:3900]
     return {"username": "CraftShelf", "embeds": [{"title": title[:250], "description": desc,

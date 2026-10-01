@@ -14,13 +14,15 @@ import hashlib
 import json
 import re
 import struct
+import time
 from html.parser import HTMLParser
 from urllib.parse import quote, urlsplit
 
 import requests
 
 UA = "CraftShelf/1.0 (self-hosted Minecraft plugin/mod library; https://github.com/mesamaru/craftshelf)"
-TIMEOUT = 20
+RETRIES = 3
+TIMEOUT = 15
 MAX_DOWNLOAD = 512 * 1024 * 1024  # 1ファイルあたりの上限
 
 PROVIDERS = {"modrinth": "Modrinth", "spigot": "SpigotMC", "curseforge": "CurseForge"}
@@ -60,12 +62,29 @@ def _req(method, url, *, api_key=None, ok=(200,), **kw):
     if api_key:
         headers["x-api-key"] = api_key
     kw.setdefault("timeout", TIMEOUT)
-    try:
-        r = _S.request(method, url, headers=headers, **kw)
-    except requests.exceptions.Timeout:
-        raise SourceError(f"{urlsplit(url).hostname} が応答しません")
-    except requests.exceptions.RequestException:
-        raise SourceError(f"{urlsplit(url).hostname} に接続できません(インターネット接続を確認してください)")
+    # 配布サイトの API は混雑時に一時的に応答しない・429/5xx を返すことがあるので、少し待って最大 3 回まで試す
+    for attempt in range(RETRIES):
+        last = attempt == RETRIES - 1
+        try:
+            r = _S.request(method, url, headers=headers, **kw)
+        except requests.exceptions.Timeout:
+            if last:
+                raise SourceError(f"{urlsplit(url).hostname} が応答しません(時間をおいて再度お試しください)")
+            time.sleep(1.5 * (attempt + 1))
+            continue
+        except requests.exceptions.RequestException:
+            if last:
+                raise SourceError(f"{urlsplit(url).hostname} に接続できません(インターネット接続を確認してください)")
+            time.sleep(1.5 * (attempt + 1))
+            continue
+        if (r.status_code == 429 or r.status_code >= 500) and not last:
+            try:
+                wait = min(10.0, float(r.headers.get("Retry-After") or r.headers.get("X-Ratelimit-Reset") or 0))
+            except ValueError:
+                wait = 0.0
+            time.sleep(max(wait, 1.5 * (attempt + 1)))
+            continue
+        break
     if r.status_code in ok:
         return r
     if r.status_code == 403 and "curseforge" in url:

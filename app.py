@@ -1190,12 +1190,23 @@ def summarize_mc(versions):
     return vs[0] if len(vs) == 1 else (", ".join(vs) if len(vs) <= 3 else f"{vs[0]}〜{vs[-1]}")
 
 
+def mc_max(versions):
+    """対応バージョンの一覧から、いちばん新しい正式版(例 "1.21.4")。"""
+    vs = [v for v in (versions or []) if isinstance(v, str) and _MC_REL.match(v)]
+    return max(vs, key=_mc_key) if vs else ""
+
+
 def auto_mc_versions(meta, category, source):
     """保存しているファイルの中身・配布元の情報から、対応MCバージョンを推定する。"""
     mc = str((meta or {}).get("mc") or "").strip()
     if mc:
         if category == "plugin" and re.match(r"^\d+\.\d+(\.\d+)?$", mc):
-            return f"{mc} 以降"  # plugin.yml の api-version は「このバージョン以降」の意味
+            # plugin.yml の api-version は「このバージョン以降」の意味。保存している版が配布元の最新と
+            # 同じなら、配布元が示す対応バージョンの上限を付けて「1.13〜1.21.4」のように表示する
+            top = mc_max(((source or {}).get("latest") or {}).get("game_versions")) if (source or {}).get("status") == "up_to_date" else ""
+            if top and _mc_key(top) > _mc_key(mc):
+                return f"{mc}〜{top}"
+            return f"{mc} 以降"
         mc = re.sub(r"^>=\s*(\S+)$", r"\1 以降", mc)
         mc = re.sub(r"^\[([^,\]]+),\s*\)$", r"\1 以降", mc)  # Forge の [1.20.1,)
         return mc.lstrip("~^=")[:60]
@@ -1234,6 +1245,8 @@ def build_library(conn, store, target):
         it["versions"] = vs
         it["latest_id"] = vs[0]["id"]
         it["mc_auto"] = auto_mc_versions(vs[0]["meta"], it["category"], it.get("source"))
+        # 配布元の最新版がどの MC まで対応しているか(保存している版より新しい場合もある)
+        it["mc_latest_max"] = mc_max(((it.get("source") or {}).get("latest") or {}).get("game_versions"))
         it["tags"] = _jl(it.get("tags"), [])
         it["total_size"] = sum(v["size"] for v in vs)
         it["last_added"] = max(v["added_at"] for v in vs)
@@ -2239,7 +2252,22 @@ def api_background_file(name):
 # --------------------------------------------------------------------------
 # 設定 API
 # --------------------------------------------------------------------------
+def _mask_secret(v):
+    """登録済みのキーを、見分けがつく程度に伏せて表示する(例 ptlc_••••a1b2)。"""
+    v = v or ""
+    if not v:
+        return ""
+    head = v.split("_", 1)[0] + "_" if "_" in v[:6] else ""
+    return f"{head}••••{v[-4:]}" if len(v) > 8 else "••••"
+
+
 def settings_public():
+    # 以前に登録した Webhook は名前を持っていないので、最初の一度だけ取得しておく
+    if get_setting("discord_webhook") and not get_setting("discord_info", ""):
+        url = decrypt_secret(get_setting("discord_webhook"))
+        info = notify.webhook_info(url) if url else {}
+        info["id_tail"] = url.rstrip("/").split("/")[-2][-4:] if url.count("/") >= 6 else ""
+        set_setting("discord_info", json.dumps(info, ensure_ascii=False))
     return {
         "cf_api_key_set": bool(get_setting("cf_api_key")),
         "check_interval_hours": int(get_setting("check_interval_hours", "0") or 0),
@@ -2251,6 +2279,8 @@ def settings_public():
         "ptero_key_set": bool(get_setting("ptero_key")),
         "ptero_insecure": get_setting("ptero_insecure", "0") == "1",
         "discord_set": bool(get_setting("discord_webhook")),
+        "discord_info": _jl(get_setting("discord_info", ""), {}),
+        "ptero_key_hint": _mask_secret(decrypt_secret(get_setting("ptero_key"))),
         "discord_events": _jl(get_setting("discord_events", ""), DEFAULT_EVENTS),
         "discord_event_labels": notify.EVENTS,
         "backup_target_id": int(get_setting("backup_target_id", "0") or 0),
@@ -2295,6 +2325,10 @@ def api_settings_update():
             except notify.NotifyError as e:
                 raise ApiError(e.message)
         set_setting("discord_webhook", encrypt_secret(url))
+        info = notify.webhook_info(url) if url else {}
+        if url:
+            info["id_tail"] = url.rstrip("/").split("/")[-2][-4:] if url.count("/") >= 6 else ""
+        set_setting("discord_info", json.dumps(info, ensure_ascii=False))
     if "discord_events" in data:
         evs = [e for e in (data["discord_events"] or []) if e in notify.EVENTS]
         set_setting("discord_events", json.dumps(evs))

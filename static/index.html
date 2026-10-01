@@ -33,6 +33,7 @@
       <div class="pill tappable" id="storageInfo" role="button" tabindex="0" aria-label="保存先の状況"></div>
     </div>
     <div class="banner" id="storageBanner" hidden></div>
+    <div class="banner info" id="updBanner" hidden></div>
     <div class="jobs" id="jobs"></div>
     <section id="dash" hidden></section>
     <div id="libView">
@@ -46,6 +47,7 @@
         <select id="catOverride" class="compact" aria-label="登録するときの種類"><option value="">種類を自動で判定</option></select>
         <button class="btn filled small" id="pickFiles" type="button">ファイルを選択</button>
         <button class="btn small" id="pickDir" type="button">フォルダ</button>
+        <button class="btn small tinted" id="openSearchBtn" type="button">配布サイトで探す</button>
       </div>
       <input type="file" id="fileInput" multiple hidden>
       <input type="file" id="dirInput" webkitdirectory hidden>

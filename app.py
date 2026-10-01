@@ -35,6 +35,7 @@ from functools import wraps
 from pathlib import Path
 from urllib.parse import quote
 
+import requests
 from flask import Flask, Response, g, has_request_context, jsonify, request, send_file, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
@@ -2680,7 +2681,7 @@ def api_settings():
 
 
 _SETTING_PERMS = {
-    "system": ("check_interval_hours", "auto_download", "stable_only", "self_auto_update", "update_channel"),
+    "system": ("check_interval_hours", "auto_download", "stable_only", "self_auto_update", "update_channel", "telemetry_enabled"),
     "integrations": ("cf_api_key", "ptero_url", "ptero_key", "ptero_insecure", "discord_webhook", "discord_events"),
     "storage": ("backup_target_id", "backup_keep"),
 }
@@ -2707,6 +2708,12 @@ def api_settings_update():
             set_setting(key, "1" if _truthy(data[key]) else "0")
     if "update_channel" in data:
         _set_channel("dev" if data["update_channel"] == "dev" else "stable")
+    if "telemetry_enabled" in data:
+        on = _truthy(data["telemetry_enabled"])
+        set_setting("telemetry_enabled", "1" if on else "0")
+        audit("利用状況の送信", "オン" if on else "オフ", "")
+        if on:
+            threading.Thread(target=_send_telemetry_bg, daemon=True).start()
     if "ptero_url" in data:
         url = str(data["ptero_url"] or "").strip().rstrip("/")
         if url and not re.match(r"^https?://[^\s/]+", url):
@@ -5159,8 +5166,126 @@ def _due(key, hours):
     return datetime.now(timezone.utc) - last_dt >= timedelta(hours=hours)
 
 
+# --------------------------------------------------------------------------
+# 匿名の利用状況(同意したときだけ)・お問い合わせ
+# --------------------------------------------------------------------------
+# 送り先は開発者の Cloudflare Workers(telemetry/ フォルダ)。環境変数で変えられる(空にすると機能ごと無効)
+DEFAULT_TELEMETRY_URL = ""
+TELEMETRY_URL = os.environ.get("CRAFTSHELF_TELEMETRY_URL", DEFAULT_TELEMETRY_URL).strip().rstrip("/")
+
+
+def _bucket(n):
+    return "0" if n <= 0 else "1-9" if n < 10 else "10-49" if n < 50 else "50-199" if n < 200 else "200+"
+
+
+def _env_info():
+    import platform
+    osn = {"Linux": "linux", "Windows": "windows", "Darwin": "macos"}.get(platform.system(), "other")
+    if selfupdate.FROZEN:
+        mode = "installer"
+    elif Path("/.dockerenv").exists():
+        mode = "docker"
+    elif os.environ.get("CRAFTSHELF_NATIVE") and str(BASE_DIR).startswith("/opt/craftshelf"):
+        mode = "script"
+    else:
+        mode = "source"
+    return {"os": osn, "arch": platform.machine().lower()[:16], "mode": mode}
+
+
+def telemetry_payload(conn):
+    """送る内容(これ以外は送らない)。名前・ファイル名・アドレス・IP などは含めない。"""
+    count = lambda sql: conn.execute(sql).fetchone()[0]  # noqa: E731
+    install_id = get_setting("install_id", "")
+    if not re.fullmatch(r"[0-9a-f]{32}", install_id):
+        install_id = secrets.token_hex(16)
+        set_setting("install_id", install_id)
+    admin = conn.execute("SELECT * FROM users WHERE role='admin' ORDER BY id LIMIT 1").fetchone()
+    lang = user_prefs(admin).get("lang", "ja") if admin else "ja"
+    features = {
+        "ptero": bool(get_setting("ptero_url") and get_setting("ptero_key")),
+        "discord": bool(get_setting("discord_webhook")),
+        "curseforge": bool(get_setting("cf_api_key")),
+        "backup": bool(int(get_setting("backup_target_id", "0") or 0)),
+        "auto_update": get_setting("self_auto_update", "0") == "1",
+        "share_links": bool(count("SELECT COUNT(*) FROM shares")),
+        "sharing": bool(count("SELECT COUNT(*) FROM item_acl") + count("SELECT COUNT(*) FROM server_acl")),
+        "totp": bool(count("SELECT COUNT(*) FROM users WHERE totp_enabled=1")),
+        "api_tokens": bool(count("SELECT COUNT(*) FROM api_tokens")),
+    }
+    return {
+        "install_id": install_id, "version": running_version(), "channel": selfupdate.CHANNEL,
+        **_env_info(), "lang": lang if lang in ("ja", "en") else "ja",
+        "items": _bucket(count("SELECT COUNT(*) FROM items")), "users": _bucket(count("SELECT COUNT(*) FROM users")),
+        "servers": _bucket(count("SELECT COUNT(*) FROM servers")), "sets": _bucket(count("SELECT COUNT(*) FROM sets")),
+        "storage": sorted({r[0] for r in conn.execute("SELECT protocol FROM storage_targets") if r[0] in ("local", "smb", "webdav")}),
+        "features": sorted(k for k, on in features.items() if on),
+        "categories": sorted({r[0] for r in conn.execute("SELECT DISTINCT category FROM items")}),
+    }
+
+
+def send_telemetry():
+    if not TELEMETRY_URL or get_setting("telemetry_enabled") != "1":
+        return False
+    try:
+        r = requests.post(f"{TELEMETRY_URL}/v1/ping", json=telemetry_payload(db()), timeout=15,
+                          headers={"User-Agent": f"CraftShelf/{running_version()}"})
+        set_setting("telemetry_last", utcnow())
+        return r.status_code == 200
+    except requests.RequestException:
+        return False
+
+
+def _send_telemetry_bg():
+    with app.app_context():
+        send_telemetry()
+
+
+@app.get("/api/telemetry")
+@require("viewer")
+def api_telemetry():
+    """利用状況の送信の設定と、実際に送る内容(管理の権限がある人だけ中身を見られる)。"""
+    out = {"available": bool(TELEMETRY_URL), "enabled": get_setting("telemetry_enabled") == "1",
+           "asked": get_setting("telemetry_enabled") in ("0", "1"), "last_sent": get_setting("telemetry_last", ""),
+           "feedback": bool(TELEMETRY_URL)}
+    if has_perm("system"):
+        out["preview"] = telemetry_payload(db())
+    return jsonify(out)
+
+
+@app.post("/api/feedback")
+@require("viewer")
+def api_feedback():
+    """お問い合わせ・要望を開発者に送る。"""
+    if not TELEMETRY_URL:
+        raise ApiError("お問い合わせの送り先が設定されていません(GitHub の Issues からお送りください)", 503)
+    data = request.get_json(silent=True) or {}
+    kind = data.get("kind") if data.get("kind") in ("request", "bug", "question", "other") else "other"
+    message = str(data.get("message") or "").strip()[:4000]
+    if len(message) < 2:
+        raise ApiError("内容を入力してください")
+    body = {"kind": kind, "message": message, "contact": str(data.get("contact") or "").strip()[:200]}
+    if _truthy(data.get("include_env", True)):
+        e = _env_info()
+        body.update(version=running_version(), os=e["os"], mode=e["mode"])
+    try:
+        r = requests.post(f"{TELEMETRY_URL}/v1/feedback", json=body, timeout=20,
+                          headers={"User-Agent": f"CraftShelf/{running_version()}"})
+    except requests.RequestException:
+        raise ApiError("送信できませんでした(インターネット接続を確認してください)", 502)
+    if r.status_code != 200:
+        try:
+            msg = r.json().get("error") or ""
+        except ValueError:
+            msg = ""
+        raise ApiError(msg or f"送信できませんでした(HTTP {r.status_code})", 502)
+    audit("お問い合わせを送信", {"request": "要望", "bug": "不具合", "question": "質問"}.get(kind, "その他"), "")
+    return jsonify(ok=True)
+
+
 def _maintenance_tick():
     """1日1回のバックアップ、依存関係の読み取り(古いデータ向け)、操作記録の整理。"""
+    if TELEMETRY_URL and get_setting("telemetry_enabled") == "1" and _due("telemetry_last", 23):
+        send_telemetry()
     if int(get_setting("backup_target_id", "0") or 0) and _due("last_backup", 24):
         try:
             set_setting("last_backup_try", utcnow())

@@ -53,6 +53,8 @@ const ICONS = {
   eyeoff: '<path d="M3 3l18 18"/><path d="M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.2M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a9.6 9.6 0 0 0 5.4-1.6"/>',
   chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
+  chat: '<path d="M4 5h16v11H9l-5 4z"/>',
+  send: '<path d="M4 12l16-8-6 16-2-7z"/>',
   share: '<path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
@@ -301,6 +303,7 @@ async function checkAuth() {
   setView(v === "dash" ? "dash" : "library");
   refresh();
   pollJobs();
+  loadTelemetry().then(() => { if (can("system")) setTimeout(askTelemetry, 1500); });
   if (can("system")) {
     checkSelfUpdate(false);
     if (!state.updTimer) state.updTimer = setInterval(() => checkSelfUpdate(false), 3 * 3600 * 1000);
@@ -2158,6 +2161,10 @@ const SETTINGS_PAGES = {
           can("storage") && rowBtn("backup", "download", "c-mod", "バックアップ"),
           can("audit") && rowBtn("audit", "doc", "c-gray", "操作の記録"),
           rowBtn("shares", "share", "c-teal", "共有リンク")])}
+        ${state.tele && state.tele.available ? `<div class="group-title">サポート</div><div class="group">
+          ${rowBtn("feedback", "chat", "c-teal", "お問い合わせ・要望")}
+          ${can("system") ? rowBtn("telemetry", "chart", "c-gray", "利用状況の送信", `<span class="val">${state.tele.enabled ? "送信する" : "送信しない"}</span>`) : ""}
+        </div>` : ""}
         <div class="group-title">表示</div><div class="group">
           ${rowBtn("appearance", "sparkle", "c-resourcepack", "テーマと背景", `<span class="val">${esc(themeName(state.prefs))}</span>`)}
           ${rowBtn("lang", "globe", "c-plugin", "言語 / Language", `<span class="val" translate="no">${I18N.lang === "en" ? "English" : "日本語"}</span>`)}
@@ -2579,6 +2586,43 @@ const SETTINGS_PAGES = {
       $("#uAdd", body).onclick = () => pushSettings("user", null);
     },
   },
+  feedback: {
+    title: () => "お問い合わせ・要望",
+    async render(body) {
+      let kind = "request";
+      body.innerHTML = `<p>機能の要望・不具合・質問などを、CraftShelf の開発者に送れます。</p>
+        <div class="segmented seg-wide" role="group" aria-label="種類">${[["request", "要望"], ["bug", "不具合"], ["question", "質問"], ["other", "その他"]].map(([k, n]) => `<button class="seg" type="button" data-k="${k}" aria-pressed="${k === kind}">${n}</button>`).join("")}</div>
+        ${field("内容", `<textarea name="message" rows="7" maxlength="4000" placeholder="例: サーバーの一覧をフォルダで分けられるようにしてほしい"></textarea>`)}
+        ${field("返信先(任意。Discord の名前やメールアドレスなど)", `<input type="text" name="contact" maxlength="200" autocomplete="off">`)}
+        <div class="group">${toggle("include_env", "バージョンと OS を添える", "不具合の調査に役立ちます(名前やアドレスなどは送りません)", true)}</div>
+        <button class="btn filled block" type="button" id="fbSend">${icon("send")}送信する</button>
+        <div class="group-foot">送った内容は開発者だけが見ます。返信先を書かなかった場合、開発者からの返信はできません。</div>`;
+      body.querySelectorAll("[data-k]").forEach((b) => { b.onclick = () => { kind = b.dataset.k; body.querySelectorAll("[data-k]").forEach((x) => x.setAttribute("aria-pressed", String(x === b))); }; });
+      $("#fbSend", body).onclick = (e) => busy(e.currentTarget, async () => {
+        const message = $("[name=message]", body).value.trim();
+        if (message.length < 2) { toast("内容を入力してください", true); return; }
+        try {
+          await api("/api/feedback", { json: { kind, message, contact: $("[name=contact]", body).value.trim(), include_env: $("[name=include_env]", body).checked } });
+          toast("送信しました。ありがとうございます!"); popSettings();
+        } catch (ex) { toast(ex.message, true); }
+      }, "送信中…");
+    },
+  },
+  telemetry: {
+    title: () => "利用状況の送信",
+    async render(body) {
+      const t = await loadTelemetry();
+      body.innerHTML = `<p>CraftShelf の改善のため、匿名の利用状況を 1 日 1 回、開発者に送ります。送る内容は次のものだけです。</p>
+        ${teleWhat}
+        <div class="group">${toggle("tele_on", "利用状況を送信する", t.last_sent ? `前回の送信: ${fmtDateTime(t.last_sent)}` : "", t.enabled)}</div>
+        <details class="sect"><summary><span>実際に送る内容</span></summary><pre class="telepre">${esc(JSON.stringify(t.preview || {}, null, 2))}</pre></details>`;
+      body.onchange = async (e) => {
+        if (e.target.name !== "tele_on") return;
+        try { await api("/api/settings", { method: "PATCH", json: { telemetry_enabled: e.target.checked } }); toast(e.target.checked ? "送信します。ありがとうございます!" : "送信をやめました"); await loadTelemetry(); }
+        catch (ex) { toast(ex.message, true); e.target.checked = !e.target.checked; }
+      };
+    },
+  },
   usage: {
     title: () => "ユーザーごとの利用状況",
     async render(body) {
@@ -2844,6 +2888,37 @@ const SETTINGS_PAGES = {
 };
 
 /* ---------------- パネル自身のアップデート ---------------- */
+/* ---------------- 匿名の利用状況・お問い合わせ ---------------- */
+async function loadTelemetry() {
+  try { state.tele = await api("/api/telemetry"); } catch { state.tele = null; }
+  return state.tele;
+}
+const teleWhat = `<ul class="telelist">
+  <li>CraftShelf のバージョン・受け取っている版(安定版 / 開発ビルド)</li>
+  <li>OS・CPU の種類・導入方法(Docker / インストーラー / install.sh)・表示言語</li>
+  <li>アドオン・ユーザー・サーバー・セットの<b>おおよその数</b>(「10〜49」のような幅だけ)</li>
+  <li>使っている保存先の種類・機能(Pterodactyl 連携を使っているか、など)・扱っている種類</li>
+  <li>ランダムな設置 ID(どの人・どのサーバーかは分かりません)</li></ul>
+  <p class="teleno">アドオンやサーバーの名前、ファイル名、ユーザー名、アドレス、IP アドレスなどは<b>送りません</b>。</p>`;
+async function askTelemetry() {
+  const t = state.tele;
+  if (!t || !t.available || t.asked || $("#dlg").open || !can("system")) return;
+  const r = await sheet(`<div class="db" style="padding-top:22px">
+      <div class="big-version" style="margin-bottom:6px"><img class="logo" src="/static/icon.svg" alt="" aria-hidden="true"></div>
+      <h3 style="text-align:center;margin:0 0 6px">CraftShelf の改善にご協力ください</h3>
+      <p>どんな環境でどの機能が使われているかを知るために、<b>匿名の利用状況</b>を 1 日 1 回、開発者に送ってもよいですか? 送る内容は次のものだけです。</p>
+      ${teleWhat}
+      <details class="sect"><summary><span>実際に送る内容を見る</span></summary><pre class="telepre">${esc(JSON.stringify(t.preview || {}, null, 2))}</pre></details>
+      <p style="font-size:12.5px;color:var(--label-2)">あとから ⚙ →「利用状況の送信」でいつでも変えられます。</p>
+    </div><div class="df row2"><button class="btn" type="button" data-no>送らない</button><button class="btn filled" type="button" data-yes>送って協力する</button></div>`, (form, done) => {
+    form.querySelector("[data-no]").onclick = () => done("0");
+    form.querySelector("[data-yes]").onclick = () => done("1");
+  });
+  if (r === null) return;  // 閉じただけなら、次回また聞く
+  try { await api("/api/settings", { method: "PATCH", json: { telemetry_enabled: r === "1" } }); state.tele.asked = true; state.tele.enabled = r === "1"; toast(r === "1" ? "ありがとうございます!" : "送らない設定にしました"); }
+  catch (e) { toast(e.message, true); }
+}
+
 /* パネルの新しいバージョンのお知らせ(閉じたら、その版では出さない) */
 function drawUpdBanner(d) {
   const b = $("#updBanner");

@@ -1,0 +1,20 @@
+# CraftShelf の利用状況・お問い合わせの受け口(Cloudflare Workers + D1)
+# 設置の手順は README.md を参照。
+name = "craftshelf-telemetry"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "craftshelf-telemetry"
+# `npx wrangler d1 create craftshelf-telemetry` で表示された database_id に書き換える
+database_id = "00000000-0000-0000-0000-000000000000"
+
+# 古いデータの片付け(毎日 1 回)
+[triggers]
+crons = ["17 3 * * *"]
+
+# 秘密の値は `npx wrangler secret put <名前>` で登録する(このファイルには書かない)
+#   ADMIN_PASSWORD   … 集計ページ(/admin)のパスワード
+#   DISCORD_WEBHOOK  … お問い合わせを通知する Discord の Webhook URL(任意)
+#   HASH_SALT        … 送りすぎの制限に使う、ランダムな長い文字列

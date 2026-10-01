@@ -851,3 +851,8 @@ h3 .favbtn svg.i { width: 22px; height: 22px; }
 .setpick .main label { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
 .setpick .main select { align-self: flex-start; max-width: 100%; }
 .setpick[hidden] { display: none; }
+
+/* ---------- 利用状況の送信・お問い合わせ ---------- */
+.telelist { margin: 6px 0 8px; padding-left: 20px; font-size: 13.5px; line-height: 1.6; }
+.teleno { font-size: 13px; color: var(--label-2); margin: 0 0 8px; }
+.telepre { margin: 8px 0 0; padding: 10px 12px; border-radius: 12px; background: var(--fill); font-size: 12px; overflow-x: auto; white-space: pre; }

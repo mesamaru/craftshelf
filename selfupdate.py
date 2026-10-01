@@ -106,7 +106,13 @@ def check(force=False):
             "notes": [], "error": None, "checked_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             "mode": MODE, "download_url": f"https://github.com/{REPO}/releases/latest"}
     try:
-        latest = _latest_release() if FROZEN else _github_file("VERSION").strip()
+        if FROZEN:
+            latest, asset = _release_info()
+            data["asset"] = asset
+            data["can_apply"] = bool(asset and asset["url"] and asset["sha256"])
+        else:
+            latest = _github_file("VERSION").strip()
+            data["can_apply"] = True
         if not parse_version(latest):
             raise UpdateError(f"GitHub の VERSION の形式が不正です: {latest[:20]}")
         data["latest"] = latest
@@ -126,6 +132,21 @@ def check(force=False):
 
 def _latest_release():
     """GitHub の最新リリースのバージョン(タグ v01.02.03 → 01.02.03)。"""
+    return _release_info()[0]
+
+
+def _asset_suffix():
+    """この OS 向けの配布ファイルの名前の末尾。"""
+    import platform
+    if os.name == "nt":
+        return ".exe"
+    if sys.platform == "darwin":
+        return "-macos-arm64.dmg" if platform.machine() == "arm64" else "-macos-x64.dmg"
+    return "-linux-x64.tar.gz"
+
+
+def _release_info():
+    """(バージョン, この OS 向けの配布ファイル {name, url, size, sha256} または None)。"""
     try:
         r = requests.get(f"https://api.github.com/repos/{REPO}/releases/latest", timeout=15,
                          headers={"Accept": "application/vnd.github+json", "User-Agent": "craftshelf"})
@@ -135,7 +156,16 @@ def _latest_release():
         raise UpdateError("GitHub にリリースがまだありません")
     if r.status_code != 200:
         raise UpdateError(f"GitHub からリリース情報を取得できません(HTTP {r.status_code})")
-    return str(r.json().get("tag_name") or "").lstrip("vV").strip()
+    d = r.json()
+    ver = str(d.get("tag_name") or "").lstrip("vV").strip()
+    asset = None
+    for a in d.get("assets") or []:
+        if str(a.get("name", "")).endswith(_asset_suffix()) and str(a.get("name", "")).startswith("CraftShelf"):
+            digest = str(a.get("digest") or "")
+            asset = {"name": a["name"], "url": a.get("browser_download_url") or "", "size": int(a.get("size") or 0),
+                     "sha256": digest.split(":", 1)[1] if digest.startswith("sha256:") else ""}
+            break
+    return ver, asset
 
 
 def _run(cmd, **kw):
@@ -148,7 +178,7 @@ def _run(cmd, **kw):
 def apply(note=print):
     """最新版を取得して /app を入れ替える。成功したら (旧, 新) を返す(再起動は restart() で別に行う)。"""
     if FROZEN:
-        raise UpdateError("インストーラー版は、新しいインストーラーをダウンロードして上書きインストールしてください")
+        return _apply_installer(note)
     if os.name != "posix":
         raise UpdateError("この環境(Windows での直接実行)では自動更新できません。Docker で動かしてください")
     for tool in ("git", "rsync"):
@@ -185,8 +215,104 @@ def apply(note=print):
         shutil.rmtree(work, ignore_errors=True)
 
 
+# --------------------------------------------------------------------------
+# インストーラー版(Windows / macOS / Linux の実行ファイル)の更新
+# --------------------------------------------------------------------------
+def _download_asset(asset, dest, note):
+    """配布ファイルをダウンロードし、GitHub が公開している SHA-256 と一致するか確かめる。"""
+    import hashlib
+    if not asset or not asset.get("url") or not asset.get("sha256"):
+        raise UpdateError("この OS 向けの配布ファイルが見つかりません。GitHub のリリースから手動でダウンロードしてください")
+    note(f"{asset['name']} をダウンロードしています…")
+    h = hashlib.sha256()
+    size = 0
+    try:
+        with requests.get(asset["url"], stream=True, timeout=60, headers={"User-Agent": "craftshelf"}) as r:
+            if r.status_code != 200:
+                raise UpdateError(f"ダウンロードできません(HTTP {r.status_code})")
+            with open(dest, "wb") as f:
+                for chunk in r.iter_content(1024 * 256):
+                    size += len(chunk)
+                    if size > 600 * 1024 * 1024:
+                        raise UpdateError("ファイルが大きすぎます")
+                    h.update(chunk)
+                    f.write(chunk)
+    except requests.RequestException as e:
+        raise UpdateError(f"ダウンロードできません: {e}") from e
+    if h.hexdigest() != asset["sha256"].lower():
+        raise UpdateError("ダウンロードしたファイルが壊れているか、改ざんされています(SHA-256 が一致しません)")
+
+
+def _detach(cmd):
+    """この CraftShelf が終了しても動き続けるように、別のプロセスとして起動する。"""
+    kw = {"stdin": subprocess.DEVNULL, "stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL, "close_fds": True}
+    if os.name == "nt":
+        kw["creationflags"] = 0x00000008 | 0x00000200  # DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP
+    else:
+        kw["start_new_session"] = True
+    subprocess.Popen(cmd, **kw)
+
+
+def _exit_soon(delay=2.0):
+    """インストーラーがファイルを置き換えられるよう、少し待ってからこの CraftShelf を終了する。"""
+    def go():
+        time.sleep(delay)
+        os._exit(0)
+    threading.Thread(target=go, daemon=True).start()
+
+
+def _apply_installer(note):
+    info = check(force=True)
+    if info["error"]:
+        raise UpdateError(info["error"])
+    if not info["update_available"]:
+        raise UpdateError("すでに最新です")
+    asset = info.get("asset")
+    work = Path(tempfile.mkdtemp(prefix="craftshelf-update-"))
+    dest = work / asset["name"] if asset else work / "update"
+    _download_asset(asset, dest, note)
+    note("インストールしています…(このあと CraftShelf が再起動します)")
+    pid = os.getpid()
+    exe = Path(sys.executable).resolve()
+    if os.name == "nt":
+        # Inno Setup を画面なしで実行する。終わると CraftShelf が自動で起動し直す(craftshelf.iss の [Run])
+        _detach([str(dest), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", f"/LOG={work / 'install.log'}"])
+    elif sys.platform == "darwin":
+        app = next((p for p in exe.parents if p.suffix == ".app"), None)
+        if not app:
+            raise UpdateError("アプリの場所が分かりません。手動でアップデートしてください")
+        script = work / "update.sh"
+        script.write_text(f"""#!/bin/sh
+while kill -0 {pid} 2>/dev/null; do sleep 0.5; done
+MNT="{work}/mnt"; mkdir -p "$MNT"
+hdiutil attach -nobrowse -readonly -mountpoint "$MNT" "{dest}" >/dev/null || exit 1
+rm -rf "{app}.old"; mv "{app}" "{app}.old" && ditto "$MNT/CraftShelf.app" "{app}" && rm -rf "{app}.old" || mv "{app}.old" "{app}"
+hdiutil detach "$MNT" >/dev/null
+open "{app}" --args --no-browser
+""", encoding="utf-8")
+        _detach(["/bin/sh", str(script)])
+    else:
+        appdir = exe.parent
+        script = work / "update.sh"
+        script.write_text(f"""#!/bin/sh
+while kill -0 {pid} 2>/dev/null; do sleep 0.5; done
+mkdir -p "{work}/new" && tar -xzf "{dest}" -C "{work}/new" || exit 1
+NEW="$(find "{work}/new" -mindepth 1 -maxdepth 1 -type d | head -n 1)"
+rm -rf "{appdir}.old"; mv "{appdir}" "{appdir}.old" && mv "$NEW" "{appdir}" && rm -rf "{appdir}.old" || mv "{appdir}.old" "{appdir}"
+nohup "{appdir}/{exe.name}" --no-browser >/dev/null 2>&1 &
+""", encoding="utf-8")
+        _detach(["/bin/sh", str(script)])
+    with _cache_lock:
+        _cache.update(at=0.0, data=None)
+    _exit_soon()
+    return info["current"], info["latest"]
+
+
 def restart(delay=1.5):
     """新しいコードで動かし直す。gunicorn なら親プロセスに HUP を送り、ワーカーを入れ替えてもらう。"""
+    if FROZEN:
+        return  # インストーラー版は _apply_installer が終了・再起動まで行う
+
     def go():
         time.sleep(delay)
         if "gunicorn" in sys.modules or "gunicorn" in os.environ.get("SERVER_SOFTWARE", ""):

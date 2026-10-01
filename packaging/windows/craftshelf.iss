@@ -62,6 +62,8 @@ Name: "{userstartup}\CraftShelf"; Filename: "{app}\CraftShelf.exe"; Parameters: 
 
 [Run]
 Filename: "{app}\CraftShelf.exe"; Description: "{cm:LaunchTask}"; Flags: nowait postinstall skipifsilent
+; パネルの「アップデート」から画面なしで更新したときは、終わったら起動し直す(ブラウザは開かない)
+Filename: "{app}\CraftShelf.exe"; Parameters: "--no-browser"; Flags: nowait; Check: WizardSilent
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM CraftShelf.exe"; Flags: runhidden; RunOnceId: "StopCraftShelf"

@@ -4683,7 +4683,7 @@ def _self_update_tick():
         return
     _self_update_tick.last = time.monotonic()
     info = selfupdate.check(force=True)
-    if info["update_available"] and info.get("mode") != "installer" and get_setting("self_auto_update", "0") == "1":
+    if info["update_available"] and info.get("can_apply", True) and get_setting("self_auto_update", "0") == "1":
         start_job("selfupdate", f"{APP_NAME} の自動更新 ({info['current']} → {info['latest']})",
                   _self_update_job, user="(自動)")
 

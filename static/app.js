@@ -2578,12 +2578,12 @@ const SETTINGS_PAGES = {
           <div class="v">${d.update_available ? `v${esc(d.latest)}` : `v${esc(d.current)}`}</div>
           <p>${d.error ? esc(d.error) : d.update_available ? `現在 v${esc(d.current)} · 新しいバージョンがあります` : "CraftShelf は最新です"}</p></div>
         ${d.notes && d.notes.length ? `<div class="notes">${d.notes.map((n) => `<h4>v${esc(n.version)} ${esc(n.title)}</h4><div class="body">${esc(n.body)}</div>`).join("")}</div>` : ""}
-        ${d.update_available && d.mode === "installer" ? `<a class="btn filled block" href="${esc(safeUrl(d.download_url))}" target="_blank" rel="noopener noreferrer">${icon("download")}新しいインストーラーをダウンロード</a>
+        ${d.update_available && d.mode === "installer" && !d.can_apply ? `<a class="btn filled block" href="${esc(safeUrl(d.download_url))}" target="_blank" rel="noopener noreferrer">${icon("download")}新しいインストーラーをダウンロード</a>
           <div class="group-foot" style="text-align:center">ダウンロードしたインストーラーを実行すると、上書きでアップデートされます。保存したファイルや登録情報はそのまま残ります。</div>`
           : d.update_available ? `<button class="btn filled block" type="button" id="suGo">ダウンロードしてインストール</button>
           <div class="group-foot" style="text-align:center">インストール後に自動で再起動します(数秒〜数十秒)。保存したファイルや登録情報はそのまま残ります。</div>`
           : `<button class="btn tinted block" type="button" id="suRe">${icon("refresh")}もう一度確認</button>`}
-        ${d.mode === "installer" ? "" : `<div class="group" style="margin-top:6px">${toggle("self_auto_update", "自動アップデート", "6時間ごとに確認し、新しいバージョンがあれば自動でインストールします", (await api("/api/settings")).self_auto_update)}</div>`}
+        ${d.mode === "installer" && !d.can_apply ? "" : `<div class="group" style="margin-top:6px">${toggle("self_auto_update", "自動アップデート", "6時間ごとに確認し、新しいバージョンがあれば自動でインストールします", (await api("/api/settings")).self_auto_update)}</div>`}
         <div class="group-foot">取得元: <a href="https://github.com/${esc(d.repo)}" target="_blank" rel="noopener noreferrer">github.com/${esc(d.repo)}</a> (${esc(d.branch)})</div>`;
       $("#suRe", body)?.addEventListener("click", (e) => busy(e.currentTarget, () => renderSettings(), "確認中…"));
       $("#suGo", body)?.addEventListener("click", (e) => busy(e.currentTarget, () => startSelfUpdate(d), "開始しています…"));
@@ -2640,7 +2640,7 @@ async function startSelfUpdate(d) {
       ${failed ? '<button class="btn filled block" type="button" id="updClose">閉じる</button>' : ""}`;
     $("#updClose")?.addEventListener("click", () => { ov.hidden = true; });
   };
-  draw(0, "GitHub から取得しています…(画面を閉じずにお待ちください)");
+  draw(0, d.mode === "installer" ? "GitHub から新しい版をダウンロードしています…(画面を閉じずにお待ちください)" : "GitHub から取得しています…(画面を閉じずにお待ちください)");
   const t0 = Date.now();
   let restarting = false;
   while (Date.now() - t0 < 6 * 60 * 1000) {

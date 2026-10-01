@@ -47,7 +47,7 @@ Data is stored in `%LOCALAPPDATA%\CraftShelf` (Windows), `~/Library/Application 
 { "host": "0.0.0.0", "port": 8765 }
 ```
 
-When the panel shows a new version under ⚙ → "Panel update", download the new installer and install it over the old one — your data is kept.
+Updates are one click: ⚙ → "Panel update" → "Download and install". The panel downloads the build for your OS from GitHub, verifies its SHA-256, installs it and restarts — your data is kept.
 
 ### Ubuntu / Debian server
 
@@ -76,7 +76,7 @@ Edit `docker-compose.yml` first if needed: the left side of `volumes` is where f
 
 ## Updates
 
-The panel checks GitHub for new versions. Docker and script installs can update from ⚙ → "Panel update" with one click (auto-update is off by default); Docker containers also pull the latest code on start unless `AUTO_UPDATE=false`. Installer builds link to the new installer instead.
+The panel checks GitHub for new versions. Docker and script installs can update from ⚙ → "Panel update" with one click (auto-update is off by default); Docker containers also pull the latest code on start unless `AUTO_UPDATE=false`. Installer builds update the same way (the build for your OS is downloaded from GitHub Releases and verified).
 
 ## Security
 

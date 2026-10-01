@@ -35,7 +35,7 @@ from functools import wraps
 from pathlib import Path
 from urllib.parse import quote
 
-from flask import Flask, Response, g, jsonify, request, send_file, send_from_directory, session
+from flask import Flask, Response, g, has_request_context, jsonify, request, send_file, send_from_directory, session
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import notify
@@ -79,6 +79,14 @@ AUTH_PASS = os.environ.get("AUTH_PASS", "")
 
 # 権限。数字が大きいほど強い
 ROLES = {"viewer": (1, "閲覧のみ"), "editor": (2, "編集者"), "admin": (3, "管理者")}
+# 管理者がユーザーごとに付けられる権限(管理者はすべて持つ)
+PERMS = {
+    "storage": "保存先の管理(保存先の追加・切り替え・移行・バックアップ)",
+    "users": "ユーザーの管理(追加・権限の変更・削除・利用状況)",
+    "integrations": "連携の設定(Pterodactyl・Discord・CurseForge)",
+    "system": "パネル全体の設定(アップデート・更新確認の間隔など)",
+    "audit": "操作の記録を見る",
+}
 
 # key -> (フォルダ名, 表示名)
 CATEGORIES = {
@@ -134,7 +142,29 @@ CREATE TABLE IF NOT EXISTS items (
     key         TEXT NOT NULL,
     folder      TEXT NOT NULL,
     created_at  TEXT NOT NULL,
-    UNIQUE (target_id, category, key)
+    owner_id    INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (target_id, owner_id, category, key)
+);
+-- アイテム・サーバーの共有先(level: view = 閲覧・ダウンロード / edit = 編集も可)
+CREATE TABLE IF NOT EXISTS item_acl (
+    item_id     INTEGER NOT NULL,
+    user_id     INTEGER NOT NULL,
+    level       TEXT NOT NULL DEFAULT 'view',
+    created_at  TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (item_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS server_acl (
+    server_id   INTEGER NOT NULL,
+    user_id     INTEGER NOT NULL,
+    level       TEXT NOT NULL DEFAULT 'view',
+    created_at  TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (server_id, user_id)
+);
+CREATE TABLE IF NOT EXISTS favorites (
+    user_id     INTEGER NOT NULL,
+    item_id     INTEGER NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY (user_id, item_id)
 );
 CREATE TABLE IF NOT EXISTS versions (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -273,6 +303,28 @@ def _table_cols(conn, table):
     return {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
 
 
+def _items_add_owner(conn):
+    """items に owner_id を足し、同じ名前を持ち主ごとに持てるよう UNIQUE を作り直す(01.13.00)。
+
+    この接続は外部キーを有効にしていないので、表を作り直しても versions は消えない。
+    """
+    cols = conn.execute("PRAGMA table_info(items)").fetchall()
+    defs, names = [], []
+    for c in cols:
+        name, typ, notnull, dflt, pk = c[1], c[2] or "TEXT", c[3], c[4], c[5]
+        names.append(name)
+        if pk:
+            defs.append(f"{name} INTEGER PRIMARY KEY AUTOINCREMENT")
+        else:
+            defs.append(f"{name} {typ}" + (" NOT NULL" if notnull else "") + (f" DEFAULT {dflt}" if dflt is not None else ""))
+    defs.append("owner_id INTEGER NOT NULL DEFAULT 0")
+    conn.execute(f"CREATE TABLE items_new ({', '.join(defs)}, UNIQUE (target_id, owner_id, category, key))")
+    cl = ", ".join(names)
+    conn.execute(f"INSERT INTO items_new ({cl}, owner_id) SELECT {cl}, 0 FROM items")
+    conn.execute("DROP TABLE items")
+    conn.execute("ALTER TABLE items_new RENAME TO items")
+
+
 def migrate_schema(conn):
     """target_id が無い旧DB(このストレージ機能を入れる前)を新しい形に作り直す。"""
     if "target_id" not in _table_cols(conn, "items"):
@@ -318,6 +370,18 @@ def migrate_schema(conn):
         conn.execute("DROP TABLE versions_old")
     if "options" not in _table_cols(conn, "storage_targets"):
         conn.execute("ALTER TABLE storage_targets ADD COLUMN options TEXT NOT NULL DEFAULT '{}'")
+    if "owner_id" not in _table_cols(conn, "items"):
+        _items_add_owner(conn)
+    for table in ("servers", "sets"):
+        if "owner_id" not in _table_cols(conn, table):
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN owner_id INTEGER NOT NULL DEFAULT 0")
+    if "perms" not in _table_cols(conn, "users"):  # 管理者が個別に付ける権限
+        conn.execute("ALTER TABLE users ADD COLUMN perms TEXT NOT NULL DEFAULT '[]'")
+    # 持ち主がまだ決まっていないもの(この機能より前のデータ)は、最初の管理者のものにする
+    first = conn.execute("SELECT id FROM users WHERE role='admin' ORDER BY id LIMIT 1").fetchone()
+    if first:
+        for table in ("items", "servers", "sets"):
+            conn.execute(f"UPDATE {table} SET owner_id=? WHERE owner_id=0", (first[0],))
     # 旧バージョン(OSの mount を使っていた頃)の SMB 登録は、そのまま新しい SMB 方式で使える。
     # NFS はアプリ単体では扱えなくなったため、画面上で「非対応」と表示して再登録を促す。
     conn.execute("UPDATE storage_targets SET protocol='smb' WHERE protocol='cifs'")
@@ -1066,11 +1130,11 @@ def sha256_file(path):
     return h.hexdigest()
 
 
-def get_or_create_item(conn, target_id, category, name):
+def get_or_create_item(conn, target_id, category, name, owner_id):
     key = norm_key(name)
     row = conn.execute(
-        "SELECT * FROM items WHERE target_id=? AND category=? AND key=?", (target_id, category, key)
-    ).fetchone()
+        "SELECT * FROM items WHERE target_id=? AND owner_id=? AND category=? AND key=?",
+        (target_id, owner_id, category, key)).fetchone()
     if row:
         return row, False
     base = safe_name(name)
@@ -1081,8 +1145,8 @@ def get_or_create_item(conn, target_id, category, name):
         folder = f"{base} ({n})"
         n += 1
     cur = conn.execute(
-        "INSERT INTO items (target_id, category, name, key, folder, created_at) VALUES (?,?,?,?,?,?)",
-        (target_id, category, name, key, folder, utcnow()),
+        "INSERT INTO items (target_id, category, name, key, folder, created_at, owner_id) VALUES (?,?,?,?,?,?,?)",
+        (target_id, category, name, key, folder, utcnow(), owner_id),
     )
     row = conn.execute("SELECT * FROM items WHERE id=?", (cur.lastrowid,)).fetchone()
     return row, True
@@ -1104,8 +1168,18 @@ def meta_from_info(info):
     return meta
 
 
+def _uid_of(username):
+    r = db().execute("SELECT id FROM users WHERE username=?", (username or "",)).fetchone()
+    return r[0] if r else 0
+
+
+def _owner_for_request():
+    u = current_user() if has_request_context() else None
+    return u["id"] if u else 0
+
+
 def ingest(local, filename, force_cat=None, default_cat=None, src_rel=None, item_id=None,
-           store=None, target=None):
+           store=None, target=None, owner_id=None):
     """ファイルを解析して、保存先の library に登録する。
 
     local  : 解析に使う手元(コンテナ内)のファイル
@@ -1129,10 +1203,15 @@ def ingest(local, filename, force_cat=None, default_cat=None, src_rel=None, item
 
     with LOCK:
         conn = db()
+        if item_id:
+            owner_row = conn.execute("SELECT owner_id FROM items WHERE id=?", (item_id,)).fetchone()
+            owner_id = owner_row[0] if owner_row else owner_id
+        if owner_id is None:
+            owner_id = _owner_for_request()
         dup = conn.execute(
             "SELECT v.id, v.version, i.id AS item_id, i.name, i.category FROM versions v "
-            "JOIN items i ON i.id = v.item_id WHERE v.sha256=? AND v.target_id=?",
-            (sha, target["id"])).fetchone()
+            "JOIN items i ON i.id = v.item_id WHERE v.sha256=? AND v.target_id=? AND i.owner_id=?",
+            (sha, target["id"], owner_id)).fetchone()
         if dup:
             return {"status": "duplicate", "filename": filename, "name": dup["name"],
                     "version": dup["version"], "category": dup["category"], "item_id": dup["item_id"]}
@@ -1144,7 +1223,7 @@ def ingest(local, filename, force_cat=None, default_cat=None, src_rel=None, item
                     raise ApiError("登録先のアイテムが見つかりません", 404)
                 created, cat = False, item["category"]
             else:
-                item, created = get_or_create_item(conn, target["id"], cat, info["name"])
+                item, created = get_or_create_item(conn, target["id"], cat, info["name"], owner_id)
             dest_dir = join_rel("library", CATEGORIES[cat][0], item["folder"])
             fname = safe_name(Path(filename).name, "file", 200)
             canonical = join_rel(dest_dir, fname)
@@ -1229,12 +1308,31 @@ def auto_mc_versions(meta, category, source):
     return ""
 
 
-def build_library(conn, store, target):
+def build_library(conn, store, target, user=None):
+    """保存先のアイテム一覧。user を渡すと、その人に見えるもの(自分の + 共有されたもの)だけにする。"""
     tid = target["id"]
     present = store.file_index("library")
     items = {r["id"]: dict(r, versions=[])
              for r in conn.execute("SELECT * FROM items WHERE target_id=?", (tid,))}
+    if user is not None:
+        vis = visible_item_ids(conn, user)
+        items = {k: v for k, v in items.items() if k in vis}
+        names = {r[0]: r[1] for r in conn.execute("SELECT id, username FROM users")}
+        acl_in = {r[0]: r[1] for r in conn.execute("SELECT item_id, level FROM item_acl WHERE user_id=?", (user["id"],))}
+        acl_out = {}
+        for r in conn.execute("SELECT a.item_id, a.user_id, a.level FROM item_acl a JOIN items i ON i.id=a.item_id "
+                              "WHERE i.owner_id=?", (user["id"],)):
+            acl_out.setdefault(r[0], []).append({"user_id": r[1], "username": names.get(r[1], "?"), "level": r[2]})
+        favs = {r[0] for r in conn.execute("SELECT item_id FROM favorites WHERE user_id=?", (user["id"],))}
+        for it in items.values():
+            mine = it["owner_id"] == user["id"]
+            it["access"] = "owner" if mine else acl_in.get(it["id"], "view")
+            it["owner_name"] = names.get(it["owner_id"], "")
+            it["shared_with"] = acl_out.get(it["id"], []) if mine else []
+            it["favorite"] = it["id"] in favs
     for r in conn.execute("SELECT * FROM versions WHERE target_id=?", (tid,)):
+        if r["item_id"] not in items:
+            continue
         d = dict(r)
         try:
             d["meta"] = json.loads(d["meta"] or "{}")
@@ -1264,8 +1362,9 @@ def build_library(conn, store, target):
         it.pop("key", None)
         it.pop("folder", None)
         out.append(it)
+    shown = {it["id"] for it in out}
     dependency_report(out, {r["dep_key"]: r["item_id"] for r in conn.execute(
-        "SELECT dep_key, item_id FROM dep_links WHERE target_id=?", (tid,))})
+        "SELECT dep_key, item_id FROM dep_links WHERE target_id=?", (tid,)) if r["item_id"] in shown})
     return out
 
 
@@ -1341,6 +1440,96 @@ def role_level(user):
     return ROLES.get(user["role"], (0, ""))[0] if user else 0
 
 
+def user_perms(user):
+    if not user:
+        return set()
+    if user["role"] == "admin":
+        return set(PERMS)
+    try:
+        return {p for p in json.loads(user["perms"] or "[]") if p in PERMS}
+    except (ValueError, TypeError, IndexError, KeyError):
+        return set()
+
+
+def has_perm(perm, user=None):
+    return perm in user_perms(user or current_user())
+
+
+def require_perm(perm):
+    """管理の操作に必要な権限(管理者、または管理者からその権限をもらったユーザー)。"""
+    def deco(fn):
+        @wraps(fn)
+        def wrapper(*a, **kw):
+            u = current_user()
+            if not u:
+                raise ApiError("ログインしてください", 401)
+            if perm not in user_perms(u):
+                raise ApiError(f"この操作には「{PERMS[perm].split('(')[0]}」の権限が必要です", 403)
+            return fn(*a, **kw)
+        return wrapper
+    return deco
+
+
+# --------------------------------------------------------------------------
+# 持ち主と共有(アイテム・サーバー)
+# --------------------------------------------------------------------------
+ACL_LEVELS = {"view": "閲覧・ダウンロード", "edit": "編集もできる"}
+
+
+def item_access(item, user=None):
+    """'owner' / 'edit' / 'view' / None"""
+    u = user or current_user()
+    if not u or not item:
+        return None
+    if item["owner_id"] == u["id"]:
+        return "owner"
+    r = db().execute("SELECT level FROM item_acl WHERE item_id=? AND user_id=?", (item["id"], u["id"])).fetchone()
+    return r[0] if r else None
+
+
+def server_access(srv, user=None):
+    u = user or current_user()
+    if not u or not srv:
+        return None
+    if srv["owner_id"] == u["id"]:
+        return "owner"
+    r = db().execute("SELECT level FROM server_acl WHERE server_id=? AND user_id=?", (srv["id"], u["id"])).fetchone()
+    return r[0] if r else None
+
+
+def visible_item_ids(conn, user=None):
+    """このユーザーに見えるアイテム(自分のもの + 共有されたもの)の id の集合。"""
+    u = user or current_user()
+    if not u:
+        return set()
+    ids = {r[0] for r in conn.execute("SELECT id FROM items WHERE owner_id=?", (u["id"],))}
+    ids |= {r[0] for r in conn.execute("SELECT item_id FROM item_acl WHERE user_id=?", (u["id"],))}
+    return ids
+
+
+def get_item_checked(iid, need="view"):
+    """アイテムを取り出し、必要な権限(view / edit / owner)があるか確かめる。無ければ 404(存在も明かさない)。"""
+    row = db().execute("SELECT * FROM items WHERE id=?", (iid,)).fetchone()
+    acc = item_access(row)
+    order = {"view": 1, "edit": 2, "owner": 3}
+    if not acc:
+        raise ApiError("見つかりません", 404)
+    if order[acc] < order[need]:
+        raise ApiError("このアイテムを変更する権限がありません(持ち主に「編集もできる」で共有してもらってください)", 403)
+    return row
+
+
+def get_server_checked(sid, need="view"):
+    row = db().execute("SELECT * FROM servers WHERE id=?", (sid,)).fetchone()
+    acc = server_access(row)
+    order = {"view": 1, "edit": 2, "owner": 3}
+    if not acc:
+        raise ApiError("見つかりません", 404)
+    if order[acc] < order[need]:
+        raise ApiError("このサーバーを操作する権限がありません(持ち主に「編集もできる」で共有してもらってください)", 403)
+    return row
+
+
 def require(role):
     """ルートに必要な権限を付けるデコレーター。"""
     def deco(fn):
@@ -1366,7 +1555,7 @@ def user_prefs(u):
 
 def user_public(u):
     return {"id": u["id"], "username": u["username"], "role": u["role"],
-            "role_label": ROLES.get(u["role"], (0, u["role"]))[1],
+            "role_label": ROLES.get(u["role"], (0, u["role"]))[1], "perms": sorted(user_perms(u)),
             "created_at": u["created_at"], "last_login": u["last_login"], "totp_enabled": bool(u["totp_enabled"])}
 
 
@@ -1574,7 +1763,7 @@ def api_library():
     try:
         store, target = active_store()
         storage_err = None
-        items = build_library(conn, store, target)
+        items = build_library(conn, store, target, current_user())
         where = store.describe()
     except (ApiError, StorageError) as e:
         target = conn.execute("SELECT * FROM storage_targets WHERE active=1").fetchone()
@@ -1719,6 +1908,7 @@ def api_download(vid):
     row = db().execute("SELECT * FROM versions WHERE id=?", (vid,)).fetchone()
     if not row:
         raise ApiError("見つかりません", 404)
+    get_item_checked(row["item_id"], "view")
     store, _target = require_same_target(row)
     rel = lib_rel(row["relpath"])
     if store.is_local:
@@ -1743,6 +1933,7 @@ def api_patch_version(vid):
     row = conn.execute("SELECT * FROM versions WHERE id=?", (vid,)).fetchone()
     if not row:
         raise ApiError("見つかりません", 404)
+    get_item_checked(row["item_id"], "edit")
     version = str(data.get("version", row["version"])).strip()[:64]
     note = str(data.get("note", row["note"])).strip()[:1000]
     meta = _jl(row["meta"], {})
@@ -1769,12 +1960,15 @@ def api_delete_version(vid):
     row = conn.execute("SELECT * FROM versions WHERE id=?", (vid,)).fetchone()
     if not row:
         raise ApiError("見つかりません", 404)
+    get_item_checked(row["item_id"], "edit")
     store, _target = require_same_target(row)
     with LOCK:
         conn.execute("DELETE FROM versions WHERE id=?", (vid,))
         left = conn.execute("SELECT COUNT(*) FROM versions WHERE item_id=?", (row["item_id"],)).fetchone()[0]
         if left == 0:
             conn.execute("DELETE FROM items WHERE id=?", (row["item_id"],))
+            conn.execute("DELETE FROM item_acl WHERE item_id=?", (row["item_id"],))
+            conn.execute("DELETE FROM favorites WHERE item_id=?", (row["item_id"],))
         conn.commit()
         remove_file(store, row["relpath"])
     return jsonify(ok=True)
@@ -1784,13 +1978,13 @@ def api_delete_version(vid):
 @require("editor")
 def api_delete_item(iid):
     conn = db()
-    item = conn.execute("SELECT * FROM items WHERE id=?", (iid,)).fetchone()
-    if not item:
-        raise ApiError("見つかりません", 404)
+    item = get_item_checked(iid, "owner")
     store, _target = require_same_target(item, kind="アイテム")
     rows = conn.execute("SELECT relpath FROM versions WHERE item_id=?", (iid,)).fetchall()
     with LOCK:
         conn.execute("DELETE FROM items WHERE id=?", (iid,))
+        conn.execute("DELETE FROM item_acl WHERE item_id=?", (iid,))
+        conn.execute("DELETE FROM favorites WHERE item_id=?", (iid,))
         conn.commit()
         for r in rows:
             remove_file(store, r["relpath"])
@@ -1803,9 +1997,7 @@ def api_patch_item(iid):
     """名前・種類の変更。同じ名前・種類の項目が既にあれば統合される(同一ストレージ内のみ)。"""
     data = request.get_json(silent=True) or {}
     conn = db()
-    item = conn.execute("SELECT * FROM items WHERE id=?", (iid,)).fetchone()
-    if not item:
-        raise ApiError("見つかりません", 404)
+    item = get_item_checked(iid, "edit")
     store, _target = require_same_target(item, kind="アイテム")
     new_cat = data.get("category", item["category"])
     if new_cat not in CATEGORIES:
@@ -1830,7 +2022,7 @@ def api_patch_item(iid):
     moved = []  # (dest, src) 失敗時に戻す用
     with LOCK:
         try:
-            target, _created = get_or_create_item(conn, item["target_id"], new_cat, new_name)
+            target, _created = get_or_create_item(conn, item["target_id"], new_cat, new_name, item["owner_id"])
             if target["id"] == item["id"]:
                 conn.execute("UPDATE items SET name=? WHERE id=?", (new_name, iid))
             else:
@@ -1868,7 +2060,7 @@ def api_patch_item(iid):
 # ストレージ接続の登録・切り替え API
 # --------------------------------------------------------------------------
 @app.get("/api/storage/targets")
-@require("admin")
+@require_perm("storage")
 def api_storage_list():
     conn = db()
     rows = conn.execute(
@@ -1911,7 +2103,7 @@ def _target_payload(data, existing=None):
 
 
 @app.post("/api/storage/targets")
-@require("admin")
+@require_perm("storage")
 def api_storage_create():
     data = request.get_json(silent=True) or {}
     payload = _target_payload(data)
@@ -1928,7 +2120,7 @@ def api_storage_create():
 
 
 @app.patch("/api/storage/targets/<int:tid>")
-@require("admin")
+@require_perm("storage")
 def api_storage_update(tid):
     conn = db()
     row = conn.execute("SELECT * FROM storage_targets WHERE id=?", (tid,)).fetchone()
@@ -1951,7 +2143,7 @@ def api_storage_update(tid):
 
 
 @app.delete("/api/storage/targets/<int:tid>")
-@require("admin")
+@require_perm("storage")
 def api_storage_delete(tid):
     conn = db()
     row = conn.execute("SELECT * FROM storage_targets WHERE id=?", (tid,)).fetchone()
@@ -1972,14 +2164,14 @@ def api_storage_delete(tid):
 
 
 @app.post("/api/storage/targets/test")
-@require("admin")
+@require_perm("storage")
 def api_storage_test_new():
     data = request.get_json(silent=True) or {}
     return jsonify(test_target_params(data))
 
 
 @app.post("/api/storage/targets/<int:tid>/test")
-@require("admin")
+@require_perm("storage")
 def api_storage_test_existing(tid):
     conn = db()
     row = conn.execute("SELECT * FROM storage_targets WHERE id=?", (tid,)).fetchone()
@@ -1993,7 +2185,7 @@ def api_storage_test_existing(tid):
 
 
 @app.post("/api/storage/targets/<int:tid>/activate")
-@require("admin")
+@require_perm("storage")
 def api_storage_activate(tid):
     store, target = activate_target(tid)
     return jsonify(ok=True, target=target_public(target, db()), root=store.describe())
@@ -2022,6 +2214,8 @@ def api_auth_setup():
             raise ApiError("初期設定はすでに完了しています", 409)
         cur = conn.execute("INSERT INTO users (username, password_hash, role, created_at) VALUES (?,?,?,?)",
                            (username, generate_password_hash(password), "admin", utcnow()))
+        for table in ("items", "servers", "sets"):
+            conn.execute(f"UPDATE {table} SET owner_id=? WHERE owner_id=0", (cur.lastrowid,))
         conn.commit()
     _login(conn.execute("SELECT * FROM users WHERE id=?", (cur.lastrowid,)).fetchone())
     return jsonify(ok=True)
@@ -2073,28 +2267,36 @@ def api_auth_password():
 
 
 @app.get("/api/users")
-@require("admin")
+@require_perm("users")
 def api_users():
     rows = db().execute("SELECT * FROM users ORDER BY id").fetchall()
     return jsonify(users=[user_public(r) for r in rows])
 
 
 @app.post("/api/users")
-@require("admin")
+@require_perm("users")
 def api_users_create():
     data = request.get_json(silent=True) or {}
     username, password = str(data.get("username", "")).strip(), str(data.get("password", ""))
     role = data.get("role", "editor")
     if role not in ROLES:
         raise ApiError("権限の指定が不正です")
+    me = current_user()
+    if role == "admin" and me["role"] != "admin":
+        raise ApiError("管理者を作れるのは管理者だけです", 403)
+    perms = _clean_perms(data.get("perms")) if me["role"] == "admin" else []
     _check_new_credentials(username, password)
     conn = db()
     if conn.execute("SELECT 1 FROM users WHERE username=?", (username,)).fetchone():
         raise ApiError("そのユーザー名はすでに使われています")
-    conn.execute("INSERT INTO users (username, password_hash, role, created_at) VALUES (?,?,?,?)",
-                 (username, generate_password_hash(password), role, utcnow()))
+    conn.execute("INSERT INTO users (username, password_hash, role, created_at, perms) VALUES (?,?,?,?,?)",
+                 (username, generate_password_hash(password), role, utcnow(), json.dumps(perms)))
     conn.commit()
     return jsonify(ok=True)
+
+
+def _clean_perms(v):
+    return sorted({p for p in (v if isinstance(v, list) else []) if p in PERMS})
 
 
 def _admin_count(conn):
@@ -2102,13 +2304,18 @@ def _admin_count(conn):
 
 
 @app.patch("/api/users/<int:uid>")
-@require("admin")
+@require_perm("users")
 def api_users_update(uid):
     data = request.get_json(silent=True) or {}
     conn = db()
     u = conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
     if not u:
         raise ApiError("見つかりません", 404)
+    me = current_user()
+    if me["role"] != "admin" and (u["role"] == "admin" or data.get("role") == "admin" or "perms" in data):
+        raise ApiError("管理者の変更や、権限の付け外しができるのは管理者だけです", 403)
+    if "perms" in data:
+        conn.execute("UPDATE users SET perms=? WHERE id=?", (json.dumps(_clean_perms(data["perms"])), uid))
     if "role" in data:
         if data["role"] not in ROLES:
             raise ApiError("権限の指定が不正です")
@@ -2126,7 +2333,7 @@ def api_users_update(uid):
 
 
 @app.delete("/api/users/<int:uid>")
-@require("admin")
+@require_perm("users")
 def api_users_delete(uid):
     conn = db()
     u = conn.execute("SELECT * FROM users WHERE id=?", (uid,)).fetchone()
@@ -2136,10 +2343,169 @@ def api_users_delete(uid):
         raise ApiError("自分自身は削除できません")
     if u["role"] == "admin" and _admin_count(conn) <= 1:
         raise ApiError("管理者が1人もいなくなるため削除できません")
+    if u["role"] == "admin" and current_user()["role"] != "admin":
+        raise ApiError("管理者を削除できるのは管理者だけです", 403)
     _remove_bg_file(user_prefs(u).get("bg_file"))
+    moved = _transfer_owner(conn, uid, current_user()["id"])
     conn.execute("DELETE FROM users WHERE id=?", (uid,))
     conn.commit()
+    audit("ユーザーを削除", u["username"], f"アイテム {moved['items']} 件・サーバー {moved['servers']} 台を引き継ぎ")
+    return jsonify(ok=True, moved=moved)
+
+
+def _transfer_owner(conn, from_id, to_id):
+    """ユーザーを消すとき、その人のアイテム・サーバー・セットを別の人に引き継ぐ。"""
+    with LOCK:
+        n_items = 0
+        for it in conn.execute("SELECT * FROM items WHERE owner_id=?", (from_id,)).fetchall():
+            key, name = it["key"], it["name"]
+            if conn.execute("SELECT 1 FROM items WHERE target_id=? AND owner_id=? AND category=? AND key=?",
+                            (it["target_id"], to_id, it["category"], key)).fetchone():
+                old = conn.execute("SELECT username FROM users WHERE id=?", (from_id,)).fetchone()
+                name = f"{name} ({old[0] if old else from_id})"  # 同じ名前を持っていたら区別できるように
+                key = norm_key(name)
+            conn.execute("UPDATE items SET owner_id=?, key=?, name=? WHERE id=?", (to_id, key, name, it["id"]))
+            n_items += 1
+        n_srv = conn.execute("UPDATE servers SET owner_id=? WHERE owner_id=?", (to_id, from_id)).rowcount
+        conn.execute("UPDATE sets SET owner_id=? WHERE owner_id=?", (to_id, from_id))
+        for t in ("item_acl", "server_acl", "favorites"):
+            conn.execute(f"DELETE FROM {t} WHERE user_id=?", (from_id,))
+        conn.execute("DELETE FROM item_acl WHERE user_id=?", (to_id,))  # 自分のものになったので、共有の記録は不要
+        conn.commit()
+    return {"items": n_items, "servers": n_srv}
+
+
+# --------------------------------------------------------------------------
+# 共有(アイテム・サーバー)・お気に入り・利用状況
+# --------------------------------------------------------------------------
+@app.get("/api/users/directory")
+@require("viewer")
+def api_users_directory():
+    """共有する相手を選ぶための一覧(名前だけ)。"""
+    me = current_user()
+    rows = db().execute("SELECT id, username, role FROM users WHERE id<>? ORDER BY username", (me["id"],)).fetchall()
+    return jsonify(users=[{"id": r[0], "username": r[1], "can_edit": r[2] != "viewer"} for r in rows])
+
+
+def _acl_from(data):
+    out = {}
+    for x in data.get("shares") or []:
+        try:
+            uid, lv = int(x.get("user_id")), str(x.get("level") or "view")
+        except (TypeError, ValueError, AttributeError):
+            raise ApiError("共有の指定が不正です")
+        if lv not in ACL_LEVELS:
+            raise ApiError("共有の権限が不正です")
+        out[uid] = lv
+    me = current_user()["id"]
+    conn = db()
+    valid = {r[0] for r in conn.execute("SELECT id FROM users")}
+    return {u: lv for u, lv in out.items() if u in valid and u != me}
+
+
+@app.put("/api/items/<int:iid>/acl")
+@require("editor")
+def api_item_acl(iid):
+    """アイテムを共有する相手を設定する(持ち主だけ)。shares: [{user_id, level}]"""
+    item = get_item_checked(iid, "owner")
+    acl = _acl_from(request.get_json(silent=True) or {})
+    conn = db()
+    with LOCK:
+        conn.execute("DELETE FROM item_acl WHERE item_id=?", (iid,))
+        for uid, lv in acl.items():
+            conn.execute("INSERT INTO item_acl (item_id, user_id, level, created_at) VALUES (?,?,?,?)", (iid, uid, lv, utcnow()))
+        conn.commit()
+    audit("アイテムの共有を変更", item["name"], f"{len(acl)} 人")
     return jsonify(ok=True)
+
+
+@app.post("/api/items/acl")
+@require("editor")
+def api_items_acl_bulk():
+    """選んだアイテムをまとめて共有・解除する。{item_ids, user_id, level | remove}"""
+    data = request.get_json(silent=True) or {}
+    ids = [int(x) for x in data.get("item_ids") or []][:1000]
+    try:
+        uid = int(data.get("user_id"))
+    except (TypeError, ValueError):
+        raise ApiError("共有する相手を選んでください")
+    if uid == current_user()["id"] or not db().execute("SELECT 1 FROM users WHERE id=?", (uid,)).fetchone():
+        raise ApiError("共有する相手が見つかりません")
+    lv = str(data.get("level") or "view")
+    if lv not in ACL_LEVELS:
+        raise ApiError("共有の権限が不正です")
+    conn = db()
+    mine = {r[0] for r in conn.execute("SELECT id FROM items WHERE owner_id=?", (current_user()["id"],))}
+    done = 0
+    with LOCK:
+        for iid in ids:
+            if iid not in mine:
+                continue
+            if data.get("remove"):
+                conn.execute("DELETE FROM item_acl WHERE item_id=? AND user_id=?", (iid, uid))
+            else:
+                conn.execute("INSERT OR REPLACE INTO item_acl (item_id, user_id, level, created_at) VALUES (?,?,?,?)",
+                             (iid, uid, lv, utcnow()))
+            done += 1
+        conn.commit()
+    return jsonify(ok=True, count=done, skipped=len(ids) - done)
+
+
+@app.put("/api/servers/<int:srv>/acl")
+@require("editor")
+def api_server_acl(srv):
+    row = get_server_checked(srv, "owner")
+    acl = _acl_from(request.get_json(silent=True) or {})
+    conn = db()
+    with LOCK:
+        conn.execute("DELETE FROM server_acl WHERE server_id=?", (srv,))
+        for uid, lv in acl.items():
+            conn.execute("INSERT INTO server_acl (server_id, user_id, level, created_at) VALUES (?,?,?,?)", (srv, uid, lv, utcnow()))
+        conn.commit()
+    audit("サーバーの共有を変更", row["name"], f"{len(acl)} 人")
+    return jsonify(ok=True)
+
+
+@app.post("/api/items/<int:iid>/favorite")
+@require("viewer")
+def api_item_favorite(iid):
+    get_item_checked(iid, "view")
+    on = _truthy((request.get_json(silent=True) or {}).get("on", True))
+    conn = db()
+    if on:
+        conn.execute("INSERT OR IGNORE INTO favorites (user_id, item_id, created_at) VALUES (?,?,?)",
+                     (current_user()["id"], iid, utcnow()))
+    else:
+        conn.execute("DELETE FROM favorites WHERE user_id=? AND item_id=?", (current_user()["id"], iid))
+    conn.commit()
+    return jsonify(ok=True, favorite=on)
+
+
+@app.get("/api/admin/usage")
+@require_perm("users")
+def api_admin_usage():
+    """ユーザーごとの利用状況(何をどれくらい持っているか・共有しているか)。"""
+    conn = db()
+    out = []
+    for u in conn.execute("SELECT * FROM users ORDER BY id").fetchall():
+        r = conn.execute("SELECT COUNT(DISTINCT i.id), COUNT(v.id), COALESCE(SUM(v.size), 0) FROM items i "
+                         "LEFT JOIN versions v ON v.item_id=i.id WHERE i.owner_id=?", (u["id"],)).fetchone()
+        cats = {c: n for c, n in conn.execute("SELECT category, COUNT(*) FROM items WHERE owner_id=? GROUP BY category", (u["id"],))}
+        out.append({
+            "id": u["id"], "username": u["username"], "role": u["role"], "role_label": ROLES.get(u["role"], (0, u["role"]))[1],
+            "perms": sorted(user_perms(u)), "last_login": u["last_login"], "created_at": u["created_at"],
+            "items": r[0], "files": r[1], "bytes": r[2], "categories": cats,
+            "servers": [x[0] for x in conn.execute("SELECT name FROM servers WHERE owner_id=? ORDER BY name", (u["id"],))],
+            "sets": conn.execute("SELECT COUNT(*) FROM sets WHERE owner_id=?", (u["id"],)).fetchone()[0],
+            "shared_out": conn.execute("SELECT COUNT(*) FROM item_acl a JOIN items i ON i.id=a.item_id WHERE i.owner_id=?",
+                                       (u["id"],)).fetchone()[0],
+            "shared_in": conn.execute("SELECT COUNT(*) FROM item_acl WHERE user_id=?", (u["id"],)).fetchone()[0],
+            # 共有しているもの(ほかの人に見せているもの)は名前も出す。非公開のものは件数だけ
+            "shared_names": [x[0] for x in conn.execute(
+                "SELECT DISTINCT i.name FROM items i JOIN item_acl a ON a.item_id=i.id WHERE i.owner_id=? ORDER BY i.name LIMIT 50",
+                (u["id"],))],
+        })
+    return jsonify(users=out, perms=PERMS, total_bytes=sum(x["bytes"] for x in out))
 
 
 # --------------------------------------------------------------------------
@@ -2183,6 +2549,10 @@ def api_me_prefs():
     data = request.get_json(silent=True) or {}
     u = current_user()
     prefs = user_prefs(u)
+    if "sort" in data:
+        if data["sort"] not in ("fav:1", "name:1", "added:-1", "upd:1", "size:-1", "count:-1"):
+            raise ApiError("並び順の指定が不正です")
+        prefs["sort"] = data["sort"]
     if "dash" in data:
         d = data["dash"] if isinstance(data["dash"], dict) else {}
         clean = lambda xs: [str(x) for x in (xs if isinstance(xs, list) else []) if re.fullmatch(r"[a-z]{1,20}", str(x))][:30]  # noqa: E731
@@ -2309,10 +2679,21 @@ def api_settings():
     return jsonify(settings_public())
 
 
+_SETTING_PERMS = {
+    "system": ("check_interval_hours", "auto_download", "stable_only", "self_auto_update", "update_channel"),
+    "integrations": ("cf_api_key", "ptero_url", "ptero_key", "ptero_insecure", "discord_webhook", "discord_events"),
+    "storage": ("backup_target_id", "backup_keep"),
+}
+
+
 @app.patch("/api/settings")
-@require("admin")
+@require("viewer")
 def api_settings_update():
     data = request.get_json(silent=True) or {}
+    have = user_perms(current_user())
+    for perm, keys in _SETTING_PERMS.items():
+        if perm not in have and any(k in data for k in keys):
+            raise ApiError(f"この設定を変えるには「{PERMS[perm].split('(')[0]}」の権限が必要です", 403)
     if "cf_api_key" in data:
         set_setting("cf_api_key", encrypt_secret(str(data["cf_api_key"] or "").strip()))
     if "check_interval_hours" in data:
@@ -2386,7 +2767,7 @@ def api_job(job_id):
 # 保存先の中身の確認・移行
 # --------------------------------------------------------------------------
 @app.get("/api/storage/targets/<int:tid>/contents")
-@require("admin")
+@require_perm("storage")
 def api_storage_contents(tid):
     conn = db()
     target = conn.execute("SELECT * FROM storage_targets WHERE id=?", (tid,)).fetchone()
@@ -2451,7 +2832,7 @@ def _migrate_job(job, source_id, dest_id, mode, item_ids):
                     try:
                         s_store.fetch(src_rel, tmp)  # ローカルでもコピーを作る(put は移動するため)
                         with LOCK:
-                            d_item, _ = get_or_create_item(conn, dest_id, it["category"], it["name"])
+                            d_item, _ = get_or_create_item(conn, dest_id, it["category"], it["name"], it["owner_id"])
                             dest = d_store.unique_rel(
                                 join_rel("library", CATEGORIES[it["category"]][0], d_item["folder"]), v["filename"])
                             conn.execute(
@@ -2495,7 +2876,7 @@ def _migrate_job(job, source_id, dest_id, mode, item_ids):
 
 
 @app.post("/api/storage/migrate")
-@require("admin")
+@require_perm("storage")
 def api_storage_migrate():
     data = request.get_json(silent=True) or {}
     try:
@@ -2570,6 +2951,7 @@ def fetch_item_icon(item_id, provider, project_id):
 
 @app.get("/api/items/<int:iid>/icon")
 def api_item_icon(iid):
+    get_item_checked(iid, "view")
     p = _icon_path(iid)
     try:
         b = p.read_bytes()
@@ -2780,9 +3162,7 @@ def download_latest(conn, item, store=None, target=None):
 
 
 def _item_for_edit(iid):
-    item = db().execute("SELECT * FROM items WHERE id=?", (iid,)).fetchone()
-    if not item:
-        raise ApiError("見つかりません", 404)
+    item = get_item_checked(iid, "edit")
     require_same_target(item, kind="アイテム")
     return item
 
@@ -2873,11 +3253,14 @@ def api_source_download(iid):
     return jsonify(download_latest(db(), item))
 
 
-def _bulk_job(job, target_id, do_detect, do_check, do_download):
+def _bulk_job(job, target_id, do_detect, do_check, do_download, only_user_id=None):
     conn = db()
     target = conn.execute("SELECT * FROM storage_targets WHERE id=?", (target_id,)).fetchone()
     store = open_store(target) if (do_detect or do_download) else None
     items = conn.execute("SELECT * FROM items WHERE target_id=? ORDER BY name", (target_id,)).fetchall()
+    if only_user_id:
+        editable = {r[0] for r in conn.execute("SELECT item_id FROM item_acl WHERE user_id=? AND level='edit'", (only_user_id,))}
+        items = [it for it in items if it["owner_id"] == only_user_id or it["id"] in editable]
     linked = {r[0] for r in conn.execute("SELECT item_id FROM item_sources")}
     todo = [it for it in items if (it["id"] in linked) or do_detect]
     job.total = len(todo)
@@ -2933,7 +3316,7 @@ def api_updates_run():
     _store, target = active_store()
     detect, check, dl = _truthy(data.get("detect")), _truthy(data.get("check", True)), _truthy(data.get("download"))
     title = "配布元の自動検出" if detect and not check else ("更新の確認と保存" if dl else "更新の確認")
-    job = start_job("updates", title, _bulk_job, target["id"], detect, check, dl,
+    job = start_job("updates", title, _bulk_job, target["id"], detect, check, dl, current_user()["id"],
                     user=current_user()["username"])
     return jsonify(job.public())
 
@@ -2965,14 +3348,16 @@ def _import_version(info, ver, loaders, game_versions, force_cat=None):
 
 
 def _in_library(conn, target_id, provider, project_id, title=""):
-    r = conn.execute("SELECT s.item_id FROM item_sources s JOIN items i ON i.id=s.item_id "
-                     "WHERE i.target_id=? AND s.provider=? AND s.project_id=?", (target_id, provider, str(project_id))).fetchone()
-    if r:
-        return r[0]
+    """このユーザーのライブラリ(自分の + 共有されたもの)に、もうあるか。"""
+    vis = visible_item_ids(conn)
+    for r in conn.execute("SELECT s.item_id FROM item_sources s JOIN items i ON i.id=s.item_id "
+                          "WHERE i.target_id=? AND s.provider=? AND s.project_id=?", (target_id, provider, str(project_id))):
+        if r[0] in vis:
+            return r[0]
     if title:
         key = norm_key(title)
         for row in conn.execute("SELECT id, name FROM items WHERE target_id=?", (target_id,)):
-            if norm_key(row["name"]) == key:
+            if row["id"] in vis and norm_key(row["name"]) == key:
                 return row["id"]
     return None
 
@@ -3068,7 +3453,7 @@ def api_system_info():
 
 
 @app.get("/api/system/update")
-@require("admin")
+@require_perm("system")
 def api_system_update_check():
     return jsonify(selfupdate.check(force=_truthy(request.args.get("force"))))
 
@@ -3083,7 +3468,7 @@ def _self_update_job(job):
 
 
 @app.post("/api/system/update")
-@require("admin")
+@require_perm("system")
 def api_system_update_apply():
     info = selfupdate.check(force=True)
     if info["error"]:
@@ -3221,7 +3606,7 @@ def audit_write(resp):
 
 
 @app.get("/api/audit")
-@require("admin")
+@require_perm("audit")
 def api_audit():
     try:
         limit = max(1, min(500, int(request.args.get("limit", 100))))
@@ -3262,7 +3647,7 @@ def notify_event(event, title, lines, level="info"):
 
 
 @app.post("/api/settings/discord/test")
-@require("admin")
+@require_perm("integrations")
 def api_discord_test():
     data = request.get_json(silent=True) or {}
     url = str(data.get("url") or "").strip() or decrypt_secret(get_setting("discord_webhook"))
@@ -3381,13 +3766,15 @@ def set_public(conn, row):
 
 def _set_row(sid):
     _store, target = active_store()
-    row = db().execute("SELECT * FROM sets WHERE id=? AND target_id=?", (sid, target["id"])).fetchone()
+    row = db().execute("SELECT * FROM sets WHERE id=? AND target_id=? AND owner_id=?",
+                       (sid, target["id"], current_user()["id"])).fetchone()
     if not row:
         raise ApiError("セットが見つかりません(別の保存先のセットかもしれません)", 404)
     return row
 
 
 def _set_items_from(conn, target_id, data):
+    vis = visible_item_ids(conn)
     out = []
     for x in data.get("items") or []:
         try:
@@ -3396,7 +3783,7 @@ def _set_items_from(conn, target_id, data):
             vid = int(vid) if vid else None
         except (TypeError, ValueError):
             raise ApiError("items の指定が不正です")
-        if not conn.execute("SELECT 1 FROM items WHERE id=? AND target_id=?", (iid, target_id)).fetchone():
+        if iid not in vis or not conn.execute("SELECT 1 FROM items WHERE id=? AND target_id=?", (iid, target_id)).fetchone():
             continue
         if vid and not conn.execute("SELECT 1 FROM versions WHERE id=? AND item_id=?", (vid, iid)).fetchone():
             vid = None
@@ -3408,7 +3795,8 @@ def _set_items_from(conn, target_id, data):
 def api_sets():
     _store, target = active_store()
     conn = db()
-    rows = conn.execute("SELECT * FROM sets WHERE target_id=? ORDER BY name", (target["id"],)).fetchall()
+    rows = conn.execute("SELECT * FROM sets WHERE target_id=? AND owner_id=? ORDER BY name",
+                        (target["id"], current_user()["id"])).fetchall()
     return jsonify(sets=[set_public(conn, r) for r in rows])
 
 
@@ -3422,8 +3810,8 @@ def api_sets_create():
         raise ApiError("セットの名前を入力してください")
     conn = db()
     with LOCK:
-        cur = conn.execute("INSERT INTO sets (target_id, name, description, created_at, updated_at) VALUES (?,?,?,?,?)",
-                           (target["id"], name, str(data.get("description") or "")[:500], utcnow(), utcnow()))
+        cur = conn.execute("INSERT INTO sets (target_id, name, description, created_at, updated_at, owner_id) VALUES (?,?,?,?,?,?)",
+                           (target["id"], name, str(data.get("description") or "")[:500], utcnow(), utcnow(), current_user()["id"]))
         for iid, vid in _set_items_from(conn, target["id"], data):
             conn.execute("INSERT OR REPLACE INTO set_items (set_id, item_id, version_id) VALUES (?,?,?)", (cur.lastrowid, iid, vid))
         conn.commit()
@@ -3512,7 +3900,7 @@ def _pcall(fn, *a, **kw):
 
 
 @app.post("/api/ptero/test")
-@require("admin")
+@require_perm("integrations")
 def api_ptero_test():
     data = request.get_json(silent=True) or {}
     url = str(data.get("url") or get_setting("ptero_url") or "")
@@ -3526,13 +3914,25 @@ def api_ptero_test():
 
 
 @app.get("/api/ptero/servers")
-@require("admin")
+@require("editor")
 def api_ptero_servers():
     servers = _pcall(ptero_client().servers)
-    linked = {r["identifier"]: r["id"] for r in db().execute("SELECT id, identifier FROM servers")}
+    names = {r[0]: r[1] for r in db().execute("SELECT id, username FROM users")}
+    linked = {r["identifier"]: r for r in db().execute("SELECT id, identifier, owner_id FROM servers")}
     for s in servers:
-        s["linked_id"] = linked.get(s["identifier"])
+        r = linked.get(s["identifier"])
+        s["linked_id"] = r["id"] if r else None
+        s["linked_by"] = names.get(r["owner_id"], "") if r else ""
     return jsonify(servers=servers)
+
+
+def visible_servers(conn, user=None):
+    u = user or current_user()
+    if not u:
+        return []
+    shared = {r[0]: r[1] for r in conn.execute("SELECT server_id, level FROM server_acl WHERE user_id=?", (u["id"],))}
+    return [r for r in conn.execute("SELECT * FROM servers ORDER BY name").fetchall()
+            if r["owner_id"] == u["id"] or r["id"] in shared]
 
 
 def server_public(conn, r):
@@ -3540,13 +3940,22 @@ def server_public(conn, r):
     if r["set_id"]:
         s = conn.execute("SELECT name FROM sets WHERE id=?", (r["set_id"],)).fetchone()
         d["set_name"] = s["name"] if s else ""
+    u = current_user() if has_request_context() else None
+    if u:
+        names = {x[0]: x[1] for x in conn.execute("SELECT id, username FROM users")}
+        mine = r["owner_id"] == u["id"]
+        lv = conn.execute("SELECT level FROM server_acl WHERE server_id=? AND user_id=?", (r["id"], u["id"])).fetchone()
+        d["access"] = "owner" if mine else (lv[0] if lv else "view")
+        d["owner_name"] = names.get(r["owner_id"], "")
+        d["shared_with"] = [{"user_id": x[0], "username": names.get(x[0], "?"), "level": x[1]} for x in
+                            conn.execute("SELECT user_id, level FROM server_acl WHERE server_id=?", (r["id"],))] if mine else []
     return d
 
 
 @app.get("/api/servers")
 def api_servers():
     conn = db()
-    rows = conn.execute("SELECT * FROM servers ORDER BY name").fetchall()
+    rows = visible_servers(conn)
     return jsonify(servers=[server_public(conn, r) for r in rows],
                    configured=bool(get_setting("ptero_url") and get_setting("ptero_key")))
 
@@ -3559,34 +3968,42 @@ def _clean_dir(d):
 
 
 @app.post("/api/servers")
-@require("admin")
+@require("editor")
 def api_servers_create():
     data = request.get_json(silent=True) or {}
     ident = str(data.get("identifier") or "").strip()
     if not ident:
         raise ApiError("サーバーを選んでください")
     conn = db()
-    if conn.execute("SELECT 1 FROM servers WHERE identifier=?", (ident,)).fetchone():
-        raise ApiError("このサーバーはすでに連携しています")
+    ex = conn.execute("SELECT owner_id FROM servers WHERE identifier=?", (ident,)).fetchone()
+    if ex:
+        who = conn.execute("SELECT username FROM users WHERE id=?", (ex[0],)).fetchone()
+        raise ApiError(f"このサーバーはすでに「{who[0] if who else '?'}」さんが連携しています(使いたい場合は共有してもらってください)")
     set_id = int(data["set_id"]) if data.get("set_id") else None
+    if set_id and not conn.execute("SELECT 1 FROM sets WHERE id=? AND owner_id=?", (set_id, current_user()["id"])).fetchone():
+        set_id = None
     with LOCK:
-        conn.execute("INSERT INTO servers (identifier, name, plugin_dir, set_id, created_at) VALUES (?,?,?,?,?)",
-                     (ident, str(data.get("name") or ident)[:80], _clean_dir(data.get("plugin_dir")), set_id, utcnow()))
+        conn.execute("INSERT INTO servers (identifier, name, plugin_dir, set_id, created_at, owner_id) VALUES (?,?,?,?,?,?)",
+                     (ident, str(data.get("name") or ident)[:80], _clean_dir(data.get("plugin_dir")), set_id, utcnow(),
+                      current_user()["id"]))
         conn.commit()
     return jsonify(ok=True)
 
 
-def _server_row(srv):
+def _server_row(srv, need="view"):
+    """サーバーを取り出し、この利用者に必要な権限(view / edit / owner)があるか確かめる。"""
     r = db().execute("SELECT * FROM servers WHERE id=?", (srv,)).fetchone()
     if not r:
         raise ApiError("サーバーが見つかりません", 404)
+    if has_request_context() and current_user():
+        return get_server_checked(srv, need)
     return r
 
 
 @app.patch("/api/servers/<int:srv>")
-@require("admin")
+@require("editor")
 def api_servers_update(srv):
-    _server_row(srv)
+    _server_row(srv, "edit")
     data = request.get_json(silent=True) or {}
     conn = db()
     with LOCK:
@@ -3596,7 +4013,10 @@ def api_servers_update(srv):
             conn.execute("UPDATE servers SET plugin_dir=? WHERE id=?", (_clean_dir(data["plugin_dir"]), srv))
             conn.execute("DELETE FROM server_files WHERE server_id=?", (srv,))
         if "set_id" in data:
-            conn.execute("UPDATE servers SET set_id=? WHERE id=?", (int(data["set_id"]) if data["set_id"] else None, srv))
+            sid = int(data["set_id"]) if data["set_id"] else None
+            if sid and not conn.execute("SELECT 1 FROM sets WHERE id=? AND owner_id=?", (sid, current_user()["id"])).fetchone():
+                raise ApiError("自分のセットを選んでください")
+            conn.execute("UPDATE servers SET set_id=? WHERE id=?", (sid, srv))
         if "sched_mode" in data:
             if data["sched_mode"] not in ("off", "daily", "weekly"):
                 raise ApiError("予約の指定が不正です")
@@ -3614,12 +4034,13 @@ def api_servers_update(srv):
 
 
 @app.delete("/api/servers/<int:srv>")
-@require("admin")
+@require("editor")
 def api_servers_delete(srv):
-    _server_row(srv)
+    _server_row(srv, "owner")
     conn = db()
     with LOCK:
         conn.execute("DELETE FROM server_files WHERE server_id=?", (srv,))
+        conn.execute("DELETE FROM server_acl WHERE server_id=?", (srv,))
         conn.execute("DELETE FROM servers WHERE id=?", (srv,))
         conn.commit()
     return jsonify(ok=True)
@@ -3698,14 +4119,15 @@ def api_servers_presence():
     _store, target = active_store()
     conn = db()
     by_sha = {v["sha256"]: v for v in conn.execute("SELECT * FROM versions WHERE target_id=?", (target["id"],))}
-    items = {r["id"]: r for r in conn.execute("SELECT * FROM items WHERE target_id=?", (target["id"],))}
+    vis = visible_item_ids(conn)
+    items = {r["id"]: r for r in conn.execute("SELECT * FROM items WHERE target_id=?", (target["id"],)) if r["id"] in vis}
     by_key = {}
     for it in items.values():
         by_key.setdefault(norm_key(it["name"]), it["id"])
     latest = {iid: (_item_versions(conn, iid) or [None])[0] for iid in items}
     out = {}
     servers = []
-    for srv in conn.execute("SELECT * FROM servers ORDER BY name").fetchall():
+    for srv in visible_servers(conn):
         rows = conn.execute("SELECT * FROM server_files WHERE server_id=?", (srv["id"],)).fetchall()
         servers.append({"id": srv["id"], "name": srv["name"], "checked": bool(rows)})
         present = set()
@@ -3733,7 +4155,7 @@ def api_servers_presence():
 @app.get("/api/servers/<int:srv>/inventory")
 @require("editor")
 def api_servers_inventory(srv):
-    row = _server_row(srv)
+    row = _server_row(srv, "view")
     _store, target = active_store()
     files, missing = server_inventory(db(), row, target)
     return jsonify(files=files, missing=missing, plugin_dir=row["plugin_dir"])
@@ -3852,7 +4274,7 @@ def _server_job(job, srv, target_id, mode, item_ids, version_ids, restart, user)
 @app.post("/api/servers/<int:srv>/sync")
 @require("editor")
 def api_servers_sync(srv):
-    row = _server_row(srv)
+    row = _server_row(srv, "edit")
     _store, target = active_store()
     data = request.get_json(silent=True) or {}
     job = start_job(f"server-{srv}", f"「{row['name']}」を同期", _server_job, srv, target["id"], "sync", [], {},
@@ -3863,19 +4285,22 @@ def api_servers_sync(srv):
 @app.post("/api/servers/<int:srv>/push")
 @require("editor")
 def api_servers_push(srv):
-    row = _server_row(srv)
+    row = _server_row(srv, "edit")
     _store, target = active_store()
     data = request.get_json(silent=True) or {}
     item_ids = [int(x) for x in data.get("item_ids") or []]
     version_ids = {}
     if data.get("set_id"):
         conn = db()
-        s = conn.execute("SELECT * FROM sets WHERE id=? AND target_id=?", (int(data["set_id"]), target["id"])).fetchone()
+        s = conn.execute("SELECT * FROM sets WHERE id=? AND target_id=? AND owner_id=?",
+                         (int(data["set_id"]), target["id"], current_user()["id"])).fetchone()
         if not s:
             raise ApiError("セットが見つかりません", 404)
         for i, v in resolve_set_versions(conn, s["id"]):
             item_ids.append(i["id"])
             version_ids[i["id"]] = v["id"]
+    vis = visible_item_ids(db())
+    item_ids = [i for i in item_ids if i in vis]
     if not item_ids:
         raise ApiError("送るものを選んでください")
     job = start_job(f"server-{srv}", f"「{row['name']}」へ転送", _server_job, srv, target["id"], "push",
@@ -3899,7 +4324,7 @@ def _server_import_job(job, srv, target_id, names, user):
         tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
         try:
             _pcall(p.download, srv_row["identifier"], f"{srv_row['plugin_dir']}/{n}", tmp)
-            r = ingest(tmp, n, store=store, target=target)
+            r = ingest(tmp, n, store=store, target=target, owner_id=_uid_of(user))
             added += r.get("status") == "added"
             job.note(f"{'取り込みました' if r.get('status') == 'added' else '登録済みです'}: {r.get('name')} {r.get('version', '')}")
         except Exception as e:  # noqa: BLE001
@@ -3913,7 +4338,7 @@ def _server_import_job(job, srv, target_id, names, user):
 @app.post("/api/servers/<int:srv>/import")
 @require("editor")
 def api_servers_import(srv):
-    row = _server_row(srv)
+    row = _server_row(srv, "edit")
     _store, target = active_store()
     names = [str(x) for x in (request.get_json(silent=True) or {}).get("names") or []][:200]
     if not names:
@@ -3926,7 +4351,7 @@ def api_servers_import(srv):
 @app.post("/api/servers/<int:srv>/power")
 @require("editor")
 def api_servers_power(srv):
-    row = _server_row(srv)
+    row = _server_row(srv, "edit")
     signal = str((request.get_json(silent=True) or {}).get("signal") or "")
     _pcall(ptero_client().power, row["identifier"], signal)
     return jsonify(ok=True)
@@ -3934,7 +4359,7 @@ def api_servers_power(srv):
 
 @app.get("/api/servers/<int:srv>/status")
 def api_servers_status(srv):
-    row = _server_row(srv)
+    row = _server_row(srv, "view")
     try:
         return jsonify(ptero_client().resources(row["identifier"]))
     except (ptero.PteroError, ApiError) as e:
@@ -3991,7 +4416,7 @@ def _backup_job(job, user):
 
 
 @app.post("/api/backup/run")
-@require("admin")
+@require_perm("storage")
 def api_backup_run():
     job = start_job("backup", "バックアップ", _backup_job, current_user()["username"], user=current_user()["username"])
     return jsonify(job.public())
@@ -4006,7 +4431,7 @@ def _backup_store():
 
 
 @app.get("/api/backup/list")
-@require("admin")
+@require_perm("storage")
 def api_backup_list():
     store, target = _backup_store()
     try:
@@ -4017,7 +4442,7 @@ def api_backup_list():
 
 
 @app.get("/api/backup/download/<name>")
-@require("admin")
+@require_perm("storage")
 def api_backup_download(name):
     if not _BACKUP_NAME.match(name):
         raise ApiError("見つかりません", 404)
@@ -4036,6 +4461,7 @@ def api_backup_download(name):
 # ==========================================================================
 @app.get("/api/items/<int:iid>/source/changelog")
 def api_source_changelog(iid):
+    get_item_checked(iid, "view")
     conn = db()
     s = conn.execute("SELECT * FROM item_sources WHERE item_id=?", (iid,)).fetchone()
     if not s:
@@ -4065,7 +4491,7 @@ def api_deps_link():
     with LOCK:
         if data.get("item_id"):
             iid = int(data["item_id"])
-            if not conn.execute("SELECT 1 FROM items WHERE id=? AND target_id=?", (iid, target["id"])).fetchone():
+            if iid not in visible_item_ids(conn) or not conn.execute("SELECT 1 FROM items WHERE id=? AND target_id=?", (iid, target["id"])).fetchone():
                 raise ApiError("アイテムが見つかりません", 404)
             conn.execute("INSERT OR REPLACE INTO dep_links (target_id, dep_key, item_id) VALUES (?,?,?)", (target["id"], key, iid))
         else:
@@ -4116,7 +4542,7 @@ def _modpack_job(job, path, filename, make_set, include_client, target_id, user)
 
     def take(local, name, force_cat=None):
         try:
-            r = ingest(local, name, force_cat, store=store, target=target)
+            r = ingest(local, name, force_cat, store=store, target=target, owner_id=_uid_of(user))
             stats["added" if r["status"] == "added" else "duplicate"] += 1
             added_items.append(r["item_id"])
             return r
@@ -4230,8 +4656,8 @@ def _modpack_job(job, path, filename, make_set, include_client, target_id, user)
     uniq = list(dict.fromkeys(added_items))
     if make_set and uniq:
         with LOCK:
-            cur = conn.execute("INSERT INTO sets (target_id, name, description, created_at, updated_at) VALUES (?,?,?,?,?)",
-                               (target_id, pack_name[:80], f"Modパック「{filename}」から作成", utcnow(), utcnow()))
+            cur = conn.execute("INSERT INTO sets (target_id, name, description, created_at, updated_at, owner_id) VALUES (?,?,?,?,?,?)",
+                               (target_id, pack_name[:80], f"Modパック「{filename}」から作成", utcnow(), utcnow(), _uid_of(user)))
             for iid in uniq:
                 conn.execute("INSERT OR IGNORE INTO set_items (set_id, item_id) VALUES (?,?)", (cur.lastrowid, iid))
             conn.commit()
@@ -4286,7 +4712,7 @@ def prune_snapshots(conn, server_id):
 @app.get("/api/servers/<int:srv>/snapshots")
 @require("editor")
 def api_server_snapshots(srv):
-    _server_row(srv)
+    _server_row(srv, "view")
     rows = db().execute("SELECT * FROM server_snapshots WHERE server_id=? ORDER BY id DESC", (srv,)).fetchall()
     return jsonify(snapshots=[{**dict(r), "removed": _jl(r["removed"], []), "added": _jl(r["added"], [])} for r in rows])
 
@@ -4337,7 +4763,7 @@ def fmt_local(iso):
 @app.post("/api/servers/<int:srv>/snapshots/<int:snap>/rollback")
 @require("editor")
 def api_server_rollback(srv, snap):
-    row = _server_row(srv)
+    row = _server_row(srv, "edit")
     if not db().execute("SELECT 1 FROM server_snapshots WHERE id=? AND server_id=?", (snap, srv)).fetchone():
         raise ApiError("見つかりません", 404)
     data = request.get_json(silent=True) or {}
@@ -4573,8 +4999,11 @@ def _zip_versions(store, pairs, zpath):
 
 
 def _latest_pairs(conn, target_id, item_ids):
+    vis = visible_item_ids(conn) if has_request_context() and current_user() else None
     pairs = []
     for iid in item_ids:
+        if vis is not None and iid not in vis:
+            continue  # 見えないアイテム(他の人の非公開のもの)は含めない
         item = conn.execute("SELECT * FROM items WHERE id=? AND target_id=?", (iid, target_id)).fetchone()
         vs = _item_versions(conn, iid) if item else []
         if item and vs:

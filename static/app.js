@@ -51,6 +51,8 @@ const ICONS = {
   shrink: '<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>',
   eye: '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>',
   eyeoff: '<path d="M3 3l18 18"/><path d="M10.6 5.1A10 10 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.2 4.2M6.6 6.6A17 17 0 0 0 2 12s3.5 7 10 7a9.6 9.6 0 0 0 5.4-1.6"/>',
+  chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
+  star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
   share: '<path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
   more: '<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>',
@@ -89,6 +91,15 @@ const verLabel = (v) => v || "バージョン不明";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const isEditor = () => state.user && (state.user.role === "editor" || state.user.role === "admin");
 const isAdmin = () => state.user && state.user.role === "admin";
+/* 管理者がユーザーごとに付ける権限(管理者はすべて持つ) */
+const PERM_LABELS = {
+  storage: ["保存先の管理", "保存先の追加・切り替え・移行・バックアップ"],
+  users: ["ユーザーの管理", "ユーザーの追加・削除・利用状況の確認"],
+  integrations: ["連携の設定", "Pterodactyl・Discord・CurseForge"],
+  system: ["パネル全体の設定", "パネルのアップデート・更新確認の間隔など"],
+  audit: ["操作の記録", "誰がいつ何をしたかを見る"],
+};
+const can = (p) => !!state.user && (state.user.role === "admin" || (state.user.perms || []).includes(p));
 
 async function api(path, opts = {}) {
   opts.headers = { "X-Requested-With": "mcpl", ...(opts.headers || {}) };
@@ -276,6 +287,10 @@ async function checkAuth() {
   state.user = me.user;
   state.prefs = me.prefs || {};
   if (state.prefs.lang) setLang(state.prefs.lang);
+  if (state.prefs.sort && $(`#sortSel option[value="${state.prefs.sort}"]`)) {
+    $("#sortSel").value = state.prefs.sort;
+    const [k, d] = state.prefs.sort.split(":"); state.sortKey = k; state.sortDir = Number(d);
+  }
   if (state.prefs.theme === "custom" && state.prefs.bg_file) state.prefs.tone = await detectTone(state.prefs.bg_file);
   applyTheme(state.prefs);
   $("#auth").hidden = true;
@@ -286,7 +301,7 @@ async function checkAuth() {
   setView(v === "dash" ? "dash" : "library");
   refresh();
   pollJobs();
-  if (isAdmin()) {
+  if (can("system")) {
     checkSelfUpdate(false);
     if (!state.updTimer) state.updTimer = setInterval(() => checkSelfUpdate(false), 3 * 3600 * 1000);
   }
@@ -413,8 +428,11 @@ function filtered() {
     || it.versions.some((v) => v.filename.toLowerCase().includes(q) || v.version.toLowerCase().includes(q)));
   const k = state.sortKey, dir = state.sortDir;
   const cmpName = (a, b) => a.name.localeCompare(b.name, "ja", { numeric: true, sensitivity: "base" });
+  const hasUpd = (i) => (i.source && i.source.status === "update" ? 1 : 0);
   return list.sort((a, b) => {
     let r = 0;
+    if (k === "fav") return (Number(!!b.favorite) - Number(!!a.favorite)) || cmpName(a, b);
+    if (k === "upd") return (hasUpd(b) - hasUpd(a)) || cmpName(a, b);
     if (k === "name") r = cmpName(a, b);
     else if (k === "count") r = a.versions.length - b.versions.length;
     else if (k === "size") r = a.total_size - b.total_size;
@@ -456,13 +474,15 @@ function render() {
   mcSel.value = state.mc || "";
 
   const list = filtered();
+  const otherHint = state.cat === "other" && list.length && isEditor()
+    ? `<div class="hint-row">${icon("wand")}<span>「その他」は種類を自動で判定できなかったものです。<b>選択</b> → <b>その他</b> → <b>種類を変更</b> で、まとめて正しい種類に直せます(1件ずつなら詳細の ✏️ から)。</span></div>` : "";
   const webFind = state.q && isEditor() ? `<button class="row webfind" type="button" data-webfind="1"><span class="cicon sm c-plugin">${icon("search")}</span>
     <span class="main"><span class="title">「${esc(state.q)}」を配布サイトで探す</span><span class="subtitle">Modrinth / SpigotMC / CurseForge から探して、MC バージョンを選んで保存できます</span></span>${icon("chev", "i chev")}</button>` : "";
   if (!list.length) {
     $("#list").innerHTML = `<div class="empty"><div class="big">📦</div>${state.items.length ? `条件に合うものがありません${state.mc ? `<br><small>MC ${esc(state.mc)} で使えると判定できたものだけを表示しています。対応MCバージョンが不明なものは表示されません</small>` : ""}`
       : isEditor() ? "まだ何も登録されていません。<br>ファイルをドロップするか、「配布サイトで探す」から追加してください" : "まだ何も登録されていません"}</div>${webFind}`;
   } else {
-    $("#list").innerHTML = list.map((it) => {
+    const rowHTML = (it) => {
       const latest = it.versions.find((v) => v.id === it.latest_id) || it.versions[0];
       const upd = it.source && it.source.status === "update";
       const missing = it.versions.some((v) => v.missing);
@@ -473,13 +493,18 @@ function render() {
       return `<div class="row${state.selected === it.id ? " sel" : ""}${picked ? " picked" : ""}" role="button" tabindex="0" data-id="${it.id}">
         ${state.selMode ? `<span class="pick${picked ? " on" : ""}" aria-hidden="true">${picked ? icon("check") : ""}</span>` : ""}
         ${itemIcon(it)}
-        <span class="main"><span class="title" translate="no">${esc(it.name)}</span>
-          <span class="subtitle">${plat ? `<span class="plat" translate="no">${esc(platShort(plat))}</span>` : ""}${esc(verLabel(latest.version))}${mc ? ` · MC ${esc(mc)}` : ""} · ${it.versions.length} バージョン<span class="hide-s"> · ${fmtSize(it.total_size)} · ${fmtDate(it.last_added)}</span></span>
+        <span class="main"><span class="title"><span translate="no">${esc(it.name)}</span>${favBtn(it)}</span>
+          <span class="subtitle">${it.access && it.access !== "owner" ? `<span class="ownerb" translate="no">${icon("users")}${esc(it.owner_name)}</span>` : ""}${(it.shared_with || []).length ? `<span class="ownerb out" title="${esc(it.shared_with.map((x) => x.username).join(", "))} に共有中">${icon("share")}${it.shared_with.length}</span>` : ""}${plat ? `<span class="plat" translate="no">${esc(platShort(plat))}</span>` : ""}${esc(verLabel(latest.version))}${mc ? ` · MC ${esc(mc)}` : ""} · ${it.versions.length} バージョン<span class="hide-s"> · ${fmtSize(it.total_size)} · ${fmtDate(it.last_added)}</span></span>
           ${(it.tags || []).length ? `<span class="rtags">${it.tags.slice(0, 4).map((t) => `<span class="tagchip mini" translate="no">#${esc(t)}</span>`).join("")}</span>` : ""}</span>
         ${trailOf(it, upd, missing, page)}
         ${icon("chev", "i chev rowchev")}
       </div>`;
-    }).join("") + webFind;
+    };
+    const mine = list.filter((it) => !it.access || it.access === "owner");
+    const shared = list.filter((it) => it.access && it.access !== "owner");
+    $("#list").innerHTML = otherHint + mine.map(rowHTML).join("")
+      + (shared.length ? `<div class="list-sep">${icon("users")}共有されたもの<span>${shared.length} 件</span></div>${shared.map(rowHTML).join("")}` : "")
+      + webFind;
   }
   if (state.selected) renderPanel();
   if (state.view === "dash") renderDash();
@@ -491,7 +516,7 @@ function renderStorage() {
   $("#storageInfo").title = t ? `保存先: ${t.name}(押すと状況を表示)` : "";
   const banner = $("#storageBanner");
   banner.hidden = !s.error;
-  banner.innerHTML = s.error ? `<span>⚠️ ${esc(s.error)}</span>${isAdmin() ? `<button class="btn small tinted" type="button" id="bannerOpen">ストレージ設定を開く</button>` : ""}` : "";
+  banner.innerHTML = s.error ? `<span>⚠️ ${esc(s.error)}</span>${can("storage") ? `<button class="btn small tinted" type="button" id="bannerOpen">ストレージ設定を開く</button>` : ""}` : "";
   $("#bannerOpen")?.addEventListener("click", () => openSettings("storage"));
   $("#drop").classList.toggle("disabled", !!s.error);
 }
@@ -525,7 +550,7 @@ async function storageStatusSheet() {
   };
   await sheet(`${sheetHead("保存先の状況")}<div class="db" id="nasBody">${body(null)}</div>
     <div class="df row2"><button class="btn" type="button" id="nasRe">${icon("refresh")}再確認</button>
-    ${isAdmin() ? `<button class="btn tinted" type="button" id="nasSet">ストレージ設定</button>` : `<button class="btn" type="button" data-close>閉じる</button>`}</div>`, (form, done) => {
+    ${can("storage") ? `<button class="btn tinted" type="button" id="nasSet">ストレージ設定</button>` : `<button class="btn" type="button" data-close>閉じる</button>`}</div>`, (form, done) => {
     const load = async () => {
       try { $("#nasBody", form).innerHTML = body(await api("/api/storage/status")); }
       catch (e) { $("#nasBody", form).innerHTML = `<div class="empty">${esc(e.message)}</div>`; }
@@ -557,7 +582,22 @@ $("#platSel").addEventListener("change", (e) => { state.plat = e.target.value; r
 $("#tagChips").addEventListener("click", (e) => { const b = e.target.closest("[data-tagf]"); if (!b) return; state.tag = state.tag === b.dataset.tagf ? "" : b.dataset.tagf; render(); });
 $("#sortSel").addEventListener("change", (e) => {
   const [k, d] = e.target.value.split(":"); state.sortKey = k; state.sortDir = Number(d); render();
+  savePrefs({ sort: e.target.value }).catch(() => {});
 });
+/* お気に入り(本人だけのしるし) */
+const favBtn = (it) => `<button class="favbtn${it.favorite ? " on" : ""}" type="button" data-fav="${it.id}" aria-pressed="${!!it.favorite}" title="${it.favorite ? "お気に入りから外す" : "お気に入りに追加"}" aria-label="お気に入り">${icon("star")}</button>`;
+async function toggleFav(id) {
+  const it = state.items.find((i) => i.id === id); if (!it) return;
+  const on = !it.favorite;
+  it.favorite = on; render();
+  try { await api(`/api/items/${id}/favorite`, { json: { on } }); }
+  catch (e) { it.favorite = !on; render(); toast(e.message, true); }
+}
+document.addEventListener("click", (e) => {
+  const f = e.target.closest("[data-fav]"); if (!f) return;
+  e.preventDefault(); e.stopPropagation();
+  toggleFav(Number(f.dataset.fav));
+}, true);
 $("#list").addEventListener("click", (e) => {
   if (e.target.closest("a")) return;  // 配布ページのリンクはそのまま開く
   const r = e.target.closest(".row[data-id]"); if (!r) return;
@@ -580,6 +620,7 @@ const VIEWS = { library: "ライブラリ", dash: "ダッシュボード", sets:
 function setView(view) {
   if (!VIEWS[view]) view = "library";
   state.view = view;
+  if (state.jobs) renderJobs();
   document.querySelectorAll("#tabbar [data-view]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === view)));
   $("#viewTitle").textContent = VIEWS[view];
   $("#libView").hidden = view !== "library";
@@ -709,7 +750,7 @@ async function renderDash() {
         </div>
       </div>
       <div class="card">
-        <div class="card-h"><h4>保存先とバックアップ</h4>${isAdmin() ? `<button class="btn small" type="button" data-dact="storage">設定</button>` : ""}</div>
+        <div class="card-h"><h4>保存先とバックアップ</h4>${can("storage") ? `<button class="btn small" type="button" data-dact="storage">設定</button>` : ""}</div>
         <div class="card-b">${t ? `
           <div class="kv"><span>保存先</span><span>${esc(t.name)}(${esc(t.protocol_label)})</span></div>
           <div class="kv"><span>状態</span><span><span class="status-dot ${s.error ? "err" : "ok"}" style="display:inline-block;margin-right:6px"></span>${s.error ? esc(s.error) : "接続しています"}</span></div>` : ""}
@@ -885,7 +926,7 @@ $("#dash").addEventListener("click", async (e) => {
     else if (g === "upd") gotoLibrary("__upd");
     else if (g === "unlinked") gotoLibrary("__unlinked");
     else if (g === "nomc") gotoLibrary("__nomc");
-    else if (g === "storage") { if (isAdmin()) openSettings("storage"); else gotoLibrary("all"); }
+    else if (g === "storage") { if (can("storage")) openSettings("storage"); else gotoLibrary("all"); }
     return;
   }
   const b = e.target.closest("[data-dact]"); if (!b) return;
@@ -958,13 +999,13 @@ async function editSet(set) {
       ${field("名前", `<input type="text" name="name" value="${esc(set?.name || "")}" placeholder="例: サバイバル鯖一式">`)}
       ${field("メモ(任意)", `<input type="text" name="description" value="${esc(set?.description || "")}">`)}
       <label class="search"><span>${icon("search")}</span><input type="search" id="setQ" placeholder="絞り込み"></label>
-      <div class="group scroll" id="setItems">${items.map((it) => `<div class="toggle-row pick" data-name="${esc(it.name.toLowerCase())}">
+      <div class="group scroll" id="setItems">${items.map((it) => `<div class="toggle-row setpick" data-name="${esc(it.name.toLowerCase())}">
           ${itemIcon(it, true)}
-          <label class="main" for="si-${it.id}">${esc(it.name)}</label>
-          <select data-ver="${it.id}" class="compact" aria-label="${esc(it.name)} のバージョン">
-            <option value="">常に最新(${esc(verLabel(it.versions[0].version))})</option>
-            ${it.versions.map((v) => `<option value="${v.id}"${String(chosen.get(it.id)) === String(v.id) ? " selected" : ""}>${esc(verLabel(v.version))} に固定</option>`).join("")}
-          </select>
+          <div class="main"><label for="si-${it.id}" translate="no">${esc(it.name)}</label>
+            <select data-ver="${it.id}" class="compact" aria-label="${esc(it.name)} のバージョン">
+              <option value="">常に最新(${esc(verLabel(it.versions[0].version))})</option>
+              ${it.versions.map((v) => `<option value="${v.id}"${String(chosen.get(it.id)) === String(v.id) ? " selected" : ""}>${esc(verLabel(v.version))} に固定</option>`).join("")}
+            </select></div>
           <input type="checkbox" class="switch" id="si-${it.id}" data-item="${it.id}"${chosen.has(it.id) ? " checked" : ""}></div>`).join("")}</div>
       <div class="result err" id="setWarn" hidden></div>
     </div>
@@ -976,7 +1017,7 @@ async function editSet(set) {
       $("#setWarn", form).textContent = miss.length ? `前提が足りません: ${miss.join(" / ")}` : "";
     };
     form.addEventListener("change", warn); warn();
-    $("#setQ", form).oninput = (ev) => { const q = ev.target.value.toLowerCase(); form.querySelectorAll(".pick").forEach((l) => { l.hidden = q && !l.dataset.name.includes(q); }); };
+    $("#setQ", form).oninput = (ev) => { const q = ev.target.value.toLowerCase(); form.querySelectorAll(".setpick").forEach((l) => { l.hidden = q && !l.dataset.name.includes(q); }); };
     form.querySelector("[data-ok]").onclick = (ev) => busy(ev.currentTarget, async () => {
       const body = {
         name: form.querySelector("[name=name]").value, description: form.querySelector("[name=description]").value,
@@ -1028,18 +1069,20 @@ function renderServers() {
   if (!state.pteroConfigured) {
     $("#serversView").innerHTML = `<div class="card"><div class="empty"><div class="big">🦖</div>
       Pterodactyl と連携すると、保管しているプラグインをサーバーへ転送・同期できます。<br>
-      ${isAdmin() ? `<button class="btn filled" type="button" data-va="setup" style="margin-top:12px">${icon("gear")}Pterodactyl を設定</button>` : "管理者に設定を依頼してください"}</div></div>`;
+      ${can("integrations") ? `<button class="btn filled" type="button" data-va="setup" style="margin-top:12px">${icon("gear")}Pterodactyl を設定</button>` : "管理者に設定を依頼してください"}</div></div>`;
     return;
   }
   $("#serversView").innerHTML = `
     <div class="view-head">
       <div class="segmented glass viewsw">${[["list", "一覧"], ["compare", "比較"]].map(([k, n]) => `<button class="seg" type="button" data-mode="${k}" aria-pressed="${mode === k}">${n}</button>`).join("")}</div>
-      <button class="btn filled need-admin" type="button" data-va="add">${icon("plus")}サーバーを連携</button></div>
+      <button class="btn filled need-editor" type="button" data-va="add">${icon("plus")}サーバーを連携</button></div>
     <div id="srvBody"></div>`;
   if (mode === "compare") { renderCompare(); return; }
-  $("#srvBody").innerHTML = list.length ? `<div class="dash-grid">${list.map((s) => `<div class="card" data-srv="${s.id}">
-      <div class="card-h"><h4>${esc(s.name)}</h4><span class="srv-state"><span class="spinner"></span></span></div>
+  const card = (s) => `<div class="card${s.access === "view" ? " ro" : ""}" data-srv="${s.id}">
+      <div class="card-h"><h4 translate="no">${esc(s.name)}</h4><span class="srv-state"><span class="spinner"></span></span></div>
       <div class="card-b">
+        ${s.access && s.access !== "owner" ? `<div class="sharednote" style="margin-bottom:6px">${icon("users")}<span translate="no">${esc(s.owner_name)}</span> さんが共有(${s.access === "edit" ? "操作もできます" : "見るだけ"})</div>` : ""}
+        ${(s.shared_with || []).length ? `<div class="kv"><span>共有</span><span translate="no">${s.shared_with.map((x) => esc(x.username)).join("、")}</span></div>` : ""}
         <div class="kv"><span>フォルダ</span><span>${esc(s.plugin_dir)}</span></div>
         <div class="kv"><span>セット</span><span>${s.set_name ? esc(s.set_name) : "なし"}</span></div>
         <div class="kv"><span>予約同期</span><span>${esc(schedLabel(s))}</span></div>
@@ -1049,7 +1092,11 @@ function renderServers() {
           <button class="btn small tinted" type="button" data-va="inv">${icon("search")}中身</button>
           <button class="icon-btn sm" type="button" data-va="more" title="その他" aria-label="その他の操作">${icon("more")}</button>
         </div>
-      </div></div>`).join("")}</div>`
+      </div></div>`;
+  const mine = list.filter((s) => !s.access || s.access === "owner"), shared = list.filter((s) => s.access && s.access !== "owner");
+  $("#srvBody").innerHTML = list.length
+    ? `${mine.length ? `<div class="dash-grid">${mine.map(card).join("")}</div>` : ""}
+      ${shared.length ? `<div class="list-sep">${icon("users")}共有されたサーバー<span>${shared.length} 台</span></div><div class="dash-grid">${shared.map(card).join("")}</div>` : ""}`
     : `<div class="card"><div class="empty"><div class="big">🖥️</div>まだサーバーを連携していません</div></div>`;
 }
 $("#serversView").addEventListener("click", async (e) => {
@@ -1071,7 +1118,8 @@ $("#serversView").addEventListener("click", async (e) => {
           try { await api(`/api/servers/${sid}/power`, { json: { signal: "restart" } }); toast("再起動しました"); } catch (ex) { toast(ex.message, true); }
         }
       } },
-      ...(isAdmin() ? ["-", { label: "設定・予約同期", icon: "gear", run: () => serverSettingsDialog(s) }] : []),
+      ...(s.access !== "view" ? ["-", { label: "設定・予約同期", icon: "gear", run: () => serverSettingsDialog(s) }] : []),
+      ...(!s.access || s.access === "owner" ? [{ label: "ほかのユーザーに共有", icon: "users", run: () => aclDialog("server", s) }] : []),
     ]);
   }
   if (a === "sync") {
@@ -1324,6 +1372,7 @@ function sectOpen(key, def) { try { const v = localStorage.getItem(`craftshelf.s
 function renderPanel() {
   const it = state.items.find((i) => i.id === state.selected);
   if (!it) return;
+  $("#panel").classList.toggle("ro", it.access === "view");
   if (state.panelSub === "link" && it.source) {
     $("#panel").innerHTML = linkPageHTML(it);
     return;
@@ -1343,7 +1392,8 @@ function renderPanel() {
           <button class="icon-btn sm" type="button" data-act="more" title="その他" aria-label="その他の操作">${icon("more")}</button>
           <button class="close-x" type="button" data-act="close" aria-label="閉じる">${icon("x")}</button>
         </div></div>
-      <h3 translate="no">${esc(it.name)}</h3>
+      <h3><span translate="no">${esc(it.name)}</span>${favBtn(it)}</h3>
+      ${it.access && it.access !== "owner" ? `<div class="sharednote">${icon("users")}<span translate="no">${esc(it.owner_name)}</span> さんが共有しています(${it.access === "edit" ? "編集もできます" : "閲覧・ダウンロードのみ"})</div>` : ""}
       <p class="desc">${esc(verLabel(latest.version))} · ${it.versions.length} バージョン · ${fmtSize(it.total_size)}${mcOf(it) ? ` · MC ${esc(mcOf(it))}` : ""}</p>
       ${latest.meta.description ? `<p class="desc">${esc(latest.meta.description)}</p>` : ""}
       ${(it.tags || []).length ? `<div class="chips">${it.tags.map((t) => `<button class="tagchip" type="button" data-act="tag" data-tag="${esc(t)}">#${esc(t)}</button>`).join("")}</div>` : ""}
@@ -1351,6 +1401,12 @@ function renderPanel() {
     <div class="side-body">
       <div class="group-title">配布元</div>
       <div class="group">${sourceBoxHTML(it)}</div>
+      ${!it.access || it.access === "owner" ? `<div class="group-title">共有</div>
+      <div class="group"><button class="row need-editor" type="button" data-act="acl">
+        <span class="cicon sm c-teal">${icon("users")}</span>
+        <span class="main"><span class="title">${(it.shared_with || []).length ? `${it.shared_with.length} 人と共有しています` : "自分だけ(共有していません)"}</span>
+          <span class="subtitle" translate="no">${(it.shared_with || []).map((x) => `${esc(x.username)}(${x.level === "edit" ? "編集可" : "閲覧"})`).join("、") || "押すと、ほかのユーザーに共有できます"}</span></span>
+        ${icon("chev", "i chev")}</button></div>` : ""}
       ${serversSectionHTML(it)}
       ${nDeps ? `<details class="sect" data-sect="deps"${sectOpen("deps", nMissing > 0) || nMissing ? " open" : ""}>
         <summary><span>前提プラグイン・Mod</span><span class="sum-r">${nMissing ? `<span class="badge err">${nMissing} 件が不足</span>` : '<span class="badge ok">そろっています</span>'}${icon("chev", "i chev")}</span></summary>
@@ -1402,13 +1458,16 @@ $("#panel").addEventListener("click", async (e) => {
   }
   if (act === "close") closePanel();
   else if (act === "tag") { state.tag = b.dataset.tag; closePanel(); setView("library"); render(); }
+  else if (act === "acl") { aclDialog("item", it); return; }
   else if (act === "more") {
+    const canEdit = isEditor() && it.access !== "view", owner = !it.access || it.access === "owner";
     openMenu(b, [
-      ...(isEditor() ? [{ label: "情報・タグを編集", icon: "edit", run: () => editItem(it) },
+      ...(canEdit ? [{ label: "情報・タグを編集", icon: "edit", run: () => editItem(it) },
         { label: "サーバーへ転送", icon: "server", run: () => pushDialog({ item: it }) },
         { label: "セットに追加", icon: "stack", run: () => addToSet(it) }] : []),
       { label: state.verOrder === "desc" ? "古い順に並べる" : "新しい順に並べる", icon: "arrows", run: () => { state.verOrder = state.verOrder === "desc" ? "asc" : "desc"; renderPanel(); } },
-      ...(isEditor() ? ["-", { label: "すべて削除", icon: "trash", danger: true, run: async () => {
+      ...(owner && isEditor() ? [{ label: "ほかのユーザーに共有", icon: "users", run: () => aclDialog("item", it) }] : []),
+      ...(owner && isEditor() ? ["-", { label: "すべて削除", icon: "trash", danger: true, run: async () => {
         if (await confirmSheet(`「${it.name}」をすべて削除しますか?`, `保存している ${it.versions.length} 個のファイルがすべて削除され、元に戻せません。`, "すべて削除")) {
           await run(() => api(`/api/items/${it.id}`, { method: "DELETE" }), "削除しました");
         }
@@ -1422,6 +1481,37 @@ $("#panel").addEventListener("click", async (e) => {
     }
   }
 });
+/* だれに共有するか(しない / 閲覧・ダウンロード / 編集もできる) */
+async function aclDialog(kind, obj) {
+  let users;
+  try { users = (await api("/api/users/directory")).users; } catch (e) { toast(e.message, true); return; }
+  if (!users.length) { toast("共有できるほかのユーザーがいません(設定の「ユーザーと権限」で追加できます)", true); return; }
+  const cur = Object.fromEntries((obj.shared_with || []).map((x) => [x.user_id, x.level]));
+  const label = kind === "item" ? "アイテム" : "サーバー";
+  const r = await sheet(`${sheetHead(`「${obj.name}」を共有`)}<div class="db">
+      <p>共有した相手のライブラリ(またはサーバー一覧)の下の「共有されたもの」に表示されます。${kind === "server" ? "「編集もできる」にすると、相手もこのサーバーへの転送・同期ができます。" : "「編集もできる」にすると、相手も情報の編集・新しいバージョンの追加ができます(削除・共有の変更は持ち主だけ)。"}</p>
+      <div class="group">${users.map((u) => `<div class="row acl-row" data-uid="${u.id}"><span class="cicon sm c-teal">${icon("person")}</span>
+        <span class="main"><span class="title" translate="no">${esc(u.username)}</span>${u.can_edit ? "" : '<span class="subtitle">閲覧のみのユーザー</span>'}</span>
+        <div class="segmented mini" role="group" aria-label="${esc(u.username)} への共有">
+          ${[["", "しない"], ["view", "閲覧"], ["edit", "編集も"]].map(([lv, t]) => `<button class="seg" type="button" data-lv="${lv}" aria-pressed="${(cur[u.id] || "") === lv}"${lv === "edit" && !u.can_edit ? " disabled" : ""}>${t}</button>`).join("")}
+        </div></div>`).join("")}</div>
+    </div><div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok>保存</button></div>`, (form, done) => {
+    form.addEventListener("click", (e) => {
+      const b = e.target.closest("[data-lv]"); if (!b || b.disabled) return;
+      b.closest(".segmented").querySelectorAll("[data-lv]").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+    });
+    form.querySelector("[data-ok]").onclick = (ev) => busy(ev.currentTarget, async () => {
+      const shares = [...form.querySelectorAll(".acl-row")].map((row) => ({ user_id: Number(row.dataset.uid), level: row.querySelector('[aria-pressed="true"]')?.dataset.lv || "" }))
+        .filter((x) => x.level);
+      try {
+        await api(`/api/${kind === "item" ? "items" : "servers"}/${obj.id}/acl`, { method: "PUT", json: { shares } });
+        toast(shares.length ? `${shares.length} 人に共有しました` : `${label}の共有をやめました`);
+        done(true);
+      } catch (ex) { toast(ex.message, true); }
+    });
+  });
+  if (r) { if (kind === "item") await refresh(); else { state.servers = null; loadServers(); } }
+}
 async function run(fn, okMsg) {
   try { await fn(); if (okMsg) toast(okMsg); await refresh(); return true; }
   catch (e) { toast(e.message, true); return false; }
@@ -1565,16 +1655,16 @@ function linkPageHTML(it) {
   return `<div class="side-head">
       <div class="nav"><button class="btn plain small backbtn" type="button" data-act="panel-back">${icon("chev", "i back")}戻る</button>
         <div class="navbtns"><button class="close-x" type="button" data-act="close" aria-label="閉じる">${icon("x")}</button></div></div>
-      <h3>配布元の紐づけ</h3><p class="desc" translate="no">${esc(it.name)}</p></div>
+      <h3>配布元のリンク</h3><p class="desc" translate="no">${esc(it.name)}</p></div>
     <div class="side-body">
-      <div class="group-title">いまの紐づけ先</div>
+      <div class="group-title">いまのリンク先</div>
       <div class="group"><div class="srcbox"><div class="sh">${s.icon_v ? `<span class="srcicon"><img src="/api/items/${it.id}/icon?v=${s.icon_v}" alt="" decoding="async">${providerBadge(s.provider)}</span>`
         : providerBadge(s.provider).replace('class="pbadge"', 'class="pbadge lg"')}
         <div class="main"><a href="${esc(safeUrl(s.page_url))}" target="_blank" rel="noopener noreferrer" style="font-weight:600">${esc(s.title)} ${icon("external", "i ext")}</a>
           <div class="muted brk" style="margin:0">${esc(s.provider_label)}${s.linked_by === "name" ? " · 名前から推定(違っていたら変えてください)" : s.linked_by === "hash" ? " · ファイルの中身で一致" : ""}</div></div></div></div></div>
 
       <div class="need-editor">
-        <div class="group-title">紐づけ先を変える</div>
+        <div class="group-title">リンク先を変える</div>
         <div class="group srcrows">
           ${srcRow("src-detect", "wand", "c-teal", "自動で探し直す", "ファイルの中身と名前から、配布元を探し直します")}
           ${srcRow("src-search", "search", "c-plugin", "配布サイトで検索して選ぶ", "Modrinth / SpigotMC / CurseForge を名前で検索")}
@@ -1597,7 +1687,7 @@ function linkPageHTML(it) {
 
         <div class="group srcrows" style="margin-top:18px">
           <button class="row danger" type="button" data-act="src-unlink"><span class="cicon sm c-red">${icon("x")}</span>
-            <span class="main"><span class="title">紐づけを解除</span><span class="subtitle">保存しているファイルはそのまま残ります</span></span></button>
+            <span class="main"><span class="title">リンクを解除</span><span class="subtitle">保存しているファイルはそのまま残ります</span></span></button>
         </div>
       </div>
     </div>`;
@@ -1648,10 +1738,11 @@ function sourceBoxHTML(it) {
         <div class="muted" style="margin:0">${esc(s.provider_label)}${s.linked_by === "name" ? " · 名前から推定" : ""}</div></div></div>
     ${state_}
     ${main}
-    <div class="qacts">
-      ${qa("src-check", "refresh", "更新を確認", false, "need-editor")}
-      ${qa("src-linkpage", "link", "紐づけ")}
-      ${qa("src-changelog", "doc", "更新内容")}
+    <div class="srcbar">
+      <button class="btn tinted small need-editor" type="button" data-act="src-check">${icon("refresh")}更新を確認</button>
+      <span class="sp"></span>
+      <button class="mini-act" type="button" data-act="src-linkpage" title="配布元のリンク(紐づけ先の変更・探す条件)">${icon("link")}<span>リンク</span></button>
+      <button class="mini-act" type="button" data-act="src-changelog" title="配布元で公開されている更新の履歴">${icon("doc")}<span>履歴</span></button>
     </div>
     ${s.checked_at ? `<div class="qfoot">前回の確認: ${fmtDateTime(s.checked_at)}</div>` : ""}
   </div>`;
@@ -1975,8 +2066,23 @@ async function pollJobs() {
     jobTimer = setTimeout(pollJobs, jobs.some((j) => j.status === "running") ? 1500 : 15000);
   } catch { jobTimer = setTimeout(pollJobs, 15000); }
 }
+/* 処理の進み具合: ライブラリでは詳しく、ダッシュボードでは小さく1行で。サーバーの処理はサーバー画面にも出す */
 function renderJobs() {
-  $("#jobs").innerHTML = state.jobs.map((j) => {
+  const view = state.view || "library";
+  const jobs = view === "library" ? state.jobs
+    : view === "servers" ? state.jobs.filter((j) => String(j.kind).startsWith("server-"))
+    : view === "dash" ? state.jobs : [];
+  if (view === "dash") {
+    $("#jobs").innerHTML = jobs.length ? `<div class="jobs-mini">${jobs.map((j) => {
+      const pct = j.total ? Math.round(j.done / j.total * 100) : 0;
+      return `<button class="jm${j.status === "error" ? " error" : ""}" type="button" data-jgo="1" title="ライブラリで詳しく見る">
+        ${j.status === "running" ? '<span class="spinner"></span>' : icon(j.status === "done" ? "check" : "x")}
+        <span class="t">${esc(j.title)}</span><span class="n">${j.status === "running" ? `${j.done} / ${j.total || "?"}` : j.status === "done" ? "完了" : "エラー"}</span>
+        ${j.status === "running" ? `<span class="bar"><i style="width:${pct}%"></i></span>` : ""}</button>`;
+    }).join("")}</div>` : "";
+    return;
+  }
+  $("#jobs").innerHTML = jobs.map((j) => {
     const pct = j.total ? Math.round(j.done / j.total * 100) : 0;
     return `<div class="job${j.status === "error" ? " error" : ""}">
       <div class="jl"><div class="l">${j.status === "running" ? '<span class="spinner"></span>' : `<span class="cicon sm ${j.status === "done" ? "c-mod" : "c-red"}">${icon(j.status === "done" ? "check" : "x")}</span>`}
@@ -1988,6 +2094,7 @@ function renderJobs() {
   }).join("");
 }
 $("#jobs").addEventListener("click", (e) => {
+  if (e.target.closest("[data-jgo]")) { setView("library"); return; }
   const b = e.target.closest("[data-jclose]"); if (!b) return;
   (state.hiddenJobs ||= new Set()).add(b.dataset.jclose);
   state.jobs = state.jobs.filter((j) => j.id !== b.dataset.jclose); renderJobs();
@@ -2030,6 +2137,7 @@ const SETTINGS_PAGES = {
   root: {
     title: () => "設定",
     async render(body) {
+      const grp = (title, rows) => { const r = rows.filter(Boolean); return r.length ? `<div class="group-title">${title}</div><div class="group">${r.join("")}</div>` : ""; };
       const u = state.user;
       const upd = state.selfUpd && state.selfUpd.update_available;
       body.innerHTML = `
@@ -2037,27 +2145,25 @@ const SETTINGS_PAGES = {
           <span class="avatar">${esc((u.username || "?").slice(0, 1).toUpperCase())}</span>
           <span class="main"><span class="title">${esc(u.username)}</span><span class="subtitle">${esc(u.role_label)} · アカウント・セキュリティ・連携の状況</span></span>
           <span class="trail">${icon("chev", "i chev")}</span></button></div>
-        ${isAdmin() ? `<div class="group-title">管理</div><div class="group">
-          ${rowBtn("storage", "server", "c-plugin", "ストレージ", `<span class="val">${esc(state.storage?.target?.name || "")}</span>`)}
-          ${rowBtn("users", "users", "c-resourcepack", "ユーザー")}
-          ${rowBtn("updates", "clock", "c-datapack", "配布元の更新確認")}
-        </div>
-        <div class="group-title">連携</div><div class="group">
-          ${rowBtn("ptero", "server", "c-teal", "Pterodactyl")}
-          ${rowBtn("discord", "bell", "c-plugin", "Discord 通知")}
-          ${rowBtn("curseforge", "key", "c-other", "CurseForge APIキー")}
-        </div>
-        <div class="group-title">運用</div><div class="group">
-          ${rowBtn("backup", "download", "c-mod", "バックアップ")}
-          ${rowBtn("audit", "doc", "c-gray", "操作の記録")}
-          ${rowBtn("shares", "share", "c-teal", "共有リンク")}
-        </div>` : ""}
+        ${grp("管理", [
+          can("storage") && rowBtn("storage", "server", "c-plugin", "ストレージ", `<span class="val">${esc(state.storage?.target?.name || "")}</span>`),
+          can("users") && rowBtn("users", "users", "c-resourcepack", "ユーザーと権限"),
+          can("users") && rowBtn("usage", "chart", "c-teal", "ユーザーごとの利用状況"),
+          can("system") && rowBtn("updates", "clock", "c-datapack", "配布元の更新確認")])}
+        ${grp("連携", can("integrations") ? [
+          rowBtn("ptero", "server", "c-teal", "Pterodactyl"),
+          rowBtn("discord", "bell", "c-plugin", "Discord 通知"),
+          rowBtn("curseforge", "key", "c-other", "CurseForge APIキー")] : [])}
+        ${grp("運用", [
+          can("storage") && rowBtn("backup", "download", "c-mod", "バックアップ"),
+          can("audit") && rowBtn("audit", "doc", "c-gray", "操作の記録"),
+          rowBtn("shares", "share", "c-teal", "共有リンク")])}
         <div class="group-title">表示</div><div class="group">
           ${rowBtn("appearance", "sparkle", "c-resourcepack", "テーマと背景", `<span class="val">${esc(themeName(state.prefs))}</span>`)}
           ${rowBtn("lang", "globe", "c-plugin", "言語 / Language", `<span class="val" translate="no">${I18N.lang === "en" ? "English" : "日本語"}</span>`)}
         </div>
         <div class="group-title">CraftShelf</div><div class="group">
-          ${isAdmin() ? rowBtn("selfupdate", "sparkle", "c-mod", "パネルのアップデート", upd ? `<span class="badge upd">v${esc(state.selfUpd.latest)}</span>` : `<span class="val">v${esc(state.version || "")}${state.selfUpd && state.selfUpd.channel === "dev" ? "(開発ビルド)" : ""}</span>`)
+          ${can("system") ? rowBtn("selfupdate", "sparkle", "c-mod", "パネルのアップデート", upd ? `<span class="badge upd">v${esc(state.selfUpd.latest)}</span>` : `<span class="val">v${esc(state.version || "")}${state.selfUpd && state.selfUpd.channel === "dev" ? "(開発ビルド)" : ""}</span>`)
           : `<div class="row"><span class="cicon sm c-mod">${icon("sparkle")}</span><span class="main"><span class="title">バージョン</span></span><span class="trail">v${esc(state.version || "")}</span></div>`}
         </div>
         <div class="group" style="margin-top:18px"><button class="row danger" type="button" data-go="logout"><span class="cicon sm c-red">${icon("logout")}</span><span class="main"><span class="title">ログアウト</span></span></button></div>
@@ -2108,7 +2214,8 @@ const SETTINGS_PAGES = {
       state.user = me.user;
       const u = me.user;
       const stat = (ok, on, off) => `<span class="trail"><span class="status-dot ${ok ? "ok" : ""}"></span>${ok ? on : off}${icon("chev", "i chev")}</span>`;
-      const go = (page, ic, color, title, trail) => `<button class="row" type="button" data-go="${page}"${!isAdmin() && ["ptero", "discord", "curseforge", "backup"].includes(page) ? " disabled" : ""}><span class="cicon sm ${color}">${icon(ic)}</span><span class="main"><span class="title">${esc(title)}</span></span>${trail}</button>`;
+      const need = { ptero: "integrations", discord: "integrations", curseforge: "integrations", backup: "storage", updates: "system" };
+      const go = (page, ic, color, title, trail) => `<button class="row" type="button" data-go="${page}"${need[page] && !can(need[page]) ? " disabled" : ""}><span class="cicon sm ${color}">${icon(ic)}</span><span class="main"><span class="title">${esc(title)}</span></span>${trail}</button>`;
       body.innerHTML = `
         <div class="big-version"><span class="avatar lg">${esc(u.username.slice(0, 1).toUpperCase())}</span><div class="v">${esc(u.username)}</div><p>${esc(u.role_label)}${u.last_login ? ` · 最終ログイン ${esc(fmtDateTime(u.last_login))}` : ""}</p></div>
         <div class="group-title">プロフィール</div><div class="group">
@@ -2126,7 +2233,8 @@ const SETTINGS_PAGES = {
           ${go("backup", "download", "c-mod", "自動バックアップ", stat(st.backup_target_id, st.last_backup ? `前回 ${fmtDateTime(st.last_backup)}` : "毎日", "オフ"))}
           ${go("updates", "clock", "c-datapack", "更新の自動確認", stat(st.check_interval_hours, `${st.check_interval_hours} 時間ごと`, "オフ"))}
         </div>
-        ${!isAdmin() ? `<div class="group-foot">連携の設定は管理者が行います</div>` : ""}`;
+        ${!can("integrations") ? `<div class="group-foot">連携の設定は、管理者か「連携の設定」の権限を持つ人が行います</div>` : ""}
+        ${(u.perms || []).length && u.role !== "admin" ? `<div class="group-title">管理者からもらっている権限</div><div class="group">${u.perms.map((p) => `<div class="row"><span class="cicon sm c-teal">${icon("shield")}</span><span class="main"><span class="title">${esc(PERM_LABELS[p] ? PERM_LABELS[p][0] : p)}</span><span class="subtitle">${esc(PERM_LABELS[p] ? PERM_LABELS[p][1] : "")}</span></span></div>`).join("")}</div>` : ""}`;
       body.onclick = (e) => { const b = e.target.closest("[data-go]:not([disabled])"); if (b) pushSettings(b.dataset.go); };
     },
   },
@@ -2460,15 +2568,36 @@ const SETTINGS_PAGES = {
     title: () => "ユーザー",
     async render(body) {
       const { users } = await api("/api/users");
-      body.innerHTML = `<p>閲覧のみ: 見る・ダウンロード / 編集者: 登録・編集・削除・更新の取得 / 管理者: すべて</p>
+      body.innerHTML = `<p>アドオンやサーバーは基本的に<b>本人だけ</b>のものです(共有したものだけ、ほかの人に見えます)。<br>閲覧のみ: 共有されたものを見る・ダウンロード / 編集者: 自分のライブラリを持てる / 管理者: すべての管理。管理者は、ユーザーごとに管理の権限を個別に付けられます。</p>
         <div class="group">${users.map((u) => `<button class="row" type="button" data-uid="${u.id}"><span class="cicon sm c-teal">${icon("person")}</span>
-          <span class="main"><span class="title">${esc(u.username)}${u.id === state.user.id ? "(自分)" : ""}</span><span class="subtitle">${esc(u.role_label)}${u.last_login ? ` · 最終ログイン ${fmtDateTime(u.last_login)}` : ""}</span></span>
+          <span class="main"><span class="title">${esc(u.username)}${u.id === state.user.id ? "(自分)" : ""}</span><span class="subtitle">${esc(u.role_label)}${u.role !== "admin" && (u.perms || []).length ? ` + ${u.perms.map((p) => esc(PERM_LABELS[p] ? PERM_LABELS[p][0] : p)).join("・")}` : ""}${u.last_login ? ` · 最終ログイン ${fmtDateTime(u.last_login)}` : ""}</span></span>
           <span class="trail">${icon("chev", "i chev")}</span></button>`).join("")}</div>
         <button class="btn tinted block" type="button" id="uAdd">${icon("plus")}ユーザーを追加</button>`;
       body.onclick = (e) => {
         const r = e.target.closest("[data-uid]"); if (r) pushSettings("user", users.find((u) => u.id === Number(r.dataset.uid)));
       };
       $("#uAdd", body).onclick = () => pushSettings("user", null);
+    },
+  },
+  usage: {
+    title: () => "ユーザーごとの利用状況",
+    async render(body) {
+      const d = await api("/api/admin/usage");
+      const max = Math.max(1, ...d.users.map((u) => u.bytes));
+      body.innerHTML = `<p>だれが、どれくらいのアドオン・サーバーを持っているかの一覧です。本人だけのもの(共有していないもの)は件数と容量だけを表示し、名前は表示しません。</p>
+        <div class="group"><div class="card-b" style="padding:12px 14px"><div class="kv"><span>全員の合計</span><span>${fmtSize(d.total_bytes)} · ${d.users.reduce((n, u) => n + u.items, 0)} 件</span></div></div></div>
+        ${d.users.map((u) => `<div class="group-title" translate="no">${esc(u.username)} <span class="muted" style="font-weight:400">${esc(u.role_label)}</span></div>
+        <div class="group"><div class="card-b" style="padding:12px 14px">
+          <div class="meter"><i style="width:${(u.bytes / max * 100).toFixed(1)}%"></i></div>
+          <div class="kv"><span>アドオン</span><span>${u.items} 件 · ${u.files} ファイル · ${fmtSize(u.bytes)}</span></div>
+          ${Object.keys(u.categories).length ? `<div class="kv sub"><span>内訳</span><span>${Object.entries(u.categories).map(([c, n]) => `${esc(CATS[c] || c)} ${n}`).join("・")}</span></div>` : ""}
+          <div class="kv"><span>サーバー</span><span translate="no">${u.servers.length ? esc(u.servers.join("、")) : "なし"}</span></div>
+          <div class="kv"><span>セット</span><span>${u.sets} 個</span></div>
+          <div class="kv"><span>共有</span><span>ほかの人へ ${u.shared_out} 件 / ほかの人から ${u.shared_in} 件</span></div>
+          ${u.shared_names.length ? `<div class="kv sub"><span>共有しているもの</span><span translate="no">${esc(u.shared_names.join("、"))}</span></div>` : ""}
+          ${u.role !== "admin" && u.perms.length ? `<div class="kv"><span>管理の権限</span><span>${u.perms.map((p) => esc(PERM_LABELS[p] ? PERM_LABELS[p][0] : p)).join("・")}</span></div>` : ""}
+          <div class="kv"><span>最終ログイン</span><span>${u.last_login ? esc(fmtDateTime(u.last_login)) : "なし"}</span></div>
+        </div></div>`).join("")}`;
     },
   },
   user: {
@@ -2478,6 +2607,8 @@ const SETTINGS_PAGES = {
       body.innerHTML = `${u ? "" : field("ユーザー名", `<input type="text" name="username" autocomplete="off">`)}
         ${field("権限", `<select name="role">${roleOpts}</select>`)}
         ${field(u ? "新しいパスワード(変更する場合のみ・8文字以上)" : "パスワード(8文字以上)", `<input type="password" name="password" autocomplete="new-password">`)}
+        ${isAdmin() ? `<div class="group-title" id="uPermT">管理の権限(管理者はすべて持っています)</div>
+          <div class="group" id="uPerms">${Object.entries(PERM_LABELS).map(([k, [t, d]]) => toggle(`perm_${k}`, t, d, !!u && (u.perms || []).includes(k))).join("")}</div>` : ""}
         <button class="btn filled block" type="button" id="uSave">${u ? "保存" : "追加"}</button>
         ${u && u.totp_enabled && u.id !== state.user.id ? `<button class="btn block" type="button" id="uTotp">二段階認証をリセット(スマホを紛失した場合)</button>` : ""}
         ${u && u.id !== state.user.id ? `<button class="btn danger block" type="button" id="uDel">このユーザーを削除</button>` : ""}`;
@@ -2485,8 +2616,11 @@ const SETTINGS_PAGES = {
         if (!cfm(`「${u.username}」の二段階認証をリセットしますか?`)) return;
         try { await api(`/api/users/${u.id}`, { method: "PATCH", json: { reset_totp: true } }); toast("リセットしました"); popSettings(); } catch (ex) { toast(ex.message, true); }
       }));
+      const syncPerm = () => { const adm = $("[name=role]", body).value === "admin"; $("#uPerms", body) && ($("#uPerms", body).hidden = adm); $("#uPermT", body) && ($("#uPermT", body).hidden = adm); };
+      $("[name=role]", body).addEventListener("change", syncPerm); syncPerm();
       $("#uSave", body).onclick = (e) => busy(e.currentTarget, async () => {
         const d = { role: $("[name=role]", body).value };
+        if (isAdmin()) d.perms = Object.keys(PERM_LABELS).filter((k) => $(`[name=perm_${k}]`, body)?.checked);
         const pw = $("[name=password]", body).value;
         try {
           if (u) { if (pw) d.password = pw; await api(`/api/users/${u.id}`, { method: "PATCH", json: d }); }
@@ -2495,7 +2629,7 @@ const SETTINGS_PAGES = {
         } catch (ex) { toast(ex.message, true); }
       });
       $("#uDel", body)?.addEventListener("click", async (e) => {
-        if (!cfm(`「${u.username}」を削除しますか?`)) return;
+        if (!cfm(`「${u.username}」を削除しますか?\nこの人のアドオン・サーバー・セットは、あなたに引き継がれます。`)) return;
         await busy(e.currentTarget, async () => {
           try { await api(`/api/users/${u.id}`, { method: "DELETE" }); toast("削除しました"); popSettings(); }
           catch (ex) { toast(ex.message, true); }
@@ -3023,7 +3157,7 @@ function drawSelBar() {
     <button class="btn plain small" type="button" data-sb="none"${n ? "" : " disabled"}>すべて解除</button>
     <button class="btn small" type="button" data-sb="cancel">キャンセル</button></div>
     <div class="selacts"><button class="sbtn" type="button" data-sb="zip"${n ? "" : " disabled"}>${icon("download")}<span>ダウンロード</span></button>
-    <button class="sbtn need-editor" type="button" data-sb="share"${n ? "" : " disabled"}>${icon("share")}<span>共有</span></button>
+    <button class="sbtn need-editor" type="button" data-sb="share"${n ? "" : " disabled"}>${icon("link")}<span>リンク</span></button>
     <button class="sbtn need-editor" type="button" data-sb="server"${n ? "" : " disabled"}>${icon("server")}<span>サーバーへ</span></button>
     <button class="sbtn need-editor" type="button" data-sb="more"${n ? "" : " disabled"}>${icon("more")}<span>その他</span></button></div>`;
 }
@@ -3049,6 +3183,9 @@ $("#selBar").addEventListener("click", async (e) => {
   if (a === "server") pushDialog({ itemIds: ids });
   if (a === "more") {
     openMenu(b, [
+      { label: "ほかのユーザーに共有", icon: "users", run: () => shareManyToUser(items) },
+      { label: "種類を変更", icon: "box", run: () => changeMany(items, "category") },
+      { label: "サーバーソフトを変更", icon: "server", run: () => changeMany(items, "platform") },
       { label: "セットに追加", icon: "stack", run: () => addManyToSet(items) },
       { label: "タグを付ける", icon: "tag", run: () => tagMany(items) },
       { label: "更新を確認", icon: "refresh", run: () => checkMany(items) },
@@ -3109,6 +3246,41 @@ async function checkMany(items) {
   const tp = toastProgress(`${linked.length} 件の更新を確認しています…`);
   try { for (const it of linked) await api(`/api/items/${it.id}/source/check`, { method: "POST" }); toast("確認しました"); await refresh(); }
   catch (e) { toast(e.message, true); } finally { tp.remove(); }
+}
+/* まとめて共有(自分のものだけ) */
+async function shareManyToUser(items) {
+  const mine = items.filter((i) => !i.access || i.access === "owner");
+  if (!mine.length) { toast("共有できるのは自分のアイテムだけです", true); return; }
+  let users;
+  try { users = (await api("/api/users/directory")).users; } catch (e) { toast(e.message, true); return; }
+  if (!users.length) { toast("共有できるほかのユーザーがいません", true); return; }
+  const r = await formSheet(`${mine.length} 件を共有`, `
+    ${field("共有する相手", `<select name="user_id">${users.map((u) => `<option value="${u.id}">${esc(u.username)}</option>`).join("")}</select>`)}
+    ${field("できること", `<select name="level"><option value="view">閲覧・ダウンロード</option><option value="edit">編集もできる</option><option value="remove">共有をやめる</option></select>`)}
+    ${items.length !== mine.length ? `<p style="font-size:12.5px">ほかの人から共有されたもの(${items.length - mine.length} 件)は対象外です。</p>` : ""}`, "保存");
+  if (!r) return;
+  try {
+    const res = await api("/api/items/acl", { json: { item_ids: mine.map((i) => i.id), user_id: Number(r.user_id), level: r.level === "remove" ? "view" : r.level, remove: r.level === "remove" } });
+    toast(r.level === "remove" ? `${res.count} 件の共有をやめました` : `${res.count} 件を共有しました`); await refresh();
+  } catch (e) { toast(e.message, true); }
+}
+/* まとめて種類・サーバーソフトを変える(「その他」に入ってしまったものを直すときなど) */
+async function changeMany(items, what) {
+  const editable = items.filter((i) => i.access !== "view");
+  const opts = what === "category"
+    ? Object.entries(CATS).map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join("")
+    : `<option value="">自動で判定</option>${platOptions("")}`;
+  const r = await formSheet(what === "category" ? `${editable.length} 件の種類を変更` : `${editable.length} 件のサーバーソフトを変更`,
+    `${field(what === "category" ? "種類" : "サーバーソフト・ローダー", `<select name="v">${opts}</select>`)}
+    ${what === "category" ? `<p style="font-size:12.5px">ファイルは新しい種類のフォルダへ移動します。同じ名前・種類のものがすでにあれば、そちらにまとめます。</p>` : ""}`, "変更");
+  if (!r) return;
+  const tp = toastProgress("変更しています…");
+  let ok = 0;
+  try {
+    for (const it of editable) { await api(`/api/items/${it.id}`, { method: "PATCH", json: { [what]: r.v } }); ok++; }
+    toast(`${ok} 件を変更しました`);
+  } catch (e) { toast(`${ok} 件を変更しました。${e.message}`, true); }
+  finally { tp.remove(); state.sel.clear(); await refresh(); drawSelBar(); }
 }
 async function deleteMany(items) {
   if (!(await confirmSheet(`${items.length} 件を削除しますか?`, `保存しているすべてのバージョンのファイルが削除され、元に戻せません。\n${items.slice(0, 8).map((i) => i.name).join(", ")}${items.length > 8 ? " ほか" : ""}`, "削除"))) return;

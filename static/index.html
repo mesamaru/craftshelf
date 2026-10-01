@@ -66,10 +66,12 @@
         <select id="mcSel" class="compact" aria-label="対応MCバージョンで絞り込み"><option value="">MC: すべて</option></select>
         <button class="btn small" type="button" id="selBtn">選択</button>
         <select id="sortSel" class="compact" aria-label="並び順">
+          <option value="fav:1">お気に入りを上に</option>
           <option value="name:1">名前順</option>
           <option value="added:-1">追加が新しい順</option>
+          <option value="upd:1">更新があるものを上に</option>
           <option value="size:-1">サイズが大きい順</option>
-          <option value="count:-1">版数が多い順</option>
+          <option value="count:-1">保存しているバージョンが多い順</option>
         </select>
       </div>
       <div class="segmented" id="chips" role="group" aria-label="種類で絞り込み"></div>

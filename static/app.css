@@ -803,3 +803,51 @@ body:not(.can-edit) [data-editor] { display: none !important; }
 
 #list .row[data-id] > .trail { margin-left: auto; }
 #list .row[data-id] > .trail:empty { display: none; }
+
+/* ---------- 持ち主・共有・お気に入り ---------- */
+.favbtn { border: 0; background: transparent; padding: 2px 4px; margin-left: 4px; color: var(--label-3, #8e8e93); cursor: pointer; vertical-align: -3px; border-radius: 8px; line-height: 0; }
+.favbtn svg.i { width: 17px; height: 17px; fill: none; }
+.favbtn.on { color: #ffcc00; }
+.favbtn.on svg.i { fill: #ffcc00; stroke: #ffcc00; }
+.favbtn:hover { background: var(--fill); }
+h3 .favbtn svg.i { width: 22px; height: 22px; }
+.ownerb { display: inline-flex; align-items: center; gap: 3px; font-size: 11px; font-weight: 700; padding: 0 6px; margin-right: 6px; border-radius: 5px;
+  background: color-mix(in srgb, var(--tint) 16%, transparent); color: var(--tint); vertical-align: 1px; }
+.ownerb svg.i { width: 12px; height: 12px; }
+.ownerb.out { background: var(--fill); color: var(--label-2); }
+.list-sep { display: flex; align-items: center; gap: 6px; padding: 14px 16px 6px; font-size: 13px; font-weight: 700; color: var(--label-2); }
+.list-sep svg.i { width: 15px; height: 15px; }
+.list-sep span { margin-left: auto; font-weight: 500; }
+.sharednote { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--label-2); padding: 6px 10px; border-radius: 10px; background: var(--fill); }
+.sharednote svg.i { width: 15px; height: 15px; color: var(--tint); }
+#panel.ro .need-editor { display: none !important; }
+.segmented.mini { flex-shrink: 0; }
+.segmented.mini .seg { padding: 5px 9px; font-size: 12.5px; }
+.segmented.mini .seg:disabled { opacity: .35; }
+.acl-row { gap: 8px; }
+/* 配布元: 更新は横長のボタン、リンク・履歴は小さなアイコン */
+.srcbar { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+.srcbar .sp { flex: 1; }
+.mini-act { display: inline-flex; flex-direction: column; align-items: center; gap: 1px; border: 0; background: transparent; color: var(--tint);
+  font: inherit; font-size: 11px; font-weight: 600; padding: 4px 8px; border-radius: 10px; cursor: pointer; }
+.mini-act svg.i { width: 18px; height: 18px; }
+.mini-act:hover { background: var(--fill); }
+.card.ro .need-editor { display: none !important; }
+.hint-row { display: flex; gap: 8px; align-items: flex-start; padding: 12px 16px; font-size: 13px; color: var(--label-2); border-bottom: 1px solid var(--sep); }
+.hint-row svg.i { flex-shrink: 0; width: 16px; height: 16px; color: var(--tint); margin-top: 1px; }
+.jobs-mini { display: flex; flex-wrap: wrap; gap: 6px; }
+.jm { position: relative; display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 5px 12px; border: 0; border-radius: 999px; overflow: hidden;
+  background: var(--glass-strong); color: var(--label); font: inherit; font-size: 12.5px; cursor: pointer; }
+.jm .t { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.jm .n { color: var(--label-2); white-space: nowrap; }
+.jm .spinner { width: 13px; height: 13px; }
+.jm svg.i { width: 14px; height: 14px; color: var(--tint); }
+.jm.error svg.i { color: var(--red); }
+.jm .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 2px; }
+.jm .bar i { display: block; height: 100%; background: var(--tint); }
+/* セットの作成・編集: 名前の下にバージョンの選択 */
+.setpick { align-items: center; gap: 10px; }
+.setpick .main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.setpick .main label { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.setpick .main select { align-self: flex-start; max-width: 100%; }
+.setpick[hidden] { display: none; }

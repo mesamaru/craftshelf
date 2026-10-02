@@ -856,3 +856,45 @@ h3 .favbtn svg.i { width: 22px; height: 22px; }
 .telelist { margin: 6px 0 8px; padding-left: 20px; font-size: 13.5px; line-height: 1.6; }
 .teleno { font-size: 13px; color: var(--label-2); margin: 0 0 8px; }
 .telepre { margin: 8px 0 0; padding: 10px 12px; border-radius: 12px; background: var(--fill); font-size: 12px; overflow-x: auto; white-space: pre; }
+
+/* セット: チェックボックス・配布ページ・割り当て */
+.setpick { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid var(--sep); }
+.setpick:last-child { border-bottom: 0; }
+.setpick .sub { font-size: 12px; color: var(--label-2); }
+.cbox { width: 20px; height: 20px; flex-shrink: 0; accent-color: var(--tint); cursor: pointer; margin: 0; }
+.pinb { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 5px; background: var(--fill); color: var(--label-2); font-size: 11px; cursor: pointer; }
+
+/* ---------- 追加ウィジェット ---------- */
+.memo-body .plain { white-space: pre-wrap; word-break: break-word; font-size: 14px; line-height: 1.6; }
+.md { font-size: 14px; line-height: 1.6; word-break: break-word; }
+.md h3, .md h4, .md h5, .md h6 { margin: 10px 0 4px; } .md h3 { font-size: 18px; } .md h4 { font-size: 16px; } .md h5, .md h6 { font-size: 14px; }
+.md p { margin: 6px 0; } .md ul, .md ol { margin: 6px 0; padding-left: 22px; } .md ul.md-check { list-style: none; padding-left: 4px; }
+.md code { background: var(--fill); padding: 1px 5px; border-radius: 5px; font-size: 12.5px; }
+.md pre { background: var(--fill); padding: 10px; border-radius: 10px; overflow-x: auto; } .md pre code { background: none; padding: 0; }
+.md blockquote { margin: 6px 0; padding-left: 10px; border-left: 3px solid var(--sep); color: var(--label-2); }
+.md hr { border: 0; border-top: 1px solid var(--sep); margin: 10px 0; } .md a { color: var(--tint); }
+.todo { display: flex; flex-direction: column; }
+.todo-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--sep); }
+.todo-row .t { flex: 1; min-width: 0; word-break: break-word; font-size: 14px; }
+.todo-row.done .t { text-decoration: line-through; color: var(--label-2); }
+.todo-row .icon-btn { opacity: .5; } .todo-row:hover .icon-btn { opacity: 1; }
+.todo-add { display: flex; gap: 6px; margin-top: 8px; } .todo-add input { flex: 1; min-width: 0; }
+.clockw { display: grid; place-items: center; padding: 6px 0; }
+.clockw .dig { font-size: 46px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.02em; line-height: 1.1; }
+.clockw .dig span { font-size: 22px; color: var(--label-2); font-weight: 600; }
+.clockw .dig-sub { color: var(--label-2); font-size: 13px; text-align: center; }
+.aclock { width: 150px; height: 150px; }
+.aclock .face { fill: var(--fill); stroke: var(--sep); stroke-width: 1; }
+.aclock .tick, .aclock .hh, .aclock .mh { stroke: var(--label); }
+.aclock .sh { stroke: var(--tint); } .aclock .sh-dot { fill: var(--tint); }
+.datew { text-align: center; padding: 6px 0; }
+.datew .d1 { color: var(--label-2); font-size: 14px; } .datew .d2 { font-size: 34px; font-weight: 800; line-height: 1.2; }
+.datew .d2 span { font-size: 18px; font-weight: 600; color: var(--label-2); margin-left: 4px; } .datew .d3 { color: var(--label-2); font-size: 12.5px; margin-top: 4px; }
+
+/* ---------- アドオンの整理 ---------- */
+.cu-list { max-height: 46vh; }
+.cu-row { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--sep); cursor: pointer; }
+.cu-row:last-child { border-bottom: 0; }
+.cu-row .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.cu-row .title { font-weight: 600; } .cu-row .subtitle { font-size: 12px; color: var(--label-2); }
+.compact-num { width: 90px; }

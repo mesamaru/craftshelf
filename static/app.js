@@ -54,6 +54,7 @@ const ICONS = {
   chart: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
   star: '<path d="M12 3l2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9z"/>',
   chat: '<path d="M4 5h16v11H9l-5 4z"/>',
+  calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/>',
   send: '<path d="M4 12l16-8-6 16-2-7z"/>',
   share: '<path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
@@ -153,6 +154,11 @@ function sheet(html, setup, { wide = false } = {}) {
     // close イベントは閉じた少し後に届くため、直前に閉じたシートの分が届いても、
     // 表示中のシートまで閉じてしまわないよう「本当に閉じているか」を確かめる
     dlg.onclose = () => { if (!dlg.open) done(null); };
+    // ウィンドウの外(背景)を押したら閉じる。押し始めも外だったときだけ(文字の選択で外に出ても閉じない)
+    const outside = (e) => { const r = dlg.getBoundingClientRect(); return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom; };
+    let downOutside = false;
+    dlg.onpointerdown = (e) => { downOutside = e.target === dlg && outside(e); };
+    dlg.onclick = (e) => { if (downOutside && e.target === dlg && outside(e)) done(null); downOutside = false; };
     form.onclick = (e) => { if (e.target.closest("[data-close]")) done(null); };
     setup && setup(form, done);
     if (!dlg.open) dlg.showModal();
@@ -728,7 +734,7 @@ async function renderDash() {
           : `<div class="dash-empty">まだ何も登録されていません</div>`}</div>
       </div>
       <div class="card">
-        <div class="card-h"><h4>確認が必要なもの</h4></div>
+        <div class="card-h"><h4>確認が必要なもの</h4><button class="btn small need-editor" type="button" data-dact="cleanup">${icon("wand")}整理</button></div>
         <div class="card-b">${missing.length || errs.length || depMissing.length || unknownMc.length ? `
           ${limited("attn", "確認が必要なもの", [
             ...depMissing.map((it) => itemRow(it, `<span class="badge err">前提が不足: ${esc(it.missing_deps.join(", "))}</span>`)),
@@ -777,10 +783,119 @@ const DASH_W = [["tiles", "概要"], ["updates", "更新があるもの"], ["cat
 const DASH_DEFAULT = { order: DASH_W.map(([k]) => k), hidden: [], full: ["tiles"] };
 function dashLayout() {
   const d = (state.prefs && state.prefs.dash) || {};
-  const known = DASH_W.map(([k]) => k);
+  const custom = Array.isArray(d.custom) ? d.custom : [];
+  const known = [...DASH_W.map(([k]) => k), ...custom.map((c) => c.id)];
   const order = (d.order || []).filter((k) => known.includes(k));
   for (const k of known) if (!order.includes(k)) order.push(k);
-  return { order, hidden: (d.hidden || []).filter((k) => known.includes(k)), full: d.full || DASH_DEFAULT.full };
+  return { order, hidden: (d.hidden || []).filter((k) => known.includes(k)), full: (d.full || DASH_DEFAULT.full).filter((k) => known.includes(k)), custom };
+}
+/* ---- 追加できるウィジェット(メモ・ToDo・時計・今日の日付) ---- */
+const CW_TYPES = { memo: ["メモ", "doc"], todo: ["ToDo リスト", "check"], clock: ["時計", "clock"], date: ["今日の日付", "calendar"] };
+const cwName = (c) => c.title || CW_TYPES[c.type][0];
+/* Markdown を安全に HTML にする(先にすべてエスケープし、決まった書き方だけを変換する) */
+function mdToHtml(src) {
+  const inline = (s) => s
+    .replace(/`([^`]+)`/g, "<code>$1</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>")
+    .replace(/(^|[^*])\*([^*]+)\*/g, "$1<i>$2</i>")
+    .replace(/~~([^~]+)~~/g, "<s>$1</s>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+  const out = [];
+  let list = null, code = null, para = [];
+  const flush = () => { if (para.length) { out.push(`<p>${para.map(inline).join("<br>")}</p>`); para = []; } if (list) { out.push(`</${list}>`); list = null; } };
+  for (const raw of esc(src).split("\n")) {
+    if (code !== null) { if (/^```/.test(raw)) { out.push(`<pre><code>${code.join("\n")}</code></pre>`); code = null; } else code.push(raw); continue; }
+    if (/^```/.test(raw)) { flush(); code = []; continue; }
+    let m;
+    if ((m = raw.match(/^(#{1,4})\s+(.*)$/))) { flush(); out.push(`<h${m[1].length + 2}>${inline(m[2])}</h${m[1].length + 2}>`); continue; }
+    if (/^(-{3,}|\*{3,})$/.test(raw.trim())) { flush(); out.push("<hr>"); continue; }
+    if ((m = raw.match(/^&gt;\s?(.*)$/))) { flush(); out.push(`<blockquote>${inline(m[1])}</blockquote>`); continue; }
+    if ((m = raw.match(/^\s*[-*]\s+\[( |x)\]\s+(.*)$/i))) { if (para.length) flush(); if (list !== "ul") { flush(); out.push('<ul class="md-check">'); list = "ul"; } out.push(`<li>${m[1].trim() ? "☑" : "☐"} ${inline(m[2])}</li>`); continue; }
+    if ((m = raw.match(/^\s*[-*]\s+(.*)$/))) { if (para.length) flush(); if (list !== "ul") { flush(); out.push("<ul>"); list = "ul"; } out.push(`<li>${inline(m[1])}</li>`); continue; }
+    if ((m = raw.match(/^\s*\d+[.)]\s+(.*)$/))) { if (para.length) flush(); if (list !== "ol") { flush(); out.push("<ol>"); list = "ol"; } out.push(`<li>${inline(m[1])}</li>`); continue; }
+    if (!raw.trim()) { flush(); continue; }
+    if (list) flush();
+    para.push(raw);
+  }
+  if (code !== null) out.push(`<pre><code>${code.join("\n")}</code></pre>`);
+  flush();
+  return out.join("");
+}
+const WD = ["日", "月", "火", "水", "木", "金", "土"];
+function clockSVG() {
+  const t = new Date(), h = t.getHours() % 12, m = t.getMinutes(), s = t.getSeconds();
+  const hand = (deg, len, w, cls) => { const r = (deg - 90) * Math.PI / 180; return `<line class="${cls}" x1="50" y1="50" x2="${(50 + Math.cos(r) * len).toFixed(2)}" y2="${(50 + Math.sin(r) * len).toFixed(2)}" stroke-width="${w}" stroke-linecap="round"/>`; };
+  const ticks = Array.from({ length: 12 }, (_, i) => { const r = i * 30 * Math.PI / 180; return `<line x1="${(50 + Math.sin(r) * 40).toFixed(2)}" y1="${(50 - Math.cos(r) * 40).toFixed(2)}" x2="${(50 + Math.sin(r) * (i % 3 ? 43 : 45)).toFixed(2)}" y2="${(50 - Math.cos(r) * (i % 3 ? 43 : 45)).toFixed(2)}" class="tick" stroke-width="${i % 3 ? 1 : 2}"/>`; }).join("");
+  return `<svg viewBox="0 0 100 100" class="aclock" role="img" aria-label="${t.toLocaleTimeString()}"><circle cx="50" cy="50" r="47" class="face"/>${ticks}
+    ${hand((h + m / 60) * 30, 24, 3.2, "hh")}${hand((m + s / 60) * 6, 34, 2.2, "mh")}${hand(s * 6, 38, 1, "sh")}<circle cx="50" cy="50" r="2.2" class="sh-dot"/></svg>`;
+}
+function customWidgetHTML(c) {
+  const head = (extra = "") => `<div class="card-h"><h4 translate="no">${esc(cwName(c))}</h4>${extra}</div>`;
+  if (c.type === "memo") {
+    return head(`<button class="icon-btn sm" type="button" data-cw="memo-edit" data-cid="${c.id}" title="メモを編集" aria-label="メモを編集">${icon("edit")}</button>`)
+      + `<div class="card-b memo-body" translate="no">${(c.text || "").trim() ? (c.md ? `<div class="md">${mdToHtml(c.text)}</div>` : `<div class="plain">${esc(c.text)}</div>`)
+        : `<div class="dash-empty">${icon("edit")} 右上のボタンからメモを書けます</div>`}</div>`;
+  }
+  if (c.type === "todo") {
+    const items = c.items || [], left = items.filter((x) => !x.d).length;
+    return head(`<span class="muted" style="font-size:12.5px">${items.length ? `残り ${left} 件` : ""}</span>`)
+      + `<div class="card-b"><div class="todo" translate="no">${items.map((x, i) => `<div class="todo-row${x.d ? " done" : ""}">
+          <input type="checkbox" class="cbox" data-cw="todo-toggle" data-cid="${c.id}" data-i="${i}"${x.d ? " checked" : ""} aria-label="完了">
+          <span class="t">${esc(x.t)}</span>
+          <button class="icon-btn sm" type="button" data-cw="todo-del" data-cid="${c.id}" data-i="${i}" title="削除" aria-label="削除">${icon("x")}</button></div>`).join("")}</div>
+        <form class="todo-add" data-cid="${c.id}"><input type="text" maxlength="200" placeholder="やることを追加(Enter)" aria-label="やることを追加"><button class="btn small tinted" type="submit">${icon("plus")}</button></form>
+        ${items.some((x) => x.d) ? `<button class="btn plain small" type="button" data-cw="todo-clear" data-cid="${c.id}" style="margin-top:4px">完了したものを消す</button>` : ""}</div>`;
+  }
+  if (c.type === "clock") {
+    return head(`<button class="btn plain small" type="button" data-cw="clock-style" data-cid="${c.id}">${c.style === "analog" ? "デジタルにする" : "アナログにする"}</button>`)
+      + `<div class="card-b"><div class="clockw ${c.style === "analog" ? "analog" : "digital"}" data-clock="${c.id}"></div></div>`;
+  }
+  const t = new Date();
+  return head() + `<div class="card-b"><div class="datew"><div class="d1">${t.getFullYear()}年</div><div class="d2">${t.getMonth() + 1}月${t.getDate()}日<span>(${WD[t.getDay()]})</span></div>
+    <div class="d3">今年の ${Math.ceil((t - new Date(t.getFullYear(), 0, 1)) / 86400000) + 1} 日目</div></div></div>`;
+}
+function tickClocks() {
+  document.querySelectorAll("[data-clock]").forEach((el) => {
+    const t = new Date();
+    if (el.classList.contains("analog")) el.innerHTML = clockSVG();
+    else el.innerHTML = `<div class="dig">${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}<span>:${String(t.getSeconds()).padStart(2, "0")}</span></div><div class="dig-sub">${t.getMonth() + 1}/${t.getDate()}(${WD[t.getDay()]})</div>`;
+  });
+}
+setInterval(() => { if (state.view === "dash") tickClocks(); }, 1000);
+function saveCustom(L) { saveDash({ order: L.order, hidden: L.hidden, full: L.full, custom: L.custom }); }
+const cwSaveTimer = {};
+function updateCustom(cid, fn, { rerender = true, delay = 0 } = {}) {
+  const L = dashLayout();
+  const c = L.custom.find((x) => x.id === cid); if (!c) return;
+  fn(c);
+  state.prefs = { ...state.prefs, dash: { ...L } };
+  if (rerender) renderDash();
+  clearTimeout(cwSaveTimer[cid]);
+  cwSaveTimer[cid] = setTimeout(() => saveCustom(L), delay);
+}
+async function editMemo(cid) {
+  const c = dashLayout().custom.find((x) => x.id === cid); if (!c) return;
+  const r = await formSheet("メモを編集", `
+    ${field("タイトル(空欄なら「メモ」)", `<input type="text" name="title" maxlength="40" value="${esc(c.title || "")}">`)}
+    ${field("書き方", `<select name="md"><option value="0"${c.md ? "" : " selected"}>プレーンテキスト</option><option value="1"${c.md ? " selected" : ""}>Markdown(見出し・太字・リスト・リンクなど)</option></select>`)}
+    ${field("内容", `<textarea name="text" rows="10" maxlength="10000" translate="no">${esc(c.text || "")}</textarea>`)}
+    <p style="font-size:12px">Markdown の例: <code># 見出し</code> <code>**太字**</code> <code>- リスト</code> <code>- [ ] やること</code> <code>[リンク](https://…)</code></p>`, "保存");
+  if (!r) return;
+  updateCustom(cid, (x) => { x.title = r.title.trim(); x.md = r.md === "1"; x.text = r.text; });
+}
+async function addCustomWidget(type) {
+  const L = dashLayout();
+  if (L.custom.length >= 12) { toast("追加できるウィジェットは 12 個までです", true); return; }
+  const id = "x" + Array.from(crypto.getRandomValues(new Uint8Array(4)), (b) => b.toString(16).padStart(2, "0")).join("");
+  const c = { id, type, title: "" };
+  if (type === "memo") Object.assign(c, { md: true, text: "" });
+  if (type === "todo") c.items = [];
+  if (type === "clock") c.style = "digital";
+  L.custom.push(c);
+  L.order = [id, ...L.order.filter((k) => k !== id)];
+  await saveDash({ order: L.order, hidden: L.hidden, full: L.full, custom: L.custom });
+  renderDash();
+  if (type === "memo") editMemo(id);
 }
 function serversWidgetHTML() {
   const pr = state.presence;
@@ -802,6 +917,9 @@ function arrangeDash() {
   ["updates", "cats", "attention", "recent", "links", "storage"].forEach((k, i) => { byId[k] = cards[i]; });
   const sv = document.createElement("div"); sv.className = "card"; sv.innerHTML = serversWidgetHTML(); byId.servers = sv;
   const L = dashLayout();
+  for (const c of L.custom) {
+    const el = document.createElement("div"); el.className = `card cw cw-${c.type}`; el.innerHTML = customWidgetHTML(c); byId[c.id] = el;
+  }
   const edit = !!state.dashEdit;
   const grid = document.createElement("div");
   grid.className = "dash-grid" + (edit ? " editing" : "");
@@ -814,19 +932,21 @@ function arrangeDash() {
     if (edit) {
       w.draggable = true;
       w.insertAdjacentHTML("afterbegin", `<div class="wbar"><span class="whandle" title="ドラッグで並べ替え">${icon("grip")}</span>
-        <span class="wname">${esc(DASH_W.find((x) => x[0] === k)[1])}</span><span class="sp"></span>
+        <span class="wname">${esc(DASH_W.find((x) => x[0] === k)?.[1] || cwName(L.custom.find((c) => c.id === k)))}</span><span class="sp"></span>
         <button class="icon-btn sm" type="button" data-wa="up" title="前へ" aria-label="前へ">${icon("up")}</button>
         <button class="icon-btn sm" type="button" data-wa="down" title="後ろへ" aria-label="後ろへ">${icon("down")}</button>
         <button class="icon-btn sm" type="button" data-wa="size" title="${L.full.includes(k) ? "半分の幅にする" : "全幅にする"}" aria-label="幅を切り替え">${icon(L.full.includes(k) ? "shrink" : "expand")}</button>
-        <button class="icon-btn sm" type="button" data-wa="hide" title="${L.hidden.includes(k) ? "表示する" : "非表示にする"}" aria-label="表示を切り替え">${icon(L.hidden.includes(k) ? "eyeoff" : "eye")}</button></div>`);
+        <button class="icon-btn sm" type="button" data-wa="hide" title="${L.hidden.includes(k) ? "表示する" : "非表示にする"}" aria-label="表示を切り替え">${icon(L.hidden.includes(k) ? "eyeoff" : "eye")}</button>
+        ${k.startsWith("x") ? `<button class="icon-btn sm danger" type="button" data-wa="remove" title="このウィジェットを削除" aria-label="削除">${icon("trash")}</button>` : ""}</div>`);
     }
     w.appendChild(el);
     grid.appendChild(w);
   }
   dash.innerHTML = `<div class="dash-top"><span class="sp"></span>
-    ${edit ? `<button class="btn small" type="button" data-de="reset">初期状態に戻す</button><button class="btn small filled" type="button" data-de="done">完了</button>`
+    ${edit ? `<button class="btn small tinted" type="button" data-de="add">${icon("plus")}ウィジェットを追加</button><button class="btn small" type="button" data-de="reset">初期状態に戻す</button><button class="btn small filled" type="button" data-de="done">完了</button>`
       : `<button class="btn small" type="button" data-de="edit">${icon("edit")}ウィジェットを編集</button>`}</div>`;
   dash.appendChild(grid);
+  tickClocks();
   if (edit) wireDashDrag(grid);
   else if (DASH_WIDE.matches) packDash(grid);
 }
@@ -855,6 +975,24 @@ async function saveDash(L) {
   state.prefs = { ...state.prefs, dash: L };
   try { await savePrefs({ dash: L }); } catch (e) { toast(e.message, true); }
 }
+/* 追加ウィジェットの操作(編集中でなくても使う) */
+$("#dash").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-cw]"); if (!b || state.dashEdit) return;
+  const cid = b.dataset.cid, a = b.dataset.cw;
+  if (a === "memo-edit") editMemo(cid);
+  if (a === "todo-toggle") updateCustom(cid, (c) => { c.items[Number(b.dataset.i)].d = b.checked; }, { delay: 600 });
+  if (a === "todo-del") updateCustom(cid, (c) => { c.items.splice(Number(b.dataset.i), 1); });
+  if (a === "todo-clear") updateCustom(cid, (c) => { c.items = c.items.filter((x) => !x.d); });
+  if (a === "clock-style") updateCustom(cid, (c) => { c.style = c.style === "analog" ? "digital" : "analog"; });
+});
+$("#dash").addEventListener("submit", (e) => {
+  const f = e.target.closest(".todo-add"); if (!f) return;
+  e.preventDefault();
+  const inp = f.querySelector("input"), t = inp.value.trim(); if (!t) return;
+  const cid = f.dataset.cid;
+  updateCustom(cid, (c) => { if ((c.items || []).length < 100) (c.items ||= []).push({ t, d: false }); });
+  setTimeout(() => document.querySelector(`.todo-add[data-cid="${cid}"] input`)?.focus(), 0);
+});
 function wireDashDrag(grid) {
   let dragEl = null;
   grid.addEventListener("dragstart", (e) => { dragEl = e.target.closest(".widget"); if (dragEl) { dragEl.classList.add("dragging"); e.dataTransfer.effectAllowed = "move"; } });
@@ -877,10 +1015,14 @@ function wireDashDrag(grid) {
 }
 $("#dash").addEventListener("click", async (e) => {
   const de = e.target.closest("[data-de]");
+  if (de && de.dataset.de === "add") {
+    openMenu(de, Object.entries(CW_TYPES).map(([t, [n, ic]]) => ({ label: n, icon: ic, run: () => addCustomWidget(t) })));
+    return;
+  }
   if (de) {
     if (de.dataset.de === "edit") state.dashEdit = true;
     if (de.dataset.de === "done") state.dashEdit = false;
-    if (de.dataset.de === "reset") await saveDash({ ...DASH_DEFAULT, order: [...DASH_DEFAULT.order] });
+    if (de.dataset.de === "reset") await saveDash({ ...DASH_DEFAULT, order: [...DASH_DEFAULT.order], custom: dashLayout().custom });
     renderDash(); return;
   }
   const wa = e.target.closest("[data-wa]");
@@ -892,7 +1034,11 @@ $("#dash").addEventListener("click", async (e) => {
     if (wa.dataset.wa === "down" && i < L.order.length - 1) [L.order[i + 1], L.order[i]] = [L.order[i], L.order[i + 1]];
     if (wa.dataset.wa === "size") L.full = L.full.includes(k) ? L.full.filter((x) => x !== k) : [...L.full, k];
     if (wa.dataset.wa === "hide") L.hidden = L.hidden.includes(k) ? L.hidden.filter((x) => x !== k) : [...L.hidden, k];
-    await saveDash(L); renderDash(); return;
+    if (wa.dataset.wa === "remove") {
+      if (!cfm(`「${cwName(L.custom.find((c) => c.id === k))}」を削除しますか?`)) return;
+      L.custom = L.custom.filter((c) => c.id !== k); L.order = L.order.filter((x) => x !== k);
+    }
+    await saveDash({ order: L.order, hidden: L.hidden, full: L.full, custom: L.custom }); renderDash(); return;
   }
   const sg = e.target.closest("[data-srvgo]");
   if (sg) { setView("servers"); }
@@ -936,6 +1082,7 @@ $("#dash").addEventListener("click", async (e) => {
   const a = b.dataset.dact;
   if (a === "check") await busy(b, () => runUpdates({ check: true }), "開始しています…");
   if (a === "detect") await busy(b, () => runUpdates({ detect: true, check: true }), "開始しています…");
+  if (a === "cleanup") openSettings("cleanup");
   if (a === "dlall") await busy(b, () => runUpdates({ check: true, download: true }), "開始しています…");
   if (a === "storage") openSettings("storage");
 });
@@ -994,22 +1141,28 @@ $("#setsView").addEventListener("click", async (e) => {
     try { await api(`/api/sets/${sid}`, { method: "DELETE" }); toast("削除しました"); loadSets(); } catch (ex) { toast(ex.message, true); }
   }
 });
-async function editSet(set) {
-  const chosen = new Map((set ? set.items : []).map((x) => [x.item_id, x.version_id || ""]));
+async function editSet(set, draft = null) {
+  const chosen = draft ? draft.chosen : new Map((set ? set.items : []).map((x) => [x.item_id, x.version_id || ""]));
   const items = [...state.items].sort((a, b) => a.name.localeCompare(b.name, "ja", { numeric: true }));
   const r = await sheet(`${sheetHead(set ? "セットを編集" : "セットを作成")}
     <div class="db">
-      ${field("名前", `<input type="text" name="name" value="${esc(set?.name || "")}" placeholder="例: サバイバル鯖一式">`)}
-      ${field("メモ(任意)", `<input type="text" name="description" value="${esc(set?.description || "")}">`)}
+      ${field("名前", `<input type="text" name="name" value="${esc(draft ? draft.name : set?.name || "")}" placeholder="例: サバイバル鯖一式">`)}
+      ${field("メモ(任意)", `<input type="text" name="description" value="${esc(draft ? draft.description : set?.description || "")}">`)}
       <label class="search"><span>${icon("search")}</span><input type="search" id="setQ" placeholder="絞り込み"></label>
-      <div class="group scroll" id="setItems">${items.map((it) => `<div class="toggle-row setpick" data-name="${esc(it.name.toLowerCase())}">
+      <p style="font-size:12.5px;margin:4px 2px 8px">セットには、それぞれの<b>最新のバージョン</b>が入ります。</p>
+      <div class="group scroll" id="setItems">${items.map((it) => {
+        const pinned = chosen.get(it.id) ? it.versions.find((v) => String(v.id) === String(chosen.get(it.id))) : null;
+        const page = it.source && safeUrl(it.source.page_url) !== "#" ? safeUrl(it.source.page_url) : "";
+        return `<div class="setpick" data-name="${esc(it.name.toLowerCase())}" data-row="${it.id}">
+          <input type="checkbox" class="cbox" id="si-${it.id}" data-item="${it.id}"${chosen.has(it.id) ? " checked" : ""}>
           ${itemIcon(it, true)}
           <div class="main"><label for="si-${it.id}" translate="no">${esc(it.name)}</label>
-            <select data-ver="${it.id}" class="compact" aria-label="${esc(it.name)} のバージョン">
-              <option value="">常に最新(${esc(verLabel(it.versions[0].version))})</option>
-              ${it.versions.map((v) => `<option value="${v.id}"${String(chosen.get(it.id)) === String(v.id) ? " selected" : ""}>${esc(verLabel(v.version))} に固定</option>`).join("")}
-            </select></div>
-          <input type="checkbox" class="switch" id="si-${it.id}" data-item="${it.id}"${chosen.has(it.id) ? " checked" : ""}></div>`).join("")}</div>
+            <span class="sub">${esc(verLabel((it.versions.find((v) => v.id === it.latest_id) || it.versions[0]).version))}${platformOf(it) ? ` · ${esc(platShort(platformOf(it)))}` : ""}
+              ${pinned ? `<span class="pinb" data-pin="${it.id}" title="押すと固定を外して最新にします">${esc(verLabel(pinned.version))} に固定中 ✕</span>` : ""}</span></div>
+          ${page ? `<a class="icon-btn sm" href="${esc(page)}" target="_blank" rel="noopener noreferrer" title="配布ページで情報を見る" aria-label="配布ページで情報を見る">${icon("external")}</a>`
+            : it.access !== "view" ? `<button class="btn plain small" type="button" data-assign="${it.id}" title="配布元(Modrinth / SpigotMC / CurseForge)を割り当てる">${icon("link")}割り当て</button>` : ""}
+        </div>`;
+      }).join("")}</div>
       <div class="result err" id="setWarn" hidden></div>
     </div>
     <div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok>保存</button></div>`, (form, done) => {
@@ -1021,10 +1174,22 @@ async function editSet(set) {
     };
     form.addEventListener("change", warn); warn();
     $("#setQ", form).oninput = (ev) => { const q = ev.target.value.toLowerCase(); form.querySelectorAll(".setpick").forEach((l) => { l.hidden = q && !l.dataset.name.includes(q); }); };
+    form.addEventListener("click", (ev) => {
+      const pin = ev.target.closest("[data-pin]");
+      if (pin) { ev.preventDefault(); chosen.set(Number(pin.dataset.pin), ""); pin.remove(); return; }
+      const as = ev.target.closest("[data-assign]");
+      if (as) {  // 配布元の割り当て: 入力中の内容を覚えておき、検索で紐付けたあとセットの画面に戻る
+        ev.preventDefault();
+        const checked = new Set([...form.querySelectorAll("[data-item]:checked")].map((c) => Number(c.dataset.item)));
+        for (const id of [...chosen.keys()]) if (!checked.has(id)) chosen.delete(id);
+        for (const id of checked) if (!chosen.has(id)) chosen.set(id, "");
+        done({ assign: Number(as.dataset.assign), draft: { chosen, name: form.querySelector("[name=name]").value, description: form.querySelector("[name=description]").value } });
+      }
+    });
     form.querySelector("[data-ok]").onclick = (ev) => busy(ev.currentTarget, async () => {
       const body = {
         name: form.querySelector("[name=name]").value, description: form.querySelector("[name=description]").value,
-        items: [...form.querySelectorAll("[data-item]:checked")].map((c) => ({ item_id: Number(c.dataset.item), version_id: Number(form.querySelector(`[data-ver="${c.dataset.item}"]`).value) || null })),
+        items: [...form.querySelectorAll("[data-item]:checked")].map((c) => ({ item_id: Number(c.dataset.item), version_id: Number(chosen.get(Number(c.dataset.item))) || null })),
       };
       try {
         if (set) await api(`/api/sets/${set.id}`, { method: "PATCH", json: body }); else await api("/api/sets", { json: body });
@@ -1032,6 +1197,11 @@ async function editSet(set) {
       } catch (ex) { toast(ex.message, true); }
     });
   }, { wide: true });
+  if (r && r.assign) {
+    const it = state.items.find((i) => i.id === r.assign);
+    if (it) { await openSearch({ q: it.name, kind: it.category, linkTo: it }); await refresh(); }
+    return editSet(set, r.draft);
+  }
   if (r) { toast("保存しました"); loadSets(); }
 }
 
@@ -2161,6 +2331,7 @@ const SETTINGS_PAGES = {
           can("storage") && rowBtn("backup", "download", "c-mod", "バックアップ"),
           can("audit") && rowBtn("audit", "doc", "c-gray", "操作の記録"),
           rowBtn("shares", "share", "c-teal", "共有リンク")])}
+        ${isEditor() ? `<div class="group-title">ツール</div><div class="group">${rowBtn("cleanup", "wand", "c-mod", "アドオンの整理", '<span class="val">重複・古いもの</span>')}</div>` : ""}
         ${state.tele && state.tele.available ? `<div class="group-title">サポート</div><div class="group">
           ${rowBtn("feedback", "chat", "c-teal", "お問い合わせ・要望")}
           ${can("system") ? rowBtn("telemetry", "chart", "c-gray", "利用状況の送信", `<span class="val">${state.tele.enabled ? "送信する" : "送信しない"}</span>`) : ""}
@@ -2584,6 +2755,108 @@ const SETTINGS_PAGES = {
         const r = e.target.closest("[data-uid]"); if (r) pushSettings("user", users.find((u) => u.id === Number(r.dataset.uid)));
       };
       $("#uAdd", body).onclick = () => pushSettings("user", null);
+    },
+  },
+  cleanup: {
+    title: () => "アドオンの整理",
+    async render(body) {
+      const own = (it) => !it.access || it.access === "owner";
+      const editable = (it) => it.access !== "view";
+      const latestOf = (it) => it.versions.find((v) => v.id === it.latest_id) || it.versions[0];
+      const monthsAgo = (iso) => (Date.now() - new Date(iso).getTime()) / (30.4 * 86400000);
+      const CONDS = {
+        oldver: { label: "古いバージョン(新しい方から決まった数だけ残す)", param: ["残す数", 3], unit: "個" },
+        dupver: { label: "同じバージョンの重複(同じ版のファイルが複数ある)" },
+        stale_src: { label: "配布元で長く更新されていない", param: ["期間", 12], unit: "か月以上" },
+        stale_lib: { label: "ライブラリに長く新しい版が追加されていない", param: ["期間", 12], unit: "か月以上" },
+        missing: { label: "保存先にファイルが見つからない(記録だけ残っている)" },
+        samename: { label: "同じ名前のアドオンが別の種類で登録されている" },
+      };
+      body.innerHTML = `<p>条件に当てはまるものを抽出して、確かめてから削除できます。削除できるのは自分のアドオン(と、編集を任されたもののバージョン)だけです。</p>
+        ${field("条件", `<select name="cond">${Object.entries(CONDS).map(([k, c]) => `<option value="${k}">${esc(c.label)}</option>`).join("")}</select>`)}
+        <div id="cuParam"></div>
+        ${field("種類(任意)", `<select name="cat"><option value="">すべての種類</option>${Object.entries(CATS).map(([k, n]) => `<option value="${k}">${esc(n)}</option>`).join("")}</select>`)}
+        <button class="btn tinted block" type="button" id="cuRun">${icon("search")}抽出</button>
+        <div id="cuOut"></div>`;
+      const drawParam = () => {
+        const c = CONDS[$("[name=cond]", body).value];
+        $("#cuParam", body).innerHTML = c.param ? field(c.param[0], `<div class="chips"><input type="number" name="param" min="1" max="120" value="${c.param[1]}" class="compact-num"><span>${c.unit}</span></div>`) : "";
+      };
+      $("[name=cond]", body).onchange = () => { drawParam(); $("#cuOut", body).innerHTML = ""; };
+      drawParam();
+      let found = [];
+      const extract = () => {
+        const cond = $("[name=cond]", body).value, cat = $("[name=cat]", body).value;
+        const n = Number($("[name=param]", body)?.value || 0);
+        const items = state.items.filter((it) => !cat || it.category === cat);
+        const out = [];  // { kind: "item"|"version", item, version?, reason, size }
+        if (cond === "oldver") {
+          for (const it of items.filter(editable)) {
+            // it.versions は新しい順(バージョン番号 → 追加日時の順)に並んでいる
+            const keep = new Set([it.latest_id, ...it.versions.slice(0, Math.max(1, n)).map((v) => v.id)]);
+            for (const v of it.versions) if (!keep.has(v.id)) out.push({ kind: "version", item: it, version: v, reason: `${verLabel(v.version)}(${fmtDate(v.added_at)} 追加)`, size: v.size });
+          }
+        } else if (cond === "dupver") {
+          for (const it of items.filter(editable)) {
+            const groups = {};
+            for (const v of it.versions) (groups[String(v.version).trim().toLowerCase() || "?"] ||= []).push(v);  // 新しい順のまま
+            for (const g of Object.values(groups)) {
+              if (g.length < 2) continue;
+              // 先頭(いちばん新しいもの・最新として使っているもの)を残す
+              for (const v of g.slice(1)) if (v.id !== it.latest_id) out.push({ kind: "version", item: it, version: v, reason: `${verLabel(v.version)} が ${g.length} 個(いちばん新しく追加したものを残します)`, size: v.size });
+            }
+          }
+        } else if (cond === "stale_src") {
+          for (const it of items.filter(own)) {
+            const d = it.source && it.source.latest && it.source.latest.date;
+            if (d && monthsAgo(d) >= n) out.push({ kind: "item", item: it, reason: `配布元の最終更新 ${fmtDate(d)}`, size: it.total_size });
+          }
+        } else if (cond === "stale_lib") {
+          for (const it of items.filter(own)) if (monthsAgo(it.last_added) >= n) out.push({ kind: "item", item: it, reason: `最後に追加 ${fmtDate(it.last_added)}`, size: it.total_size });
+        } else if (cond === "missing") {
+          for (const it of items.filter(editable)) for (const v of it.versions) if (v.missing) out.push({ kind: "version", item: it, version: v, reason: `${verLabel(v.version)} のファイルが見つかりません`, size: 0 });
+        } else if (cond === "samename") {
+          const norm = (s) => s.toLowerCase().replace(/[\W_]+/g, "");
+          const by = {};
+          for (const it of items) (by[norm(it.name)] ||= []).push(it);
+          for (const g of Object.values(by)) {
+            if (new Set(g.map((x) => x.category)).size < 2) continue;
+            for (const it of g.filter(own)) out.push({ kind: "item", item: it, reason: `${CATS[it.category]} として登録(ほかに ${g.filter((x) => x !== it).map((x) => CATS[x.category]).join("・")} にもあります)`, size: it.total_size, keepDefault: true });
+          }
+        }
+        return out;
+      };
+      const drawOut = () => {
+        const total = found.reduce((s, f) => s + f.size, 0);
+        $("#cuOut", body).innerHTML = !found.length ? `<div class="result ok">条件に当てはまるものはありません</div>`
+          : `<div class="group-title">${found.length} 件が見つかりました(${fmtSize(total)})</div>
+          <div class="chips" style="margin:0 2px 6px"><button class="btn plain small" type="button" data-all="1">すべて選ぶ</button><button class="btn plain small" type="button" data-all="0">すべて外す</button></div>
+          <div class="group scroll cu-list">${found.map((f, i) => `<label class="cu-row"><input type="checkbox" class="cbox" data-i="${i}"${f.keepDefault ? "" : " checked"}>
+            ${itemIcon(f.item, true)}<span class="main"><span class="title" translate="no">${esc(f.item.name)}${f.kind === "version" ? ` <span class="badge">${esc(verLabel(f.version.version))}</span>` : ' <span class="badge err">アドオンごと</span>'}</span>
+            <span class="subtitle">${esc(f.reason)}${f.size ? ` · ${fmtSize(f.size)}` : ""}</span></span></label>`).join("")}</div>
+          ${found.some((f) => f.keepDefault) ? `<div class="group-foot">「同じ名前」は、どちらを消すべきか自動では決められないので、最初はすべて外してあります。残したいものを外したまま、消すものだけを選んでください。</div>` : ""}
+          <button class="btn danger block" type="button" id="cuDel">${icon("trash")}選んだものを削除</button>`;
+      };
+      $("#cuRun", body).onclick = () => { found = extract(); drawOut(); };
+      body.addEventListener("click", async (e) => {
+        const all = e.target.closest("[data-all]");
+        if (all) { body.querySelectorAll(".cu-list [data-i]").forEach((c) => { c.checked = all.dataset.all === "1"; }); return; }
+        const del = e.target.closest("#cuDel"); if (!del) return;
+        const pick = [...body.querySelectorAll(".cu-list [data-i]:checked")].map((c) => found[Number(c.dataset.i)]);
+        if (!pick.length) { toast("削除するものを選んでください", true); return; }
+        const nItems = pick.filter((f) => f.kind === "item").length, nVers = pick.length - nItems;
+        if (!cfm(`${nItems ? `アドオン ${nItems} 件(保存しているすべてのバージョン)` : ""}${nItems && nVers ? "と" : ""}${nVers ? `バージョン ${nVers} 個` : ""}を削除します。\n保存先のファイルも削除され、元に戻せません。よろしいですか?`)) return;
+        await busy(del, async () => {
+          let ok = 0, ng = 0;
+          for (const f of pick) {
+            try { await api(f.kind === "item" ? `/api/items/${f.item.id}` : `/api/versions/${f.version.id}`, { method: "DELETE" }); ok++; }
+            catch { ng++; }
+          }
+          toast(ng ? `${ok} 件を削除しました(${ng} 件は削除できませんでした)` : `${ok} 件を削除しました`, !!ng);
+          await refresh();
+          found = extract(); drawOut();
+        }, "削除しています…");
+      });
     },
   },
   feedback: {

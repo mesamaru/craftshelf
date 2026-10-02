@@ -376,6 +376,8 @@ def migrate_schema(conn):
     for table in ("servers", "sets"):
         if "owner_id" not in _table_cols(conn, table):
             conn.execute(f"ALTER TABLE {table} ADD COLUMN owner_id INTEGER NOT NULL DEFAULT 0")
+    if "owner_id" not in _table_cols(conn, "shares"):  # 共有リンクを作った人(01.15.00 から。以前のものは管理者だけに見える)
+        conn.execute("ALTER TABLE shares ADD COLUMN owner_id INTEGER NOT NULL DEFAULT 0")
     if "perms" not in _table_cols(conn, "users"):  # 管理者が個別に付ける権限
         conn.execute("ALTER TABLE users ADD COLUMN perms TEXT NOT NULL DEFAULT '[]'")
     # 持ち主がまだ決まっていないもの(この機能より前のデータ)は、最初の管理者のものにする
@@ -1554,6 +1556,29 @@ def user_prefs(u):
     return p if isinstance(p, dict) else {}
 
 
+def _clean_widgets(v):
+    """ダッシュボードに足したウィジェット(メモ・ToDo・時計・日付)。種類と大きさを確かめて保存する。"""
+    out = []
+    for w in (v if isinstance(v, list) else [])[:12]:
+        if not isinstance(w, dict) or w.get("type") not in ("memo", "todo", "clock", "date"):
+            continue
+        wid = str(w.get("id") or "")
+        if not re.fullmatch(r"x[0-9a-f]{6,12}", wid):
+            continue
+        c = {"id": wid, "type": w["type"], "title": str(w.get("title") or "")[:40]}
+        if w["type"] == "memo":
+            c["md"] = bool(w.get("md"))
+            c["text"] = str(w.get("text") or "")[:10000]
+        elif w["type"] == "todo":
+            c["items"] = [{"t": str(x.get("t") or "")[:200], "d": bool(x.get("d"))}
+                          for x in (w.get("items") if isinstance(w.get("items"), list) else [])[:100]
+                          if isinstance(x, dict) and str(x.get("t") or "").strip()]
+        elif w["type"] == "clock":
+            c["style"] = "analog" if w.get("style") == "analog" else "digital"
+        out.append(c)
+    return out
+
+
 def user_public(u):
     return {"id": u["id"], "username": u["username"], "role": u["role"],
             "role_label": ROLES.get(u["role"], (0, u["role"]))[1], "perms": sorted(user_perms(u)),
@@ -2369,6 +2394,7 @@ def _transfer_owner(conn, from_id, to_id):
             n_items += 1
         n_srv = conn.execute("UPDATE servers SET owner_id=? WHERE owner_id=?", (to_id, from_id)).rowcount
         conn.execute("UPDATE sets SET owner_id=? WHERE owner_id=?", (to_id, from_id))
+        conn.execute("UPDATE shares SET owner_id=? WHERE owner_id=?", (to_id, from_id))
         for t in ("item_acl", "server_acl", "favorites"):
             conn.execute(f"DELETE FROM {t} WHERE user_id=?", (from_id,))
         conn.execute("DELETE FROM item_acl WHERE user_id=?", (to_id,))  # 自分のものになったので、共有の記録は不要
@@ -2556,8 +2582,9 @@ def api_me_prefs():
         prefs["sort"] = data["sort"]
     if "dash" in data:
         d = data["dash"] if isinstance(data["dash"], dict) else {}
-        clean = lambda xs: [str(x) for x in (xs if isinstance(xs, list) else []) if re.fullmatch(r"[a-z]{1,20}", str(x))][:30]  # noqa: E731
-        prefs["dash"] = {"order": clean(d.get("order")), "hidden": clean(d.get("hidden")), "full": clean(d.get("full"))}
+        clean = lambda xs: [str(x) for x in (xs if isinstance(xs, list) else []) if re.fullmatch(r"[a-z0-9]{1,20}", str(x))][:60]  # noqa: E731
+        prefs["dash"] = {"order": clean(d.get("order")), "hidden": clean(d.get("hidden")), "full": clean(d.get("full")),
+                         "custom": _clean_widgets(d.get("custom"))}
     if "lang" in data:
         if data["lang"] not in ("ja", "en"):
             raise ApiError("言語の指定が不正です")
@@ -2755,17 +2782,23 @@ def api_settings_update():
 # --------------------------------------------------------------------------
 # バックグラウンド処理 API
 # --------------------------------------------------------------------------
+def _job_visible(job):
+    """処理の進み具合・記録は、始めた本人と管理者だけが見られる(記録にアドオンの名前などが出るため)。"""
+    u = current_user()
+    return bool(u) and (u["role"] == "admin" or job.user == u["username"])
+
+
 @app.get("/api/jobs")
 def api_jobs():
     with _JOBS_LOCK:
-        jobs = sorted(_JOBS.values(), key=lambda j: j.started, reverse=True)
+        jobs = sorted((j for j in _JOBS.values() if _job_visible(j)), key=lambda j: j.started, reverse=True)
     return jsonify(jobs=[j.public() for j in jobs[:10]])
 
 
 @app.get("/api/jobs/<job_id>")
 def api_job(job_id):
     job = _JOBS.get(job_id)
-    if not job:
+    if not job or not _job_visible(job):
         raise ApiError("見つかりません", 404)
     return jsonify(job.public())
 
@@ -3729,11 +3762,13 @@ def dependency_report(items, aliases=None):
         it["deps_scanned"] = bool(latest["meta"].get("deps_v"))
 
 
-def _rescan_deps_job(job, target_id):
+def _rescan_deps_job(job, target_id, only_ids=None):
     conn = db()
     target = conn.execute("SELECT * FROM storage_targets WHERE id=?", (target_id,)).fetchone()
     store = open_store(target)
     rows = conn.execute("SELECT v.* FROM versions v WHERE v.target_id=?", (target_id,)).fetchall()
+    if only_ids is not None:  # 画面から実行したときは、その人に見えるものだけ(記録にほかの人のファイル名を出さない)
+        rows = [v for v in rows if v["item_id"] in only_ids]
     todo = [v for v in rows if _jl(v["meta"], {}).get("deps_v") != DEPS_VERSION]
     job.total = len(todo)
     for v in todo:
@@ -3758,7 +3793,8 @@ def _rescan_deps_job(job, target_id):
 @require("editor")
 def api_deps_rescan():
     _store, target = active_store()
-    job = start_job("deps", "依存関係の読み取り", _rescan_deps_job, target["id"], user=current_user()["username"])
+    job = start_job("deps", "依存関係の読み取り", _rescan_deps_job, target["id"], visible_item_ids(db()),
+                    user=current_user()["username"])
     return jsonify(job.public())
 
 
@@ -4060,10 +4096,14 @@ def server_inventory(conn, srv_row, target, note=lambda m: None):
     files = [f for f in _pcall(p.list_dir, ident, pdir)
              if f["is_file"] and f["name"].lower().endswith((".jar", ".zip")) and not f["name"].startswith(".")]
     cache = {r["name"]: r for r in conn.execute("SELECT * FROM server_files WHERE server_id=?", (srv_row["id"],))}
+    # 照らし合わせるのは、サーバーの持ち主のライブラリ(自分のもの + 共有されたもの)だけ。
+    # ほかの人の非公開のアドオンが、同期でこのサーバーに入ってしまわないように
+    vis = visible_item_ids(conn, {"id": srv_row["owner_id"]})
     by_sha = {}
     for v in conn.execute("SELECT * FROM versions WHERE target_id=?", (target["id"],)):
-        by_sha.setdefault(v["sha256"], v)
-    items = {r["id"]: r for r in conn.execute("SELECT * FROM items WHERE target_id=?", (target["id"],))}
+        if v["item_id"] in vis:
+            by_sha.setdefault(v["sha256"], v)
+    items = {r["id"]: r for r in conn.execute("SELECT * FROM items WHERE target_id=?", (target["id"],)) if r["id"] in vis}
     by_key = {}
     for it in items.values():
         by_key.setdefault(norm_key(it["name"]), it)
@@ -5063,10 +5103,10 @@ def api_shares_create():
     default_name = f"{pairs[0][0]['name']} ほか {len(pairs) - 1} 件" if len(pairs) > 1 else pairs[0][0]["name"]
     name = str(data.get("name") or "").strip()[:80] or default_name
     expires = (datetime.now(timezone.utc) + timedelta(hours=hours)).strftime("%Y-%m-%dT%H:%M:%SZ")
-    conn.execute("INSERT INTO shares (token_hash, name, target_id, versions, created_by, created_at, expires_at) "
-                 "VALUES (?,?,?,?,?,?,?)",
+    conn.execute("INSERT INTO shares (token_hash, name, target_id, versions, created_by, created_at, expires_at, owner_id) "
+                 "VALUES (?,?,?,?,?,?,?,?)",
                  (hashlib.sha256(token.encode()).hexdigest(), name, target["id"], json.dumps([v["id"] for _i, v in pairs]),
-                  current_user()["username"], utcnow(), expires))
+                  current_user()["username"], utcnow(), expires, current_user()["id"]))
     conn.commit()
     # URL の最後をファイル名にしておくと、wget / curl -O でもそのままの名前で保存される
     fname = pairs[0][1]["filename"] if len(pairs) == 1 else f"{safe_name(name, 'craftshelf')}.zip"
@@ -5077,7 +5117,10 @@ def api_shares_create():
 @app.get("/api/shares")
 @require("editor")
 def api_shares_list():
-    rows = db().execute("SELECT id, name, created_by, created_at, expires_at, downloads, versions FROM shares ORDER BY id DESC").fetchall()
+    """自分が作った共有リンク(管理者はすべて)。"""
+    u = current_user()
+    sql = "SELECT id, name, created_by, created_at, expires_at, downloads, versions FROM shares"
+    rows = db().execute(sql + " ORDER BY id DESC").fetchall() if u["role"] == "admin" else         db().execute(sql + " WHERE owner_id=? ORDER BY id DESC", (u["id"],)).fetchall()
     now = utcnow()
     return jsonify(shares=[{**{k: r[k] for k in ("id", "name", "created_by", "created_at", "expires_at", "downloads")},
                             "count": len(_jl(r["versions"], [])), "expired": r["expires_at"] < now} for r in rows])
@@ -5087,6 +5130,10 @@ def api_shares_list():
 @require("editor")
 def api_shares_delete(shid):
     conn = db()
+    u = current_user()
+    r = conn.execute("SELECT owner_id FROM shares WHERE id=?", (shid,)).fetchone()
+    if not r or (r[0] != u["id"] and u["role"] != "admin"):
+        raise ApiError("見つかりません", 404)
     conn.execute("DELETE FROM shares WHERE id=?", (shid,))
     conn.commit()
     return jsonify(ok=True)

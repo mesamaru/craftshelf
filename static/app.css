@@ -69,6 +69,7 @@
 html, body { margin: 0; }
 body {
   font: 15px/1.47 var(--font);
+  touch-action: manipulation;  /* ダブルタップでの拡大を止める(指での拡大はそのまま) */
   letter-spacing: -.01em;
   color: var(--label);
   background: var(--bg);

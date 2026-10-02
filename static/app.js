@@ -2,6 +2,12 @@
 /* CraftShelf — 画面の処理 */
 
 const $ = (s, root = document) => root.querySelector(s);
+
+// iPhone / iPad: 16px より小さい入力欄を押すと画面が勝手に拡大されるので止める(iOS は指での拡大はこの指定でも使える)
+if (/iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)) {
+  document.querySelector("meta[name=viewport]")?.setAttribute("content", "width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover");
+}
+
 const CATS = { plugin: "プラグイン", mod: "Mod", datapack: "データパック", resourcepack: "リソースパック", shader: "シェーダー", modpack: "Modパック", other: "その他" };
 const PROVIDERS = { modrinth: "Modrinth", spigot: "SpigotMC", curseforge: "CurseForge" };
 const SRC_STATUS = { up_to_date: "最新", update: "更新あり", error: "確認できません", unchecked: "未確認" };

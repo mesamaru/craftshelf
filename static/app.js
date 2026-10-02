@@ -646,32 +646,39 @@ function setView(view) {
 $("#tabbar").addEventListener("click", (e) => { const b = e.target.closest("[data-view]"); if (b) setView(b.dataset.view); });
 
 // スマホ: 一覧を下へスクロールすると検索欄の下(絞り込み・並び順・種類)を畳み、上へ戻すか「絞り込み」で開く
+// 畳んだ分は下の余白で埋めて、ページの高さを変えない(高さが変わるとスクロール位置が動き、開閉を繰り返してしまう)
 (() => {
   const tb = $(".toolbar"), mq = matchMedia("(max-width: 700px)");
-  let lastY = scrollY, acc = 0, lock = false;
+  let lastY = scrollY, acc = 0, until = 0;
   const filtered = () => !!(state.plat || $("#mcSel").value || state.tag || (state.cat && state.cat !== "all"));
+  const stuck = () => tb.getBoundingClientRect().top <= parseFloat(getComputedStyle(tb).top) + 1;
   const set = (on) => {
     if (tb.classList.contains("tucked") === on) return;
-    const h = tb.offsetHeight, stuck = tb.getBoundingClientRect().top <= parseFloat(getComputedStyle(tb).top) + 1;
     $("#tbMore .dot").hidden = !filtered();
-    tb.classList.toggle("tucked", on);
-    tb.classList.toggle("reveal", !on);
-    if (stuck) {  // 貼り付いている間は、高さが変わっても一覧の見えている位置がずれないようにする
-      lock = true; scrollBy(0, tb.offsetHeight - h); lastY = scrollY;
-      requestAnimationFrame(() => { lock = false; });
+    if (on) {
+      const h = tb.offsetHeight, mb = parseFloat(getComputedStyle(tb).marginBottom);
+      tb.classList.add("tucked"); tb.classList.remove("reveal");
+      tb.style.marginBottom = `${mb + h - tb.offsetHeight}px`;
+    } else {
+      tb.classList.remove("tucked"); tb.classList.add("reveal");
+      tb.style.marginBottom = "";
     }
+    acc = 0; until = performance.now() + 350;  // 切り替えた直後はしばらく様子を見る
   };
   addEventListener("scroll", () => {
-    if (lock || document.body.classList.contains("scroll-locked")) return;
-    const y = scrollY, d = y - lastY; lastY = y;
+    if (document.body.classList.contains("scroll-locked")) return;
+    const y = scrollY, max = document.documentElement.scrollHeight - innerHeight;
+    if (y < 0 || y > max) return;  // iOS の端での跳ね返りは数えない
+    const d = y - lastY; lastY = y;
     if (!mq.matches || state.view !== "library" || document.activeElement === $("#search")) { acc = 0; return; }
-    if (y < 320) { acc = 0; set(false); return; }
+    if (!stuck()) { set(false); return; }
+    if (performance.now() < until) return;
     acc = (acc > 0) === (d > 0) ? acc + d : d;
-    if (acc > 24) set(true);
-    else if (acc < -48) set(false);
+    if (acc > 40) set(true);
+    else if (acc < -80) set(false);
   }, { passive: true });
   mq.addEventListener("change", () => set(false));
-  $("#tbMore").addEventListener("click", () => { acc = 0; set(false); });
+  $("#tbMore").addEventListener("click", () => set(false));
 })();
 
 /* ---------------- 対応MCバージョンでの絞り込み ---------------- */

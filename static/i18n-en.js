@@ -1084,6 +1084,7 @@ window.CS_EN = {
   "読み込む": "Import",
   "オーロラ": "Aurora",
   "絞り込み": "Filters",
+  "絞り込み・並び順を表示": "Show filters and sort",
   "(自分)": " (you)",
   "転送する": "Send",
   "送信中…": "Sending…",

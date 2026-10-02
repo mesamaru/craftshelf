@@ -64,6 +64,7 @@ const ICONS = {
   tag: '<path d="M3 12V4h8l9 9-8 8z"/><circle cx="7.5" cy="8" r="1.4"/>',
   grid: '<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/>',
   stack: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
+  filter: '<path d="M4 6h16M7 12h10M10 18h4"/>',
 };
 const icon = (name, cls = "i") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
 
@@ -643,6 +644,35 @@ function setView(view) {
   if (view === "servers") loadServers();
 }
 $("#tabbar").addEventListener("click", (e) => { const b = e.target.closest("[data-view]"); if (b) setView(b.dataset.view); });
+
+// スマホ: 一覧を下へスクロールすると検索欄の下(絞り込み・並び順・種類)を畳み、上へ戻すか「絞り込み」で開く
+(() => {
+  const tb = $(".toolbar"), mq = matchMedia("(max-width: 700px)");
+  let lastY = scrollY, acc = 0, lock = false;
+  const filtered = () => !!(state.plat || $("#mcSel").value || state.tag || (state.cat && state.cat !== "all"));
+  const set = (on) => {
+    if (tb.classList.contains("tucked") === on) return;
+    const h = tb.offsetHeight, stuck = tb.getBoundingClientRect().top <= parseFloat(getComputedStyle(tb).top) + 1;
+    $("#tbMore .dot").hidden = !filtered();
+    tb.classList.toggle("tucked", on);
+    tb.classList.toggle("reveal", !on);
+    if (stuck) {  // 貼り付いている間は、高さが変わっても一覧の見えている位置がずれないようにする
+      lock = true; scrollBy(0, tb.offsetHeight - h); lastY = scrollY;
+      requestAnimationFrame(() => { lock = false; });
+    }
+  };
+  addEventListener("scroll", () => {
+    if (lock || document.body.classList.contains("scroll-locked")) return;
+    const y = scrollY, d = y - lastY; lastY = y;
+    if (!mq.matches || state.view !== "library" || document.activeElement === $("#search")) { acc = 0; return; }
+    if (y < 320) { acc = 0; set(false); return; }
+    acc = (acc > 0) === (d > 0) ? acc + d : d;
+    if (acc > 24) set(true);
+    else if (acc < -48) set(false);
+  }, { passive: true });
+  mq.addEventListener("change", () => set(false));
+  $("#tbMore").addEventListener("click", () => { acc = 0; set(false); });
+})();
 
 /* ---------------- 対応MCバージョンでの絞り込み ---------------- */
 let MC_LINES = ["1.21", "1.20", "1.19", "1.18", "1.17", "1.16", "1.15", "1.14", "1.13", "1.12", "1.8"];
@@ -1519,6 +1549,20 @@ function closePanel() {
   document.querySelectorAll(".row.sel").forEach((r) => r.classList.remove("sel"));
 }
 $("#scrim").addEventListener("click", closePanel);
+
+// シート・詳細を開いている間は後ろの画面をスクロールさせない(iOS は overflow だけでは止まらないので body を固定する)
+(() => {
+  let savedY = 0;
+  const sync = () => {
+    const on = $("#dlg").open || $("#panel").classList.contains("on"), b = document.body;
+    if (on === b.classList.contains("scroll-locked")) return;
+    if (on) { savedY = scrollY; b.style.top = `-${savedY}px`; b.classList.add("scroll-locked"); }
+    else { b.classList.remove("scroll-locked"); b.style.top = ""; scrollTo({ top: savedY, behavior: "instant" }); }
+  };
+  const mo = new MutationObserver(sync);
+  mo.observe($("#dlg"), { attributes: true, attributeFilter: ["open"] });
+  mo.observe($("#panel"), { attributes: true, attributeFilter: ["class"] });
+})();
 document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !$("#dlg").open && state.selected) closePanel(); });
 
 /* ---------------- 対応MCバージョンの範囲(前提プラグインとの対応確認) ---------------- */
@@ -2166,6 +2210,7 @@ $("#updBtn").innerHTML = icon("refresh");
 $("#settingsBtn").innerHTML = icon("gear");
 $("#dropIcon").innerHTML = icon("tray");
 $("#searchIcon").innerHTML = icon("search");
+$("#tbMoreIcon").innerHTML = icon("filter");
 $("#addBtn").addEventListener("click", (e) => openMenu(e.currentTarget, [
   { label: "ファイルを選択", icon: "doc", run: () => $("#fileInput").click() },
   { label: "フォルダを選択", icon: "folder", run: () => $("#dirInput").click() },

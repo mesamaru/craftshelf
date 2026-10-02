@@ -898,3 +898,22 @@ h3 .favbtn svg.i { width: 22px; height: 22px; }
 .cu-row .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 .cu-row .title { font-weight: 600; } .cu-row .subtitle { font-size: 12px; color: var(--label-2); }
 .compact-num { width: 90px; }
+
+/* ---------- スマホ: スクロール中は検索欄の下を畳む ---------- */
+.tb-more { display: none; position: relative; gap: 5px; align-items: center; flex: none; }
+.tb-more svg { width: 15px; height: 15px; }
+.tb-more .dot { position: absolute; top: 3px; right: 5px; width: 7px; height: 7px; border-radius: 50%; background: var(--tint); }
+@media (max-width: 700px) {
+  .toolbar.tucked .row1 { flex-wrap: nowrap; }
+  .toolbar.tucked .search { flex-basis: auto; }
+  .toolbar.tucked .tb-more { display: inline-flex; }
+  .toolbar.tucked #platSel, .toolbar.tucked #mcSel, .toolbar.tucked #selBtn, .toolbar.tucked #sortSel,
+  .toolbar.tucked #chips, .toolbar.tucked #tagChips { display: none !important; }
+  .toolbar.reveal #platSel, .toolbar.reveal #mcSel, .toolbar.reveal #selBtn, .toolbar.reveal #sortSel,
+  .toolbar.reveal #chips, .toolbar.reveal #tagChips { animation: tbReveal .28s var(--ease); }
+}
+@keyframes tbReveal { from { opacity: 0; transform: translateY(-6px); } }
+
+/* シート・詳細を開いている間は後ろを動かさない */
+body.scroll-locked { position: fixed; left: 0; right: 0; overflow: hidden; }
+dialog.sheet, .side { overscroll-behavior: contain; }

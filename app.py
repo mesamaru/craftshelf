@@ -5217,7 +5217,7 @@ def _due(key, hours):
 # 匿名の利用状況(同意したときだけ)・お問い合わせ
 # --------------------------------------------------------------------------
 # 送り先は開発者の Cloudflare Workers(telemetry/ フォルダ)。環境変数で変えられる(空にすると機能ごと無効)
-DEFAULT_TELEMETRY_URL = ""
+DEFAULT_TELEMETRY_URL = "https://craftshelf-telemetry.mesamaru.workers.dev"
 TELEMETRY_URL = os.environ.get("CRAFTSHELF_TELEMETRY_URL", DEFAULT_TELEMETRY_URL).strip().rstrip("/")
 
 

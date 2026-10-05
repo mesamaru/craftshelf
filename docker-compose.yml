@@ -19,6 +19,10 @@ services:
       # 左側を、ファイルを保存したいフォルダに変えてください(例: Unraid なら /mnt/user/minecraft/library)
       # (ローカル保存先。Web設定パネルからSMB/WebDAVを追加登録することもできます)
       - ./data:/data
+      # フォルダのサーバー(同じ PC・NAS の Minecraft サーバー)を管理するときは、サーバーのフォルダもマウントします
+      # - /path/to/minecraft/survival:/servers/survival
+      # サーバーの起動・停止を Docker のコンテナで行うときだけ(コンテナを操作できるようになるので注意)
+      # - /var/run/docker.sock:/var/run/docker.sock
     environment:
       # タイムゾーン(例: Asia/Tokyo, Europe/London, America/New_York)
       - TZ=Asia/Tokyo

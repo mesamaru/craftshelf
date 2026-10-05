@@ -140,4 +140,28 @@ class Ptero:
 
     def resources(self, ident):
         a = self._req("GET", self._srv(ident) + "/resources").json().get("attributes") or {}
-        return {"state": a.get("current_state") or "unknown"}
+        r = a.get("resources") or {}
+        return {"state": a.get("current_state") or "unknown", "cpu": r.get("cpu_absolute"),
+                "memory": r.get("memory_bytes"), "disk": r.get("disk_bytes"), "uptime": r.get("uptime")}
+
+    def address(self, ident):
+        """既定の割り当て(IP:ポート)。プレイヤーの人数などを問い合わせるのに使う。"""
+        a = self._req("GET", self._srv(ident)).json().get("attributes") or {}
+        allocs = [x.get("attributes") or {} for x in ((a.get("relationships") or {}).get("allocations") or {}).get("data") or []]
+        d = next((x for x in allocs if x.get("is_default")), allocs[0] if allocs else None)
+        if not d:
+            return ""
+        host = d.get("ip_alias") or d.get("ip") or ""
+        return f"{host}:{d.get('port')}" if host and d.get("port") else ""
+
+    def rename(self, ident, root, frm, to):
+        self._req("PUT", self._srv(ident) + "/files/rename", json={"root": root, "files": [{"from": frm, "to": to}]})
+
+    def compress(self, ident, root, names):
+        """サーバー上でまとめて圧縮し、できたファイルの名前を返す(ルートからの場所)。"""
+        a = self._req("POST", self._srv(ident) + "/files/compress", json={"root": root, "files": list(names)},
+                      timeout=(TIMEOUT, 900)).json().get("attributes") or {}
+        return a.get("name") or ""
+
+    def decompress(self, ident, root, name):
+        self._req("POST", self._srv(ident) + "/files/decompress", json={"root": root, "file": name}, timeout=(TIMEOUT, 900))

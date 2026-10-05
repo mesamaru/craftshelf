@@ -16,7 +16,7 @@ drag &amp; drop to add, check for updates, and push them to your servers.
 - 📦 **Drop to organize** — drop .jar / .zip files or whole folders; name, version, supported Minecraft versions and server software are detected automatically
 - 🔗 **Linked to distribution sites** — matches your files with Modrinth, SpigotMC and CurseForge, checks for updates on a schedule and saves new versions in one click
 - 🧩 **Dependency checks** — finds missing required plugins/mods and lets you add them from search
-- 🖥️ **Server management** — Pterodactyl servers or server folders the panel can see (same PC / NAS): plugins, mods and datapacks per folder, one-click sync, per-add-on updates, side-by-side comparison, rollback, scheduled syncs
+- 🖥️ **Server management** — Pterodactyl servers or server folders the panel can see (same PC / NAS): plugins, mods and datapacks per folder, one-click sync, per-add-on updates with MC compatibility checks, holds and disabling, auto-update, live players/status, start/stop (Pterodactyl, commands or Docker), server software build checks, world backups, copying setups between servers with staging → production, side-by-side comparison, rollback incl. plugin configs, scheduled syncs
 - 🗂️ **Flexible storage** — local folder, SMB (Unraid, TrueNAS, Synology, Windows shares) or WebDAV (Nextcloud etc.), with a live storage status view (connection, latency, capacity)
 - 👥 **Multi-user** — viewer / editor / admin roles, two-factor authentication, API tokens and an audit log
 - 🌐 **English / Japanese UI**, themes and custom backgrounds, mobile friendly

@@ -71,6 +71,7 @@ const ICONS = {
   grid: '<rect x="4" y="4" width="7" height="7" rx="2"/><rect x="13" y="4" width="7" height="7" rx="2"/><rect x="4" y="13" width="7" height="7" rx="2"/><rect x="13" y="13" width="7" height="7" rx="2"/>',
   stack: '<path d="M12 3l9 5-9 5-9-5z"/><path d="M3 13l9 5 9-5"/>',
   filter: '<path d="M4 6h16M7 12h10M10 18h4"/>',
+  power: '<path d="M12 3v8"/><path d="M6.3 7.5a8 8 0 1 0 11.4 0"/>',
 };
 const icon = (name, cls = "i") => `<svg class="${cls}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[name] || ""}</svg>`;
 
@@ -127,12 +128,20 @@ async function api(path, opts = {}) {
   if (!res.ok) throw new Error((data && data.error) || `エラー (HTTP ${res.status})`);
   return data;
 }
+/* お知らせはシート(dialog)より前に出す。popover で最前面の層に置き、出すたびに一番上へ上げ直す */
+function toastHost() {
+  const t = $("#toasts");
+  if (t.showPopover) { try { if (t.matches(":popover-open")) t.hidePopover(); t.showPopover(); } catch { /* 古いブラウザ */ } }
+  else if ($("#dlg").open && t.parentElement !== $("#dlg")) $("#dlg").appendChild(t);
+  else if (!$("#dlg").open && t.parentElement !== document.body) document.body.appendChild(t);
+  return t;
+}
 function toast(msg, isErr = false) {
   const el = document.createElement("div");
   el.className = "toast glass" + (isErr ? " err" : "");
   el.innerHTML = `<span class="ic">${icon(isErr ? "x" : "check")}</span><span></span>`;
   el.lastChild.textContent = msg;
-  $("#toasts").appendChild(el);
+  toastHost().appendChild(el);
   setTimeout(() => el.remove(), isErr ? 7000 : 3800);
 }
 /* ボタンを押したら処理中の表示にして、終わるまで押せなくする(連打防止) */
@@ -650,6 +659,50 @@ function setView(view) {
   if (view === "servers") loadServers();
 }
 $("#tabbar").addEventListener("click", (e) => { const b = e.target.closest("[data-view]"); if (b) setView(b.dataset.view); });
+
+// 今の画面を読み込み直す(下に引っ張ったとき)
+async function reloadView() {
+  await refresh();
+  if (state.view === "dash") renderDash();
+  else if (state.view === "sets") await loadSets();
+  else if (state.view === "servers") await loadServers();
+}
+// スマホ: 一番上で下に引っ張って離すと、今の画面を読み込み直す
+(() => {
+  const ind = document.createElement("div");
+  ind.className = "ptr"; ind.setAttribute("aria-hidden", "true");
+  ind.innerHTML = `<span class="ptr-ic">${icon("refresh")}</span>`;
+  document.body.appendChild(ind);
+  const ic = ind.firstChild, TH = 70;
+  let y0 = null, x0 = 0, dy = 0, running = false;
+  const reset = () => { ind.className = "ptr"; ind.style.transform = ""; ind.style.opacity = ""; ic.style.transform = ""; };
+  const ready = () => !running && scrollY <= 0 && !document.body.classList.contains("scroll-locked") && !$("#dlg").open;
+  addEventListener("touchstart", (e) => {
+    y0 = e.touches.length === 1 && ready() ? e.touches[0].clientY : null;
+    x0 = y0 === null ? 0 : e.touches[0].clientX; dy = 0;
+  }, { passive: true });
+  addEventListener("touchmove", (e) => {
+    if (y0 === null) return;
+    const t = e.touches[0];
+    dy = t.clientY - y0;
+    if (dy <= 0 || scrollY > 0 || Math.abs(t.clientX - x0) > dy) { if (dy < 0 || scrollY > 0) { y0 = null; reset(); } return; }
+    const pull = Math.min(dy * 0.55, 90);
+    ind.style.transform = `translate(-50%, ${pull}px)`;
+    ind.style.opacity = String(Math.min(1, dy / TH));
+    ic.style.transform = `rotate(${Math.min(dy / TH, 1.3) * 300}deg)`;
+    ind.classList.add("drag"); ind.classList.toggle("ready", dy >= TH);
+  }, { passive: true });
+  const end = async () => {
+    if (y0 === null) return;
+    y0 = null;
+    if (dy < TH) { reset(); return; }
+    running = true;
+    ind.classList.remove("drag"); ind.classList.add("spin"); ind.style.transform = "translate(-50%, 50px)"; ind.style.opacity = "1"; ic.style.transform = "";
+    try { await reloadView(); } finally { running = false; reset(); }
+  };
+  addEventListener("touchend", end);
+  addEventListener("touchcancel", () => { y0 = null; reset(); });
+})();
 
 // スマホ: 一覧を下へスクロールすると検索欄の下(絞り込み・並び順・種類)を畳み、上へ戻すか「絞り込み」で開く
 // 畳んだ分は下の余白で埋めて、ページの高さを変えない(高さが変わるとスクロール位置が動き、開閉を繰り返してしまう)
@@ -1250,8 +1303,10 @@ async function editSet(set, draft = null) {
 
 /* ---------------- サーバー(Pterodactyl) ---------------- */
 async function loadServers() {
-  try { const d = await api("/api/servers"); state.servers = d.servers; state.pteroConfigured = d.configured; }
-  catch (e) { $("#serversView").innerHTML = `<div class="result err">${esc(e.message)}</div>`; return; }
+  try {
+    const d = await api("/api/servers");
+    state.servers = d.servers; state.pteroConfigured = d.configured; state.localOk = d.local_ok;
+  } catch (e) { $("#serversView").innerHTML = `<div class="result err">${esc(e.message)}</div>`; return; }
   renderServers();
   for (const s of state.servers) {
     api(`/api/servers/${s.id}/status`).then((st) => {
@@ -1260,7 +1315,65 @@ async function loadServers() {
     }).catch(() => {});
   }
 }
-const stateBadge = (s) => ({ running: '<span class="badge ok">稼働中</span>', offline: '<span class="badge">停止中</span>', starting: '<span class="badge upd">起動中</span>', stopping: '<span class="badge upd">停止処理中</span>' }[s] || '<span class="badge">状態不明</span>');
+const stateBadge = (s) => ({ running: '<span class="badge ok">稼働中</span>', offline: '<span class="badge">停止中</span>', starting: '<span class="badge upd">起動中</span>', stopping: '<span class="badge upd">停止処理中</span>', local: "" }[s] ?? '<span class="badge">状態不明</span>');
+
+/* ---------------- サーバーソフトと、種類ごとのフォルダ ---------------- */
+const SRV_CATS = ["plugin", "mod", "datapack"];
+const SRV_SOFT = { paper: "Paper", purpur: "Purpur", folia: "Folia", spigot: "Spigot", bukkit: "CraftBukkit", sponge: "Sponge",
+  velocity: "Velocity", bungeecord: "BungeeCord", waterfall: "Waterfall", fabric: "Fabric", quilt: "Quilt", forge: "Forge", neoforge: "NeoForge" };
+const SRV_SOFT_GROUPS = [["サーバー(プラグイン)", ["paper", "purpur", "folia", "spigot", "bukkit", "sponge"]],
+  ["プロキシ", ["velocity", "bungeecord", "waterfall"]], ["Mod ローダー", ["fabric", "quilt", "forge", "neoforge"]]];
+const SRV_DIR_HINT = { plugin: "plugins", mod: "mods", datapack: "world/datapacks" };
+function defaultSrvDirs(soft, world = "world") {
+  if (["velocity", "bungeecord", "waterfall"].includes(soft)) return { plugin: "plugins" };
+  if (["fabric", "quilt", "forge", "neoforge"].includes(soft)) return { mod: "mods", datapack: `${world}/datapacks` };
+  if (soft === "sponge") return { plugin: "plugins", mod: "mods", datapack: `${world}/datapacks` };
+  return { plugin: "plugins", datapack: `${world}/datapacks` };
+}
+const softOptions = (sel) => `<option value="">わからない・指定しない</option>${SRV_SOFT_GROUPS.map(([g, ids]) =>
+  `<optgroup label="${esc(g)}">${ids.map((id) => `<option value="${id}"${id === sel ? " selected" : ""}>${SRV_SOFT[id]}</option>`).join("")}</optgroup>`).join("")}`;
+const dirsLabel = (s) => SRV_CATS.filter((c) => (s.dirs || {})[c]).map((c) => `${CATS[c]}: ${s.dirs[c]}`).join(" · ");
+
+/* 追加・設定で共通の入力欄(サーバーソフト・フォルダ)。world はワールドのフォルダ名 */
+const srvFields = (s = {}) => `
+  ${field("サーバーソフト", `<select name="software">${softOptions(s.software || "")}</select>`)}
+  <div class="group-title" style="margin:6px 4px 0">管理するフォルダ<small>(サーバーのフォルダから見た場所。空にすると管理しません)</small></div>
+  <div class="group srv-dirs">${SRV_CATS.map((c) => `<label class="dir-row"><span class="cicon sm c-${c}">${catGlyph(c)}</span><span class="l">${CATS[c]}</span>
+    <input type="text" name="dir_${c}" value="${esc((s.dirs || {})[c] || "")}" placeholder="${SRV_DIR_HINT[c]}" autocomplete="off" spellcheck="false"></label>`).join("")}</div>`;
+function wireSrvFields(form, detectBody) {
+  let touched = false, world = "world";
+  form.querySelectorAll(".srv-dirs input").forEach((i) => { i.oninput = () => { touched = true; }; });
+  const setDirs = (dirs) => SRV_CATS.forEach((c) => { form.querySelector(`[name=dir_${c}]`).value = dirs[c] || ""; });
+  form.querySelector("[name=software]").onchange = (e) => { if (!touched) setDirs(defaultSrvDirs(e.target.value, world)); };
+  const out = form.querySelector("[data-dtout]");
+  const detect = async (btn) => {
+    const body = detectBody();
+    if (!body) return;
+    if (out) out.innerHTML = `<span class="spinner"></span> フォルダの中身を確認しています…`;
+    try {
+      const r = await api("/api/servers/detect", { json: body });
+      world = r.world || "world";
+      if (r.software) form.querySelector("[name=software]").value = r.software;
+      setDirs(r.dirs); touched = false;
+      if (out) out.innerHTML = r.software ? `${icon("check")}${esc(SRV_SOFT[r.software] || r.software)} と判定しました(ワールド: ${esc(world)})`
+        : r.is_server ? `${icon("check")}サーバーソフトは判定できませんでした。フォルダは見つかったものを入れています`
+          : `<span class="warn-t">サーバーのフォルダではないかもしれません(server.properties がありません)</span>`;
+    } catch (ex) { if (out) out.innerHTML = `<span class="warn-t">${esc(ex.message)}</span>`; }
+    return btn;
+  };
+  form.querySelector("[data-detect]")?.addEventListener("click", (ev) => busy(ev.currentTarget, () => detect(), "確認中…"));
+  return { detect };
+}
+const readDirs = (form) => Object.fromEntries(SRV_CATS.map((c) => [c, form.querySelector(`[name=dir_${c}]`).value.trim()]).filter(([, v]) => v));
+
+async function addServerMenu(btn) {
+  const items = [
+    state.pteroConfigured ? { label: "Pterodactyl のサーバーを連携", icon: "server", run: () => linkServerDialog() }
+      : { label: "Pterodactyl を設定して連携", icon: "gear", run: () => (can("integrations") ? openSettings("ptero") : toast("Pterodactyl の設定は管理者に依頼してください", true)) },
+    { label: "フォルダのサーバーを追加(このPC・NAS)", icon: "folder", run: () => (state.localOk ? localServerDialog() : toast("フォルダのサーバーは「パネル全体の設定」の権限がある人だけが追加できます", true)) },
+  ];
+  openMenu(btn, items);
+}
 async function linkServerDialog() {
   let ps;
   const tp = toastProgress("Pterodactyl からサーバーの一覧を取得しています…");
@@ -1268,52 +1381,106 @@ async function linkServerDialog() {
   const avail = ps.filter((p) => !p.linked_id);
   if (!ps.length) { toast("Pterodactyl からサーバーが 1 台も返りませんでした。APIキー(ptlc_…)を作ったユーザーに、サーバーの所有者・サブユーザー・管理者のいずれかの権限があるか確認してください", true); return; }
   if (!avail.length) { toast(`すべてのサーバー(${ps.length} 台)を連携済みです`); return; }
-  const setOpts = `<option value="">なし</option>${(state.sets || []).map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}`;
-  const r = await formSheet("サーバーを連携", `
-    ${field("サーバー", `<select name="identifier">${avail.map((p) => `<option value="${esc(p.identifier)}">${esc(p.name)}(${esc(p.node)})</option>`).join("")}</select>`)}
-    ${field("プラグインのフォルダ", `<input type="text" name="plugin_dir" value="/plugins" placeholder="/plugins(Mod サーバーなら /mods)">`)}
-    ${field("セット(任意。同期のときにセットの中身を入れる)", `<select name="set_id">${setOpts}</select>`)}`, "連携する");
-  if (!r) return;
-  r.name = (avail.find((p) => p.identifier === r.identifier) || {}).name || r.identifier;
-  try { await api("/api/servers", { json: r }); toast("連携しました"); loadServers(); } catch (e) { toast(e.message, true); }
+  if (!state.sets) { try { state.sets = (await api("/api/sets")).sets; } catch { state.sets = []; } }
+  const setOpts = `<option value="">なし</option>${state.sets.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}`;
+  const r = await sheet(`${sheetHead("Pterodactyl のサーバーを連携")}<div class="db">
+      ${field("サーバー", `<select name="identifier">${avail.map((p) => `<option value="${esc(p.identifier)}">${esc(p.name)}(${esc(p.node)})</option>`).join("")}</select>`)}
+      <div class="detect-out" data-dtout></div>
+      ${srvFields({ dirs: defaultSrvDirs("") })}
+      ${field("セット(任意。同期のときにセットの中身も入れる)", `<select name="set_id">${setOpts}</select>`)}
+    </div><div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok>連携する</button></div>`, (form, done) => {
+    const sel = form.querySelector("[name=identifier]");
+    const { detect } = wireSrvFields(form, () => ({ identifier: sel.value }));
+    sel.onchange = () => detect(); detect();
+    form.querySelector("[data-ok]").onclick = (ev) => busy(ev.currentTarget, async () => {
+      const dirs = readDirs(form);
+      if (!Object.keys(dirs).length) { toast("管理するフォルダを 1 つ以上入力してください", true); return; }
+      const body = { identifier: sel.value, name: (avail.find((p) => p.identifier === sel.value) || {}).name || sel.value,
+        software: form.querySelector("[name=software]").value, dirs, set_id: form.querySelector("[name=set_id]").value };
+      try { await api("/api/servers", { json: body }); done(true); } catch (ex) { toast(ex.message, true); }
+    });
+  });
+  if (r) { toast("連携しました"); loadServers(); }
+}
+async function localServerDialog() {
+  if (!state.sets) { try { state.sets = (await api("/api/sets")).sets; } catch { state.sets = []; } }
+  const setOpts = `<option value="">なし</option>${state.sets.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}`;
+  const r = await sheet(`${sheetHead("フォルダのサーバーを追加")}<div class="db">
+      <p>このパネルから見えるフォルダにあるサーバー(同じ PC・NAS の共有フォルダなど)を、直接管理します。プラグイン・Mod・データパックの更新や同期ができます(起動・停止の操作はできません)。</p>
+      ${field("サーバーのフォルダ(server.properties があるフォルダ)", `<div class="inline-input"><input type="text" name="root_dir" placeholder="例: /srv/minecraft/survival" autocomplete="off" spellcheck="false"><button class="btn tinted small" type="button" data-detect>${icon("search")}判定</button></div>`)}
+      <div class="group-foot" style="margin-top:-6px">Docker で動かしている場合は、サーバーのフォルダをコンテナにマウントし、コンテナの中の場所(例: /servers/survival)を入力します。</div>
+      <div class="detect-out" data-dtout></div>
+      ${field("表示名", `<input type="text" name="name" placeholder="空ならフォルダの名前">`)}
+      ${srvFields({ dirs: defaultSrvDirs("") })}
+      ${field("セット(任意。同期のときにセットの中身も入れる)", `<select name="set_id">${setOpts}</select>`)}
+    </div><div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok>追加する</button></div>`, (form, done) => {
+    const root = form.querySelector("[name=root_dir]");
+    const { detect } = wireSrvFields(form, () => (root.value.trim() ? { kind: "local", root_dir: root.value.trim() } : (toast("サーバーのフォルダを入力してください", true), null)));
+    root.onchange = () => { if (root.value.trim()) detect(); };
+    form.querySelector("[data-ok]").onclick = (ev) => busy(ev.currentTarget, async () => {
+      const dirs = readDirs(form);
+      if (!root.value.trim()) { toast("サーバーのフォルダを入力してください", true); return; }
+      if (!Object.keys(dirs).length) { toast("管理するフォルダを 1 つ以上入力してください", true); return; }
+      const body = { kind: "local", root_dir: root.value.trim(), name: form.querySelector("[name=name]").value.trim(),
+        software: form.querySelector("[name=software]").value, dirs, set_id: form.querySelector("[name=set_id]").value };
+      try { await api("/api/servers", { json: body }); done(true); } catch (ex) { toast(ex.message, true); }
+    });
+  });
+  if (r) { toast("追加しました"); loadServers(); }
 }
 const DOW = ["月", "火", "水", "木", "金", "土", "日"];
 const schedLabel = (s) => s.sched_mode === "daily" ? `毎日 ${s.sched_time}` : s.sched_mode === "weekly" ? `毎週${DOW[s.sched_dow] || ""}曜 ${s.sched_time}` : "なし";
 function renderServers() {
   const list = state.servers || [];
   const mode = state.srvMode || "list";
-  if (!state.pteroConfigured) {
+  if (!list.length && !state.pteroConfigured && !state.localOk) {
     $("#serversView").innerHTML = `<div class="card"><div class="empty"><div class="big">🦖</div>
-      Pterodactyl と連携すると、保管しているプラグインをサーバーへ転送・同期できます。<br>
+      Pterodactyl と連携するか、このパネルから見えるフォルダのサーバーを追加すると、保管しているプラグイン・Mod・データパックをサーバーへ転送・同期できます。<br>
       ${can("integrations") ? `<button class="btn filled" type="button" data-va="setup" style="margin-top:12px">${icon("gear")}Pterodactyl を設定</button>` : "管理者に設定を依頼してください"}</div></div>`;
     return;
   }
   $("#serversView").innerHTML = `
     <div class="view-head">
       <div class="segmented glass viewsw">${[["list", "一覧"], ["compare", "比較"]].map(([k, n]) => `<button class="seg" type="button" data-mode="${k}" aria-pressed="${mode === k}">${n}</button>`).join("")}</div>
-      <button class="btn filled need-editor" type="button" data-va="add">${icon("plus")}サーバーを連携</button></div>
+      <button class="btn filled need-editor" type="button" data-va="add">${icon("plus")}サーバーを追加</button></div>
     <div id="srvBody"></div>`;
   if (mode === "compare") { renderCompare(); return; }
-  const card = (s) => `<div class="card${s.access === "view" ? " ro" : ""}" data-srv="${s.id}">
-      <div class="card-h"><h4 translate="no">${esc(s.name)}</h4><span class="srv-state"><span class="spinner"></span></span></div>
+  const act = (va, ic, label, extra = "") => `<button class="sbtn" type="button" data-va="${va}"${extra}>${icon(ic)}<span>${label}</span></button>`;
+  const card = (s) => {
+    const local = s.kind === "local", ro = s.access === "view", owner = !s.access || s.access === "owner";
+    const cats = SRV_CATS.filter((c) => (s.dirs || {})[c]);
+    const tiles = cats.map((c) => {
+      const sm = (s.summary || {})[c] || { files: 0, outdated: 0 };
+      return `<button class="srv-cat" type="button" data-va="inv" data-cat="${c}" title="${esc(CATS[c])}の中身(${esc(s.dirs[c])})">
+        <span class="cicon sm c-${c}">${catGlyph(c)}</span><span class="t"><b>${s.checked ? sm.files : "–"}</b><small>${CATS[c]}</small></span>
+        ${sm.outdated ? `<span class="badge upd">更新 ${sm.outdated}</span>` : ""}</button>`;
+    }).join("");
+    return `<div class="card srv-card${ro ? " ro" : ""}" data-srv="${s.id}">
+      <div class="card-h"><div class="srv-title"><h4 translate="no">${esc(s.name)}</h4>
+        <div class="srv-tags"><span class="plat">${local ? `${icon("folder")}フォルダ` : `${icon("server")}Pterodactyl`}</span>${s.software ? `<span class="plat" translate="no">${esc(SRV_SOFT[s.software] || s.software)}</span>` : ""}</div></div>
+        <span class="srv-state">${local ? "" : '<span class="spinner"></span>'}</span></div>
       <div class="card-b">
-        ${s.access && s.access !== "owner" ? `<div class="sharednote" style="margin-bottom:6px">${icon("users")}<span translate="no">${esc(s.owner_name)}</span> さんが共有(${s.access === "edit" ? "操作もできます" : "見るだけ"})</div>` : ""}
-        ${(s.shared_with || []).length ? `<div class="kv"><span>共有</span><span translate="no">${s.shared_with.map((x) => esc(x.username)).join("、")}</span></div>` : ""}
-        <div class="kv"><span>フォルダ</span><span>${esc(s.plugin_dir)}</span></div>
-        <div class="kv"><span>セット</span><span>${s.set_name ? esc(s.set_name) : "なし"}</span></div>
-        <div class="kv"><span>予約同期</span><span>${esc(schedLabel(s))}</span></div>
-        <div class="kv"><span>最後の同期</span><span>${s.last_sync ? esc(fmtDateTime(s.last_sync)) : "-"}</span></div>
-        <div class="chips need-editor" style="margin-top:10px">
-          <button class="btn small filled" type="button" data-va="sync">${icon("refresh")}同期</button>
-          <button class="btn small tinted" type="button" data-va="inv">${icon("search")}中身</button>
-          <button class="icon-btn sm" type="button" data-va="more" title="その他" aria-label="その他の操作">${icon("more")}</button>
+        ${!owner ? `<div class="sharednote" style="margin-bottom:6px">${icon("users")}<span translate="no">${esc(s.owner_name)}</span> さんが共有(${s.access === "edit" ? "操作もできます" : "見るだけ"})</div>` : ""}
+        <div class="srv-cats">${tiles}</div>
+        ${s.checked ? "" : `<div class="qfoot" style="margin-top:6px">「中身」を開くと件数と更新の有無を確認します</div>`}
+        <div class="srv-meta"><span>${icon("stack")}${s.set_name ? esc(s.set_name) : "セットなし"}</span><span>${icon("clock")}予約: ${esc(schedLabel(s))}</span><span>${icon("refresh")}${s.last_sync ? esc(fmtDateTime(s.last_sync)) : "未同期"}</span>
+          ${(s.shared_with || []).length ? `<span>${icon("users")}<span translate="no">${s.shared_with.map((x) => esc(x.username)).join("、")}</span></span>` : ""}</div>
+        <div class="srv-acts">
+          ${act("inv", "search", "中身")}
+          ${ro ? "" : act("sync", "refresh", "同期", ' data-primary')}
+          ${ro ? "" : act("push", "send", "転送")}
+          ${act("hist", "clock", "履歴")}
+          ${ro || local ? "" : act("restart", "power", "再起動")}
+          ${ro ? "" : act("settings", "gear", "設定")}
+          ${owner ? act("share", "users", "共有") : ""}
         </div>
       </div></div>`;
+  };
   const mine = list.filter((s) => !s.access || s.access === "owner"), shared = list.filter((s) => s.access && s.access !== "owner");
   $("#srvBody").innerHTML = list.length
     ? `${mine.length ? `<div class="dash-grid">${mine.map(card).join("")}</div>` : ""}
       ${shared.length ? `<div class="list-sep">${icon("users")}共有されたサーバー<span>${shared.length} 台</span></div><div class="dash-grid">${shared.map(card).join("")}</div>` : ""}`
-    : `<div class="card"><div class="empty"><div class="big">🖥️</div>まだサーバーを連携していません</div></div>`;
+    : `<div class="card"><div class="empty"><div class="big">🖥️</div>まだサーバーがありません。「サーバーを追加」から、Pterodactyl のサーバーか、このパネルから見えるフォルダのサーバーを追加できます</div></div>`;
 }
 $("#serversView").addEventListener("click", async (e) => {
   const md = e.target.closest("[data-mode]");
@@ -1323,34 +1490,33 @@ $("#serversView").addEventListener("click", async (e) => {
   const s = (state.servers || []).find((x) => x.id === sid);
   const a = b.dataset.va;
   if (a === "setup") openSettings("ptero");
-  if (a === "add") linkServerDialog();
-  if (a === "inv") inventoryDialog(s);
-  if (a === "more") {
-    openMenu(b, [
-      { label: "転送する", icon: "server", run: () => pushDialog({ server: s }) },
-      { label: "履歴と巻き戻し", icon: "clock", run: () => snapshotsDialog(s) },
-      { label: "再起動", icon: "refresh", run: async () => {
-        if (await confirmSheet(`「${s.name}」を再起動しますか?`, "プレイ中のプレイヤーは切断されます。", "再起動")) {
-          try { await api(`/api/servers/${sid}/power`, { json: { signal: "restart" } }); toast("再起動しました"); } catch (ex) { toast(ex.message, true); }
-        }
-      } },
-      ...(s.access !== "view" ? ["-", { label: "設定・予約同期", icon: "gear", run: () => serverSettingsDialog(s) }] : []),
-      ...(!s.access || s.access === "owner" ? [{ label: "ほかのユーザーに共有", icon: "users", run: () => aclDialog("server", s) }] : []),
-    ]);
+  if (a === "add") addServerMenu(b);
+  if (a === "inv") inventoryDialog(s, b.dataset.cat || "all");
+  if (a === "push") pushDialog({ server: s });
+  if (a === "hist") snapshotsDialog(s);
+  if (a === "settings") serverSettingsDialog(s);
+  if (a === "share") aclDialog("server", s);
+  if (a === "restart" && await confirmSheet(`「${s.name}」を再起動しますか?`, "プレイ中のプレイヤーは切断されます。", "再起動")) {
+    try { await api(`/api/servers/${sid}/power`, { json: { signal: "restart" } }); toast("再起動しました"); } catch (ex) { toast(ex.message, true); }
   }
   if (a === "sync") {
-    const r = await formSheet(`「${s.name}」を同期`, `<p>サーバーの ${esc(s.plugin_dir)} を確認し、ライブラリに新しいバージョンがあるものを更新します${s.set_name ? `。連携中のセット「${esc(s.set_name)}」に入っていて、サーバーに無いものも追加します` : ""}。置き換えるファイルは自動で退避するので、あとから「履歴と巻き戻し」で元に戻せます。</p>
-      <div class="group">${toggle("restart", "完了後にサーバーを再起動", "プラグインの入れ替えを反映させるには再起動が必要です", false)}</div>`, "同期する");
+    const local = s.kind === "local";
+    const r = await formSheet(`「${s.name}」を同期`, `<p>サーバーの ${esc(dirsLabel(s))} を確認し、ライブラリに新しいバージョンがあるものを更新します${s.set_name ? `。連携中のセット「${esc(s.set_name)}」に入っていて、サーバーに無いものも追加します` : ""}。置き換えるファイルは自動で退避するので、あとから「履歴」で元に戻せます。</p>
+      ${local ? `<p class="muted">フォルダのサーバーは、このパネルから再起動できません。反映するにはサーバーを再起動してください。</p>` : `<div class="group">${toggle("restart", "完了後にサーバーを再起動", "プラグインの入れ替えを反映させるには再起動が必要です", false)}</div>`}`, "同期する");
     if (!r) return;
-    try { jobStarted(await api(`/api/servers/${sid}/sync`, { json: { restart: r.restart } })); } catch (ex) { toast(ex.message, true); }
+    try { jobStarted(await api(`/api/servers/${sid}/sync`, { json: { restart: !!r.restart } })); } catch (ex) { toast(ex.message, true); }
   }
 });
 async function serverSettingsDialog(s) {
   if (!state.sets) { try { state.sets = (await api("/api/sets")).sets; } catch { state.sets = []; } }
+  const local = s.kind === "local";
   const setOpts = `<option value="">なし</option>${state.sets.map((x) => `<option value="${x.id}"${x.id === s.set_id ? " selected" : ""}>${esc(x.name)}</option>`).join("")}`;
   const r = await sheet(`${sheetHead(`「${s.name}」の設定`)}<div class="db">
       ${field("表示名", `<input type="text" name="name" value="${esc(s.name)}">`)}
-      ${field("プラグインのフォルダ", `<input type="text" name="plugin_dir" value="${esc(s.plugin_dir)}">`)}
+      ${local ? field("サーバーのフォルダ", `<div class="inline-input"><input type="text" name="root_dir" value="${esc(s.root_dir || "")}"${can("system") ? "" : " readonly"} spellcheck="false"><button class="btn tinted small" type="button" data-detect>${icon("search")}判定</button></div>`)
+        : `<div class="inline-input" style="margin-bottom:10px"><span class="muted" style="flex:1">サーバーのフォルダの中身から、サーバーソフトとフォルダを判定できます</span><button class="btn tinted small" type="button" data-detect>${icon("search")}判定</button></div>`}
+      <div class="detect-out" data-dtout></div>
+      ${srvFields(s)}
       ${field("セット(同期のときに、セットの中身もサーバーに入れる)", `<select name="set_id">${setOpts}</select>`)}
       <div class="group-title" style="margin:6px 4px 0">予約同期</div>
       ${field("タイミング", `<select name="sched_mode"><option value="off"${s.sched_mode === "off" ? " selected" : ""}>しない</option><option value="daily"${s.sched_mode === "daily" ? " selected" : ""}>毎日</option><option value="weekly"${s.sched_mode === "weekly" ? " selected" : ""}>毎週</option></select>`)}
@@ -1358,23 +1524,27 @@ async function serverSettingsDialog(s) {
         <select name="sched_dow" class="compact">${DOW.map((d, i) => `<option value="${i}"${Number(s.sched_dow) === i ? " selected" : ""}>${d}曜日</option>`).join("")}</select>
         <input type="time" name="sched_time" value="${esc(s.sched_time || "04:00")}" class="compact-time">
       </div>
-      <div class="group">${toggle("sched_restart", "同期のあとに再起動", "更新があったときだけ再起動します", !!s.sched_restart)}</div>
-      <button class="btn danger block" type="button" data-unlink>連携を解除</button>
+      ${local ? "" : `<div class="group">${toggle("sched_restart", "同期のあとに再起動", "更新があったときだけ再起動します", !!s.sched_restart)}</div>`}
+      <button class="btn danger block" type="button" data-unlink>${local ? "このサーバーを一覧から外す" : "連携を解除"}</button>
     </div><div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok>保存</button></div>`, (form, done) => {
     const sync = () => { const m = form.querySelector("[name=sched_mode]").value; $("#schedRow", form).hidden = m === "off"; form.querySelector("[name=sched_dow]").hidden = m !== "weekly"; };
     form.querySelector("[name=sched_mode]").onchange = sync; sync();
+    wireSrvFields(form, () => (local ? { kind: "local", root_dir: form.querySelector("[name=root_dir]").value.trim() } : { server_id: s.id }));
     form.querySelector("[data-ok]").onclick = (ev) => busy(ev.currentTarget, async () => {
-      const d = Object.fromEntries(new FormData(form).entries());
-      d.sched_restart = form.querySelector("[name=sched_restart]").checked;
-      d.sched_dow = Number(d.sched_dow || 0);
+      const d = { name: form.querySelector("[name=name]").value, set_id: form.querySelector("[name=set_id]").value,
+        sched_mode: form.querySelector("[name=sched_mode]").value, sched_time: form.querySelector("[name=sched_time]").value,
+        sched_dow: Number(form.querySelector("[name=sched_dow]").value || 0), software: form.querySelector("[name=software]").value, dirs: readDirs(form) };
+      if (!local) d.sched_restart = form.querySelector("[name=sched_restart]").checked;
+      if (local && can("system") && form.querySelector("[name=root_dir]").value.trim() !== (s.root_dir || "")) d.root_dir = form.querySelector("[name=root_dir]").value.trim();
+      if (JSON.stringify(d.dirs) === JSON.stringify(Object.fromEntries(SRV_CATS.filter((c) => (s.dirs || {})[c]).map((c) => [c, s.dirs[c]])))) delete d.dirs;
       try { await api(`/api/servers/${s.id}`, { method: "PATCH", json: d }); done("saved"); } catch (ex) { toast(ex.message, true); }
     });
     form.querySelector("[data-unlink]").onclick = async (ev) => {
-      if (!cfm(`「${s.name}」の連携を解除しますか?(サーバーのファイルはそのままです)`)) return;
+      if (!cfm(`「${s.name}」を一覧から外しますか?(サーバーのファイルはそのままです)`)) return;
       await busy(ev.currentTarget, async () => { try { await api(`/api/servers/${s.id}`, { method: "DELETE" }); done("deleted"); } catch (ex) { toast(ex.message, true); } });
     };
   });
-  if (r) { toast(r === "deleted" ? "連携を解除しました" : "保存しました"); loadServers(); }
+  if (r) { toast(r === "deleted" ? "一覧から外しました" : "保存しました"); loadServers(); }
 }
 async function snapshotsDialog(s) {
   await sheet(`${sheetHead(`「${s.name}」の履歴`)}<div class="db" id="snBody"><div class="empty"><span class="spinner lg"></span></div></div>`, async (form, done) => {
@@ -1445,7 +1615,7 @@ function drawCompare() {
     <thead><tr><th class="cmp-name"></th>${sel.map((s) => {
       const d = state.cmpData[s.id] || {};
       return `<th><div class="cmp-head"><span class="cicon c-teal">${icon("server")}</span><div class="cmp-title">${esc(s.name)}</div>
-        <div class="cmp-sub">${d.error ? esc(d.error) : `${(d.files || []).length} 個 · ${esc(s.plugin_dir)}`}</div>
+        <div class="cmp-sub">${d.error ? esc(d.error) : `${(d.files || []).length} 個 · ${esc(dirsLabel(s))}`}</div>
         ${d.files && d.files.some((f) => f.status === "outdated") ? `<span class="badge upd">更新あり ${d.files.filter((f) => f.status === "outdated").length}</span>` : d.error ? "" : '<span class="badge ok">最新</span>'}</div></th>`;
     }).join("")}</tr></thead>
     <tbody>${list.map((r) => `<tr class="${differs(r) ? "diff" : ""}"><th class="cmp-name">${r.item_id ? `<button class="linkish" type="button" data-open="${r.item_id}">${esc(r.name)}</button>` : esc(r.name)}</th>${sel.map((s) => cell(r.cells[s.id], r)).join("")}</tr>`).join("")
@@ -1455,32 +1625,77 @@ function drawCompare() {
 }
 
 const INV_STATUS = { latest: ["ok", "最新"], outdated: ["upd", "更新あり"], different: ["", "ライブラリと別のファイル"], unregistered: ["err", "未登録"] };
-async function inventoryDialog(s) {
-  await sheet(`${sheetHead(`「${s.name}」の ${s.plugin_dir}`)}<div class="db" id="invBody"><div style="text-align:center;padding:24px"><span class="spinner lg"></span><p style="margin-top:10px">サーバーのファイルを確認しています…(初回はファイルを読み込むため時間がかかります)</p></div></div>`, async (form, done) => {
-    let d;
-    try { d = await api(`/api/servers/${s.id}/inventory`); } catch (e) { $("#invBody", form).innerHTML = `<div class="result err">${esc(e.message)}</div>`; return; }
-    const unreg = d.files.filter((f) => f.status === "unregistered");
-    const outd = d.files.filter((f) => f.status === "outdated");
-    $("#invBody", form).innerHTML = `
-      <div class="group">${d.files.map((f) => { const [c, l] = INV_STATUS[f.status]; return `<div class="row">
-        <span class="main"><span class="title">${esc(f.item_name || f.plugin_name || f.name)}</span><span class="subtitle">${esc(f.name)} · ${esc(f.version || "")}${f.status === "outdated" && f.latest_version ? ` → ライブラリ: ${esc(f.latest_version)}` : ""}</span></span>
-        <span class="trail">${f.status === "unregistered" ? `<input type="checkbox" class="switch" data-imp="${esc(f.name)}" title="ライブラリに取り込む">` : ""}<span class="badge ${c}">${l}</span></span></div>`; }).join("") || '<div class="empty">jar ファイルがありません</div>'}</div>
-      ${d.missing.length ? `<div class="group-title">セットにあってサーバーに無いもの</div><div class="group">${d.missing.map((m) => `<div class="row noicon"><span class="main"><span class="title">${esc(m.item_name)}</span><span class="subtitle">${esc(m.version)}</span></span><span class="badge upd">未導入</span></div>`).join("")}</div>` : ""}
-      <div class="df" style="padding:0">
-        ${outd.length || d.missing.length ? `<button class="btn filled block" type="button" data-inv="sync">${icon("refresh")}${outd.length + d.missing.length} 件を同期する</button>` : `<div class="result ok">すべてライブラリの最新と一致しています</div>`}
-        ${unreg.length ? `<button class="btn tinted block" type="button" data-inv="import">${icon("download")}選んだ未登録のファイルをライブラリに取り込む</button>` : ""}
-      </div>`;
-    form.addEventListener("click", async (e) => {
+/* 処理(ジョブ)が終わるまで待つ */
+async function waitJob(id) {
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 800));
+    let j;
+    try { j = await api(`/api/jobs/${id}`); } catch { return null; }
+    if (j.status !== "running") { pollJobs(); return j; }
+  }
+}
+/* サーバーの中身(種類ごとのタブ・1 件ずつの更新) */
+async function inventoryDialog(s, startCat = "all") {
+  let tab = startCat, d = null;
+  const ro = s.access === "view";
+  await sheet(`${sheetHead(`「${s.name}」の中身`)}<div class="db" id="invBody"><div style="text-align:center;padding:24px"><span class="spinner lg"></span><p style="margin-top:10px">サーバーのファイルを確認しています…(初回はファイルを読み込むため時間がかかります)</p></div></div>`, async (form, done) => {
+    const body = $("#invBody", form);
+    const load = async () => {
+      try { d = await api(`/api/servers/${s.id}/inventory`); } catch (e) { body.innerHTML = `<div class="result err">${esc(e.message)}</div>`; return; }
+      draw();
+    };
+    const rowIcon = (f) => { const it = f.item_id && state.items.find((i) => i.id === f.item_id); return it ? itemIcon(it, true) : `<span class="cicon sm c-${f.category}">${catGlyph(f.category)}</span>`; };
+    const draw = () => {
+      const cats = SRV_CATS.filter((c) => d.dirs[c]);
+      const files = d.files.filter((f) => tab === "all" || f.category === tab);
+      const order = { outdated: 0, different: 1, unregistered: 2, latest: 3 };
+      files.sort((a, b) => (order[a.status] - order[b.status]) || (a.item_name || a.plugin_name || a.name).localeCompare(b.item_name || b.plugin_name || b.name, "ja", { numeric: true }));
+      const missing = d.missing.filter((m) => tab === "all" || m.category === tab);
+      const outd = d.files.filter((f) => f.status === "outdated");
+      const unreg = files.filter((f) => f.status === "unregistered");
+      const count = (c) => d.files.filter((f) => c === "all" || f.category === c).length;
+      const upd = (c) => d.files.filter((f) => (c === "all" || f.category === c) && f.status === "outdated").length;
+      body.innerHTML = `
+        <div class="segmented seg-wide inv-tabs" role="group" aria-label="種類">${["all", ...cats].map((c) => `<button class="seg" type="button" data-tab="${c}" aria-pressed="${c === tab}">${c === "all" ? "すべて" : CATS[c]}<span class="n">${count(c)}</span>${upd(c) ? `<i class="dot-upd" title="更新あり"></i>` : ""}</button>`).join("")}</div>
+        ${d.absent.filter((c) => tab === "all" || c === tab).map((c) => `<div class="result warn">${esc(CATS[c])}のフォルダ(${esc(d.dirs[c])})が見つかりません。送ると作られます。場所が違う場合は「設定」で変えられます</div>`).join("")}
+        <div class="group">${files.map((f) => { const [cl, l] = INV_STATUS[f.status]; return `<div class="row">${rowIcon(f)}
+          <span class="main"><span class="title" translate="no">${esc(f.item_name || f.plugin_name || f.name)}</span><span class="subtitle">${esc(f.version || "?")}${(f.status === "outdated" || f.status === "different") && f.latest_version ? ` → <b>${esc(f.latest_version)}</b>` : ""} · <span translate="no">${esc(f.path)}</span></span></span>
+          <span class="trail">${f.status === "unregistered" && !ro ? `<input type="checkbox" class="switch" data-imp="${esc(f.path)}" title="ライブラリに取り込む" aria-label="ライブラリに取り込む">` : ""}
+            ${(f.status === "outdated" || f.status === "different") && !ro ? `<button class="btn small ${f.status === "outdated" ? "filled" : "tinted"}" type="button" data-up="${f.item_id}" title="ライブラリの最新(${esc(f.latest_version || "")})をこのサーバーに入れる">${icon("download")}${f.status === "outdated" ? "更新" : "最新に"}</button>` : `<span class="badge ${cl}">${l}</span>`}</span></div>`; }).join("") || `<div class="empty">ファイルがありません</div>`}</div>
+        ${missing.length ? `<div class="group-title">セットにあってサーバーに無いもの</div><div class="group">${missing.map((m) => `<div class="row"><span class="cicon sm c-${m.category}">${catGlyph(m.category)}</span><span class="main"><span class="title" translate="no">${esc(m.item_name)}</span><span class="subtitle">${esc(m.version)}${m.no_dir ? ` · ${esc(CATS[m.category] || m.category)}のフォルダが未設定のため入れられません` : ""}</span></span>
+          <span class="trail">${m.no_dir || ro ? '<span class="badge upd">未導入</span>' : `<button class="btn small tinted" type="button" data-up="${m.item_id}">${icon("plus")}入れる</button>`}</span></div>`).join("")}</div>` : ""}
+        ${ro ? "" : `<div class="df" style="padding:0">
+          ${outd.length || d.missing.some((m) => !m.no_dir) ? `<button class="btn filled block" type="button" data-inv="sync">${icon("refresh")}更新があるもの ${outd.length + d.missing.filter((m) => !m.no_dir).length} 件をまとめて同期</button>` : `<div class="result ok">すべてライブラリの最新と一致しています</div>`}
+          ${unreg.length ? `<button class="btn tinted block" type="button" data-inv="import">${icon("download")}選んだ未登録のファイルをライブラリに取り込む</button>` : ""}
+        </div>`}`;
+    };
+    body.addEventListener("click", async (e) => {
+      const t = e.target.closest("[data-tab]");
+      if (t) { tab = t.dataset.tab; draw(); return; }
+      const up = e.target.closest("[data-up]");
+      if (up) {
+        await busy(up, async () => {
+          try {
+            const j = await api(`/api/servers/${s.id}/push`, { json: { item_ids: [Number(up.dataset.up)] } });
+            const r = await waitJob(j.id);
+            if (r && r.status === "done") { toast("更新しました"); await load(); }
+            else if (r) toast((r.log || []).slice(-1)[0] || "更新できませんでした", true);
+          } catch (ex) { toast(ex.message, true); }
+        }, "送信中…");
+        return;
+      }
       const b = e.target.closest("[data-inv]"); if (!b) return;
       if (b.dataset.inv === "sync") {
         try { jobStarted(await api(`/api/servers/${s.id}/sync`, { json: {} })); done(null); } catch (ex) { toast(ex.message, true); }
       } else {
-        const names = [...form.querySelectorAll("[data-imp]:checked")].map((c) => c.dataset.imp);
+        const names = [...body.querySelectorAll("[data-imp]:checked")].map((c) => c.dataset.imp);
         if (!names.length) { toast("取り込むファイルのスイッチをオンにしてください", true); return; }
         try { jobStarted(await api(`/api/servers/${s.id}/import`, { json: { names } })); done(null); } catch (ex) { toast(ex.message, true); }
       }
     });
+    await load();
   }, { wide: true });
+  if (state.view === "servers") loadServers();
 }
 async function pushDialog({ server = null, set = null, item = null, itemIds = null } = {}) {
   if (!state.servers) { try { const d = await api("/api/servers"); state.servers = d.servers; state.pteroConfigured = d.configured; } catch { state.servers = []; } }
@@ -1510,12 +1725,12 @@ async function pushDialog({ server = null, set = null, item = null, itemIds = nu
         <input type="checkbox" class="switch" data-pi="${it.id}"></label>`).join("")}</div></div>`;
   const r = await sheet(`${sheetHead(fixed ? "サーバーへ転送" : "サーバーへ転送")}<div class="db">
       <div class="group-title">転送先のサーバー</div>
-      <div class="group">${state.servers.map((x) => `<label class="toggle-row"><span class="cicon sm c-teal">${icon("server")}</span>
-        <span class="main">${esc(x.name)}<small>${esc(x.plugin_dir)}</small></span>
+      <div class="group">${state.servers.map((x) => `<label class="toggle-row"><span class="cicon sm c-teal">${icon(x.kind === "local" ? "folder" : "server")}</span>
+        <span class="main">${esc(x.name)}<small>${esc(dirsLabel(x))}</small></span>
         <input type="checkbox" class="switch" data-ps="${x.id}"${srvChecked(x) ? " checked" : ""}></label>`).join("")}</div>
       ${what}
-      <div class="group">${toggle("restart", "完了後にサーバーを再起動", "", false)}</div>
-      <p style="font-size:12.5px">サーバーに同じプラグインの別のバージョンがある場合は、送ったものに置き換えます(置き換えたファイルは退避され、「履歴と巻き戻し」で戻せます)。</p>
+      <div class="group">${toggle("restart", "完了後にサーバーを再起動", state.servers.some((x) => x.kind === "local") ? "フォルダのサーバーは再起動されません" : "", false)}</div>
+      <p style="font-size:12.5px">サーバーに同じアドオンの別のバージョンがある場合は、送ったものに置き換えます(置き換えたファイルは退避され、「履歴と巻き戻し」で戻せます)。</p>
     </div><div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok>転送する</button></div>`, (form, done) => {
     let mode = set || state.sets.length ? "set" : "items";
     const sync = () => {
@@ -1694,7 +1909,8 @@ $("#panel").addEventListener("click", async (e) => {
     openMenu(b, [
       ...(canEdit ? [{ label: "情報・タグを編集", icon: "edit", run: () => editItem(it) },
         { label: "サーバーへ転送", icon: "server", run: () => pushDialog({ item: it }) },
-        { label: "セットに追加", icon: "stack", run: () => addToSet(it) }] : []),
+        { label: "セットに追加", icon: "stack", run: () => addToSet(it) },
+        { label: "URLで共有(ダウンロード用のリンク)", icon: "share", run: () => shareDialog([it]) }] : []),
       { label: state.verOrder === "desc" ? "古い順に並べる" : "新しい順に並べる", icon: "arrows", run: () => { state.verOrder = state.verOrder === "desc" ? "asc" : "desc"; renderPanel(); } },
       ...(owner && isEditor() ? [{ label: "ほかのユーザーに共有", icon: "users", run: () => aclDialog("item", it) }] : []),
       ...(owner && isEditor() ? ["-", { label: "すべて削除", icon: "trash", danger: true, run: async () => {
@@ -1971,7 +2187,7 @@ function sourceBoxHTML(it) {
     <div class="srcbar">
       <button class="btn tinted small need-editor" type="button" data-act="src-check">${icon("refresh")}更新を確認</button>
       <span class="sp"></span>
-      <button class="mini-act" type="button" data-act="src-linkpage" title="配布元のリンク(紐づけ先の変更・探す条件)">${icon("link")}<span>リンク</span></button>
+      <button class="mini-act" type="button" data-act="src-linkpage" title="配布元の紐づけ(紐づけ先の変更・探す条件)">${icon("link")}<span>紐づけ</span></button>
       <button class="mini-act" type="button" data-act="src-changelog" title="配布元で公開されている更新の履歴">${icon("doc")}<span>履歴</span></button>
     </div>
     ${s.checked_at ? `<div class="qfoot">前回の確認: ${fmtDateTime(s.checked_at)}</div>` : ""}
@@ -2260,7 +2476,7 @@ function toastProgress(msg) {
   el.className = "toast glass";
   el.innerHTML = `<span class="spinner"></span><span></span>`;
   el.lastChild.textContent = msg;
-  $("#toasts").appendChild(el);
+  toastHost().appendChild(el);
   return el;
 }
 async function scanInbox() {
@@ -2640,7 +2856,7 @@ const SETTINGS_PAGES = {
           <div class="kv"><span>パネル</span><span translate="no"><a href="${esc(safeUrl(st.ptero_url))}" target="_blank" rel="noopener noreferrer">${esc(st.ptero_url)}</a></span></div>
           <div class="kv"><span>APIキー</span><span translate="no">${esc(st.ptero_key_hint || "登録済み")}</span></div>
           <div class="kv"><span>連携しているサーバー</span><span>${srvs.length ? `${srvs.length} 台` : "なし(「サーバー」タブで追加)"}</span></div>
-          ${srvs.map((x) => `<div class="kv sub"><span translate="no">・${esc(x.name)}</span><span translate="no">${esc(x.plugin_dir)}</span></div>`).join("")}
+          ${srvs.map((x) => `<div class="kv sub"><span translate="no">・${esc(x.name)}</span><span translate="no">${esc(dirsLabel(x))}</span></div>`).join("")}
         </div></div>
         <div class="group-title">変更する</div>` : "";
       body.innerHTML = `${reg}<p>Pterodactyl パネルの「アカウント → API 認証情報」で作った <b>Client API キー(ptlc_…)</b>を登録すると、そのユーザーが操作できるサーバーへプラグインを転送・同期できます。</p>
@@ -2934,7 +3150,11 @@ const SETTINGS_PAGES = {
         if (message.length < 2) { toast("内容を入力してください", true); return; }
         try {
           await api("/api/feedback", { json: { kind, message, contact: $("[name=contact]", body).value.trim(), include_env: $("[name=include_env]", body).checked } });
-          toast("送信しました。ありがとうございます!"); popSettings();
+          toast("送信しました。ありがとうございます!");
+          body.innerHTML = `<div class="empty sent-ok"><span class="cicon c-mod">${icon("check")}</span>
+            <div class="title">送信しました</div><p>お問い合わせを開発者に届けました。ありがとうございます!</p>
+            <button class="btn filled" type="button" id="fbBack">設定に戻る</button></div>`;
+          $("#fbBack", body).onclick = () => popSettings();
         } catch (ex) { toast(ex.message, true); }
       }, "送信中…");
     },
@@ -3563,7 +3783,7 @@ function drawSelBar() {
     <button class="btn plain small" type="button" data-sb="none"${n ? "" : " disabled"}>すべて解除</button>
     <button class="btn small" type="button" data-sb="cancel">キャンセル</button></div>
     <div class="selacts"><button class="sbtn" type="button" data-sb="zip"${n ? "" : " disabled"}>${icon("download")}<span>ダウンロード</span></button>
-    <button class="sbtn need-editor" type="button" data-sb="share"${n ? "" : " disabled"}>${icon("link")}<span>リンク</span></button>
+    <button class="sbtn need-editor" type="button" data-sb="share"${n ? "" : " disabled"}>${icon("share")}<span>URLで共有</span></button>
     <button class="sbtn need-editor" type="button" data-sb="server"${n ? "" : " disabled"}>${icon("server")}<span>サーバーへ</span></button>
     <button class="sbtn need-editor" type="button" data-sb="more"${n ? "" : " disabled"}>${icon("more")}<span>その他</span></button></div>`;
 }

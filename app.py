@@ -397,6 +397,14 @@ def migrate_schema(conn):
                      ("last_sched", "TEXT NOT NULL DEFAULT ''")):
         if col not in _table_cols(conn, "servers"):  # 予約同期
             conn.execute(f"ALTER TABLE servers ADD COLUMN {col} {ddl}")
+    for col, ddl in (("kind", "TEXT NOT NULL DEFAULT 'ptero'"), ("root_dir", "TEXT NOT NULL DEFAULT ''"),
+                     ("software", "TEXT NOT NULL DEFAULT ''"), ("dirs", "TEXT NOT NULL DEFAULT ''")):
+        if col not in _table_cols(conn, "servers"):  # ローカルのサーバー・種類ごとのフォルダ(01.16)
+            conn.execute(f"ALTER TABLE servers ADD COLUMN {col} {ddl}")
+    # 01.16 より前のキャッシュはファイル名だけなので、プラグインのフォルダを前に付ける
+    conn.execute("UPDATE server_files SET name = (SELECT trim(plugin_dir, '/') FROM servers s WHERE s.id = server_files.server_id)"
+                 " || '/' || name WHERE instr(name, '/') = 0 AND EXISTS (SELECT 1 FROM servers s WHERE s.id = server_files.server_id"
+                 " AND trim(plugin_dir, '/') <> '')")
     for col, ddl in (("totp_secret", "TEXT NOT NULL DEFAULT ''"), ("totp_enabled", "INTEGER NOT NULL DEFAULT 0"),
                      ("recovery", "TEXT NOT NULL DEFAULT '[]'")):
         if col not in _table_cols(conn, "users"):  # 二段階認証
@@ -3969,6 +3977,256 @@ def api_ptero_servers():
     return jsonify(servers=servers)
 
 
+# --------------------------------------------------------------------------
+# サーバーのファイル(Pterodactyl / このパネルから見えるフォルダ)
+# --------------------------------------------------------------------------
+SERVER_CATS = ("plugin", "mod", "datapack")  # サーバーで管理する種類(表示もこの順)
+SERVER_SOFTWARE = ("paper", "purpur", "folia", "spigot", "bukkit", "velocity", "bungeecord", "waterfall",
+                   "fabric", "quilt", "forge", "neoforge", "sponge")
+_SOFT_PROXY = {"velocity", "bungeecord", "waterfall"}
+_SOFT_MOD = {"fabric", "quilt", "forge", "neoforge"}
+
+
+def default_dirs(software, world="world"):
+    """サーバーソフトから、種類ごとのフォルダ(サーバーのフォルダからの相対パス)を決める。"""
+    world = _clean_rel_dir(world) or "world"
+    if software in _SOFT_PROXY:
+        return {"plugin": "plugins"}
+    if software in _SOFT_MOD:
+        return {"mod": "mods", "datapack": f"{world}/datapacks"}
+    if software == "sponge":
+        return {"plugin": "plugins", "mod": "mods", "datapack": f"{world}/datapacks"}
+    return {"plugin": "plugins", "datapack": f"{world}/datapacks"}
+
+
+def _clean_rel_dir(d):
+    parts = [p for p in str(d or "").replace("\\", "/").split("/") if p and p != "."]
+    if any(p == ".." for p in parts):
+        raise ApiError("フォルダの指定が不正です")
+    return "/".join(parts)
+
+
+def _clean_dirs(d):
+    if not isinstance(d, dict):
+        return {}
+    out = {}
+    for c in SERVER_CATS:
+        v = _clean_rel_dir(d.get(c))
+        if v:
+            out[c] = v
+    return out
+
+
+def server_dirs(row):
+    """{種類: フォルダ}。01.16 より前の連携は、プラグインのフォルダ 1 つだけを持つ。"""
+    d = _clean_dirs(_jl(row["dirs"], {}))
+    if d:
+        return d
+    pd = _clean_rel_dir(row["plugin_dir"]) or "plugins"
+    return {"mod" if pd.rsplit("/", 1)[-1] == "mods" else "plugin": pd}
+
+
+def _local_root(p):
+    """このパネルから見えるサーバーのフォルダ(絶対パス)を確かめる。"""
+    p = str(p or "").strip()
+    if not p or not Path(p).is_absolute():
+        raise ApiError("サーバーのフォルダは、/srv/minecraft や D:\\minecraft のような絶対パスで入力してください")
+    path = Path(p).resolve()
+    if path == Path(path.anchor):
+        raise ApiError("ドライブやディスクの一番上は指定できません")
+    if not path.is_dir():
+        raise ApiError(f"フォルダが見つかりません: {p}(Docker の場合は、コンテナにフォルダをマウントしてください)")
+    return str(path)
+
+
+class _PteroFiles:
+    """Pterodactyl のサーバー(Client API 経由)。"""
+    kind = "ptero"
+
+    def __init__(self, ident):
+        self.p, self.ident = ptero_client(), ident
+
+    def list(self, rel):
+        try:
+            return self.p.list_dir(self.ident, "/" + rel)
+        except ptero.PteroError:
+            return None
+
+    def download(self, rel, dest):
+        _pcall(self.p.download, self.ident, "/" + rel, dest)
+
+    def upload(self, rel_dir, src_path, name):
+        if self.list(rel_dir) is None:  # データパックのフォルダなどが無ければ作る
+            parent, _sep, leaf = rel_dir.rpartition("/")
+            self.p.create_folder(self.ident, "/" + parent, leaf)
+        _pcall(self.p.upload, self.ident, "/" + rel_dir, src_path, name)
+
+    def delete(self, rel_dir, names):
+        _pcall(self.p.delete, self.ident, "/" + rel_dir, list(names))
+
+    def power(self, signal):
+        _pcall(self.p.power, self.ident, signal)
+
+    def status(self):
+        return self.p.resources(self.ident)
+
+
+class _LocalFiles:
+    """このパネルから見えるフォルダにあるサーバー(同じ PC・NAS の共有・Docker でマウントしたフォルダ)。"""
+    kind = "local"
+
+    def __init__(self, root):
+        self.root = Path(root).resolve()
+        if not self.root.is_dir():
+            raise ApiError(f"サーバーのフォルダが見つかりません: {root}")
+
+    def _p(self, rel):
+        p = (self.root / rel).resolve()
+        if p != self.root and self.root not in p.parents:
+            raise ApiError("フォルダの指定が不正です")
+        return p
+
+    def list(self, rel):
+        d = self._p(rel)
+        if not d.is_dir():
+            return None
+        out = []
+        for e in d.iterdir():
+            try:
+                st = e.stat()
+            except OSError:
+                continue
+            out.append({"name": e.name, "size": st.st_size, "is_file": e.is_file(),
+                        "modified": datetime.fromtimestamp(st.st_mtime, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")})
+        return out
+
+    def download(self, rel, dest):
+        try:
+            shutil.copyfile(self._p(rel), dest)
+        except OSError as e:
+            raise ApiError(f"サーバーのファイルを読めません: {rel}({e.strerror or e})") from e
+
+    def upload(self, rel_dir, src_path, name):
+        try:
+            d = self._p(rel_dir)
+            d.mkdir(parents=True, exist_ok=True)
+            dst = self._p(f"{rel_dir}/{name}")
+            part = d / f".{name}.craftshelf-part"
+            shutil.copyfile(src_path, part)
+            os.replace(part, dst)  # 書き終わってから置き換える(途中のファイルをサーバーが読まないように)
+        except OSError as e:
+            raise ApiError(f"サーバーのフォルダに書き込めません: {rel_dir}({e.strerror or e})") from e
+
+    def delete(self, rel_dir, names):
+        for n in names:
+            p = self._p(f"{rel_dir}/{n}")
+            try:
+                if p.is_file():
+                    p.unlink()
+            except OSError as e:
+                raise ApiError(f"サーバーのファイルを削除できません: {n}({e.strerror or e})") from e
+
+    def power(self, signal):
+        raise ApiError("フォルダでつないだサーバーは、このパネルから起動・停止・再起動できません")
+
+    def status(self):
+        return {"state": "local"}
+
+
+def server_fs(row):
+    return _LocalFiles(row["root_dir"]) if row["kind"] == "local" else _PteroFiles(row["identifier"])
+
+
+def detect_server(fs):
+    """サーバーのフォルダの中身から、サーバーソフト・ワールドの名前・種類ごとのフォルダを推測する。"""
+    root = fs.list("") or []
+    names = {e["name"].lower() for e in root}
+    jars = " ".join(n for n in names if n.endswith(".jar"))
+
+    def sub(rel):
+        return {e["name"].lower() for e in (fs.list(rel) or [])}
+
+    soft = ""
+    if "velocity.toml" in names or "velocity" in jars:
+        soft = "velocity"
+    elif "waterfall.yml" in names or "waterfall" in jars:
+        soft = "waterfall"
+    elif "bungeecord" in jars or "modules.yml" in names:
+        soft = "bungeecord"
+    elif "purpur.yml" in names or "purpur" in jars:
+        soft = "purpur"
+    elif "folia" in jars:
+        soft = "folia"
+    elif "paper.yml" in names or "paper" in jars or ("config" in names and "paper-global.yml" in sub("config")):
+        soft = "paper"
+    elif "spigot.yml" in names or "spigot" in jars:
+        soft = "spigot"
+    elif "bukkit.yml" in names:
+        soft = "bukkit"
+    elif "quilt-server-launch.jar" in names or ".quilt" in names or "quilt" in jars:
+        soft = "quilt"
+    elif ".fabric" in names or "fabric" in jars:
+        soft = "fabric"
+    elif "libraries" in names:
+        net = sub("libraries/net")
+        soft = "neoforge" if "neoforged" in net else "forge" if "minecraftforge" in net else ""
+    world = "world"
+    if "server.properties" in names:
+        tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
+        try:
+            fs.download("server.properties", tmp)
+            for line in tmp.read_text("utf-8", "replace").splitlines():
+                if line.strip().startswith("level-name="):
+                    world = line.split("=", 1)[1].strip() or "world"
+        except (ApiError, OSError):
+            pass
+        finally:
+            tmp.unlink(missing_ok=True)
+    try:
+        world = _clean_rel_dir(world) or "world"
+    except ApiError:
+        world = "world"
+    if soft:
+        dirs = default_dirs(soft, world)
+    else:  # 判定できないときは、実際にあるフォルダを使う
+        dirs = {c: d for c, d in (("plugin", "plugins"), ("mod", "mods")) if d in names} or {"plugin": "plugins"}
+        if world.lower() in names:
+            dirs["datapack"] = f"{world}/datapacks"
+    return {"software": soft, "world": world, "dirs": dirs, "is_server": bool(soft or "server.properties" in names)}
+
+
+def _cached_states(conn, servers):
+    """最後に確認したときの中身(キャッシュ)から、サーバーごとに [(ファイル, 種類, アイテムID, 状態)] を作る。"""
+    _store, target = active_store()
+    by_sha = {v["sha256"]: v for v in conn.execute("SELECT * FROM versions WHERE target_id=?", (target["id"],))}
+    vis = visible_item_ids(conn)
+    items = {r["id"]: r for r in conn.execute("SELECT * FROM items WHERE target_id=?", (target["id"],)) if r["id"] in vis}
+    by_key = {}
+    for it in items.values():
+        by_key.setdefault((it["category"], norm_key(it["name"])), it["id"])
+    latest = {iid: (_item_versions(conn, iid) or [None])[0] for iid in items}
+    out = {}
+    for srv in servers:
+        rev = {d: c for c, d in server_dirs(srv).items()}
+        lst = []
+        for f in conn.execute("SELECT * FROM server_files WHERE server_id=?", (srv["id"],)):
+            cat = rev.get(f["name"].rpartition("/")[0])
+            if cat is None:
+                continue
+            v = by_sha.get(f["sha256"])
+            iid = v["item_id"] if v else by_key.get((cat, norm_key(f["plugin_name"])))
+            status = None
+            if iid in items:
+                lv = latest.get(iid)
+                same = (v and lv and v["id"] == lv["id"]) or (lv and src.same_version(lv["version"], f["version"]))
+                status = "latest" if same else "outdated"
+            else:
+                iid = None
+            lst.append((f, cat, iid, status))
+        out[srv["id"]] = lst
+    return out, items
+
+
 def visible_servers(conn, user=None):
     u = user or current_user()
     if not u:
@@ -3978,11 +4236,19 @@ def visible_servers(conn, user=None):
             if r["owner_id"] == u["id"] or r["id"] in shared]
 
 
-def server_public(conn, r):
+def server_public(conn, r, summary=None):
     d = dict(r)
     if r["set_id"]:
         s = conn.execute("SELECT name FROM sets WHERE id=?", (r["set_id"],)).fetchone()
         d["set_name"] = s["name"] if s else ""
+    d["dirs"] = server_dirs(r)
+    if summary is not None:
+        cats = {c: {"files": 0, "outdated": 0} for c in d["dirs"]}
+        for _f, cat, _iid, status in summary:
+            cats[cat]["files"] += 1
+            cats[cat]["outdated"] += status == "outdated"
+        d["summary"] = cats
+        d["checked"] = bool(summary)
     u = current_user() if has_request_context() else None
     if u:
         names = {x[0]: x[1] for x in conn.execute("SELECT id, username FROM users")}
@@ -3999,8 +4265,13 @@ def server_public(conn, r):
 def api_servers():
     conn = db()
     rows = visible_servers(conn)
-    return jsonify(servers=[server_public(conn, r) for r in rows],
-                   configured=bool(get_setting("ptero_url") and get_setting("ptero_key")))
+    try:
+        states, _items = _cached_states(conn, rows)
+    except ApiError:  # 保存先につながっていないときは件数なし
+        states = {}
+    return jsonify(servers=[server_public(conn, r, states.get(r["id"], [])) for r in rows],
+                   configured=bool(get_setting("ptero_url") and get_setting("ptero_key")),
+                   local_ok=has_perm("system"), software=list(SERVER_SOFTWARE))
 
 
 def _clean_dir(d):
@@ -4014,23 +4285,57 @@ def _clean_dir(d):
 @require("editor")
 def api_servers_create():
     data = request.get_json(silent=True) or {}
-    ident = str(data.get("identifier") or "").strip()
-    if not ident:
-        raise ApiError("サーバーを選んでください")
     conn = db()
-    ex = conn.execute("SELECT owner_id FROM servers WHERE identifier=?", (ident,)).fetchone()
-    if ex:
-        who = conn.execute("SELECT username FROM users WHERE id=?", (ex[0],)).fetchone()
-        raise ApiError(f"このサーバーはすでに「{who[0] if who else '?'}」さんが連携しています(使いたい場合は共有してもらってください)")
+    kind = "local" if data.get("kind") == "local" else "ptero"
+    if kind == "local":
+        if not has_perm("system"):
+            raise ApiError("フォルダでつなぐサーバーは、「パネル全体の設定」の権限がある人だけが追加できます", 403)
+        root = _local_root(data.get("root_dir"))
+        if conn.execute("SELECT 1 FROM servers WHERE kind='local' AND root_dir=?", (root,)).fetchone():
+            raise ApiError("このフォルダのサーバーはすでに追加されています")
+        ident = "local-" + uuid.uuid4().hex[:16]
+    else:
+        root = ""
+        ident = str(data.get("identifier") or "").strip()
+        if not ident:
+            raise ApiError("サーバーを選んでください")
+        ex = conn.execute("SELECT owner_id FROM servers WHERE identifier=?", (ident,)).fetchone()
+        if ex:
+            who = conn.execute("SELECT username FROM users WHERE id=?", (ex[0],)).fetchone()
+            raise ApiError(f"このサーバーはすでに「{who[0] if who else '?'}」さんが連携しています(使いたい場合は共有してもらってください)")
+    software = data.get("software") if data.get("software") in SERVER_SOFTWARE else ""
+    dirs = _clean_dirs(data.get("dirs"))
+    if not dirs and data.get("plugin_dir"):
+        dirs = {"plugin": _clean_rel_dir(data["plugin_dir"])}
+    dirs = dirs or default_dirs(software)
     set_id = int(data["set_id"]) if data.get("set_id") else None
     if set_id and not conn.execute("SELECT 1 FROM sets WHERE id=? AND owner_id=?", (set_id, current_user()["id"])).fetchone():
         set_id = None
+    name = str(data.get("name") or "").strip()[:80] or (Path(root).name if root else ident)
     with LOCK:
-        conn.execute("INSERT INTO servers (identifier, name, plugin_dir, set_id, created_at, owner_id) VALUES (?,?,?,?,?,?)",
-                     (ident, str(data.get("name") or ident)[:80], _clean_dir(data.get("plugin_dir")), set_id, utcnow(),
-                      current_user()["id"]))
+        conn.execute("INSERT INTO servers (identifier, name, plugin_dir, set_id, created_at, owner_id, kind, root_dir, software, dirs) "
+                     "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                     (ident, name, "/" + (dirs.get("plugin") or dirs.get("mod") or "plugins"), set_id, utcnow(),
+                      current_user()["id"], kind, root, software, json.dumps(dirs)))
         conn.commit()
+    audit("サーバーを追加", name, "フォルダ" if kind == "local" else "Pterodactyl")
     return jsonify(ok=True)
+
+
+@app.post("/api/servers/detect")
+@require("editor")
+def api_servers_detect():
+    """サーバーのフォルダを見て、サーバーソフトと種類ごとのフォルダを推測する。"""
+    data = request.get_json(silent=True) or {}
+    if data.get("server_id"):
+        fs = server_fs(_server_row(int(data["server_id"]), "edit"))
+    elif data.get("kind") == "local":
+        if not has_perm("system"):
+            raise ApiError("フォルダでつなぐサーバーは、「パネル全体の設定」の権限がある人だけが扱えます", 403)
+        fs = _LocalFiles(_local_root(data.get("root_dir")))
+    else:
+        fs = _PteroFiles(str(data.get("identifier") or ""))
+    return jsonify(detect_server(fs))
 
 
 def _server_row(srv, need="view"):
@@ -4052,9 +4357,27 @@ def api_servers_update(srv):
     with LOCK:
         if "name" in data:
             conn.execute("UPDATE servers SET name=? WHERE id=?", (str(data["name"] or "")[:80] or "server", srv))
-        if "plugin_dir" in data:
-            conn.execute("UPDATE servers SET plugin_dir=? WHERE id=?", (_clean_dir(data["plugin_dir"]), srv))
+        if "plugin_dir" in data and "dirs" not in data:
+            conn.execute("UPDATE servers SET plugin_dir=?, dirs=? WHERE id=?",
+                         (_clean_dir(data["plugin_dir"]), json.dumps({"plugin": _clean_rel_dir(data["plugin_dir"])}), srv))
             conn.execute("DELETE FROM server_files WHERE server_id=?", (srv,))
+        if "software" in data:
+            conn.execute("UPDATE servers SET software=? WHERE id=?",
+                         (data["software"] if data["software"] in SERVER_SOFTWARE else "", srv))
+        if "dirs" in data:
+            dirs = _clean_dirs(data["dirs"])
+            if not dirs:
+                raise ApiError("管理するフォルダを 1 つ以上入力してください")
+            conn.execute("UPDATE servers SET dirs=?, plugin_dir=? WHERE id=?",
+                         (json.dumps(dirs), "/" + (dirs.get("plugin") or dirs.get("mod") or next(iter(dirs.values()))), srv))
+            conn.execute("DELETE FROM server_files WHERE server_id=?", (srv,))
+        if "root_dir" in data:
+            row = conn.execute("SELECT kind FROM servers WHERE id=?", (srv,)).fetchone()
+            if row["kind"] == "local":
+                if not has_perm("system"):
+                    raise ApiError("サーバーのフォルダは、「パネル全体の設定」の権限がある人だけが変更できます", 403)
+                conn.execute("UPDATE servers SET root_dir=? WHERE id=?", (_local_root(data["root_dir"]), srv))
+                conn.execute("DELETE FROM server_files WHERE server_id=?", (srv,))
         if "set_id" in data:
             sid = int(data["set_id"]) if data["set_id"] else None
             if sid and not conn.execute("SELECT 1 FROM sets WHERE id=? AND owner_id=?", (sid, current_user()["id"])).fetchone():
@@ -4089,12 +4412,22 @@ def api_servers_delete(srv):
     return jsonify(ok=True)
 
 
-def server_inventory(conn, srv_row, target, note=lambda m: None):
-    """サーバーのプラグインフォルダの中身を、ライブラリと照らし合わせる。"""
-    p = ptero_client()
-    ident, pdir = srv_row["identifier"], srv_row["plugin_dir"]
-    files = [f for f in _pcall(p.list_dir, ident, pdir)
-             if f["is_file"] and f["name"].lower().endswith((".jar", ".zip")) and not f["name"].startswith(".")]
+def server_inventory(conn, srv_row, target, note=lambda m: None, fs=None):
+    """サーバーの各フォルダ(プラグイン・Mod・データパック)の中身を、ライブラリと照らし合わせる。
+
+    戻り値は (ファイルの一覧, セットにあってサーバーに無いもの, 見つからなかったフォルダの種類)。
+    """
+    fs = fs or server_fs(srv_row)
+    dirs = server_dirs(srv_row)
+    files, absent = [], []
+    for cat, d in dirs.items():
+        lst = fs.list(d)
+        if lst is None:
+            absent.append(cat)
+            continue
+        for f in lst:
+            if f["is_file"] and f["name"].lower().endswith((".jar", ".zip")) and not f["name"].startswith("."):
+                files.append({**f, "category": cat, "dir": d, "path": f"{d}/{f['name']}"})
     cache = {r["name"]: r for r in conn.execute("SELECT * FROM server_files WHERE server_id=?", (srv_row["id"],))}
     # 照らし合わせるのは、サーバーの持ち主のライブラリ(自分のもの + 共有されたもの)だけ。
     # ほかの人の非公開のアドオンが、同期でこのサーバーに入ってしまわないように
@@ -4106,17 +4439,17 @@ def server_inventory(conn, srv_row, target, note=lambda m: None):
     items = {r["id"]: r for r in conn.execute("SELECT * FROM items WHERE target_id=?", (target["id"],)) if r["id"] in vis}
     by_key = {}
     for it in items.values():
-        by_key.setdefault(norm_key(it["name"]), it)
+        by_key.setdefault((it["category"], norm_key(it["name"])), it)
     out = []
     for f in files:
-        c = cache.get(f["name"])
+        c = cache.get(f["path"])
         if c and c["size"] == f["size"] and c["modified"] == f["modified"] and c["sha256"]:
             sha, pname, pver = c["sha256"], c["plugin_name"], c["version"]
         else:
-            note(f"サーバーのファイルを確認しています: {f['name']}")
+            note(f"サーバーのファイルを確認しています: {f['path']}")
             tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
             try:
-                _pcall(p.download, ident, f"{pdir}/{f['name']}", tmp)
+                fs.download(f["path"], tmp)
                 sha = sha256_file(tmp)
                 info = analyze(tmp, f["name"])
                 pname, pver = info["name"], info["version"]
@@ -4124,12 +4457,13 @@ def server_inventory(conn, srv_row, target, note=lambda m: None):
                 tmp.unlink(missing_ok=True)
             with LOCK:
                 conn.execute("INSERT OR REPLACE INTO server_files (server_id, name, size, modified, sha256, plugin_name, version) "
-                             "VALUES (?,?,?,?,?,?,?)", (srv_row["id"], f["name"], f["size"], f["modified"], sha, pname, pver))
+                             "VALUES (?,?,?,?,?,?,?)", (srv_row["id"], f["path"], f["size"], f["modified"], sha, pname, pver))
                 conn.commit()
-        entry = {"name": f["name"], "size": f["size"], "modified": f["modified"], "plugin_name": pname, "version": pver,
-                 "status": "unregistered", "item_id": None, "item_name": None, "latest_version": None, "latest_version_id": None}
+        entry = {"name": f["name"], "path": f["path"], "dir": f["dir"], "category": f["category"], "size": f["size"],
+                 "modified": f["modified"], "plugin_name": pname, "version": pver, "status": "unregistered",
+                 "item_id": None, "item_name": None, "latest_version": None, "latest_version_id": None}
         v = by_sha.get(sha)
-        item = items.get(v["item_id"]) if v else by_key.get(norm_key(pname))
+        item = items.get(v["item_id"]) if v else by_key.get((f["category"], norm_key(pname)))
         if item:
             vs = _item_versions(conn, item["id"])
             entry.update(item_id=item["id"], item_name=item["name"],
@@ -4146,9 +4480,9 @@ def server_inventory(conn, srv_row, target, note=lambda m: None):
             entry["version_id"] = v["id"] if v else None
         out.append(entry)
     with LOCK:
-        names = [f["name"] for f in files]
-        conn.execute(f"DELETE FROM server_files WHERE server_id=? AND name NOT IN ({','.join('?' * len(names)) or 'NULL'})",
-                     [srv_row["id"]] + names)
+        paths = [f["path"] for f in files]
+        conn.execute(f"DELETE FROM server_files WHERE server_id=? AND name NOT IN ({','.join('?' * len(paths)) or 'NULL'})",
+                     [srv_row["id"]] + paths)
         conn.commit()
     missing = []
     if srv_row["set_id"]:
@@ -4156,47 +4490,31 @@ def server_inventory(conn, srv_row, target, note=lambda m: None):
         for item, ver in resolve_set_versions(conn, srv_row["set_id"]):
             if item["id"] not in present:
                 missing.append({"item_id": item["id"], "item_name": item["name"], "version": ver["version"],
-                                "version_id": ver["id"]})
-    return out, missing
+                                "version_id": ver["id"], "category": item["category"], "no_dir": item["category"] not in dirs})
+    return out, missing, absent
 
 
 @app.get("/api/servers/presence")
 def api_servers_presence():
     """各アイテムがどのサーバーに入っているか(最後に確認したときの内容から)。"""
-    _store, target = active_store()
     conn = db()
-    by_sha = {v["sha256"]: v for v in conn.execute("SELECT * FROM versions WHERE target_id=?", (target["id"],))}
-    vis = visible_item_ids(conn)
-    items = {r["id"]: r for r in conn.execute("SELECT * FROM items WHERE target_id=?", (target["id"],)) if r["id"] in vis}
-    by_key = {}
-    for it in items.values():
-        by_key.setdefault(norm_key(it["name"]), it["id"])
-    latest = {iid: (_item_versions(conn, iid) or [None])[0] for iid in items}
-    out = {}
-    servers = []
-    for srv in visible_servers(conn):
-        rows = conn.execute("SELECT * FROM server_files WHERE server_id=?", (srv["id"],)).fetchall()
-        servers.append({"id": srv["id"], "name": srv["name"], "checked": bool(rows)})
+    servers = visible_servers(conn)
+    states, items = _cached_states(conn, servers)
+    out, listed = {}, []
+    for srv in servers:
+        rows = states.get(srv["id"], [])
+        listed.append({"id": srv["id"], "name": srv["name"], "checked": bool(rows)})
         present = set()
-        for f in rows:
-            v = by_sha.get(f["sha256"])
-            iid = v["item_id"] if v else by_key.get(norm_key(f["plugin_name"]))
-            if not iid or iid not in items:
+        for f, _cat, iid, status in rows:
+            if not iid:
                 continue
             present.add(iid)
-            lv = latest.get(iid)
-            if v and lv and v["id"] == lv["id"]:
-                status = "latest"
-            elif lv and src.same_version(lv["version"], f["version"]):
-                status = "latest"
-            else:
-                status = "outdated"
             out.setdefault(iid, []).append({"server_id": srv["id"], "server": srv["name"], "status": status, "version": f["version"]})
         if srv["set_id"] and rows:
             for r in conn.execute("SELECT item_id FROM set_items WHERE set_id=?", (srv["set_id"],)):
                 if r[0] in items and r[0] not in present:
                     out.setdefault(r[0], []).append({"server_id": srv["id"], "server": srv["name"], "status": "missing", "version": ""})
-    return jsonify(items=out, servers=servers)
+    return jsonify(items=out, servers=listed)
 
 
 @app.get("/api/servers/<int:srv>/inventory")
@@ -4204,21 +4522,22 @@ def api_servers_presence():
 def api_servers_inventory(srv):
     row = _server_row(srv, "view")
     _store, target = active_store()
-    files, missing = server_inventory(db(), row, target)
-    return jsonify(files=files, missing=missing, plugin_dir=row["plugin_dir"])
+    files, missing, absent = server_inventory(db(), row, target)
+    return jsonify(files=files, missing=missing, absent=absent, dirs=server_dirs(row), kind=row["kind"],
+                   plugin_dir=row["plugin_dir"])
 
 
-def _push_versions(job, conn, srv_row, store, pairs, inventory, title=""):
-    """(item, version) をサーバーへ送り、同じアイテムの別のバージョンがあれば消す。
+def _push_versions(job, conn, srv_row, store, pairs, inventory, title="", fs=None):
+    """(item, version) をサーバーの種類ごとのフォルダへ送り、同じアイテムの別のバージョンがあれば消す。
 
-    置き換え・削除するファイルは先にダウンロードして退避し、あとで巻き戻せるようにする。
+    置き換え・削除するファイルは先に取り出して退避し、あとで巻き戻せるようにする。
     """
-    p = ptero_client()
-    ident, pdir = srv_row["identifier"], srv_row["plugin_dir"]
-    on_server = {e["name"] for e in inventory}
+    fs = fs or server_fs(srv_row)
+    dirs = server_dirs(srv_row)
+    on_server = {e["path"] for e in inventory}
     snap = {"id": None, "removed": [], "added": []}
 
-    def keep(name):
+    def open_snap():
         if snap["id"] is None:
             with LOCK:
                 cur = conn.execute("INSERT INTO server_snapshots (server_id, created_at, title) VALUES (?,?,?)",
@@ -4226,41 +4545,44 @@ def _push_versions(job, conn, srv_row, store, pairs, inventory, title=""):
                 conn.commit()
             snap["id"] = cur.lastrowid
             (SNAP_DIR / str(snap["id"])).mkdir(parents=True, exist_ok=True)
-        if any(r["name"] == name for r in snap["removed"]):
+
+    def keep(path):
+        open_snap()
+        if any(r["name"] == path for r in snap["removed"]):
             return
-        stored = f"{len(snap['removed'])}-{safe_name(name, 'file', 150)}"
-        _pcall(p.download, ident, f"{pdir}/{name}", SNAP_DIR / str(snap["id"]) / stored)
-        snap["removed"].append({"name": name, "stored": stored})
+        stored = f"{len(snap['removed'])}-{safe_name(path.rsplit('/', 1)[-1], 'file', 150)}"
+        fs.download(path, SNAP_DIR / str(snap["id"]) / stored)
+        snap["removed"].append({"name": path, "stored": stored})
 
     sent = 0
     for item, v in pairs:
         job.done += 1
+        d = dirs.get(item["category"])
+        if not d:
+            job.note(f"送れません({CATEGORIES.get(item['category'], ('', item['category']))[1]}のフォルダが設定されていません): {item['name']}")
+            continue
         old = [e for e in inventory if e["item_id"] == item["id"]]
         if any(e.get("version_id") == v["id"] for e in old):
             job.note(f"送信不要(同じファイルがあります): {item['name']} {v['version']}")
             continue
+        dest = f"{d}/{v['filename']}"
         for e in old:
-            keep(e["name"])
-        if v["filename"] in on_server:
-            keep(v["filename"])  # 同じ名前のファイルを上書きする場合も退避
-        if snap["id"] is None:
-            with LOCK:
-                cur = conn.execute("INSERT INTO server_snapshots (server_id, created_at, title) VALUES (?,?,?)",
-                                   (srv_row["id"], utcnow(), title))
-                conn.commit()
-            snap["id"] = cur.lastrowid
+            keep(e["path"])
+        if dest in on_server:
+            keep(dest)  # 同じ名前のファイルを上書きする場合も退避
+        open_snap()
         tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
         try:
             store.fetch(lib_rel(v["relpath"]), tmp)
-            _pcall(p.upload, ident, pdir, tmp, v["filename"])
+            fs.upload(d, tmp, v["filename"])
         finally:
             tmp.unlink(missing_ok=True)
-        snap["added"].append(v["filename"])
-        stale = [e["name"] for e in old if e["name"] != v["filename"]]
-        if stale:
-            _pcall(p.delete, ident, pdir, stale)
+        snap["added"].append(dest)
+        stale = [e for e in old if e["path"] != dest]
+        for sd in {e["dir"] for e in stale}:
+            fs.delete(sd, [e["name"] for e in stale if e["dir"] == sd])
         sent += 1
-        job.note(f"送信しました: {item['name']} {v['version']}" + (f"(古いファイルを削除: {', '.join(stale)})" if stale else ""))
+        job.note(f"送信しました: {item['name']} {v['version']}" + (f"(古いファイルを削除: {', '.join(e['name'] for e in stale)})" if stale else ""))
     with LOCK:
         if snap["id"] is not None:
             conn.execute("UPDATE server_snapshots SET removed=?, added=? WHERE id=?",
@@ -4278,8 +4600,11 @@ def _server_job(job, srv, target_id, mode, item_ids, version_ids, restart, user)
     srv_row = conn.execute("SELECT * FROM servers WHERE id=?", (srv,)).fetchone()
     target = conn.execute("SELECT * FROM storage_targets WHERE id=?", (target_id,)).fetchone()
     store = open_store(target)
-    job.note(f"「{srv_row['name']}」の {srv_row['plugin_dir']} を確認しています…")
-    inventory, missing = server_inventory(conn, srv_row, target, note=job.note)
+    fs = server_fs(srv_row)
+    job.note(f"「{srv_row['name']}」の {', '.join(server_dirs(srv_row).values())} を確認しています…")
+    inventory, missing, absent = server_inventory(conn, srv_row, target, note=job.note, fs=fs)
+    for cat in absent:
+        job.note(f"{CATEGORIES[cat][1]}のフォルダ({server_dirs(srv_row)[cat]})が見つかりません。送るときに作ります")
     pairs = []
     if mode == "sync":
         for e in inventory:
@@ -4290,6 +4615,8 @@ def _server_job(job, srv, target_id, mode, item_ids, version_ids, restart, user)
             chosen = {i["id"]: v for i, v in resolve_set_versions(conn, srv_row["set_id"])}
             pairs = [(i, chosen.get(i["id"], v)) for i, v in pairs]
             for m in missing:
+                if m["no_dir"]:
+                    continue
                 pairs.append((conn.execute("SELECT * FROM items WHERE id=?", (m["item_id"],)).fetchone(),
                               conn.execute("SELECT * FROM versions WHERE id=?", (m["version_id"],)).fetchone()))
     else:
@@ -4305,9 +4632,10 @@ def _server_job(job, srv, target_id, mode, item_ids, version_ids, restart, user)
     job.total = len(pairs)
     if not pairs:
         job.note("送信するものはありません(すべて最新です)")
-    sent = _push_versions(job, conn, srv_row, store, pairs, inventory, title=job.title)
+    sent = _push_versions(job, conn, srv_row, store, pairs, inventory, title=job.title, fs=fs)
+    restart = restart and srv_row["kind"] != "local"  # フォルダでつないだサーバーは再起動を操作できない
     if restart and sent:
-        _pcall(ptero_client().power, srv_row["identifier"], "restart")
+        fs.power("restart")
         job.note("サーバーを再起動しました")
     job.result = {"sent": sent}
     label = "同期" if mode == "sync" else "転送"
@@ -4361,16 +4689,20 @@ def _server_import_job(job, srv, target_id, names, user):
     srv_row = conn.execute("SELECT * FROM servers WHERE id=?", (srv,)).fetchone()
     target = conn.execute("SELECT * FROM storage_targets WHERE id=?", (target_id,)).fetchone()
     store = open_store(target)
-    p = ptero_client()
+    fs = server_fs(srv_row)
+    dirs = set(server_dirs(srv_row).values())
     job.total = len(names)
     added = 0
-    for n in names:
+    for path in names:
         job.done += 1
-        if "/" in n or n.startswith("."):
-            continue
+        d, _sep, n = path.rpartition("/")
+        if d not in dirs or not n or n.startswith("."):  # 01.16 より前の画面はファイル名だけを送る
+            if "/" in path or len(dirs) != 1:
+                continue
+            d, n = next(iter(dirs)), path
         tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
         try:
-            _pcall(p.download, srv_row["identifier"], f"{srv_row['plugin_dir']}/{n}", tmp)
+            fs.download(f"{d}/{n}", tmp)
             r = ingest(tmp, n, store=store, target=target, owner_id=_uid_of(user))
             added += r.get("status") == "added"
             job.note(f"{'取り込みました' if r.get('status') == 'added' else '登録済みです'}: {r.get('name')} {r.get('version', '')}")
@@ -4400,7 +4732,7 @@ def api_servers_import(srv):
 def api_servers_power(srv):
     row = _server_row(srv, "edit")
     signal = str((request.get_json(silent=True) or {}).get("signal") or "")
-    _pcall(ptero_client().power, row["identifier"], signal)
+    server_fs(row).power(signal)
     return jsonify(ok=True)
 
 
@@ -4408,7 +4740,7 @@ def api_servers_power(srv):
 def api_servers_status(srv):
     row = _server_row(srv, "view")
     try:
-        return jsonify(ptero_client().resources(row["identifier"]))
+        return jsonify(server_fs(row).status())
     except (ptero.PteroError, ApiError) as e:
         return jsonify(state="unknown", error=getattr(e, "message", str(e)))
 
@@ -4769,15 +5101,20 @@ def _rollback_job(job, srv, snap_id, restart, user):
     srv_row = conn.execute("SELECT * FROM servers WHERE id=?", (srv,)).fetchone()
     snap = conn.execute("SELECT * FROM server_snapshots WHERE id=? AND server_id=?", (snap_id, srv)).fetchone()
     removed, added = _jl(snap["removed"], []), _jl(snap["added"], [])
-    p = ptero_client()
-    ident, pdir = srv_row["identifier"], srv_row["plugin_dir"]
+    fs = server_fs(srv_row)
+    legacy = _clean_rel_dir(srv_row["plugin_dir"]) or "plugins"
+
+    def full(n):  # 01.16 より前の履歴はファイル名だけ(プラグインのフォルダの中)
+        return n if "/" in n else f"{legacy}/{n}"
+
     job.total = len(removed) + 1
-    restore_names = {r["name"] for r in removed}
-    to_delete = [n for n in added if n not in restore_names]
-    if to_delete:
+    restore = {full(r["name"]) for r in removed}
+    to_delete = [full(n) for n in added if full(n) not in restore]
+    for d in sorted({p.rpartition("/")[0] for p in to_delete}):
+        names = [p.rpartition("/")[2] for p in to_delete if p.rpartition("/")[0] == d]
         try:
-            _pcall(p.delete, ident, pdir, to_delete)
-            job.note(f"同期で入れたファイルを削除: {', '.join(to_delete)}")
+            fs.delete(d, names)
+            job.note(f"同期で入れたファイルを削除: {', '.join(names)}")
         except ApiError as e:
             job.note(f"削除できないファイルがあります(すでに無いかもしれません): {e.message}")
     job.done += 1
@@ -4787,14 +5124,15 @@ def _rollback_job(job, srv, snap_id, restart, user):
         if not f.exists():
             job.note(f"保存したファイルが見つかりません: {r['name']}")
             continue
-        _pcall(p.upload, ident, pdir, f, r["name"])
-        job.note(f"元に戻しました: {r['name']}")
+        d, _sep, n = full(r["name"]).rpartition("/")
+        fs.upload(d, f, n)
+        job.note(f"元に戻しました: {n}")
     with LOCK:
         conn.execute("UPDATE server_snapshots SET rolled_back=? WHERE id=?", (utcnow(), snap_id))
         conn.execute("DELETE FROM server_files WHERE server_id=?", (srv,))
         conn.commit()
-    if restart:
-        _pcall(p.power, ident, "restart")
+    if restart and srv_row["kind"] != "local":
+        fs.power("restart")
         job.note("サーバーを再起動しました")
     audit("サーバーを巻き戻し", srv_row["name"], snap["title"], user=user)
     notify_event("servers", f"{srv_row['name']} を巻き戻しました", [snap["title"], f"{fmt_local(snap['created_at'])} の状態に戻しました"], "warn")

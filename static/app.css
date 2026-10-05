@@ -455,7 +455,8 @@ dialog.sheet form { display: flex; flex-direction: column; min-height: 0; flex: 
 .overlay { position: fixed; inset: 0; z-index: 70; display: none; place-items: center; background: color-mix(in srgb, var(--tint-fill) 18%, transparent); -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); pointer-events: none; }
 .overlay.on { display: grid; }
 .overlay div { padding: 34px 48px; border-radius: 30px; font-size: 20px; font-weight: 700; border: 2px dashed var(--tint); }
-.toasts { position: fixed; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 100; display: flex; flex-direction: column; gap: 8px; width: min(460px, calc(100vw - 24px)); pointer-events: none; }
+.toasts { position: fixed; top: auto; right: auto; left: 50%; bottom: max(18px, env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 100; display: flex; flex-direction: column; gap: 8px; width: min(460px, calc(100vw - 24px)); pointer-events: none; }
+.toasts[popover] { margin: 0; padding: 0; border: 0; background: transparent; color: inherit; overflow: visible; height: auto; }
 .toast { border-radius: 18px; padding: 11px 16px; font-size: 14px; font-weight: 500; animation: toastIn .4s var(--ease); display: flex; gap: 10px; align-items: center; }
 .toast .ic { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; flex: none; background: var(--tint-fill); color: var(--tint-ink); }
 .toast.err .ic { background: var(--red); color: #fff; }
@@ -918,3 +919,59 @@ h3 .favbtn svg.i { width: 22px; height: 22px; }
 /* シート・詳細を開いている間は後ろを動かさない */
 body.scroll-locked { position: fixed; left: 0; right: 0; overflow: hidden; }
 dialog.sheet, .side { overscroll-behavior: contain; }
+
+/* お問い合わせの送信完了 */
+.sent-ok { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 28px 12px; }
+.sent-ok .cicon { width: 52px; height: 52px; border-radius: 50%; }
+.sent-ok .cicon svg { width: 28px; height: 28px; stroke-width: 2.6; }
+.sent-ok .title { font-size: 19px; font-weight: 700; color: var(--label); }
+.sent-ok p { margin: 0 0 8px; }
+
+/* 下に引っ張って更新 */
+html { overscroll-behavior-y: none; }  /* ブラウザ自身の引っ張って再読み込みと重ならないように */
+.ptr { position: fixed; left: 50%; top: calc(env(safe-area-inset-top) - 44px); z-index: 60; width: 40px; height: 40px; border-radius: 50%;
+  display: grid; place-items: center; background: var(--card); color: var(--label-2); box-shadow: 0 4px 14px rgba(0,0,0,.18), 0 0 0 .5px var(--sep);
+  transform: translate(-50%, 0); opacity: 0; pointer-events: none; transition: transform .25s var(--ease), opacity .2s; }
+.ptr .ptr-ic { display: grid; place-items: center; }
+.ptr svg { width: 20px; height: 20px; stroke-width: 2.4; }
+.ptr.ready { color: var(--tint); }
+.ptr.spin .ptr-ic { animation: ptrSpin .8s linear infinite; }
+@keyframes ptrSpin { to { transform: rotate(360deg); } }
+.ptr.drag { transition: none; }
+
+/* ---------- サーバー: 種類ごとの件数とアイコンの操作 ---------- */
+.srv-card .card-h { align-items: flex-start; }
+.srv-title { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.srv-title h4 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srv-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.srv-tags .plat { display: inline-flex; align-items: center; gap: 4px; font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--fill); color: var(--label-2); }
+.srv-tags .plat svg { width: 12px; height: 12px; }
+.srv-cats { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+.srv-cat { position: relative; display: flex; align-items: center; gap: 8px; padding: 9px 10px; border: 0; border-radius: 14px; background: var(--fill); color: var(--label); text-align: left; cursor: pointer; transition: background .2s; }
+.srv-cat:hover { background: var(--fill-2); }
+.srv-cat .t { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.srv-cat .t b { font-size: 18px; font-variant-numeric: tabular-nums; }
+.srv-cat .t small { font-size: 11.5px; color: var(--label-2); white-space: nowrap; }
+.srv-cat .badge { position: absolute; top: -6px; right: -4px; font-size: 10.5px; padding: 1px 7px; }
+.srv-meta { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 10px; font-size: 12.5px; color: var(--label-2); }
+.srv-meta > span { display: inline-flex; align-items: center; gap: 4px; }
+.srv-meta svg { width: 13px; height: 13px; }
+.srv-acts { display: flex; flex-wrap: nowrap; justify-content: space-between; gap: 2px; margin-top: 10px; padding-top: 8px; border-top: .5px solid var(--sep); }
+.srv-acts .sbtn { flex: 1 1 0; min-width: 44px; padding: 6px 2px; font-size: 10.5px; }
+.srv-acts .sbtn[data-primary] { background: var(--tint-soft); }
+.srv-dirs .dir-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; }
+.srv-dirs .dir-row + .dir-row { border-top: .5px solid var(--sep); }
+.srv-dirs .dir-row .l { width: 92px; flex: none; font-size: 14px; }
+.srv-dirs .dir-row input { flex: 1; min-width: 0; }
+.group-title small { font-weight: 400; margin-left: 4px; }
+.inline-input { display: flex; gap: 8px; align-items: center; }
+.inline-input input { flex: 1; min-width: 0; }
+.detect-out { font-size: 13px; color: var(--label-2); margin: -4px 4px 10px; display: flex; align-items: center; gap: 6px; }
+.detect-out:empty { display: none; }
+.detect-out svg { width: 15px; height: 15px; color: var(--tint); }
+.warn-t { color: var(--orange); }
+.result.warn { color: var(--orange); margin-bottom: 10px; }
+.inv-tabs { margin-bottom: 12px; }
+.inv-tabs .seg { position: relative; }
+.inv-tabs .dot-upd { position: absolute; top: 4px; right: 6px; width: 7px; height: 7px; border-radius: 50%; background: var(--orange); }
+.srv-acts .sbtn span { display: inline; }

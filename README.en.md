@@ -16,7 +16,7 @@ drag &amp; drop to add, check for updates, and push them to your servers.
 - 📦 **Drop to organize** — drop .jar / .zip files or whole folders; name, version, supported Minecraft versions and server software are detected automatically
 - 🔗 **Linked to distribution sites** — matches your files with Modrinth, SpigotMC and CurseForge, checks for updates on a schedule and saves new versions in one click
 - 🧩 **Dependency checks** — finds missing required plugins/mods and lets you add them from search
-- 🖥️ **Pterodactyl integration** — one-click sync to your servers, side-by-side server comparison, rollback to the state before a sync, scheduled syncs
+- 🖥️ **Server management** — Pterodactyl servers or server folders the panel can see (same PC / NAS): plugins, mods and datapacks per folder, one-click sync, per-add-on updates, side-by-side comparison, rollback, scheduled syncs
 - 🗂️ **Flexible storage** — local folder, SMB (Unraid, TrueNAS, Synology, Windows shares) or WebDAV (Nextcloud etc.), with a live storage status view (connection, latency, capacity)
 - 👥 **Multi-user** — viewer / editor / admin roles, two-factor authentication, API tokens and an audit log
 - 🌐 **English / Japanese UI**, themes and custom backgrounds, mobile friendly
@@ -72,7 +72,7 @@ Edit `docker-compose.yml` first if needed: the left side of `volumes` is where f
 1. Create the admin account on the setup screen
 2. Drop your plugin/mod files onto the page
 3. Settings (⚙) → switch **Language / 言語** to English if the UI is in Japanese
-4. Optional: link Pterodactyl (Client API key `ptlc_…`), add a CurseForge API key, or add SMB / WebDAV storage
+4. Optional: link Pterodactyl (Client API key `ptlc_…`) or add a server folder (Docker: mount it into the container), add a CurseForge API key, or add SMB / WebDAV storage
 
 ## Updates
 

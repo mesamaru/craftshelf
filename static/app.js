@@ -647,6 +647,7 @@ const VIEWS = { library: "ライブラリ", dash: "ダッシュボード", sets:
 function setView(view) {
   if (!VIEWS[view]) view = "library";
   state.view = view;
+  document.body.classList.remove("srv-detail");
   if (state.jobs) renderJobs();
   document.querySelectorAll("#tabbar [data-view]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === view)));
   $("#viewTitle").textContent = VIEWS[view];
@@ -1317,17 +1318,21 @@ async function loadServers() {
 /* 稼働状況・人数(一覧ではカードの右上、詳細では状態のパネルに出す) */
 async function loadLive(id) {
   try { state.srvLive[id] = await api(`/api/servers/${id}/status`); } catch { state.srvLive[id] = { state: "unknown" }; }
-  document.querySelectorAll(`[data-live="${id}"]`).forEach((el) => { el.outerHTML = liveChip(id, el.dataset.big === "1"); });
-  if (state.srvOpen === id && $("#srvLivePanel")) $("#srvLivePanel").innerHTML = livePanel(state.servers.find((s) => s.id === id));
+  const srv = (state.servers || []).find((x) => x.id === id);
+  if (!srv) return;
+  document.querySelectorAll(`[data-sdot="${id}"]`).forEach((el) => { el.outerHTML = srvDot(id); });
+  document.querySelectorAll(`[data-ssub="${id}"]`).forEach((el) => { el.textContent = srvSub(srv).replace(/&amp;/g, "&"); });
+  if (state.srvOpen === id) {
+    if ($("[data-livechip]")) $("[data-livechip]").innerHTML = liveStateChip(srv);
+    if ($("#srvLivePanel")) $("#srvLivePanel").innerHTML = livePanel(srv);
+  }
+  const st = $(".sstats");
+  if (st && state.view === "servers") {  // 上の集計(稼働・人数)も更新する
+    const tmp = document.createElement("div"); tmp.innerHTML = srvListHTML(state.servers);
+    st.replaceWith(tmp.querySelector(".sstats"));
+  }
 }
 const STATE_LABEL = { running: ["ok", "稼働中"], offline: ["", "停止中"], starting: ["upd", "起動中"], stopping: ["upd", "停止処理中"], local: ["", "状態不明"], unknown: ["", "状態不明"] };
-function liveChip(id, big = false) {
-  const l = (state.srvLive || {})[id];
-  if (!l) return `<span class="live-chip" data-live="${id}"${big ? ' data-big="1"' : ""}><span class="spinner"></span></span>`;
-  const [cl, label] = STATE_LABEL[l.state] || STATE_LABEL.unknown;
-  const p = l.ping;
-  return `<span class="live-chip ${cl}" data-live="${id}"${big ? ' data-big="1"' : ""} title="${esc(l.ping_error || l.error || "")}"><i class="dot"></i>${label}${p ? ` · ${icon("users")}${p.players}/${p.max}` : ""}</span>`;
-}
 const stateBadge = (s) => { const [cl, l] = STATE_LABEL[s] || STATE_LABEL.unknown; return `<span class="badge ${cl}">${l}</span>`; };
 
 /* ---------------- サーバーソフトと、種類ごとのフォルダ ---------------- */
@@ -1447,132 +1452,158 @@ async function localServerDialog() {
 const DOW = ["月", "火", "水", "木", "金", "土", "日"];
 const schedLabel = (s) => s.sched_mode === "daily" ? `毎日 ${s.sched_time}` : s.sched_mode === "weekly" ? `毎週${DOW[s.sched_dow] || ""}曜 ${s.sched_time}` : "なし";
 const canPower = (s) => s.kind === "ptero" || (s.kind === "local" && ["command", "docker"].includes(s.control));
-const srvTags = (s) => `<span class="plat">${s.kind === "local" ? `${icon("folder")}フォルダ` : `${icon("server")}Pterodactyl`}</span>${s.software ? `<span class="plat" translate="no">${esc(SRV_SOFT[s.software] || s.software)}${s.mc_version || s.soft_info?.mc ? ` ${esc(s.mc_version || s.soft_info.mc)}` : ""}</span>` : ""}`;
-function srvTiles(s) {
-  return SRV_CATS.filter((c) => (s.dirs || {})[c]).map((c) => {
-    const sm = (s.summary || {})[c] || { files: 0, outdated: 0 };
-    return `<button class="srv-cat" type="button" data-va="inv" data-cat="${c}" title="${esc(CATS[c])}の中身(${esc(s.dirs[c])})">
-      <span class="cicon sm c-${c}">${catGlyph(c)}</span><span class="t"><b>${s.checked ? sm.files : "–"}</b><small>${CATS[c]}</small></span>
-      ${sm.outdated ? `<span class="badge upd">更新 ${sm.outdated}</span>` : ""}</button>`;
-  }).join("");
+const srvSoftLabel = (s) => `${s.software ? esc(SRV_SOFT[s.software] || s.software) : ""}${s.mc_version || s.soft_info?.mc ? ` ${esc(s.mc_version || s.soft_info.mc)}` : ""}`.trim();
+const srvUpdates = (s) => Object.values(s.summary || {}).reduce((n, c) => n + (c.outdated || 0), 0);
+const srvFiles = (s) => Object.values(s.summary || {}).reduce((n, c) => n + (c.files || 0), 0);
+/* 対応が必要か(一覧で上にまとめる) */
+const srvNeeds = (s) => srvUpdates(s) > 0 || !!(s.soft_info || {}).update;
+const wideSrv = () => matchMedia("(min-width: 900px)").matches;
+/* タブの中身を出す場所: 指定があればそこへ、無ければシートで開く */
+function host(container, title, html, setup, opts) {
+  if (!container) return sheet(`${sheetHead(title)}${html}`, setup, opts);
+  container.innerHTML = html;
+  return new Promise((res) => setup(container, res));
 }
-/* 気をつけること(一覧と詳細の両方に出す) */
-function srvNotices(s) {
-  const out = [];
-  const si = s.soft_info || {};
-  if (si.update) out.push(`<span class="nt upd">${icon("sparkle")}本体の新しいビルド #${esc(si.latest.build)}</span>`);
-  if (s.holds) out.push(`<span class="nt">${icon("clock")}見送り ${s.holds} 件</span>`);
-  if (s.auto_update === "auto") out.push(`<span class="nt ok">${icon("refresh")}自動更新</span>`);
-  if ((s.stage_targets || []).length) out.push(`<span class="nt">${icon("arrows")}検証用(本番 ${s.stage_targets.length} 台)</span>`);
-  return out.length ? `<div class="srv-notes">${out.join("")}</div>` : "";
+function srvDot(id) {
+  const l = (state.srvLive || {})[id];
+  const cl = !l ? "wait" : l.state === "running" ? "ok" : ["starting", "stopping"].includes(l.state) ? "upd" : "";
+  return `<span class="sdot ${cl}" data-sdot="${id}"></span>`;
+}
+function srvSub(s) {
+  const l = (state.srvLive || {})[s.id];
+  const st = !l ? "" : l.ping ? `${l.ping.players}/${l.ping.max}人` : l.state === "offline" ? "停止中" : l.state === "running" ? "稼働中" : "";
+  return [srvSoftLabel(s) || (s.kind === "local" ? "フォルダ" : "Pterodactyl"), st].filter(Boolean).join(" · ");
+}
+function srvBadge(s) {
+  const u = srvUpdates(s);
+  if (u) return `<span class="spill warn">更新 ${u}</span>`;
+  if ((s.soft_info || {}).update) return `<span class="spill acc">本体 新ビルド</span>`;
+  if (s.checked) return `<span class="spill ok">最新</span>`;
+  return "";
+}
+const srvRow = (s, sel = false) => `<button class="srow${sel ? " sel" : ""}" type="button" data-srvopen="${s.id}">
+  ${srvDot(s.id)}<span class="m"><b translate="no">${esc(s.name)}</b><small data-ssub="${s.id}">${srvSub(s)}</small></span>${srvBadge(s)}${icon("chev")}</button>`;
+/* 一覧(スマホ)・左の列(PC) */
+function srvListHTML(list, selId = null) {
+  const mine = list.filter((s) => !s.access || s.access === "owner"), shared = list.filter((s) => s.access && s.access !== "owner");
+  const need = mine.filter(srvNeeds), ok = mine.filter((s) => !srvNeeds(s));
+  const live = Object.values(state.srvLive || {});
+  const running = list.filter((s) => ((state.srvLive || {})[s.id] || {}).state === "running").length;
+  const players = live.reduce((n, l) => n + ((l && l.ping && l.ping.players) || 0), 0);
+  const upd = list.reduce((n, s) => n + srvUpdates(s), 0);
+  const group = (title, arr) => arr.length ? `<div class="sgrp">${title}</div><div class="slist">${arr.map((s) => srvRow(s, s.id === selId)).join("")}</div>` : "";
+  const toSync = list.filter((s) => s.access !== "view" && srvUpdates(s) > 0);
+  return `<div class="sstats"><div><small>稼働</small><b>${running}<i>/${list.length}</i></b></div><div><small>更新</small><b class="${upd ? "warn-t" : ""}">${upd}</b></div><div><small>人数</small><b>${players}</b></div></div>
+    ${group(need.length ? "対応が必要" : "", need)}${group(need.length ? "問題なし" : "", ok)}${group(shared.length ? "共有されたサーバー" : "", shared)}
+    ${toSync.length ? `<button class="sall" type="button" data-va="syncall">${icon("refresh")}<span class="m"><b>すべて最新にする</b><small>${toSync.length} 台・${toSync.reduce((n, s) => n + srvUpdates(s), 0)} 件</small></span><span class="btn small tinted">同期</span></button>` : ""}`;
 }
 function renderServers() {
   const list = state.servers || [];
-  const mode = state.srvMode || "list";
+  const view = $("#serversView");
   if (!list.length && !state.pteroConfigured && !state.localOk) {
-    $("#serversView").innerHTML = `<div class="card"><div class="empty"><div class="big">🦖</div>
+    view.innerHTML = `<div class="card"><div class="empty"><div class="big">🦖</div>
       Pterodactyl と連携するか、このパネルから見えるフォルダのサーバーを追加すると、保管しているプラグイン・Mod・データパックをサーバーへ転送・同期できます。<br>
       ${can("integrations") ? `<button class="btn filled" type="button" data-va="setup" style="margin-top:12px">${icon("gear")}Pterodactyl を設定</button>` : "管理者に設定を依頼してください"}</div></div>`;
     return;
   }
-  const open = state.srvOpen && list.find((s) => s.id === state.srvOpen);
-  if (open) { renderServerPage(open); return; }
-  $("#serversView").innerHTML = `
-    <div class="view-head">
-      <div class="segmented glass viewsw">${[["list", "一覧"], ["compare", "比較"]].map(([k, n]) => `<button class="seg" type="button" data-mode="${k}" aria-pressed="${mode === k}">${n}</button>`).join("")}</div>
-      <button class="btn filled need-editor" type="button" data-va="add">${icon("plus")}サーバーを追加</button></div>
-    <div id="srvBody"></div>`;
-  if (mode === "compare") { renderCompare(); return; }
-  const act = (va, ic, label, extra = "") => `<button class="sbtn" type="button" data-va="${va}"${extra}>${icon(ic)}<span>${label}</span></button>`;
-  const card = (s) => {
-    const ro = s.access === "view", owner = !s.access || s.access === "owner";
-    return `<div class="card srv-card${ro ? " ro" : ""}" data-srv="${s.id}">
-      <button class="card-h srv-open" type="button" data-va="open" aria-label="「${esc(s.name)}」の詳細を開く">
-        <div class="srv-title"><h4 translate="no">${esc(s.name)}</h4><div class="srv-tags">${srvTags(s)}</div></div>
-        <span class="srv-head-r">${liveChip(s.id)}${icon("chev")}</span></button>
-      <div class="card-b">
-        ${!owner ? `<div class="sharednote" style="margin-bottom:6px">${icon("users")}<span translate="no">${esc(s.owner_name)}</span> さんが共有(${s.access === "edit" ? "操作もできます" : "見るだけ"})</div>` : ""}
-        ${srvNotices(s)}
-        <div class="srv-cats">${srvTiles(s)}</div>
-        ${s.checked ? "" : `<div class="qfoot" style="margin-top:6px">種類のボタンを押すと、中身と更新の有無を確認します</div>`}
-        <div class="srv-acts">
-          ${act("inv", "search", "中身")}
-          ${ro ? "" : act("sync", "refresh", "同期", " data-primary")}
-          ${ro ? "" : act("push", "send", "転送")}
-          ${!ro && canPower(s) ? act("power", "power", "電源") : ""}
-          ${act("open", "more", "詳細")}
-        </div>
-      </div></div>`;
-  };
-  const mine = list.filter((s) => !s.access || s.access === "owner"), shared = list.filter((s) => s.access && s.access !== "owner");
-  $("#srvBody").innerHTML = list.length
-    ? `${mine.length ? `<div class="dash-grid">${mine.map(card).join("")}</div>` : ""}
-      ${shared.length ? `<div class="list-sep">${icon("users")}共有されたサーバー<span>${shared.length} 台</span></div><div class="dash-grid">${shared.map(card).join("")}</div>` : ""}`
-    : `<div class="card"><div class="empty"><div class="big">🖥️</div>まだサーバーがありません。「サーバーを追加」から、Pterodactyl のサーバーか、このパネルから見えるフォルダのサーバーを追加できます</div></div>`;
+  const head = `<div class="view-head srv-vh"><div class="chips">
+      <button class="btn small${state.srvMode === "compare" ? " tinted" : ""}" type="button" data-mode="${state.srvMode === "compare" ? "list" : "compare"}">${icon(state.srvMode === "compare" ? "back" : "arrows")}${state.srvMode === "compare" ? "一覧に戻る" : "比較"}</button></div>
+      <button class="btn filled need-editor" type="button" data-va="add">${icon("plus")}追加</button></div>`;
+  if (state.srvMode === "compare") { view.innerHTML = `${head}<div id="srvBody"></div>`; renderCompare(); return; }
+  if (!list.length) {
+    view.innerHTML = `${head}<div class="card"><div class="empty"><div class="big">🖥️</div>まだサーバーがありません。「追加」から、Pterodactyl のサーバーか、このパネルから見えるフォルダのサーバーを追加できます</div></div>`;
+    return;
+  }
+  let open = state.srvOpen && list.find((s) => s.id === state.srvOpen);
+  document.body.classList.toggle("srv-detail", !!open && !wideSrv());  // スマホで詳細を開いている間は大きな見出しを隠す
+  if (wideSrv()) {  // PC: 左に一覧、右に詳細
+    open = open || list.find(srvNeeds) || list[0];
+    state.srvOpen = open.id;
+    view.innerHTML = `${head}<div class="srv-split"><aside class="srv-side">${srvListHTML(list, open.id)}</aside><div class="srv-main" id="srvMain"></div></div>`;
+    renderServerPage(open, $("#srvMain"));
+    return;
+  }
+  if (open) { view.innerHTML = `<div id="srvMain"></div>`; renderServerPage(open, $("#srvMain")); return; }
+  view.innerHTML = `${head}${srvListHTML(list)}`;
 }
 
-/* ---------------- サーバーの詳細(1 台のための画面) ---------------- */
+/* ---------------- サーバーの詳細(概要・アドオン・保存・設定) ---------------- */
 function livePanel(s) {
   const l = (state.srvLive || {})[s.id];
   if (!l) return `<div class="live-wait"><span class="spinner"></span> 状態を確認しています…</div>`;
   const p = l.ping;
   const kv = (k, v) => `<div class="lv"><span>${k}</span><b>${v}</b></div>`;
   const mem = l.memory ? `${(l.memory / 1024 ** 3).toFixed(1)} GB` : "";
-  return `<div class="live-head">${liveChip(s.id, true)}${l.address ? `<span class="muted" translate="no">${esc(l.address)}</span>` : ""}</div>
-    ${p ? `<div class="live-grid">
-        ${kv("プレイヤー", `${p.players}<small>/${p.max}</small>`)}
-        ${kv("バージョン", `<span translate="no">${esc(p.version || "-")}</span>`)}
+  return `${p ? `<div class="live-grid">
+        ${kv("人数", `${p.players}<small>/${p.max}</small>`)}
         ${kv("応答", `${p.latency}<small>ms</small>`)}
+        ${kv("MC", `<span translate="no">${esc(s.mc_version || mcFromName(p.version) || "-")}</span>`)}
         ${l.cpu != null ? kv("CPU", `${Math.round(l.cpu)}<small>%</small>`) : ""}${mem ? kv("メモリ", mem) : ""}
       </div>
-      ${p.sample && p.sample.length ? `<div class="live-players">${icon("users")}<span translate="no">${p.sample.map(esc).join("、")}</span></div>` : ""}
-      ${p.motd ? `<div class="live-motd" translate="no">${esc(p.motd)}</div>` : ""}`
+      ${p.sample && p.sample.length ? `<div class="live-players">${icon("users")}<span translate="no">${p.sample.map(esc).join("、")}</span></div>` : ""}`
     : `<div class="muted live-note">${l.address ? `人数を確認できませんでした(${esc(l.ping_error || "応答なし")})` : "「設定」でサーバーのアドレスを入れると、人数やバージョンを表示します"}</div>`}
     ${l.mc_detected && !s.mc_version ? `<button class="btn plain small" type="button" data-va="setmc" data-mc="${esc(l.mc_detected)}">${icon("check")}MC ${esc(l.mc_detected)} をこのサーバーのバージョンにする</button>` : ""}`;
 }
-function renderServerPage(s) {
-  const ro = s.access === "view", owner = !s.access || s.access === "owner";
-  const si = s.soft_info || {};
-  const tile = (va, ic, label, sub = "", cls = "") => `<button class="srv-tile ${cls}" type="button" data-va="${va}"><span class="cicon sm c-teal">${icon(ic)}</span><span class="t"><b>${label}</b>${sub ? `<small>${sub}</small>` : ""}</span></button>`;
+const mcFromName = (n) => (String(n || "").match(/(?:^|\s)(1\.\d{1,2}(?:\.\d{1,2})?|2\d\.\d{1,2}(?:\.\d{1,2})?)(?![\d.])/) || [])[1] || "";
+function liveStateChip(s) {
+  const l = (state.srvLive || {})[s.id];
+  if (!l) return `<span class="spill"><span class="spinner"></span></span>`;
+  const [cl, label] = STATE_LABEL[l.state] || STATE_LABEL.unknown;
+  return `<span class="spill ${cl === "ok" ? "ok" : cl === "upd" ? "warn" : ""}">● ${label}</span>`;
+}
+/* 今やること(無ければ「すべて最新」) */
+function todoList(s) {
+  const ro = s.access === "view", si = s.soft_info || {}, out = [];
+  const row = (ic, cls, title, sub, btn) => `<div class="stodo"><span class="ti-ic ${cls}">${icon(ic)}</span><span class="m">${title}${sub ? `<small>${sub}</small>` : ""}</span>${btn || ""}</div>`;
+  const u = srvUpdates(s);
+  if (!s.checked) out.push(row("search", "", "中身をまだ確認していません", "アドオンのタブで確認します", `<button class="btn small" type="button" data-tab2="addons">確認</button>`));
+  if (u) out.push(row("download", "warn", `${u} 件の更新があります`, s.mc_version ? `MC ${esc(s.mc_version)} に対応していない版は入れません` : "", ro ? "" : `<button class="btn small filled" type="button" data-va="sync">同期</button>`));
+  if (si.update) out.push(row("server", "acc", `本体 #${esc(si.latest.build)} が出ています`, si.build ? `今は #${esc(si.build)}` : "", si.latest.url ? `<a class="btn small" href="${esc(si.latest.url)}" target="_blank" rel="noopener">取得</a>` : ""));
   const targets = (s.stage_targets || []).map((id) => (state.servers.find((x) => x.id === id) || {}).name).filter(Boolean);
-  const from = (s.staged_from || []).map((id) => (state.servers.find((x) => x.id === id) || {}).name).filter(Boolean);
-  $("#serversView").innerHTML = `<div class="srv-page" data-srv="${s.id}">
-    <div class="srv-page-head">
-      <button class="btn plain small" type="button" data-va="back">${icon("back")}サーバー</button>
-      <div class="srv-title"><h3 translate="no">${esc(s.name)}</h3><div class="srv-tags">${srvTags(s)}</div></div>
-      ${!ro && canPower(s) ? `<div class="pw-row">
-        <button class="icon-btn" type="button" data-pw="start" title="起動" aria-label="起動">${icon("play")}</button>
-        <button class="icon-btn" type="button" data-pw="stop" title="停止" aria-label="停止">${icon("stop")}</button>
-        <button class="icon-btn" type="button" data-pw="restart" title="再起動" aria-label="再起動">${icon("refresh")}</button></div>` : ""}
-    </div>
-    <div class="srv-page-grid">
-      <section class="card srv-live"><div class="card-h"><h4>今の状態</h4><button class="icon-btn sm" type="button" data-va="relive" title="更新" aria-label="状態を更新">${icon("refresh")}</button></div>
-        <div class="card-b" id="srvLivePanel">${livePanel(s)}</div></section>
-      <section class="card"><div class="card-h"><h4>中身</h4>${ro ? "" : `<button class="btn small filled" type="button" data-va="sync">${icon("refresh")}同期</button>`}</div>
-        <div class="card-b">${srvNotices(s)}<div class="srv-cats">${srvTiles(s)}</div>
-          ${s.checked ? "" : `<div class="qfoot" style="margin-top:6px">種類のボタンを押すと、中身と更新の有無を確認します</div>`}</div></section>
-      ${s.software ? `<section class="card"><div class="card-h"><h4>サーバー本体</h4><button class="icon-btn sm" type="button" data-va="softcheck" title="今すぐ確認" aria-label="サーバー本体の更新を確認">${icon("refresh")}</button></div>
-        <div class="card-b" id="srvSoft">${softPanel(s, si)}</div></section>` : ""}
-      <section class="card"><div class="card-h"><h4>操作</h4></div><div class="card-b srv-tiles">
-        ${ro ? "" : tile("push", "send", "転送", "選んだアドオン・セットを送る")}
-        ${tile("copy", "arrows", targets.length ? "本番へ反映" : "構成をコピー", targets.length ? `${targets.map(esc).join("、")} へ` : "ほかのサーバーと同じにする", targets.length ? "hl" : "")}
-        ${tile("hist", "clock", "履歴と巻き戻し", "同期の前の状態に戻す")}
-        ${tile("worlds", "folder", "ワールドのバックアップ", s.world_mode !== "off" ? `${s.world_mode === "daily" ? "毎日" : `毎週${DOW[s.world_dow] || ""}曜`} ${esc(s.world_time)}` : "手動")}
-        ${ro ? "" : tile("settings", "gear", "設定", "自動更新・起動停止・RCON など")}
-        ${owner ? tile("share", "users", "共有", (s.shared_with || []).length ? `${s.shared_with.length} 人` : "ほかのユーザーと") : ""}
-      </div></section>
-      <section class="card"><div class="card-h"><h4>情報</h4></div><div class="card-b">
+  if (targets.length && !ro) out.push(row("arrows", "", "検証した構成を本番へ広げる", `${targets.map(esc).join("、")} へ`, `<button class="btn small" type="button" data-va="copy">反映</button>`));
+  const old = !s.last_world || (Date.now() - Date.parse(s.last_world)) > 7 * 864e5;
+  if (old && !ro) out.push(row("folder", "", s.last_world ? `ワールドの保存が ${Math.floor((Date.now() - Date.parse(s.last_world)) / 864e5)} 日前です` : "ワールドをまだ保存していません", s.world_mode === "off" ? "予約なし" : "", `<button class="btn small" type="button" data-tab2="backup">保存</button>`));
+  return out.length ? out.join("") : `<div class="stodo"><span class="ti-ic ok">${icon("check")}</span><span class="m">すべて最新です<small>やることはありません</small></span></div>`;
+}
+function renderServerPage(s, el) {
+  const ro = s.access === "view", owner = !s.access || s.access === "owner";
+  const tab = state.srvTab || "overview";
+  const tabs = [["overview", "概要"], ["addons", `アドオン${srvFiles(s) ? ` ${srvFiles(s)}` : ""}`], ["backup", "保存"], ...(ro ? [] : [["settings", "設定"]])];
+  el.innerHTML = `<div class="srv-page" data-srv="${s.id}">
+    ${wideSrv() ? "" : `<button class="btn plain small srv-back" type="button" data-va="back">${icon("back")}サーバー</button>`}
+    <div class="srv-hero"><div class="m"><h3 translate="no">${esc(s.name)}</h3><small>${[srvSoftLabel(s), s.kind === "local" ? "フォルダ" : "Pterodactyl", !owner ? `${esc(s.owner_name)} さんが共有` : ""].filter(Boolean).join(" · ")}</small></div>
+      <span data-livechip>${liveStateChip(s)}</span></div>
+    <div class="segmented seg-wide srv-tabs" role="tablist">${tabs.map(([k, n]) => `<button class="seg" type="button" role="tab" data-tab2="${k}" aria-pressed="${k === tab}">${n}</button>`).join("")}</div>
+    <div class="srv-pane" id="srvPane"></div></div>`;
+  const pane = $("#srvPane", el);
+  if (tab === "overview") {
+    pane.innerHTML = `<div id="srvLivePanel">${livePanel(s)}</div>
+      <div class="sgrp">やること</div><div class="slist stodo-list">${todoList(s)}</div>
+      ${!ro ? `<div class="srv-quick">
+        <button class="btn small" type="button" data-va="push">${icon("send")}転送</button>
+        <button class="btn small" type="button" data-va="copy">${icon("arrows")}${(s.stage_targets || []).length ? "本番へ反映" : "構成をコピー"}</button>
+        ${owner ? `<button class="btn small" type="button" data-va="share">${icon("users")}共有${(s.shared_with || []).length ? ` ${s.shared_with.length}` : ""}</button>` : ""}</div>` : ""}
+      ${s.software ? `<div class="sgrp">サーバー本体</div><div class="slist pad" id="srvSoft">${softPanel(s, s.soft_info || {})}</div>` : ""}
+      <div class="sgrp">情報</div><div class="slist pad">
         <div class="kv"><span>セット</span><span>${s.set_name ? esc(s.set_name) : "なし"}</span></div>
-        <div class="kv"><span>自動更新</span><span>${s.auto_update === "auto" ? "オン(更新があれば同期)" : "オフ"}</span></div>
+        <div class="kv"><span>自動更新</span><span>${s.auto_update === "auto" ? "オン" : "オフ"}</span></div>
         <div class="kv"><span>予約同期</span><span>${esc(schedLabel(s))}</span></div>
         <div class="kv"><span>最後の同期</span><span>${s.last_sync ? esc(fmtDateTime(s.last_sync)) : "-"}</span></div>
-        <div class="kv"><span>ワールドの保存</span><span>${s.last_world ? esc(fmtDateTime(s.last_world)) : "-"}</span></div>
-        ${from.length ? `<div class="kv"><span>反映元(検証用)</span><span translate="no">${from.map(esc).join("、")}</span></div>` : ""}
         <div class="kv"><span>フォルダ</span><span translate="no">${esc(dirsLabel(s))}</span></div>
-        ${s.kind === "local" ? `<div class="kv"><span>場所</span><span translate="no" class="mono">${esc(s.root_dir || "")}</span></div>` : ""}
-      </div></section>
-    </div></div>`;
-  if (!si.checked_at && s.software) refreshSoft(s, false);
+        ${s.kind === "local" ? `<div class="kv"><span>場所</span><span translate="no" class="mono">${esc(s.root_dir || "")}</span></div>` : ""}</div>
+      ${!ro && canPower(s) ? `<div class="pw-bar">
+        <button class="btn" type="button" data-pw="start">${icon("play")}起動</button>
+        <button class="btn" type="button" data-pw="stop">${icon("stop")}停止</button>
+        <button class="btn" type="button" data-pw="restart">${icon("refresh")}再起動</button></div>` : ""}`;
+    if (!(s.soft_info || {}).checked_at && s.software) refreshSoft(s, false);
+  } else if (tab === "addons") {
+    inventoryDialog(s, state.srvCat || "all", pane);
+  } else if (tab === "backup") {
+    pane.innerHTML = `<div class="sgrp">ワールドのバックアップ</div><div id="paneWorlds"></div><div class="sgrp">履歴と巻き戻し</div><div id="paneHist"></div>`;
+    worldsDialog(s, $("#paneWorlds", pane)); snapshotsDialog(s, $("#paneHist", pane));
+  } else if (tab === "settings") {
+    serverSettingsDialog(s, pane);
+  }
   clearInterval(state.srvLiveTimer);
   state.srvLiveTimer = setInterval(() => { if (state.view === "servers" && state.srvOpen === s.id && !document.hidden) loadLive(s.id); else clearInterval(state.srvLiveTimer); }, 20000);
 }
@@ -1580,11 +1611,12 @@ function softPanel(s, si) {
   if (!si.checked_at) return `<div class="live-wait"><span class="spinner"></span> 確認しています…</div>`;
   const name = SRV_SOFT[s.software] || s.software;
   return `<div class="kv"><span>今のビルド</span><span translate="no">${esc(name)} ${esc(si.mc || "")}${si.build ? ` #${esc(si.build)}` : "(わかりません)"}</span></div>
-    ${si.latest ? `<div class="kv"><span>最新のビルド</span><span translate="no">#${esc(si.latest.build)}${si.update ? ' <span class="badge upd">新しいビルドがあります</span>' : si.build ? ' <span class="badge ok">最新</span>' : ""}</span></div>` : ""}
+    ${si.latest ? `<div class="kv"><span>最新のビルド</span><span translate="no">#${esc(si.latest.build)}${si.update ? ' <span class="spill acc">新しいビルド</span>' : si.build ? ' <span class="spill ok">最新</span>' : ""}</span></div>` : ""}
     ${si.newer_mc ? `<div class="kv"><span>新しい MC</span><span translate="no">${esc(name)} は ${esc(si.newer_mc)} まで出ています</span></div>` : ""}
     ${si.error ? `<div class="result warn">${esc(si.error)}</div>` : ""}
-    ${si.latest && si.latest.url ? `<a class="btn small tinted" href="${esc(si.latest.url)}" target="_blank" rel="noopener">${icon("download")}${si.latest.file ? "最新のビルドをダウンロード" : "配布ページを開く"}</a>` : ""}
-    <div class="qfoot">サーバー本体の入れ替えは、サーバーを止めてから jar を置き換えてください。確認: ${esc(fmtDateTime(si.checked_at))}</div>`;
+    <div class="chips" style="margin-top:6px">${si.latest && si.latest.url ? `<a class="btn small tinted" href="${esc(si.latest.url)}" target="_blank" rel="noopener">${icon("download")}${si.latest.file ? "最新のビルドをダウンロード" : "配布ページを開く"}</a>` : ""}
+      <button class="btn small plain" type="button" data-va="softcheck">${icon("refresh")}今すぐ確認</button></div>
+    <div class="qfoot">入れ替えは、サーバーを止めてから jar を置き換えてください。確認: ${esc(fmtDateTime(si.checked_at))}</div>`;
 }
 async function refreshSoft(s, force) {
   try {
@@ -1601,48 +1633,48 @@ async function powerAction(s, signal) {
     setTimeout(() => loadLive(s.id), 4000);
   } catch (ex) { toast(ex.message, true); }
 }
+async function syncDialog(s) {
+  const r = await formSheet(`「${s.name}」を同期`, `<p>ライブラリに新しいバージョンがあるものを、サーバーの ${esc(dirsLabel(s))} で入れ替えます${s.set_name ? `。セット「${esc(s.set_name)}」にあってサーバーに無いものも入れます` : ""}。</p>
+    <ul class="plain-list">
+      <li>${icon("check")}置き換えるファイル${s.backup_config ? "とプラグインの設定フォルダ" : ""}は退避され、「保存」タブの履歴から戻せます</li>
+      ${s.mc_version ? `<li>${icon("check")}MC ${esc(s.mc_version)} に対応していない版は入れません</li>` : `<li>${icon("clock")}「設定」で MC のバージョンを入れると、対応していない版を入れないようにできます</li>`}
+      ${s.holds ? `<li>${icon("clock")}見送り中の ${s.holds} 件は入れ替えません</li>` : ""}
+    </ul>
+    ${canPower(s) ? `<div class="group">${toggle("restart", "完了後にサーバーを再起動", "入れ替えを反映させるには再起動が必要です", false)}</div>` : `<p class="muted">このサーバーはパネルから再起動できません。反映するにはサーバーを再起動してください。</p>`}`, "同期する");
+  if (!r) return;
+  try { jobStarted(await api(`/api/servers/${s.id}/sync`, { json: { restart: !!r.restart } })); } catch (ex) { toast(ex.message, true); }
+}
 
+matchMedia("(min-width: 900px)").addEventListener("change", () => { if (state.view === "servers" && state.servers) renderServers(); });
 $("#serversView").addEventListener("click", async (e) => {
   const md = e.target.closest("[data-mode]");
   if (md) { state.srvMode = md.dataset.mode; renderServers(); if (state.srvMode === "list") loadServers(); return; }
-  const pw = e.target.closest("[data-pw]");
+  const op = e.target.closest("[data-srvopen]");
+  if (op) { state.srvOpen = Number(op.dataset.srvopen); state.srvTab = "overview"; renderServers(); if (!wideSrv()) window.scrollTo({ top: 0 }); loadLive(state.srvOpen); return; }
   const sid = Number(e.target.closest("[data-srv]")?.dataset.srv);
   const s = (state.servers || []).find((x) => x.id === sid);
+  const tb = e.target.closest("[data-tab2]");
+  if (tb && s) { state.srvTab = tb.dataset.tab2; renderServerPage(s, $("#srvMain")); return; }
+  const pw = e.target.closest("[data-pw]");
   if (pw && s) { powerAction(s, pw.dataset.pw); return; }
   const b = e.target.closest("[data-va]"); if (!b) return;
   const a = b.dataset.va;
   if (a === "setup") openSettings("ptero");
   if (a === "add") addServerMenu(b);
+  if (a === "syncall") {
+    const targets = (state.servers || []).filter((x) => x.access !== "view" && srvUpdates(x) > 0);
+    if (!await confirmSheet("すべて最新にしますか?", `${targets.map((x) => x.name).join("、")} を同期します。対応していない版・見送り中のものは入れません。再起動はしません。`, "同期する", false)) return;
+    for (const x of targets) { try { jobStarted(await api(`/api/servers/${x.id}/sync`, { json: {} })); } catch (ex) { toast(`${x.name}: ${ex.message}`, true); } }
+    return;
+  }
   if (!s) return;
-  if (a === "open") { state.srvOpen = s.id; renderServers(); window.scrollTo({ top: 0 }); loadLive(s.id); }
   if (a === "back") { state.srvOpen = null; clearInterval(state.srvLiveTimer); renderServers(); }
-  if (a === "relive") { state.srvLive[s.id] = null; $("#srvLivePanel").innerHTML = livePanel(s); loadLive(s.id); }
-  if (a === "softcheck") { $("#srvSoft").innerHTML = `<div class="live-wait"><span class="spinner"></span> 確認しています…</div>`; refreshSoft(s, true); }
+  if (a === "softcheck") { if ($("#srvSoft")) $("#srvSoft").innerHTML = `<div class="live-wait"><span class="spinner"></span> 確認しています…</div>`; refreshSoft(s, true); }
   if (a === "setmc") { try { await api(`/api/servers/${s.id}`, { method: "PATCH", json: { mc_version: b.dataset.mc } }); toast("保存しました"); loadServers(); } catch (ex) { toast(ex.message, true); } }
-  if (a === "inv") inventoryDialog(s, b.dataset.cat || "all");
   if (a === "push") pushDialog({ server: s });
   if (a === "copy") copyDialog(s);
-  if (a === "hist") snapshotsDialog(s);
-  if (a === "worlds") worldsDialog(s);
-  if (a === "settings") serverSettingsDialog(s);
   if (a === "share") aclDialog("server", s);
-  if (a === "power") openMenu(b, [
-    { label: "起動", icon: "play", run: () => powerAction(s, "start") },
-    { label: "停止", icon: "stop", run: () => powerAction(s, "stop") },
-    { label: "再起動", icon: "refresh", run: () => powerAction(s, "restart") },
-  ]);
-  if (a === "sync") {
-    const can_ = canPower(s);
-    const r = await formSheet(`「${s.name}」を同期`, `<p>サーバーの ${esc(dirsLabel(s))} を確認し、ライブラリに新しいバージョンがあるものを更新します${s.set_name ? `。連携中のセット「${esc(s.set_name)}」に入っていて、サーバーに無いものも追加します` : ""}。</p>
-      <ul class="plain-list">
-        <li>${icon("check")}置き換えるファイル${s.backup_config ? "とプラグインの設定フォルダ" : ""}は退避され、「履歴と巻き戻し」で戻せます</li>
-        ${s.mc_version ? `<li>${icon("check")}MC ${esc(s.mc_version)} に対応していない版は入れません</li>` : `<li>${icon("clock")}「設定」で MC のバージョンを入れると、対応していない版を入れないようにできます</li>`}
-        ${s.holds ? `<li>${icon("clock")}見送り中の ${s.holds} 件は入れ替えません</li>` : ""}
-      </ul>
-      ${can_ ? `<div class="group">${toggle("restart", "完了後にサーバーを再起動", "入れ替えを反映させるには再起動が必要です", false)}</div>` : `<p class="muted">このサーバーはパネルから再起動できません。反映するにはサーバーを再起動してください。</p>`}`, "同期する");
-    if (!r) return;
-    try { jobStarted(await api(`/api/servers/${s.id}/sync`, { json: { restart: !!r.restart } })); } catch (ex) { toast(ex.message, true); }
-  }
+  if (a === "sync") syncDialog(s);
 });
 
 /* 構成をコピー・本番へ反映 */
@@ -1674,9 +1706,9 @@ async function copyDialog(s) {
 }
 
 /* ワールドのバックアップ */
-async function worldsDialog(s) {
+async function worldsDialog(s, container = null) {
   const ro = s.access === "view";
-  await sheet(`${sheetHead(`「${s.name}」のワールド`)}<div class="db" id="wbBody"><div class="empty"><span class="spinner lg"></span></div></div>`, async (form) => {
+  await host(container, `「${s.name}」のワールド`, `<div class="db" id="wbBody"><div class="empty"><span class="spinner lg"></span></div></div>`, async (form) => {
     const body = $("#wbBody", form);
     const load = async () => {
       let d;
@@ -1707,7 +1739,7 @@ async function worldsDialog(s) {
 }
 
 /* 設定(グループごと) */
-async function serverSettingsDialog(s) {
+async function serverSettingsDialog(s, container = null) {
   if (!state.sets) { try { state.sets = (await api("/api/sets")).sets; } catch { state.sets = []; } }
   const local = s.kind === "local", sys_ = can("system");
   const setOpts = `<option value="">なし</option>${state.sets.map((x) => `<option value="${x.id}"${x.id === s.set_id ? " selected" : ""}>${esc(x.name)}</option>`).join("")}`;
@@ -1716,7 +1748,7 @@ async function serverSettingsDialog(s) {
       <select name="${prefix}_dow" class="compact">${DOW.map((d, i) => `<option value="${i}"${Number(dow) === i ? " selected" : ""}>${d}曜日</option>`).join("")}</select>
       <input type="time" name="${prefix}_time" value="${esc(time || "04:00")}" class="compact-time"></div>`;
   const sec = (id, title, html, open = false) => `<details class="set-sec"${open ? " open" : ""} data-sec="${id}"><summary>${title}${icon("chev")}</summary><div class="set-sec-b">${html}</div></details>`;
-  const r = await sheet(`${sheetHead(`「${s.name}」の設定`)}<div class="db srv-settings">
+  const r = await host(container, `「${s.name}」の設定`, `<div class="db srv-settings">
       ${sec("basic", "基本", `
         ${field("表示名", `<input type="text" name="name" value="${esc(s.name)}">`)}
         ${local ? field("サーバーのフォルダ", `<div class="inline-input"><input type="text" name="root_dir" value="${esc(s.root_dir || "")}"${sys_ ? "" : " readonly"} spellcheck="false"><button class="btn tinted small" type="button" data-detect>${icon("search")}判定</button></div>`)
@@ -1806,8 +1838,8 @@ async function serverSettingsDialog(s) {
   }, { wide: true });
   if (r) { toast(r === "deleted" ? "一覧から外しました" : "保存しました"); if (r === "deleted") state.srvOpen = null; loadServers(); }
 }
-async function snapshotsDialog(s) {
-  await sheet(`${sheetHead(`「${s.name}」の履歴`)}<div class="db" id="snBody"><div class="empty"><span class="spinner lg"></span></div></div>`, async (form, done) => {
+async function snapshotsDialog(s, container = null) {
+  await host(container, `「${s.name}」の履歴`, `<div class="db" id="snBody"><div class="empty"><span class="spinner lg"></span></div></div>`, async (form, done) => {
     let d;
     try { d = await api(`/api/servers/${s.id}/snapshots`); } catch (ex) { $("#snBody", form).innerHTML = `<div class="result err">${esc(ex.message)}</div>`; return; }
     $("#snBody", form).innerHTML = `<p>同期・転送のたびに、置き換えたファイルを退避しています(直近 10 回分)。「この前の状態に戻す」で、その同期の前に戻せます。</p>
@@ -1895,10 +1927,10 @@ async function waitJob(id) {
   }
 }
 /* サーバーの中身(種類ごとのタブ・1 件ずつの更新・見送り・無効化・対応バージョンの確認) */
-async function inventoryDialog(s, startCat = "all") {
+async function inventoryDialog(s, startCat = "all", container = null) {
   let tab = startCat, filter = "all", d = null;
   const ro = s.access === "view";
-  await sheet(`${sheetHead(`「${s.name}」の中身`)}<div class="db" id="invBody"><div style="text-align:center;padding:24px"><span class="spinner lg"></span><p style="margin-top:10px">サーバーのファイルを確認しています…(初回はファイルを読み込むため時間がかかります)</p></div></div>`, async (form, done) => {
+  await host(container, `「${s.name}」の中身`, `<div class="db" id="invBody"><div style="text-align:center;padding:24px"><span class="spinner lg"></span><p style="margin-top:10px">サーバーのファイルを確認しています…(初回はファイルを読み込むため時間がかかります)</p></div></div>`, async (form, done) => {
     const body = $("#invBody", form);
     const load = async () => {
       try { d = await api(`/api/servers/${s.id}/inventory`); } catch (e) { body.innerHTML = `<div class="result err">${esc(e.message)}</div>`; return; }
@@ -1953,7 +1985,7 @@ async function inventoryDialog(s, startCat = "all") {
       }, "送信中…");
     };
     body.addEventListener("click", async (e) => {
-      const t = e.target.closest("[data-tab]"); if (t) { tab = t.dataset.tab; draw(); return; }
+      const t = e.target.closest("[data-tab]"); if (t) { tab = t.dataset.tab; if (container) state.srvCat = tab; draw(); return; }
       const fl = e.target.closest("[data-flt]"); if (fl) { filter = fl.dataset.flt; draw(); return; }
       const up = e.target.closest("[data-up]");
       if (up) {

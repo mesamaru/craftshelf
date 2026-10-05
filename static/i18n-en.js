@@ -1316,6 +1316,25 @@ window.CS_EN = {
   "ほかのサーバーと同じにする": "Match another server",
   "ほかのユーザーと": "with other users",
   "人数・バージョンを表示": "Show players and version",
+  // 01.18: サーバー画面の作り直し
+  "対応が必要": "Needs attention",
+  "問題なし": "All good",
+  "すべて最新にする": "Update everything",
+  "稼働": "Running",
+  "やること": "To do",
+  "すべて最新です": "Everything is up to date",
+  "やることはありません": "Nothing to do",
+  "中身をまだ確認していません": "Contents not checked yet",
+  "アドオンのタブで確認します": "Check them in the Add-ons tab",
+  "検証した構成を本番へ広げる": "Roll out the tested setup to production",
+  "ワールドをまだ保存していません": "World not backed up yet",
+  "予約なし": "Not scheduled",
+  "反映": "Promote",
+  "取得": "Get",
+  "一覧に戻る": "Back to list",
+  "新しいビルド": "New build",
+  "入れ替えは、サーバーを止めてから jar を置き換えてください。確認:": "To update, stop the server and replace the jar. Checked:",
+  "すべて最新にしますか?": "Update everything?",
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [

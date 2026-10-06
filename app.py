@@ -413,6 +413,8 @@ def migrate_schema(conn):
                      ("stage_targets", "TEXT NOT NULL DEFAULT '[]'"), ("soft_info", "TEXT NOT NULL DEFAULT '{}'")):
         if col not in _table_cols(conn, "servers"):  # 状態・起動停止・自動更新・ワールドのバックアップなど(01.17)
             conn.execute(f"ALTER TABLE servers ADD COLUMN {col} {ddl}")
+    if "channel" not in _table_cols(conn, "item_sources"):  # 受け取る版: '' = 自動 / all = ベータも / release = 正式版だけ
+        conn.execute("ALTER TABLE item_sources ADD COLUMN channel TEXT NOT NULL DEFAULT ''")
     conn.execute("CREATE TABLE IF NOT EXISTS server_holds (server_id INTEGER NOT NULL, item_id INTEGER NOT NULL, "
                  "created_at TEXT NOT NULL DEFAULT '', PRIMARY KEY (server_id, item_id))")
     # 01.16 より前のキャッシュはファイル名だけなので、プラグインのフォルダを前に付ける
@@ -2981,7 +2983,7 @@ def source_public(r):
         "loaders": _jl(r["loaders"], []), "game_versions": _jl(r["game_versions"], []),
         "linked_by": r["linked_by"], "status": r["status"], "message": r["message"],
         "latest": _jl(r["latest"], {}), "checked_at": r["checked_at"],
-        "icon_v": _icon_version(r["item_id"]),
+        "icon_v": _icon_version(r["item_id"]), "channel": r["channel"] if "channel" in r.keys() else "",
     }
 
 
@@ -3152,6 +3154,29 @@ def _first_nums(v):
     return tuple(int(x) for x in m.group(0).split(".")) if m else None
 
 
+_PRERELEASE = re.compile(r"(snapshot|alpha|beta|\bpre(?=[0-9.\-]|$)|\brc\d*\b|-dev|nightly)", re.I)
+
+
+def _stable_only(conn, item_id, s=None):
+    """正式版だけを探すか。アドオンごとの指定 → 無ければ全体の設定。
+    ただし、保存している版やサーバーに入っている版がスナップショット・ベータなら、ベータ版も探す
+    (正式版だけを見ると、一つ前の正式版を「最新」と表示してしまうため)。"""
+    s = s or conn.execute("SELECT * FROM item_sources WHERE item_id=?", (item_id,)).fetchone()
+    ch = (s["channel"] if s is not None and "channel" in s.keys() else "") or ""
+    if ch == "all":
+        return False
+    if ch == "release":
+        return True
+    if get_setting("stable_only", "1") != "1":
+        return False
+    vers = [r[0] for r in conn.execute("SELECT version FROM versions WHERE item_id=?", (item_id,))]
+    item = conn.execute("SELECT name FROM items WHERE id=?", (item_id,)).fetchone()
+    if item:
+        key = norm_key(item["name"])
+        vers += [r["version"] for r in conn.execute("SELECT plugin_name, version FROM server_files") if norm_key(r["plugin_name"]) == key]
+    return not any(_PRERELEASE.search(v or "") for v in vers)
+
+
 def check_item(conn, item):
     """紐付けた配布元の最新版を確認し、保存済みと比べて状態を記録する。"""
     s = conn.execute("SELECT * FROM item_sources WHERE item_id=?", (item["id"],)).fetchone()
@@ -3161,7 +3186,7 @@ def check_item(conn, item):
     try:
         info = src.latest(s["provider"], s["project_id"], loaders=_jl(s["loaders"], []),
                           game_versions=_jl(s["game_versions"], []),
-                          stable_only=get_setting("stable_only", "1") == "1", api_key=cf_api_key())
+                          stable_only=_stable_only(conn, item["id"], s), api_key=cf_api_key())
         if not info:
             message = "条件に合う版が見つかりません(ローダー・MCバージョンの絞り込みを確認してください)"
         else:
@@ -3274,6 +3299,10 @@ def api_source_update(iid):
         if "game_versions" in data:
             conn.execute("UPDATE item_sources SET game_versions=? WHERE item_id=?",
                          (json.dumps(split(data["game_versions"])), iid))
+        if "channel" in data:
+            if data["channel"] not in ("", "all", "release"):
+                raise ApiError("受け取る版の指定が不正です")
+            conn.execute("UPDATE item_sources SET channel=? WHERE item_id=?", (data["channel"], iid))
         conn.commit()
     return jsonify(source=source_public(check_item(conn, item)))
 
@@ -4548,7 +4577,8 @@ def _cached_states(conn, servers):
             if iid in items:
                 lv = latest.get(iid)
                 same = (v and lv and v["id"] == lv["id"]) or (lv and src.same_version(lv["version"], f["version"]))
-                status = "latest" if same else "outdated"
+                ahead = not same and lv and f["version"] and version_key(f["version"]) > version_key(lv["version"])
+                status = "latest" if same else "newer" if ahead else "outdated"
             else:
                 iid = None
             lst.append((f, cat, iid, status))
@@ -4879,7 +4909,8 @@ def server_inventory(conn, srv_row, target, note=lambda m: None, fs=None):
                 entry["status"] = "latest"  # 中身のハッシュは違うが、ライブラリの最新と同じバージョン
             else:
                 newer = vs and version_key(vs[0]["version"]) > version_key(pver or "")
-                entry["status"] = "outdated" if newer else "different"
+                older = vs and pver and version_key(pver) > version_key(vs[0]["version"])
+                entry["status"] = "outdated" if newer else "newer" if older else "different"
             entry["version_id"] = v["id"] if v else None
             entry["held"] = item["id"] in holds
             if vs:
@@ -5594,7 +5625,7 @@ def api_source_changelog(iid):
     try:
         entries = src.changelogs(s["provider"], s["project_id"], have_versions=have, loaders=_jl(s["loaders"], []),
                                  game_versions=_jl(s["game_versions"], []),
-                                 stable_only=get_setting("stable_only", "1") == "1", api_key=cf_api_key())
+                                 stable_only=_stable_only(conn, iid, s), api_key=cf_api_key())
     except src.SourceError as e:
         raise ApiError(e.message, 502)
     return jsonify(entries=entries, page_url=s["page_url"])

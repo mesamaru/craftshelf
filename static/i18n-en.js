@@ -1335,6 +1335,25 @@ window.CS_EN = {
   "新しいビルド": "New build",
   "入れ替えは、サーバーを止めてから jar を置き換えてください。確認:": "To update, stop the server and replace the jar. Checked:",
   "すべて最新にしますか?": "Update everything?",
+  // 01.19: サーバーのアドオンの選択・タグ・並び順、ベータ版の受け取り
+  "サーバーの方が新しい": "Newer on server",
+  "取り込む": "Import",
+  "ライブラリに取り込みました": "Imported into the library",
+  "このファイルをライブラリに取り込む": "Import this file into the library",
+  "状態順": "By status",
+  "種類順": "By type",
+  "タグ順": "By tag",
+  "サイズ順": "By size",
+  "アドオンのページを開く": "Open the add-on page",
+  "無効・有効": "Disable / enable",
+  "このアドオンはライブラリにありません": "This add-on is not in the library",
+  "受け取る版": "Versions to receive",
+  "正式版だけ": "Releases only",
+  "ベータ版も": "Include betas",
+  "自動": "Auto",
+  "「自動」は、保存している版やサーバーの版がスナップショット・ベータなら、ベータ版も含めて最新を探します": "“Auto” includes betas when a stored or server version is a snapshot or beta",
+  "切り替えました。反映には再起動が必要です": "Switched. A restart is needed to apply it",
+  "ライブラリは ": "Library has ",
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [

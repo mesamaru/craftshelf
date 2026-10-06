@@ -432,12 +432,12 @@ function presenceBadge(it) {
 function serversSectionHTML(it) {
   const p = presenceOf(it);
   if (!p.length) return "";
-  const lbl = { latest: '<span class="badge ok">最新</span>', outdated: '<span class="badge upd">未同期</span>', missing: '<span class="badge upd">未導入</span>' };
+  const lbl = { latest: '<span class="badge ok">最新</span>', outdated: '<span class="badge upd">未同期</span>', missing: '<span class="badge upd">未導入</span>', newer: '<span class="badge acc">サーバーの方が新しい</span>' };
   return `<details class="sect" data-sect="servers"${sectOpen("servers", true) ? " open" : ""}>
-    <summary><span>サーバー</span><span class="sum-r">${p.some((x) => x.status !== "latest") ? '<span class="badge upd">未同期あり</span>' : '<span class="badge ok">同期済み</span>'}${icon("chev", "i chev")}</span></summary>
+    <summary><span>サーバー</span><span class="sum-r">${p.some((x) => x.status === "outdated" || x.status === "missing") ? '<span class="badge upd">未同期あり</span>' : '<span class="badge ok">同期済み</span>'}${icon("chev", "i chev")}</span></summary>
     <div class="group">${p.map((x) => `<div class="row"><span class="cicon sm c-teal">${icon("server")}</span>
       <span class="main"><span class="title">${esc(x.server)}</span><span class="subtitle">${x.version ? esc(x.version) : "入っていません"}</span></span>
-      <span class="trail">${lbl[x.status] || ""}${x.status !== "latest" ? `<button class="btn small tinted need-editor" type="button" data-act="srv-sync" data-srv="${x.server_id}">同期</button>` : ""}</span></div>`).join("")}</div></details>`;
+      <span class="trail">${lbl[x.status] || ""}${x.status === "outdated" || x.status === "missing" ? `<button class="btn small tinted need-editor" type="button" data-act="srv-sync" data-srv="${x.server_id}">同期</button>` : ""}</span></div>`).join("")}</div></details>`;
 }
 
 /* ---------------- list ---------------- */
@@ -1928,92 +1928,165 @@ async function waitJob(id) {
 }
 /* サーバーの中身(種類ごとのタブ・1 件ずつの更新・見送り・無効化・対応バージョンの確認) */
 async function inventoryDialog(s, startCat = "all", container = null) {
-  let tab = startCat, filter = "all", d = null;
+  let tab = startCat, filter = "all", tagF = "", sort = state.invSort || "status", d = null, selecting = false;
+  const sel = new Set();
   const ro = s.access === "view";
   await host(container, `「${s.name}」の中身`, `<div class="db" id="invBody"><div style="text-align:center;padding:24px"><span class="spinner lg"></span><p style="margin-top:10px">サーバーのファイルを確認しています…(初回はファイルを読み込むため時間がかかります)</p></div></div>`, async (form, done) => {
     const body = $("#invBody", form);
     const load = async () => {
       try { d = await api(`/api/servers/${s.id}/inventory`); } catch (e) { body.innerHTML = `<div class="result err">${esc(e.message)}</div>`; return; }
-      draw();
+      sel.clear(); draw();
     };
-    const rowIcon = (f) => { const it = f.item_id && state.items.find((i) => i.id === f.item_id); return it ? itemIcon(it, true) : `<span class="cicon sm c-${f.category}">${catGlyph(f.category)}</span>`; };
-    const STAT = { ...INV_STATUS, disabled: ["", "無効"] };
+    const itemOf = (f) => f.item_id && state.items.find((i) => i.id === f.item_id);
+    const rowIcon = (f) => { const it = itemOf(f); return it ? itemIcon(it, true) : `<span class="cicon sm c-${f.category}">${catGlyph(f.category)}</span>`; };
+    const STAT = { ...INV_STATUS, disabled: ["", "無効"], newer: ["acc", "サーバーの方が新しい"] };
+    const tagsOf = (f) => (itemOf(f) || {}).tags || [];
+    const nameOf = (f) => f.item_name || f.plugin_name || f.name;
+    const warnOf = (f) => f.compat === false || f.held || f.status === "disabled";
     const draw = () => {
       const cats = SRV_CATS.filter((c) => d.dirs[c]);
       const inTab = (f) => tab === "all" || f.category === tab;
-      const order = { outdated: 0, different: 1, unregistered: 2, latest: 3, disabled: 4 };
+      const order = { outdated: 0, newer: 1, different: 2, unregistered: 3, latest: 4, disabled: 5 };
       const all = d.files.filter(inTab);
-      const files = all.filter((f) => filter === "all" || (filter === "upd" ? f.status === "outdated" : filter === "warn" ? f.compat === false || f.held || f.status === "disabled" : f.status === "unregistered"))
-        .sort((a, b) => (order[a.status] - order[b.status]) || (a.item_name || a.plugin_name || a.name).localeCompare(b.item_name || b.plugin_name || b.name, "ja", { numeric: true }));
+      const tags = [...new Set(all.flatMap(tagsOf))].sort((a, b) => a.localeCompare(b, "ja"));
+      if (tagF && !tags.includes(tagF)) tagF = "";
+      const pick = (f) => (filter === "all" || (filter === "upd" ? f.status === "outdated" : filter === "warn" ? warnOf(f) : filter === "newer" ? f.status === "newer" : f.status === "unregistered"))
+        && (!tagF || tagsOf(f).includes(tagF));
+      const cmp = {
+        status: (a, b) => (order[a.status] - order[b.status]) || nameOf(a).localeCompare(nameOf(b), "ja", { numeric: true }),
+        name: (a, b) => nameOf(a).localeCompare(nameOf(b), "ja", { numeric: true }),
+        cat: (a, b) => SRV_CATS.indexOf(a.category) - SRV_CATS.indexOf(b.category) || nameOf(a).localeCompare(nameOf(b), "ja", { numeric: true }),
+        tag: (a, b) => (tagsOf(a)[0] || "￿").localeCompare(tagsOf(b)[0] || "￿", "ja") || nameOf(a).localeCompare(nameOf(b), "ja", { numeric: true }),
+        size: (a, b) => (b.size || 0) - (a.size || 0),
+      }[sort];
+      const files = all.filter(pick).sort(cmp);
       const missing = d.missing.filter(inTab);
       const syncable = d.files.filter((f) => f.status === "outdated" && !f.held && f.compat !== false).length + d.missing.filter((m) => !m.no_dir && !m.held && m.compat !== false).length;
       const count = (c) => d.files.filter((f) => c === "all" || f.category === c).length;
       const upd = (c) => d.files.filter((f) => (c === "all" || f.category === c) && f.status === "outdated").length;
       const fchip = (k, label, n) => n || k === "all" ? `<button class="tagchip" type="button" data-flt="${k}" aria-pressed="${filter === k}">${label}${k === "all" ? "" : ` ${n}`}</button>` : "";
       const actBtn = (f) => {
-        if (ro || f.status === "disabled" || !f.item_id || !["outdated", "different"].includes(f.status)) return `<span class="badge ${STAT[f.status][0]}">${STAT[f.status][1]}</span>`;
+        if (ro) return `<span class="badge ${STAT[f.status][0]}">${STAT[f.status][1]}</span>`;
+        if (f.status === "unregistered" || f.status === "newer") return `<button class="btn small tinted" type="button" data-imp1="${esc(f.path)}" title="このファイルをライブラリに取り込む">${icon("download")}取り込む</button>`;
+        if (f.status === "disabled" || !f.item_id || !["outdated", "different"].includes(f.status)) return `<span class="badge ${STAT[f.status][0]}">${STAT[f.status][1]}</span>`;
         if (f.held) return `<span class="badge">見送り中</span>`;
         if (f.compat === false) return `<button class="btn small plain" type="button" data-up="${f.item_id}" data-force="1" title="MC ${esc(d.mc_version)} に対応していない版です(対応: ${esc(f.compat_mc || "")})">${icon("download")}それでも入れる</button>`;
         return `<button class="btn small ${f.status === "outdated" ? "filled" : "tinted"}" type="button" data-up="${f.item_id}" title="ライブラリの最新(${esc(f.latest_version || "")})をこのサーバーに入れる">${icon("download")}${f.status === "outdated" ? "更新" : "最新に"}</button>`;
       };
+      const picked = d.files.filter((f) => sel.has(f.path));
+      const n = (fn) => picked.filter(fn).length;
       body.innerHTML = `
         <div class="segmented seg-wide inv-tabs" role="group" aria-label="種類">${["all", ...cats].map((c) => `<button class="seg" type="button" data-tab="${c}" aria-pressed="${c === tab}">${c === "all" ? "すべて" : CATS[c]}<span class="n">${count(c)}</span>${upd(c) ? `<i class="dot-upd" title="更新あり"></i>` : ""}</button>`).join("")}</div>
-        <div class="tagrow inv-flt">${fchip("all", "すべて", 0)}${fchip("upd", "更新あり", all.filter((f) => f.status === "outdated").length)}${fchip("warn", "要確認", all.filter((f) => f.compat === false || f.held || f.status === "disabled").length)}${fchip("unreg", "未登録", all.filter((f) => f.status === "unregistered").length)}</div>
+        <div class="inv-tools">
+          <div class="tagrow inv-flt">${fchip("all", "すべて", 0)}${fchip("upd", "更新あり", all.filter((f) => f.status === "outdated").length)}${fchip("newer", "サーバーの方が新しい", all.filter((f) => f.status === "newer").length)}${fchip("warn", "要確認", all.filter(warnOf).length)}${fchip("unreg", "未登録", all.filter((f) => f.status === "unregistered").length)}</div>
+          <div class="inv-tools-r">
+            <select class="compact" data-sort aria-label="並び順">${[["status", "状態順"], ["name", "名前順"], ["cat", "種類順"], ["tag", "タグ順"], ["size", "サイズ順"]].map(([k, l]) => `<option value="${k}"${sort === k ? " selected" : ""}>${l}</option>`).join("")}</select>
+            ${ro ? "" : `<button class="btn small${selecting ? " tinted" : ""}" type="button" data-selmode>${selecting ? "完了" : "選択"}</button>`}
+          </div>
+        </div>
+        ${tags.length ? `<div class="tagrow inv-tags"><span class="tag-lab">${icon("tag")}</span>${tags.map((t) => `<button class="tagchip" type="button" data-tagf="${esc(t)}" aria-pressed="${tagF === t}" translate="no">#${esc(t)}</button>`).join("")}</div>` : ""}
         ${d.mc_version ? "" : `<div class="result">${icon("clock")} 「設定」で MC のバージョンを入れると、対応していない版に印が付き、同期で入れないようにできます</div>`}
         ${d.absent.filter((c) => tab === "all" || c === tab).map((c) => `<div class="result warn">${esc(CATS[c])}のフォルダ(${esc(d.dirs[c])})が見つかりません。送ると作られます。場所が違う場合は「設定」で変えられます</div>`).join("")}
-        <div class="group">${files.map((f) => `<div class="row${f.status === "disabled" ? " dim" : ""}">${rowIcon(f)}
-          <span class="main"><span class="title" translate="no">${esc(f.item_name || f.plugin_name || f.name)}
-            ${f.held ? `<span class="badge">見送り</span>` : ""}${f.compat === false ? `<span class="badge err" title="対応: ${esc(f.compat_mc || "")}">MC ${esc(d.mc_version)} 非対応</span>` : ""}</span>
-            <span class="subtitle">${esc(f.version || "?")}${(f.status === "outdated" || f.status === "different") && f.latest_version ? ` → <b>${esc(f.latest_version)}</b>` : ""} · <span translate="no">${esc(f.path)}</span></span></span>
-          <span class="trail">${f.status === "unregistered" && !ro ? `<input type="checkbox" class="switch" data-imp="${esc(f.path)}" title="ライブラリに取り込む" aria-label="ライブラリに取り込む">` : ""}
-            ${actBtn(f)}${ro ? "" : `<button class="icon-btn sm" type="button" data-rowmenu="${esc(f.path)}" title="その他" aria-label="その他の操作">${icon("more")}</button>`}</span></div>`).join("") || `<div class="empty">${filter === "all" ? "ファイルがありません" : "あてはまるものはありません"}</div>`}</div>
-        ${missing.length ? `<div class="group-title">セットにあってサーバーに無いもの</div><div class="group">${missing.map((m) => `<div class="row"><span class="cicon sm c-${m.category}">${catGlyph(m.category)}</span><span class="main"><span class="title" translate="no">${esc(m.item_name)}${m.compat === false ? ` <span class="badge err">MC ${esc(d.mc_version)} 非対応</span>` : ""}</span><span class="subtitle">${esc(m.version)}${m.no_dir ? ` · ${esc(CATS[m.category] || m.category)}のフォルダが未設定のため入れられません` : ""}</span></span>
+        ${selecting ? `<div class="inv-selhead"><span>${picked.length} 件選択</span><span class="sp"></span>
+          <button class="btn plain small" type="button" data-selall>すべて選択</button><button class="btn plain small" type="button" data-selnone${picked.length ? "" : " disabled"}>解除</button></div>` : ""}
+        <div class="group">${files.map((f) => `<div class="row inv-row${f.status === "disabled" ? " dim" : ""}${sel.has(f.path) ? " picked" : ""}" data-path="${esc(f.path)}">
+          ${selecting ? `<input type="checkbox" class="cbox" data-pick="${esc(f.path)}"${sel.has(f.path) ? " checked" : ""} aria-label="選ぶ">` : ""}${rowIcon(f)}
+          <span class="main"${f.item_id && !selecting ? ` data-openit="${f.item_id}" role="button" tabindex="0" title="アドオンのページを開く"` : ""}><span class="title" translate="no">${esc(nameOf(f))}
+            ${f.held ? `<span class="badge">見送り</span>` : ""}${f.compat === false ? `<span class="badge err" title="対応: ${esc(f.compat_mc || "")}">MC ${esc(d.mc_version)} 非対応</span>` : ""}${f.status === "newer" ? `<span class="badge acc">サーバーの方が新しい</span>` : ""}</span>
+            <span class="subtitle">${esc(f.version || "?")}${(f.status === "outdated" || f.status === "different") && f.latest_version ? ` → <b>${esc(f.latest_version)}</b>` : f.status === "newer" && f.latest_version ? ` · ライブラリは ${esc(f.latest_version)}` : ""} · <span translate="no">${esc(f.path)}</span>${tagsOf(f).length ? ` · ${tagsOf(f).map((t) => `#${esc(t)}`).join(" ")}` : ""}</span></span>
+          <span class="trail">${selecting ? "" : `${actBtn(f)}${ro ? "" : `<button class="icon-btn sm" type="button" data-rowmenu="${esc(f.path)}" title="その他" aria-label="その他の操作">${icon("more")}</button>`}`}</span></div>`).join("") || `<div class="empty">${filter === "all" && !tagF ? "ファイルがありません" : "あてはまるものはありません"}</div>`}</div>
+        ${missing.length && !selecting ? `<div class="group-title">セットにあってサーバーに無いもの</div><div class="group">${missing.map((m) => `<div class="row"><span class="cicon sm c-${m.category}">${catGlyph(m.category)}</span><span class="main" data-openit="${m.item_id}" role="button" tabindex="0"><span class="title" translate="no">${esc(m.item_name)}${m.compat === false ? ` <span class="badge err">MC ${esc(d.mc_version)} 非対応</span>` : ""}</span><span class="subtitle">${esc(m.version)}${m.no_dir ? ` · ${esc(CATS[m.category] || m.category)}のフォルダが未設定のため入れられません` : ""}</span></span>
           <span class="trail">${m.no_dir || ro ? '<span class="badge upd">未導入</span>' : `<button class="btn small tinted" type="button" data-up="${m.item_id}"${m.compat === false ? ' data-force="1"' : ""}>${icon("plus")}入れる</button>`}</span></div>`).join("")}</div>` : ""}
-        ${ro ? "" : `<div class="df" style="padding:0">
+        ${ro ? "" : selecting ? `<div class="df inv-selbar">
+            <button class="sbtn" type="button" data-bulk="import"${n((f) => ["unregistered", "newer"].includes(f.status)) ? "" : " disabled"}>${icon("download")}<span>取り込む ${n((f) => ["unregistered", "newer"].includes(f.status)) || ""}</span></button>
+            <button class="sbtn" type="button" data-bulk="update"${n((f) => f.item_id && ["outdated", "different"].includes(f.status)) ? "" : " disabled"}>${icon("refresh")}<span>更新 ${n((f) => f.item_id && ["outdated", "different"].includes(f.status)) || ""}</span></button>
+            <button class="sbtn" type="button" data-bulk="hold"${n((f) => f.item_id) ? "" : " disabled"}>${icon("clock")}<span>見送り</span></button>
+            <button class="sbtn" type="button" data-bulk="disable"${picked.length ? "" : " disabled"}>${icon("eyeoff")}<span>無効・有効</span></button>
+          </div>` : `<div class="df" style="padding:0">
           ${syncable ? `<button class="btn filled block" type="button" data-inv="sync">${icon("refresh")}更新があるもの ${syncable} 件をまとめて同期</button>` : `<div class="result ok">${icon("check")} 同期で入れ替えるものはありません</div>`}
-          ${d.files.some((f) => f.status === "unregistered") ? `<button class="btn tinted block" type="button" data-inv="import">${icon("download")}選んだ未登録のファイルをライブラリに取り込む</button>` : ""}
         </div>`}`;
     };
-    const push = async (btn, iid, force) => {
+    const runJob = async (btn, p, label) => {
       await busy(btn, async () => {
         try {
-          const j = await api(`/api/servers/${s.id}/push`, { json: { item_ids: [iid], force } });
+          const j = await p();
           const r = await waitJob(j.id);
-          if (r && r.status === "done" && (r.result || {}).sent) { toast("更新しました"); await load(); }
-          else if (r) toast((r.log || []).filter((x) => !x.startsWith("完了")).slice(-1)[0] || "更新できませんでした", true);
+          if (r && r.status === "done") { toast(label); await load(); }
+          else if (r) toast((r.log || []).filter((x) => !x.startsWith("完了")).slice(-1)[0] || "できませんでした", true);
         } catch (ex) { toast(ex.message, true); }
-      }, "送信中…");
+      }, "処理中…");
     };
+    const push = (btn, ids, force) => runJob(btn, () => api(`/api/servers/${s.id}/push`, { json: { item_ids: ids, force } }), "更新しました");
+    const importPaths = (btn, names) => runJob(btn, () => api(`/api/servers/${s.id}/import`, { json: { names } }), "ライブラリに取り込みました").then(() => refresh());
+    const openItem = (iid) => {
+      const it = state.items.find((i) => i.id === iid);
+      if (!it) { toast("このアドオンはライブラリにありません", true); return; }
+      if (!container) done(null);
+      openPanel(it.id);
+    };
+    body.addEventListener("change", (e) => {
+      if (e.target.matches("[data-sort]")) { sort = state.invSort = e.target.value; draw(); return; }
+      const pk = e.target.closest("[data-pick]");
+      if (pk) { if (pk.checked) sel.add(pk.dataset.pick); else sel.delete(pk.dataset.pick); draw(); }
+    });
     body.addEventListener("click", async (e) => {
       const t = e.target.closest("[data-tab]"); if (t) { tab = t.dataset.tab; if (container) state.srvCat = tab; draw(); return; }
       const fl = e.target.closest("[data-flt]"); if (fl) { filter = fl.dataset.flt; draw(); return; }
+      const tg = e.target.closest("[data-tagf]"); if (tg) { tagF = tagF === tg.dataset.tagf ? "" : tg.dataset.tagf; draw(); return; }
+      if (e.target.closest("[data-selmode]")) { selecting = !selecting; sel.clear(); draw(); return; }
+      if (e.target.closest("[data-selall]")) { body.querySelectorAll("[data-pick]").forEach((c) => sel.add(c.dataset.pick)); draw(); return; }
+      if (e.target.closest("[data-selnone]")) { sel.clear(); draw(); return; }
+      if (selecting && e.target.closest(".inv-row") && !e.target.closest("[data-pick]")) {  // 選択中は行を押しても選べる
+        const p = e.target.closest(".inv-row").dataset.path;
+        if (sel.has(p)) sel.delete(p); else sel.add(p);
+        draw(); return;
+      }
+      const oi = e.target.closest("[data-openit]"); if (oi) { openItem(Number(oi.dataset.openit)); return; }
+      const im = e.target.closest("[data-imp1]"); if (im) { importPaths(im, [im.dataset.imp1]); return; }
       const up = e.target.closest("[data-up]");
       if (up) {
         if (up.dataset.force && !cfm("この版は、サーバーの MC のバージョンに対応していない可能性があります。それでも入れますか?")) return;
-        push(up, Number(up.dataset.up), !!up.dataset.force); return;
+        push(up, [Number(up.dataset.up)], !!up.dataset.force); return;
+      }
+      const bk = e.target.closest("[data-bulk]");
+      if (bk && !bk.disabled) {
+        const picked = d.files.filter((f) => sel.has(f.path));
+        const k = bk.dataset.bulk;
+        if (k === "import") importPaths(bk, picked.filter((f) => ["unregistered", "newer"].includes(f.status)).map((f) => f.path));
+        if (k === "update") push(bk, [...new Set(picked.filter((f) => f.item_id && ["outdated", "different"].includes(f.status)).map((f) => f.item_id))], false);
+        if (k === "hold") {
+          const ids = [...new Set(picked.filter((f) => f.item_id).map((f) => f.item_id))];
+          const hold = !picked.filter((f) => f.item_id).every((f) => f.held);
+          await busy(bk, async () => { for (const id of ids) { try { await api(`/api/servers/${s.id}/hold`, { json: { item_id: id, hold } }); } catch (ex) { toast(ex.message, true); } } });
+          toast(hold ? `${ids.length} 件を見送ります` : `${ids.length} 件の見送りをやめました`); await load();
+        }
+        if (k === "disable") {
+          await busy(bk, async () => { for (const f of picked) { try { await api(`/api/servers/${s.id}/toggle`, { json: { path: f.path, enable: f.status === "disabled" } }); } catch (ex) { toast(`${f.name}: ${ex.message}`, true); } } });
+          toast("切り替えました。反映には再起動が必要です"); await load();
+        }
+        return;
       }
       const rm = e.target.closest("[data-rowmenu]");
       if (rm) {
         const f = d.files.find((x) => x.path === rm.dataset.rowmenu); if (!f) return;
-        const it = f.item_id && state.items.find((i) => i.id === f.item_id);
+        const it = itemOf(f);
+        const page = it && it.source && it.source.page_url;
         openMenu(rm, [
+          ...(it ? [{ label: "アドオンのページを開く", icon: "box", run: () => openItem(it.id) }] : []),
+          ...(page ? [{ label: "配布ページを開く", icon: "external", run: () => window.open(safeUrl(page), "_blank", "noopener") }] : []),
+          ...(["unregistered", "newer"].includes(f.status) ? [{ label: "ライブラリに取り込む", icon: "download", run: () => importPaths(null, [f.path]) }] : []),
           ...(f.item_id ? [{ label: f.held ? "見送りをやめる" : "このサーバーでは更新を見送る", icon: "clock", run: async () => {
             try { await api(`/api/servers/${s.id}/hold`, { json: { item_id: f.item_id, hold: !f.held } }); toast(f.held ? "見送りをやめました" : "見送ります(同期・自動更新で入れ替えません)"); await load(); } catch (ex) { toast(ex.message, true); }
           } }] : []),
           { label: f.status === "disabled" ? "有効にする" : "無効にする(消さずに外す)", icon: f.status === "disabled" ? "check" : "eyeoff", run: async () => {
             try { await api(`/api/servers/${s.id}/toggle`, { json: { path: f.path, enable: f.status === "disabled" } }); toast(f.status === "disabled" ? "有効にしました。反映には再起動が必要です" : "無効にしました。反映には再起動が必要です"); await load(); } catch (ex) { toast(ex.message, true); }
           } },
-          ...(it ? [{ label: "ライブラリで開く", icon: "box", run: () => { done(null); setView("library"); openPanel(it.id); } }] : []),
         ]);
         return;
       }
       const b = e.target.closest("[data-inv]"); if (!b) return;
       if (b.dataset.inv === "sync") {
         try { jobStarted(await api(`/api/servers/${s.id}/sync`, { json: {} })); done(null); } catch (ex) { toast(ex.message, true); }
-      } else {
-        const names = [...body.querySelectorAll("[data-imp]:checked")].map((c) => c.dataset.imp);
-        if (!names.length) { toast("取り込むファイルのスイッチをオンにしてください", true); return; }
-        try { jobStarted(await api(`/api/servers/${s.id}/import`, { json: { names } })); done(null); } catch (ex) { toast(ex.message, true); }
       }
     });
     await load();
@@ -2417,7 +2490,7 @@ const LINK_LOADERS = {
 function linkPageHTML(it) {
   const s = it.source;
   const d = state.linkDraft && state.linkDraft.id === it.id ? state.linkDraft
-    : (state.linkDraft = { id: it.id, loaders: [...s.loaders], mc: s.game_versions.join(", ") });
+    : (state.linkDraft = { id: it.id, loaders: [...s.loaders], mc: s.game_versions.join(", "), channel: s.channel || "" });
   const known = LINK_LOADERS[it.category] || [];
   const extra = d.loaders.filter((l) => !known.includes(l));
   const cands = state.candidates[it.id];
@@ -2451,6 +2524,9 @@ function linkPageHTML(it) {
             <button class="tagchip" type="button" data-act="src-loader-add">＋ ほかを追加</button></div>
           <label class="field" style="margin-top:12px"><span>Minecraft のバージョン(カンマ区切り。空欄ならすべて)</span>
             <input type="text" id="lkMc" value="${esc(d.mc)}" placeholder="例: 1.21.1, 1.21.4"></label>
+          <div class="flabel" style="margin-top:12px">受け取る版</div>
+          <div class="segmented seg-wide" role="group" aria-label="受け取る版">${[["", "自動"], ["release", "正式版だけ"], ["all", "ベータ版も"]].map(([k, n]) => `<button class="seg" type="button" data-act="src-channel" data-ch="${k}" aria-pressed="${(d.channel || "") === k}">${n}</button>`).join("")}</div>
+          <div class="group-foot" style="margin:6px 2px 0">「自動」は、保存している版やサーバーの版がスナップショット・ベータなら、ベータ版も含めて最新を探します</div>
           <button class="btn filled block" type="button" data-act="src-savefilter" style="margin-top:10px">保存して確認</button>
         </div></div>
 
@@ -2544,10 +2620,11 @@ async function sourceAction(it, act, btn) {
       }
       renderPanel(); return;
     }
+    if (act === "src-channel") { state.linkDraft.mc = $("#lkMc")?.value ?? state.linkDraft.mc; state.linkDraft.channel = btn.dataset.ch; renderPanel(); return; }
     if (act === "src-savefilter") {
       const d = state.linkDraft;
       const mc = $("#lkMc").value;
-      const r = await busy(btn, () => api(`/api/items/${it.id}/source`, { method: "PATCH", json: { loaders: d.loaders.join(","), game_versions: mc } }), "保存しています…");
+      const r = await busy(btn, () => api(`/api/items/${it.id}/source`, { method: "PATCH", json: { loaders: d.loaders.join(","), game_versions: mc, channel: d.channel || "" } }), "保存しています…");
       state.linkDraft = null;
       toast(r.source.status === "error" ? (r.source.message || "保存しました(確認できませんでした)") : "保存して確認しました", r.source.status === "error");
       await refresh(); return;

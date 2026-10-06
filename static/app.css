@@ -1101,3 +1101,19 @@ body.srv-detail .large-title { display: none; }
 .srv-pane #invBody > .df, .srv-pane > .df { position: sticky; bottom: 16px; z-index: 4; padding-top: 10px; }
 .srv-pane #invBody > .df .btn.filled, .srv-pane > .df .btn.filled { box-shadow: 0 6px 20px rgba(0,0,0,.25); }
 @media (max-width: 700px) { .srv-pane #invBody > .df, .srv-pane > .df { bottom: calc(env(safe-area-inset-bottom) + 92px); } }
+.badge.acc { background: color-mix(in srgb, var(--blue) 16%, transparent); color: var(--blue); }
+
+/* サーバーのアドオン: 道具・選択(01.19) */
+.inv-tools { display: flex; align-items: flex-start; gap: 8px; margin: -4px 0 8px; }
+.inv-tools .inv-flt { flex: 1; margin: 0; }
+.inv-tools-r { display: flex; gap: 6px; align-items: center; flex: none; }
+.inv-tags { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 10px; }
+.inv-selhead { display: flex; align-items: center; gap: 6px; margin: 0 4px 6px; font-size: 13px; font-weight: 600; }
+.inv-selhead .sp { flex: 1; }
+.inv-row.picked { background: var(--tint-soft); }
+.inv-row .cbox { flex: none; }
+.inv-row .main[data-openit] { cursor: pointer; }
+.inv-row .main[data-openit]:hover .title { color: var(--tint); }
+.inv-selbar { display: flex; justify-content: space-around; gap: 4px; padding: 6px !important; border-radius: 18px; background: var(--card); box-shadow: 0 6px 24px rgba(0,0,0,.28), 0 0 0 .5px var(--sep); }
+.inv-selbar .sbtn span { display: inline !important; }
+@media (max-width: 700px) { .inv-tools { flex-direction: column; } .inv-tools-r { align-self: flex-end; } }

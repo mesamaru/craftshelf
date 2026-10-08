@@ -1241,7 +1241,8 @@ def ingest(local, filename, force_cat=None, default_cat=None, src_rel=None, item
             (sha, target["id"], owner_id)).fetchone()
         if dup:
             return {"status": "duplicate", "filename": filename, "name": dup["name"],
-                    "version": dup["version"], "category": dup["category"], "item_id": dup["item_id"]}
+                    "version": dup["version"], "category": dup["category"], "item_id": dup["item_id"],
+                    "version_id": dup["id"] if "id" in dup.keys() else None}
         try:
             if item_id:
                 item = conn.execute("SELECT * FROM items WHERE id=? AND target_id=?",
@@ -1258,7 +1259,7 @@ def ingest(local, filename, force_cat=None, default_cat=None, src_rel=None, item
                 dest = canonical  # すでに正しい場所にある(再スキャン時)
             else:
                 dest = store.unique_rel(dest_dir, fname)
-            conn.execute(
+            vcur = conn.execute(
                 "INSERT INTO versions (item_id, target_id, version, filename, relpath, size, sha256, sha1, meta, added_at) "
                 "VALUES (?,?,?,?,?,?,?,?,?,?)",
                 (item["id"], target["id"], info["version"], dest.rsplit("/", 1)[-1],
@@ -1282,7 +1283,7 @@ def ingest(local, filename, force_cat=None, default_cat=None, src_rel=None, item
         app.logger.exception("prune")
     return {"status": "added", "filename": filename, "name": item["name"],
             "version": info["version"], "category": cat, "item_id": item["id"],
-            "new_item": created}
+            "new_item": created, "version_id": vcur.lastrowid}
 
 
 _MC_REL = re.compile(r"^1\.\d+(\.\d+)?$|^\d{2}\.\d+(\.\d+)?$")
@@ -5145,7 +5146,7 @@ def api_servers_push(srv):
     _store, target = active_store()
     data = request.get_json(silent=True) or {}
     item_ids = [int(x) for x in data.get("item_ids") or []]
-    version_ids = {}
+    version_ids = {int(k): int(v) for k, v in (data.get("version_ids") or {}).items() if v}
     if data.get("set_id"):
         conn = db()
         s = conn.execute("SELECT * FROM sets WHERE id=? AND target_id=? AND owner_id=?",

@@ -1917,6 +1917,55 @@ function drawCompare() {
 }
 
 const INV_STATUS = { latest: ["ok", "最新"], outdated: ["upd", "更新あり"], different: ["", "ライブラリと別のファイル"], unregistered: ["err", "未登録"] };
+/* ライブラリから選んでサーバーへ入れる(版も選べる) */
+async function libraryToServer(s, cats, onServer, kind = "") {
+  const have = new Map(onServer.filter((f) => f.item_id).map((f) => [f.item_id, f.version]));
+  const pool = state.items.filter((it) => cats.includes(it.category) && it.access !== undefined).sort((a, b) => a.name.localeCompare(b.name, "ja", { numeric: true }));
+  let cat = kind, q = "";
+  return sheet(`${sheetHead(`「${s.name}」に入れる`)}<div class="db">
+      <label class="search"><span>${icon("search")}</span><input type="search" id="ltQ" placeholder="名前・タグで絞り込み"></label>
+      ${cats.length > 1 ? `<div class="segmented seg-wide" id="ltCat">${["", ...cats].map((c) => `<button class="seg" type="button" data-c="${c}" aria-pressed="${c === cat}">${c ? CATS[c] : "すべて"}</button>`).join("")}</div>` : ""}
+      <div class="group scroll" id="ltList"></div>
+      <p class="group-foot">版を選ばなければ、ライブラリの最新を入れます。同じアドオンの別の版がサーバーにあれば置き換えます(退避されるので巻き戻せます)。</p>
+    </div><div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok>サーバーに入れる</button></div>`, (form, done) => {
+    const picked = new Map();  // item_id → version_id(0 = 最新)
+    const draw = () => {
+      const ql = q.toLowerCase();
+      const list = pool.filter((it) => (!cat || it.category === cat) && (!ql || it.name.toLowerCase().includes(ql) || (it.tags || []).some((t) => t.toLowerCase().includes(ql))));
+      $("#ltList", form).innerHTML = list.map((it) => `<div class="row lt-row${picked.has(it.id) ? " picked" : ""}">
+        <input type="checkbox" class="cbox" data-lt="${it.id}"${picked.has(it.id) ? " checked" : ""} aria-label="選ぶ">${itemIcon(it, true)}
+        <span class="main"><span class="title" translate="no">${esc(it.name)}${have.has(it.id) ? ` <span class="badge">サーバーに ${esc(have.get(it.id) || "")}</span>` : ""}</span>
+          <span class="subtitle">${esc(CATS[it.category] || "")}${(it.tags || []).length ? ` · ${it.tags.map((t) => `#${esc(t)}`).join(" ")}` : ""}</span></span>
+        <select class="compact" data-ltv="${it.id}" aria-label="入れる版">${it.versions.map((v, i) => `<option value="${i ? v.id : 0}"${(picked.get(it.id) || 0) === (i ? v.id : 0) ? " selected" : ""}>${esc(verLabel(v.version))}${i ? "" : "(最新)"}</option>`).join("")}</select></div>`).join("")
+        || `<div class="empty">あてはまるアドオンがありません</div>`;
+      form.querySelector("[data-ok]").textContent = picked.size ? `${picked.size} 件をサーバーに入れる` : "サーバーに入れる";
+    };
+    $("#ltQ", form).addEventListener("input", (e) => { q = e.target.value.trim(); draw(); });
+    form.addEventListener("click", (e) => {
+      const c = e.target.closest("[data-c]");
+      if (c) { cat = c.dataset.c; form.querySelectorAll("[data-c]").forEach((b) => b.setAttribute("aria-pressed", String(b === c))); draw(); return; }
+      const row = e.target.closest(".lt-row");
+      if (row && !e.target.closest("select") && !e.target.closest("[data-lt]")) { const cb = row.querySelector("[data-lt]"); cb.checked = !cb.checked; cb.dispatchEvent(new Event("change", { bubbles: true })); }
+    });
+    form.addEventListener("change", (e) => {
+      const cb = e.target.closest("[data-lt]");
+      if (cb) { const id = Number(cb.dataset.lt); if (cb.checked) picked.set(id, Number(form.querySelector(`[data-ltv="${id}"]`).value)); else picked.delete(id); draw(); }
+      const vs = e.target.closest("[data-ltv]");
+      if (vs) { picked.set(Number(vs.dataset.ltv), Number(vs.value)); draw(); }
+    });
+    form.querySelector("[data-ok]").onclick = (ev) => busy(ev.currentTarget, async () => {
+      if (!picked.size) { toast("入れるアドオンを選んでください", true); return; }
+      const vmap = Object.fromEntries([...picked].filter(([, v]) => v));
+      try {
+        const j = await api(`/api/servers/${s.id}/push`, { json: { item_ids: [...picked.keys()], version_ids: vmap, force: true } });
+        const r = await waitJob(j.id);
+        if (r && r.status === "done") { toast(`${(r.result || {}).sent || 0} 件を「${s.name}」に入れました`); done(true); }
+        else if (r) toast((r.log || []).slice(-1)[0] || "入れられませんでした", true);
+      } catch (ex) { toast(ex.message, true); }
+    }, "送信中…");
+    draw();
+  }, { wide: true });
+}
 /* 処理(ジョブ)が終わるまで待つ */
 async function waitJob(id) {
   for (;;) {
@@ -1981,7 +2030,8 @@ async function inventoryDialog(s, startCat = "all", container = null) {
           <div class="tagrow inv-flt">${fchip("all", "すべて", 0)}${fchip("upd", "更新あり", all.filter((f) => f.status === "outdated").length)}${fchip("newer", "サーバーの方が新しい", all.filter((f) => f.status === "newer").length)}${fchip("warn", "要確認", all.filter(warnOf).length)}${fchip("unreg", "未登録", all.filter((f) => f.status === "unregistered").length)}</div>
           <div class="inv-tools-r">
             <select class="compact" data-sort aria-label="並び順">${[["status", "状態順"], ["name", "名前順"], ["cat", "種類順"], ["tag", "タグ順"], ["size", "サイズ順"]].map(([k, l]) => `<option value="${k}"${sort === k ? " selected" : ""}>${l}</option>`).join("")}</select>
-            ${ro ? "" : `<button class="btn small${selecting ? " tinted" : ""}" type="button" data-selmode>${selecting ? "完了" : "選択"}</button>`}
+            ${ro ? "" : `<button class="btn small${selecting ? " tinted" : ""}" type="button" data-selmode>${selecting ? "完了" : "選択"}</button>
+              <button class="btn small filled" type="button" data-addto>${icon("plus")}追加</button>`}
           </div>
         </div>
         ${tags.length ? `<div class="tagrow inv-tags"><span class="tag-lab">${icon("tag")}</span>${tags.map((t) => `<button class="tagchip" type="button" data-tagf="${esc(t)}" aria-pressed="${tagF === t}" translate="no">#${esc(t)}</button>`).join("")}</div>` : ""}
@@ -2034,6 +2084,16 @@ async function inventoryDialog(s, startCat = "all", container = null) {
       const fl = e.target.closest("[data-flt]"); if (fl) { filter = fl.dataset.flt; draw(); return; }
       const tg = e.target.closest("[data-tagf]"); if (tg) { tagF = tagF === tg.dataset.tagf ? "" : tg.dataset.tagf; draw(); return; }
       if (e.target.closest("[data-selmode]")) { selecting = !selecting; sel.clear(); draw(); return; }
+      const at = e.target.closest("[data-addto]");
+      if (at) {
+        const cats = SRV_CATS.filter((c) => d.dirs[c]);
+        const kind = tab !== "all" ? tab : cats.length === 1 ? cats[0] : "";
+        openMenu(at, [
+          { label: "ライブラリから選ぶ", icon: "box", run: async () => { if (await libraryToServer(s, cats, d.files, kind)) await load(); } },
+          { label: "配布サイトから探す", icon: "search", run: () => openSearch({ kind, toServer: s }) },
+        ]);
+        return;
+      }
       if (e.target.closest("[data-selall]")) { body.querySelectorAll("[data-pick]").forEach((c) => sel.add(c.dataset.pick)); draw(); return; }
       if (e.target.closest("[data-selnone]")) { sel.clear(); draw(); return; }
       if (selecting && e.target.closest(".inv-row") && !e.target.closest("[data-pick]")) {  // 選択中は行を押しても選べる
@@ -2586,6 +2646,7 @@ function sourceBoxHTML(it) {
     <div class="srcbar">
       <button class="btn tinted small need-editor" type="button" data-act="src-check">${icon("refresh")}更新を確認</button>
       <span class="sp"></span>
+      <button class="mini-act need-editor" type="button" data-act="src-pickver" title="配布元のバージョンを選んでダウンロード">${icon("download")}<span>版を選ぶ</span></button>
       <button class="mini-act" type="button" data-act="src-linkpage" title="配布元の紐づけ(紐づけ先の変更・探す条件)">${icon("link")}<span>紐づけ</span></button>
       <button class="mini-act" type="button" data-act="src-changelog" title="配布元で公開されている更新の履歴">${icon("doc")}<span>履歴</span></button>
     </div>
@@ -2619,6 +2680,12 @@ async function sourceAction(it, act, btn) {
         if (l && !d.loaders.includes(l)) d.loaders.push(l);
       }
       renderPanel(); return;
+    }
+    if (act === "src-pickver") {
+      const so = it.source;
+      await pickVersion({ provider: so.provider, project_id: so.project_id, title: it.name, kind: it.category },
+        { loader: SEARCH_LOADERS[(so.loaders || [])[0]] ? so.loaders[0] : "", mc: (so.game_versions || [])[0] || "", kind: it.category });
+      return;
     }
     if (act === "src-channel") { state.linkDraft.mc = $("#lkMc")?.value ?? state.linkDraft.mc; state.linkDraft.channel = btn.dataset.ch; renderPanel(); return; }
     if (act === "src-savefilter") {
@@ -2678,15 +2745,18 @@ async function sourceAction(it, act, btn) {
 const SEARCH_LOADERS = { "": "すべてのサーバーソフト・ローダー", paper: "Paper", purpur: "Purpur", folia: "Folia", spigot: "Spigot", bukkit: "Bukkit",
   velocity: "Velocity", bungeecord: "BungeeCord", waterfall: "Waterfall", sponge: "Sponge",
   fabric: "Fabric", quilt: "Quilt", forge: "Forge", neoforge: "NeoForge", iris: "Iris(シェーダー)", optifine: "OptiFine(シェーダー)" };
-async function openSearch({ q = "", kind = "", linkTo = null } = {}) {
-  const st = { provider: "modrinth", q, kind: kind === "other" || kind === "all" || (kind || "").startsWith("__") ? "" : kind, loader: "", mc: state.mc && MC_VERSIONS.includes(state.mc) ? state.mc : "" };
-  await sheet(`${sheetHead(linkTo ? `「${linkTo.name}」の配布元を探す` : "配布サイトから探す")}
+async function openSearch({ q = "", kind = "", linkTo = null, toServer = null, loader = null, mc = null } = {}) {
+  const st = { provider: "modrinth", q, kind: kind === "other" || kind === "all" || (kind || "").startsWith("__") ? "" : kind,
+    loader: loader ?? (toServer && SEARCH_LOADERS[toServer.software] ? toServer.software : ""),
+    mc: mc ?? (toServer && toServer.mc_version ? toServer.mc_version : state.mc && MC_VERSIONS.includes(state.mc) ? state.mc : "") };
+  if (st.mc && !MC_VERSIONS.includes(st.mc)) MC_VERSIONS.unshift(st.mc);
+  await sheet(`${sheetHead(linkTo ? `「${linkTo.name}」の配布元を探す` : toServer ? `「${toServer.name}」に追加` : "配布サイトから探す")}
     <div class="db">
       <div class="segmented" id="srProv">${Object.entries(PROVIDERS).map(([k, n]) => `<button class="seg" type="button" data-prov="${k}" aria-pressed="${k === st.provider}">${n}</button>`).join("")}</div>
       <label class="search"><span>${icon("search")}</span><input type="search" id="srQ" value="${esc(q)}" placeholder="名前で検索"></label>
       <div class="chips">
         <select id="srKind" class="compact"><option value="">すべての種類</option>${Object.entries(CATS).filter(([k]) => k !== "other").map(([k, n]) => `<option value="${k}"${k === st.kind ? " selected" : ""}>${n}</option>`).join("")}</select>
-        <select id="srLoader" class="compact">${Object.entries(SEARCH_LOADERS).map(([k, n]) => `<option value="${k}">${n}</option>`).join("")}</select>
+        <select id="srLoader" class="compact">${Object.entries(SEARCH_LOADERS).map(([k, n]) => `<option value="${k}"${k === st.loader ? " selected" : ""}>${n}</option>`).join("")}</select>
         <select id="srMc" class="compact"><option value="">すべてのMC</option>${MC_VERSIONS.map((v) => `<option value="${v}"${v === st.mc ? " selected" : ""}>MC ${v}</option>`).join("")}</select>
       </div>
       <div id="srRes" class="group"></div>
@@ -2708,6 +2778,7 @@ async function openSearch({ q = "", kind = "", linkTo = null } = {}) {
           <span class="trail">
             <a class="icon-btn sm" href="${esc(safeUrl(r.page_url))}" target="_blank" rel="noopener noreferrer" title="配布ページを開く" aria-label="配布ページを開く">${icon("external")}</a>
             ${linkTo ? `<button class="btn small filled" type="button" data-pick="${i}">紐付け</button>`
+              : toServer ? `<button class="btn small filled" type="button" data-add="${i}">${r.item_id ? "版を選んで入れる" : "追加"}</button>`
               : r.item_id ? `<button class="btn small" type="button" data-show="${r.item_id}">表示</button>`
               : `<button class="btn small filled need-editor" type="button" data-add="${i}">追加</button>`}
           </span></div>`).join("") : `<div class="empty">見つかりませんでした</div>`;
@@ -2722,8 +2793,8 @@ async function openSearch({ q = "", kind = "", linkTo = null } = {}) {
       if (add) {
         const r = res[Number(add.dataset.add)];
         done(null);
-        await pickVersion(r, st);
-        setTimeout(() => openSearch({ q: st.q, kind: st.kind }), 0);  // 検索に戻る
+        await pickVersion(r, st, { toServer });
+        setTimeout(() => openSearch({ q: st.q, kind: st.kind, toServer, loader: st.loader, mc: st.mc }), 0);  // 検索に戻る
         return;
       }
       const pick = e.target.closest("[data-pick]");
@@ -2746,8 +2817,9 @@ async function openSearch({ q = "", kind = "", linkTo = null } = {}) {
 }
 
 /* ---------------- 版を選んでダウンロード(前提もまとめて) ---------------- */
-async function pickVersion(r, st) {
-  const done = await sheet(`${sheetHead(`「${r.title}」を追加`)}
+async function pickVersion(r, st, { toServer = null } = {}) {
+  if (st.mc && !MC_VERSIONS.includes(st.mc)) MC_VERSIONS.unshift(st.mc);
+  const done = await sheet(`${sheetHead(toServer ? `「${r.title}」を「${toServer.name}」へ` : `「${r.title}」の版を選ぶ`)}
     <div class="db">
       <div class="chips">
         <select id="pvLoader" class="compact">${Object.entries(SEARCH_LOADERS).map(([k, n]) => `<option value="${k}"${k === st.loader ? " selected" : ""}>${n}</option>`).join("")}</select>
@@ -2755,8 +2827,10 @@ async function pickVersion(r, st) {
       </div>
       <div id="pvList" class="group"></div>
       <div id="pvDeps"></div>
+      <div class="group">${toServer ? toggle("pv_deps_srv", "前提もサーバーに入れる", "オンにした前提プラグイン・Mod も、ライブラリに追加したあとサーバーへ送ります", true)
+        : toggle("pv_save", "このパソコンにも保存する", "ライブラリに追加したあと、選んだ版のファイルをダウンロードします", false)}</div>
     </div>
-    <div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok disabled>ダウンロードして追加</button></div>`, (form, finish) => {
+    <div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok disabled>${toServer ? "ダウンロードしてサーバーに入れる" : "この版をライブラリに追加"}</button></div>`, (form, finish) => {
     let vers = [], sel = 0;
     const drawDeps = () => {
       const v = vers[sel];
@@ -2798,8 +2872,24 @@ async function pickVersion(r, st) {
         toast(`${d.status === "added" ? "追加しました" : "登録済みです"}: ${d.name} ${d.version || ""}${extra ? `(前提 ${extra} 件も追加)` : ""}`);
         (d.deps || []).filter((x) => ["error", "notfound"].includes(x.status)).forEach((x) => toast(`前提「${x.title}」を追加できませんでした${x.message ? `: ${x.message}` : ""}`, true));
         r.item_id = d.item_id;
+        await refresh();
+        if (form.querySelector("[name=pv_save]")?.checked && d.version_id) {  // 選んだ版をこのパソコンにも保存
+          const a = document.createElement("a"); a.href = `/api/versions/${d.version_id}/download`; a.download = ""; document.body.appendChild(a); a.click(); a.remove();
+        }
+        if (toServer) {  // サーバーへ送る(選んだ版をそのまま。前提はライブラリの最新)
+          const ids = [d.item_id], vmap = { [d.item_id]: d.version_id };
+          if (form.querySelector("[name=pv_deps_srv]")?.checked) {
+            for (const x of (d.deps || []).filter((y) => ["added", "duplicate", "exists"].includes(y.status))) {
+              const it = state.items.find((i) => i.name === x.title || (i.source && i.source.title === x.title));
+              if (it && !ids.includes(it.id)) ids.push(it.id);
+            }
+          }
+          const j = await api(`/api/servers/${toServer.id}/push`, { json: { item_ids: ids, version_ids: vmap, force: true } });
+          const res = await waitJob(j.id);
+          if (res && res.status === "done") toast(`「${toServer.name}」に入れました`); else if (res) toast((res.log || []).slice(-1)[0] || "サーバーに入れられませんでした", true);
+          if (state.view === "servers") loadServers();
+        }
         finish(true);
-        refresh();
       } catch (ex) { toast(ex.message, true); }
     }, "ダウンロード中…");
     load();

@@ -1117,3 +1117,4 @@ body.srv-detail .large-title { display: none; }
 .inv-selbar { display: flex; justify-content: space-around; gap: 4px; padding: 6px !important; border-radius: 18px; background: var(--card); box-shadow: 0 6px 24px rgba(0,0,0,.28), 0 0 0 .5px var(--sep); }
 .inv-selbar .sbtn span { display: inline !important; }
 @media (max-width: 700px) { .inv-tools { flex-direction: column; } .inv-tools-r { align-self: flex-end; } }
+.lt-row { cursor: pointer; } .lt-row.picked { background: var(--tint-soft); } .lt-row select.compact { max-width: 38%; flex: none; }

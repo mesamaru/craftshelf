@@ -1354,6 +1354,25 @@ window.CS_EN = {
   "「自動」は、保存している版やサーバーの版がスナップショット・ベータなら、ベータ版も含めて最新を探します": "“Auto” includes betas when a stored or server version is a snapshot or beta",
   "切り替えました。反映には再起動が必要です": "Switched. A restart is needed to apply it",
   "ライブラリは ": "Library has ",
+  // 01.20: 版を選んでダウンロード・サーバーへ追加
+  "版を選ぶ": "Pick version",
+  "配布元のバージョンを選んでダウンロード": "Choose a version from the source and download it",
+  "この版をライブラリに追加": "Add this version to the library",
+  "ダウンロードしてサーバーに入れる": "Download and add to the server",
+  "このパソコンにも保存する": "Also save to this computer",
+  "ライブラリに追加したあと、選んだ版のファイルをダウンロードします": "After adding it to the library, download the chosen version's file",
+  "前提もサーバーに入れる": "Also add dependencies to the server",
+  "オンにした前提プラグイン・Mod も、ライブラリに追加したあとサーバーへ送ります": "Dependencies you turn on are also sent to the server after being added to the library",
+  "版を選んで入れる": "Pick a version",
+  "ライブラリから選ぶ": "Choose from library",
+  "名前・タグで絞り込み": "Filter by name or tag",
+  "サーバーに入れる": "Add to server",
+  "入れるアドオンを選んでください": "Choose add-ons to add",
+  "あてはまるアドオンがありません": "No matching add-ons",
+  "入れられませんでした": "Could not add",
+  "サーバーに入れられませんでした": "Could not add it to the server",
+  "版を選ばなければ、ライブラリの最新を入れます。同じアドオンの別の版がサーバーにあれば置き換えます(退避されるので巻き戻せます)。": "Without a version choice, the library's latest is added. Other versions of the same add-on on the server are replaced (backed up, so you can roll back).",
+  "入れる版": "Version to add",
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [

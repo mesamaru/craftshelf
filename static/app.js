@@ -1426,27 +1426,73 @@ async function localServerDialog() {
   if (!state.sets) { try { state.sets = (await api("/api/sets")).sets; } catch { state.sets = []; } }
   const setOpts = `<option value="">なし</option>${state.sets.map((x) => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}`;
   const r = await sheet(`${sheetHead("フォルダのサーバーを追加")}<div class="db">
-      <p>このパネルから見えるフォルダにあるサーバー(同じ PC・NAS の共有フォルダなど)を、直接管理します。プラグイン・Mod・データパックの更新や同期ができます(起動・停止の操作はできません)。</p>
-      ${field("サーバーのフォルダ(server.properties があるフォルダ)", `<div class="inline-input"><input type="text" name="root_dir" placeholder="例: /srv/minecraft/survival" autocomplete="off" spellcheck="false"><button class="btn tinted small" type="button" data-detect>${icon("search")}判定</button></div>`)}
-      <div class="group-foot" style="margin-top:-6px">Docker で動かしている場合は、サーバーのフォルダをコンテナにマウントし、コンテナの中の場所(例: /servers/survival)を入力します。</div>
-      <div class="detect-out" data-dtout></div>
-      ${field("表示名", `<input type="text" name="name" placeholder="空ならフォルダの名前">`)}
-      ${srvFields({ dirs: defaultSrvDirs("") })}
-      ${field("セット(任意。同期のときにセットの中身も入れる)", `<select name="set_id">${setOpts}</select>`)}
-    </div><div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok>追加する</button></div>`, (form, done) => {
+      <div id="lsPick">
+        <p>サーバーの <b>jar ファイル</b>(例: paper-1.21.4.jar)を選ぶと、そのフォルダをサーバーとして、サーバーソフト・バージョン・プラグインなどのフォルダを自動で設定します。jar が無い場合は「このフォルダを使う」を押してください。</p>
+        <div class="fb-path"><button class="btn plain small" type="button" data-fbup>${icon("up")}上へ</button><span class="mono" id="fbPath"></span></div>
+        <div class="group fb-list" id="fbList"><div class="empty"><span class="spinner lg"></span></div></div>
+        <div class="chips" style="margin-top:10px"><button class="btn tinted small" type="button" data-fbuse hidden>${icon("folder")}このフォルダを使う</button>
+          <button class="btn plain small" type="button" data-fbtype>${icon("edit")}場所を入力する</button></div>
+        <div class="inline-input" id="fbTyped" hidden style="margin-top:8px"><input type="text" id="fbInput" placeholder="例: /srv/minecraft/survival" spellcheck="false" autocomplete="off"><button class="btn small" type="button" data-fbgo>開く</button></div>
+        <div class="group-foot">Docker で動かしている場合は、サーバーのフォルダをコンテナにマウントしてください(例: /servers/survival)。</div>
+      </div>
+      <div id="lsForm" hidden>
+        <div class="ls-chosen"><span class="cicon sm c-teal">${icon("folder")}</span><span class="m"><b id="lsRoot" class="mono"></b><small id="lsJar"></small></span><button class="btn plain small" type="button" data-fbback>選び直す</button></div>
+        <input type="hidden" name="root_dir">
+        <div class="detect-out" data-dtout></div>
+        ${field("表示名", `<input type="text" name="name" placeholder="空ならフォルダの名前">`)}
+        ${srvFields({ dirs: defaultSrvDirs("") })}
+        ${field("セット(任意。同期のときにセットの中身も入れる)", `<select name="set_id">${setOpts}</select>`)}
+      </div>
+    </div><div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok disabled>追加する</button></div>`, (form, done) => {
     const root = form.querySelector("[name=root_dir]");
-    let mc = "";
-    const { detect } = wireSrvFields(form, () => (root.value.trim() ? { kind: "local", root_dir: root.value.trim() } : (toast("サーバーのフォルダを入力してください", true), null)), (r) => { mc = r.mc || ""; });
-    root.onchange = () => { if (root.value.trim()) detect(); };
+    let mc = "", jar = "", cur = { path: "", parent: "" };
+    const { detect } = wireSrvFields(form, () => ({ kind: "local", root_dir: root.value.trim(), jar }), (r) => { mc = r.mc || ""; });
+    const browse = async (path) => {
+      const list = $("#fbList", form);
+      list.innerHTML = `<div class="empty"><span class="spinner lg"></span></div>`;
+      try { cur = await api(`/api/fs/browse?path=${encodeURIComponent(path || "")}`); }
+      catch (ex) { list.innerHTML = `<div class="result err">${esc(ex.message)}</div>`; return; }
+      $("#fbPath", form).textContent = cur.path || "はじめの場所";
+      form.querySelector("[data-fbup]").disabled = !cur.path;
+      form.querySelector("[data-fbuse]").hidden = !cur.path;
+      form.querySelector("[data-fbuse]").classList.toggle("filled", !!cur.is_server);
+      const row = (attr, ic, cls, title, sub, trail = "") => `<button class="row fb-row" type="button" ${attr}><span class="cicon sm ${cls}">${icon(ic)}</span><span class="main"><span class="title" translate="no">${esc(title)}</span>${sub ? `<span class="subtitle">${sub}</span>` : ""}</span>${trail}</button>`;
+      list.innerHTML = cur.path
+        ? (cur.jars.map((j) => row(`data-fbjar="${esc(j.name)}"`, "cube", j.soft ? "c-mod" : "c-gray", j.name, `${j.soft ? `${esc(SRV_SOFT[j.soft] || j.soft)} · ` : ""}${fmtSize(j.size)}`, `<span class="btn small filled">選ぶ</span>`)).join("")
+          + cur.dirs.map((d) => row(`data-fbdir="${esc(d.name)}"`, "folder", d.server ? "c-teal" : "c-gray", d.name, d.server ? "Minecraft サーバー" : "", icon("chev"))).join(""))
+          || `<div class="empty">フォルダも jar もありません</div>`
+        : cur.starts.map((p) => row(`data-fbabs="${esc(p)}"`, "folder", "c-gray", p, "", icon("chev"))).join("");
+    };
+    const choose = (dir, jarName) => {
+      root.value = dir; jar = jarName || "";
+      $("#lsRoot", form).textContent = dir;
+      $("#lsJar", form).textContent = jar ? `サーバーソフト: ${jar}` : "jar を選ばずに追加(フォルダの中身から判定します)";
+      $("#lsPick", form).hidden = true; $("#lsForm", form).hidden = false;
+      form.querySelector("[data-ok]").disabled = false;
+      detect();
+    };
+    const join = (a, b) => (/[\/]$/.test(a) ? a + b : `${a}${a.includes("\\") && !a.includes("/") ? "\\" : "/"}${b}`);
+    form.addEventListener("click", (e) => {
+      const d = e.target.closest("[data-fbdir]"); if (d) { browse(join(cur.path, d.dataset.fbdir)); return; }
+      const a = e.target.closest("[data-fbabs]"); if (a) { browse(a.dataset.fbabs); return; }
+      const j = e.target.closest("[data-fbjar]"); if (j) { choose(cur.path, j.dataset.fbjar); return; }
+      if (e.target.closest("[data-fbup]")) { browse(cur.parent); return; }
+      if (e.target.closest("[data-fbuse]")) { choose(cur.path, ""); return; }
+      if (e.target.closest("[data-fbtype]")) { const t = $("#fbTyped", form); t.hidden = !t.hidden; if (!t.hidden) $("#fbInput", form).focus(); return; }
+      if (e.target.closest("[data-fbgo]")) { const v = $("#fbInput", form).value.trim(); if (v) browse(v); return; }
+      if (e.target.closest("[data-fbback]")) { $("#lsPick", form).hidden = false; $("#lsForm", form).hidden = true; form.querySelector("[data-ok]").disabled = true; }
+    });
+    $("#fbInput", form).addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); const v = e.target.value.trim(); if (v) browse(v); } });
     form.querySelector("[data-ok]").onclick = (ev) => busy(ev.currentTarget, async () => {
       const dirs = readDirs(form);
-      if (!root.value.trim()) { toast("サーバーのフォルダを入力してください", true); return; }
+      if (!root.value.trim()) { toast("サーバーを選んでください", true); return; }
       if (!Object.keys(dirs).length) { toast("管理するフォルダを 1 つ以上入力してください", true); return; }
-      const body = { kind: "local", root_dir: root.value.trim(), name: form.querySelector("[name=name]").value.trim(),
+      const body = { kind: "local", root_dir: root.value.trim(), jar, name: form.querySelector("[name=name]").value.trim(),
         software: form.querySelector("[name=software]").value, dirs, set_id: form.querySelector("[name=set_id]").value, mc_version: mc };
       try { await api("/api/servers", { json: body }); done(true); } catch (ex) { toast(ex.message, true); }
     });
-  });
+    browse("");
+  }, { wide: true });
   if (r) { toast("追加しました"); loadServers(); }
 }
 const DOW = ["月", "火", "水", "木", "金", "土", "日"];
@@ -1775,7 +1821,7 @@ async function serverSettingsDialog(s, container = null) {
         <p class="muted">このパネルからサーバーを起動・停止する方法を選びます(設定できるのは「パネル全体の設定」の権限がある人だけです)。</p>
         ${field("方法", `<select name="control"><option value="none"${s.control === "none" ? " selected" : ""}>しない</option><option value="command"${s.control === "command" ? " selected" : ""}>コマンドを実行する</option><option value="docker"${s.control === "docker" ? " selected" : ""}>Docker のコンテナを操作する</option></select>`)}
         <div data-ctl="command">
-          ${field("起動のコマンド(サーバーのフォルダで実行)", `<input type="text" name="start_cmd" value="${esc(s.start_cmd || "")}" placeholder="例: systemctl start minecraft / ./start.sh" spellcheck="false">`)}
+          ${field("起動のコマンド(サーバーのフォルダで実行)", `<input type="text" name="start_cmd" value="${esc(s.start_cmd || "")}" placeholder="${s.server_jar ? esc(`java -Xms1G -Xmx4G -jar ${s.server_jar} nogui`) : "例: systemctl start minecraft / ./start.sh"}" spellcheck="false">`)}
           ${field("停止のコマンド(空なら RCON の stop)", `<input type="text" name="stop_cmd" value="${esc(s.stop_cmd || "")}" placeholder="例: systemctl stop minecraft" spellcheck="false">`)}
         </div>
         <div data-ctl="docker">
@@ -1799,6 +1845,8 @@ async function serverSettingsDialog(s, container = null) {
       }
       const ctl = q("control");
       if (ctl) form.querySelectorAll("[data-ctl]").forEach((el) => { el.hidden = el.dataset.ctl !== ctl.value; });
+      // 追加のときに選んだ jar から、起動のコマンドを入れておく
+      if (ctl && ctl.value === "command" && s.server_jar && !q("start_cmd").value) q("start_cmd").value = `java -Xms1G -Xmx4G -jar ${s.server_jar} nogui`;
     };
     form.addEventListener("change", syncRows); syncRows();
     wireSrvFields(form, () => (local ? { kind: "local", root_dir: q("root_dir").value.trim() } : { server_id: s.id }), (r) => { if (r.mc && !q("mc_version").value) q("mc_version").value = r.mc; });

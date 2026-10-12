@@ -410,7 +410,8 @@ def migrate_schema(conn):
                      ("backup_config", "INTEGER NOT NULL DEFAULT 1"), ("world_mode", "TEXT NOT NULL DEFAULT 'off'"),
                      ("world_time", "TEXT NOT NULL DEFAULT '05:00'"), ("world_dow", "INTEGER NOT NULL DEFAULT 0"),
                      ("world_keep", "INTEGER NOT NULL DEFAULT 5"), ("last_world", "TEXT NOT NULL DEFAULT ''"),
-                     ("stage_targets", "TEXT NOT NULL DEFAULT '[]'"), ("soft_info", "TEXT NOT NULL DEFAULT '{}'")):
+                     ("stage_targets", "TEXT NOT NULL DEFAULT '[]'"), ("soft_info", "TEXT NOT NULL DEFAULT '{}'"),
+                     ("server_jar", "TEXT NOT NULL DEFAULT ''")):
         if col not in _table_cols(conn, "servers"):  # 状態・起動停止・自動更新・ワールドのバックアップなど(01.17)
             conn.execute(f"ALTER TABLE servers ADD COLUMN {col} {ddl}")
     if "channel" not in _table_cols(conn, "item_sources"):  # 受け取る版: '' = 自動 / all = ベータも / release = 正式版だけ
@@ -4492,8 +4493,21 @@ def _detect_build(fs, root_names=None):
     return mc, build
 
 
-def detect_server(fs):
-    """サーバーのフォルダの中身から、サーバーソフト・ワールドの名前・種類ごとのフォルダを推測する。"""
+def _soft_from_jar(name):
+    """サーバーの jar の名前から、サーバーソフトを決める(例: paper-1.21.4-232.jar → paper)。"""
+    n = str(name or "").lower()
+    for key, soft in (("velocity", "velocity"), ("waterfall", "waterfall"), ("bungeecord", "bungeecord"), ("purpur", "purpur"),
+                      ("folia", "folia"), ("paper", "paper"), ("spigot", "spigot"), ("craftbukkit", "bukkit"), ("bukkit", "bukkit"),
+                      ("quilt", "quilt"), ("fabric", "fabric"), ("neoforge", "neoforge"), ("forge", "forge"), ("sponge", "sponge")):
+        if key in n:
+            return soft
+    return ""
+
+
+def detect_server(fs, jar=None):
+    """サーバーのフォルダの中身から、サーバーソフト・ワールドの名前・種類ごとのフォルダを推測する。
+
+    jar(サーバーソフトの jar の名前)を渡すと、その名前を優先してサーバーソフトとバージョンを決める。"""
     root = fs.list("") or []
     names = {e["name"].lower() for e in root}
     jars = " ".join(n for n in names if n.endswith(".jar"))
@@ -4525,6 +4539,8 @@ def detect_server(fs):
     elif "libraries" in names:
         net = sub("libraries/net")
         soft = "neoforge" if "neoforged" in net else "forge" if "minecraftforge" in net else ""
+    jar_soft = _soft_from_jar(jar) if jar else ""
+    soft = jar_soft or soft
     world = "world"
     if "server.properties" in names:
         tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
@@ -4548,10 +4564,16 @@ def detect_server(fs):
         if world.lower() in names:
             dirs["datapack"] = f"{world}/datapacks"
     mc, build = _detect_build(fs, [e["name"] for e in root])
+    if jar:
+        m = re.match(r"fabric-server-mc\.([\d.]+)-loader\.([\d.]+)", jar)
+        jm, jb = (m.group(1), m.group(2)) if m else mcnet.parse_build(jar)
+        if soft not in _SOFT_PROXY:
+            mc = mc or jm
+        build = build or jb
     if soft in _SOFT_PROXY:
         mc = ""
     return {"software": soft, "world": world, "dirs": dirs, "is_server": bool(soft or "server.properties" in names),
-            "mc": mc, "build": build}
+            "mc": mc, "build": build, "jar": jar or "", "jar_matched": bool(jar_soft)}
 
 
 def _cached_states(conn, servers):
@@ -4679,13 +4701,16 @@ def api_servers_create():
     if set_id and not conn.execute("SELECT 1 FROM sets WHERE id=? AND owner_id=?", (set_id, current_user()["id"])).fetchone():
         set_id = None
     name = str(data.get("name") or "").strip()[:80] or (Path(root).name if root else ident)
+    jar = Path(str(data.get("jar") or "")).name if kind == "local" else ""
+    if jar and not (Path(root) / jar).is_file():
+        jar = ""
     mc = str(data.get("mc_version") or "").strip()
     mc = mc if re.fullmatch(r"\d+\.\d+(\.\d+)?", mc) and software not in _SOFT_PROXY else ""
     with LOCK:
-        conn.execute("INSERT INTO servers (identifier, name, plugin_dir, set_id, created_at, owner_id, kind, root_dir, software, dirs, mc_version) "
-                     "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+        conn.execute("INSERT INTO servers (identifier, name, plugin_dir, set_id, created_at, owner_id, kind, root_dir, software, dirs, mc_version, server_jar) "
+                     "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                      (ident, name, "/" + (dirs.get("plugin") or dirs.get("mod") or "plugins"), set_id, utcnow(),
-                      current_user()["id"], kind, root, software, json.dumps(dirs), mc))
+                      current_user()["id"], kind, root, software, json.dumps(dirs), mc, jar))
         conn.commit()
     audit("サーバーを追加", name, "フォルダ" if kind == "local" else "Pterodactyl")
     return jsonify(ok=True)
@@ -4704,7 +4729,53 @@ def api_servers_detect():
         fs = _LocalFiles(_local_root(data.get("root_dir")))
     else:
         fs = _PteroFiles(str(data.get("identifier") or ""))
-    return jsonify(detect_server(fs))
+    jar = Path(str(data.get("jar") or "")).name or None
+    return jsonify(detect_server(fs, jar))
+
+
+@app.get("/api/fs/browse")
+@require("editor")
+def api_fs_browse():
+    """このパネルから見えるフォルダをたどる(フォルダのサーバーを選ぶため。名前だけを返し、中身は読まない)。"""
+    if not has_perm("system"):
+        raise ApiError("フォルダの一覧は、「パネル全体の設定」の権限がある人だけが見られます", 403)
+    p = str(request.args.get("path") or "").strip()
+    if not p:  # はじめの場所: ドライブ・ホーム・よく使う場所・登録済みのサーバー
+        starts = []
+        if os.name == "nt":
+            starts += [f"{c}:\\" for c in "CDEFGHIJKLMNOPQRSTUVWXYZ" if os.path.isdir(f"{c}:\\")]
+        else:
+            starts.append("/")
+        for d in (str(Path.home()), "/servers", "/srv", "/mnt", "/opt", "/home", "/data", "/minecraft"):
+            if os.path.isdir(d) and d not in starts:
+                starts.append(d)
+        for r in db().execute("SELECT DISTINCT root_dir FROM servers WHERE kind='local' AND root_dir<>''"):
+            parent = str(Path(r[0]).parent)
+            if os.path.isdir(parent) and parent not in starts:
+                starts.append(parent)
+        return jsonify(path="", parent="", starts=starts, dirs=[], jars=[], is_server=False)
+    try:
+        path = Path(p).resolve()
+        if not path.is_dir():
+            raise ApiError("フォルダが見つかりません")
+        dirs, jars = [], []
+        for e in sorted(path.iterdir(), key=lambda x: x.name.lower()):
+            if len(dirs) + len(jars) >= 800:
+                break
+            try:
+                if e.is_dir():
+                    dirs.append({"name": e.name, "server": (e / "server.properties").is_file()})
+                elif e.is_file() and e.name.lower().endswith(".jar"):
+                    jars.append({"name": e.name, "size": e.stat().st_size, "soft": _soft_from_jar(e.name)})
+            except OSError:
+                continue
+    except PermissionError:
+        raise ApiError("このフォルダは開けません(アクセス権がありません)")
+    except OSError as e:
+        raise ApiError(f"フォルダを開けません({e.strerror or e})")
+    parent = str(path.parent) if path.parent != path else ""
+    return jsonify(path=str(path), parent=parent, dirs=dirs, jars=jars, is_server=(path / "server.properties").is_file(),
+                   starts=[])
 
 
 def _server_row(srv, need="view"):
@@ -4751,6 +4822,8 @@ def api_servers_update(srv):
                 if k == "mc_version" and v and not re.fullmatch(r"\d+\.\d+(\.\d+)?", v):
                     raise ApiError("MC のバージョンは 1.21.4 のように入力してください")
                 conn.execute(f"UPDATE servers SET {k}=? WHERE id=?", (v, srv))
+        if "server_jar" in data:
+            conn.execute("UPDATE servers SET server_jar=? WHERE id=?", (Path(str(data["server_jar"] or "")).name[:200], srv))
         if "rcon_port" in data:
             conn.execute("UPDATE servers SET rcon_port=? WHERE id=?", (max(0, min(65535, int(data["rcon_port"] or 0))), srv))
         if data.get("rcon_password"):

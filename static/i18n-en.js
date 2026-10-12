@@ -1373,6 +1373,19 @@ window.CS_EN = {
   "サーバーに入れられませんでした": "Could not add it to the server",
   "版を選ばなければ、ライブラリの最新を入れます。同じアドオンの別の版がサーバーにあれば置き換えます(退避されるので巻き戻せます)。": "Without a version choice, the library's latest is added. Other versions of the same add-on on the server are replaced (backed up, so you can roll back).",
   "入れる版": "Version to add",
+  // 01.21: フォルダのサーバーを jar から追加
+  "上へ": "Up",
+  "このフォルダを使う": "Use this folder",
+  "場所を入力する": "Type a path",
+  "開く": "Open",
+  "選ぶ": "Choose",
+  "選び直す": "Change",
+  "はじめの場所": "Start",
+  "フォルダも jar もありません": "No folders or jars here",
+  "Minecraft サーバー": "Minecraft server",
+  "サーバーソフト: ": "Server software: ",
+  "jar を選ばずに追加(フォルダの中身から判定します)": "Added without a jar (detected from the folder's files)",
+  "このフォルダは開けません(アクセス権がありません)": "This folder can't be opened (no permission)",
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [

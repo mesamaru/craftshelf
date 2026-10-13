@@ -1676,28 +1676,59 @@ class Job:
                 ("id", "kind", "title", "user", "total", "done", "status", "log", "result", "started", "finished")}
 
 
-def start_job(kind, title, fn, *args, user=""):
+class _Lane:
+    """同じ種類の処理を、受け付けた順に 1 件ずつ動かすための番号札。"""
+    def __init__(self):
+        self.cv = threading.Condition()
+        self.next = self.serving = 0
+
+
+_LANES = {}
+QUEUE_MAX = 50
+
+
+def start_job(kind, title, fn, *args, user="", queue=False):
+    """処理を別のスレッドで動かす。同じ種類の処理が動いているとき、queue=True なら順番待ちにして
+    前の処理が終わってから始める(同時には動かさないので、サーバーの負荷は増えない)。False なら断る。"""
     with _JOBS_LOCK:
-        if any(j.kind == kind and j.status == "running" for j in _JOBS.values()):
+        active = [j for j in _JOBS.values() if j.kind == kind and j.status in ("running", "queued")]
+        if active and not queue:
             raise ApiError("同じ種類の処理がすでに実行中です。終わるまでお待ちください", 409)
+        if len(active) >= QUEUE_MAX:
+            raise ApiError("順番待ちの処理が多すぎます。少し待ってからお試しください", 429)
         job = Job(kind, title, user)
+        if active:
+            job.status = "queued"
+            job.note(f"順番待ち: 前の {len(active)} 件が終わってから始めます")
         _JOBS[job.id] = job
-        for old in sorted(_JOBS.values(), key=lambda j: j.started)[:-20]:  # 古い記録は捨てる
-            if old.status != "running":
-                _JOBS.pop(old.id, None)
+        lane = _LANES.setdefault(kind, _Lane())
+        ticket = lane.next
+        lane.next += 1
+        done_jobs = [j for j in sorted(_JOBS.values(), key=lambda j: j.started) if j.status not in ("running", "queued")]
+        for old in done_jobs[:-20]:  # 古い記録は捨てる
+            _JOBS.pop(old.id, None)
 
     def run():
-        with app.app_context():
-            try:
-                fn(job, *args)
-                job.status = "done"
-            except Exception as e:  # noqa: BLE001
-                job.status = "error"
-                job.note(f"エラー: {getattr(e, 'message', e)}")
-                app.logger.exception("job failed")
-                notify_event("errors", f"{job.title} が失敗しました", [str(getattr(e, "message", e))[:500]], "error")
-            finally:
-                job.finished = utcnow()
+        with lane.cv:
+            while lane.serving != ticket:
+                lane.cv.wait()
+        job.status = "running"
+        try:
+            with app.app_context():
+                try:
+                    fn(job, *args)
+                    job.status = "done"
+                except Exception as e:  # noqa: BLE001
+                    job.status = "error"
+                    job.note(f"エラー: {getattr(e, 'message', e)}")
+                    app.logger.exception("job failed")
+                    notify_event("errors", f"{job.title} が失敗しました", [str(getattr(e, "message", e))[:500]], "error")
+                finally:
+                    job.finished = utcnow()
+        finally:
+            with lane.cv:
+                lane.serving += 1
+                lane.cv.notify_all()
 
     threading.Thread(target=run, daemon=True, name=f"job-{kind}").start()
     return job
@@ -5208,7 +5239,7 @@ def api_servers_sync(srv):
     _store, target = active_store()
     data = request.get_json(silent=True) or {}
     job = start_job(f"server-{srv}", f"「{row['name']}」を同期", _server_job, srv, target["id"], "sync", [], {},
-                    _truthy(data.get("restart")), current_user()["username"], user=current_user()["username"])
+                    _truthy(data.get("restart")), current_user()["username"], user=current_user()["username"], queue=True)
     return jsonify(job.public())
 
 
@@ -5235,7 +5266,7 @@ def api_servers_push(srv):
         raise ApiError("送るものを選んでください")
     job = start_job(f"server-{srv}", f"「{row['name']}」へ転送", _server_job, srv, target["id"], "push",
                     item_ids, version_ids, _truthy(data.get("restart")), current_user()["username"], _truthy(data.get("force")),
-                    user=current_user()["username"])
+                    user=current_user()["username"], queue=True)
     return jsonify(job.public())
 
 
@@ -5278,7 +5309,7 @@ def api_servers_import(srv):
     if not names:
         raise ApiError("取り込むファイルを選んでください")
     job = start_job(f"server-{srv}", f"「{row['name']}」から取り込み", _server_import_job, srv, target["id"], names,
-                    current_user()["username"], user=current_user()["username"])
+                    current_user()["username"], user=current_user()["username"], queue=True)
     return jsonify(job.public())
 
 
@@ -6011,7 +6042,7 @@ def api_server_rollback(srv, snap):
         raise ApiError("見つかりません", 404)
     data = request.get_json(silent=True) or {}
     job = start_job(f"server-{srv}", f"「{row['name']}」を巻き戻し", _rollback_job, srv, snap, _truthy(data.get("restart")),
-                    current_user()["username"], user=current_user()["username"])
+                    current_user()["username"], user=current_user()["username"], queue=True)
     return jsonify(job.public())
 
 

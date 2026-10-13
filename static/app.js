@@ -2020,13 +2020,14 @@ async function waitJob(id) {
     await new Promise((r) => setTimeout(r, 800));
     let j;
     try { j = await api(`/api/jobs/${id}`); } catch { return null; }
-    if (j.status !== "running") { pollJobs(); return j; }
+    if (!["running", "queued"].includes(j.status)) { pollJobs(); return j; }
   }
 }
 /* サーバーの中身(種類ごとのタブ・1 件ずつの更新・見送り・無効化・対応バージョンの確認) */
 async function inventoryDialog(s, startCat = "all", container = null) {
   let tab = startCat, filter = "all", tagF = "", sort = state.invSort || "status", d = null, selecting = false;
   const sel = new Set();
+  const pending = new Map();  // "up:<item_id>" / "imp:<path>" → "queued" | "running"(押したものは順番に処理される)
   const ro = s.access === "view";
   await host(container, `「${s.name}」の中身`, `<div class="db" id="invBody"><div style="text-align:center;padding:24px"><span class="spinner lg"></span><p style="margin-top:10px">サーバーのファイルを確認しています…(初回はファイルを読み込むため時間がかかります)</p></div></div>`, async (form, done) => {
     const body = $("#invBody", form);
@@ -2062,7 +2063,10 @@ async function inventoryDialog(s, startCat = "all", container = null) {
       const count = (c) => d.files.filter((f) => c === "all" || f.category === c).length;
       const upd = (c) => d.files.filter((f) => (c === "all" || f.category === c) && f.status === "outdated").length;
       const fchip = (k, label, n) => n || k === "all" ? `<button class="tagchip" type="button" data-flt="${k}" aria-pressed="${filter === k}">${label}${k === "all" ? "" : ` ${n}`}</button>` : "";
+      const wait = (k) => pending.has(k) ? `<span class="badge pend">${pending.get(k) === "running" ? '<span class="spinner"></span>処理中' : `${icon("clock")}順番待ち`}</span>` : "";
       const actBtn = (f) => {
+        const pw = wait(`up:${f.item_id}`) || wait(`imp:${f.path}`);
+        if (pw) return pw;
         if (ro) return `<span class="badge ${STAT[f.status][0]}">${STAT[f.status][1]}</span>`;
         if (f.status === "unregistered" || f.status === "newer") return `<button class="btn small tinted" type="button" data-imp1="${esc(f.path)}" title="このファイルをライブラリに取り込む">${icon("download")}取り込む</button>`;
         if (f.status === "disabled" || !f.item_id || !["outdated", "different"].includes(f.status)) return `<span class="badge ${STAT[f.status][0]}">${STAT[f.status][1]}</span>`;
@@ -2094,7 +2098,7 @@ async function inventoryDialog(s, startCat = "all", container = null) {
             <span class="subtitle">${esc(f.version || "?")}${(f.status === "outdated" || f.status === "different") && f.latest_version ? ` → <b>${esc(f.latest_version)}</b>` : f.status === "newer" && f.latest_version ? ` · ライブラリは ${esc(f.latest_version)}` : ""} · <span translate="no">${esc(f.path)}</span>${tagsOf(f).length ? ` · ${tagsOf(f).map((t) => `#${esc(t)}`).join(" ")}` : ""}</span></span>
           <span class="trail">${selecting ? "" : `${actBtn(f)}${ro ? "" : `<button class="icon-btn sm" type="button" data-rowmenu="${esc(f.path)}" title="その他" aria-label="その他の操作">${icon("more")}</button>`}`}</span></div>`).join("") || `<div class="empty">${filter === "all" && !tagF ? "ファイルがありません" : "あてはまるものはありません"}</div>`}</div>
         ${missing.length && !selecting ? `<div class="group-title">セットにあってサーバーに無いもの</div><div class="group">${missing.map((m) => `<div class="row"><span class="cicon sm c-${m.category}">${catGlyph(m.category)}</span><span class="main" data-openit="${m.item_id}" role="button" tabindex="0"><span class="title" translate="no">${esc(m.item_name)}${m.compat === false ? ` <span class="badge err">MC ${esc(d.mc_version)} 非対応</span>` : ""}</span><span class="subtitle">${esc(m.version)}${m.no_dir ? ` · ${esc(CATS[m.category] || m.category)}のフォルダが未設定のため入れられません` : ""}</span></span>
-          <span class="trail">${m.no_dir || ro ? '<span class="badge upd">未導入</span>' : `<button class="btn small tinted" type="button" data-up="${m.item_id}"${m.compat === false ? ' data-force="1"' : ""}>${icon("plus")}入れる</button>`}</span></div>`).join("")}</div>` : ""}
+          <span class="trail">${wait(`up:${m.item_id}`) || (m.no_dir || ro ? '<span class="badge upd">未導入</span>' : `<button class="btn small tinted" type="button" data-up="${m.item_id}"${m.compat === false ? ' data-force="1"' : ""}>${icon("plus")}入れる</button>`)}</span></div>`).join("")}</div>` : ""}
         ${ro ? "" : selecting ? `<div class="df inv-selbar">
             <button class="sbtn" type="button" data-bulk="import"${n((f) => ["unregistered", "newer"].includes(f.status)) ? "" : " disabled"}>${icon("download")}<span>取り込む ${n((f) => ["unregistered", "newer"].includes(f.status)) || ""}</span></button>
             <button class="sbtn" type="button" data-bulk="update"${n((f) => f.item_id && ["outdated", "different"].includes(f.status)) ? "" : " disabled"}>${icon("refresh")}<span>更新 ${n((f) => f.item_id && ["outdated", "different"].includes(f.status)) || ""}</span></button>
@@ -2104,18 +2108,27 @@ async function inventoryDialog(s, startCat = "all", container = null) {
           ${syncable ? `<button class="btn filled block" type="button" data-inv="sync">${icon("refresh")}更新があるもの ${syncable} 件をまとめて同期</button>` : `<div class="result ok">${icon("check")} 同期で入れ替えるものはありません</div>`}
         </div>`}`;
     };
-    const runJob = async (btn, p, label) => {
-      await busy(btn, async () => {
-        try {
-          const j = await p();
-          const r = await waitJob(j.id);
-          if (r && r.status === "done") { toast(label); await load(); }
-          else if (r) toast((r.log || []).filter((x) => !x.startsWith("完了")).slice(-1)[0] || "できませんでした", true);
-        } catch (ex) { toast(ex.message, true); }
-      }, "処理中…");
+    // 押したらすぐに受け付け(順番待ち)、ボタンは「順番待ち/処理中」にして、ほかのボタンは続けて押せる
+    const runJob = async (keys, p, label) => {
+      keys.forEach((k) => pending.set(k, "queued")); draw();
+      try {
+        const j = await p();
+        for (;;) {
+          await new Promise((r) => setTimeout(r, 800));
+          let x; try { x = await api(`/api/jobs/${j.id}`); } catch { break; }
+          if (x.status === "running" && keys.some((k) => pending.get(k) !== "running")) { keys.forEach((k) => pending.set(k, "running")); draw(); }
+          if (!["running", "queued"].includes(x.status)) {
+            if (x.status === "done") toast(label); else toast((x.log || []).filter((y) => !y.startsWith("完了")).slice(-1)[0] || "できませんでした", true);
+            break;
+          }
+        }
+      } catch (ex) { toast(ex.message, true); }
+      keys.forEach((k) => pending.delete(k));
+      pollJobs();
+      if (![...pending.values()].length) await load(); else draw();  // まとめて終わってから読み直す(途中の表示はそのまま)
     };
-    const push = (btn, ids, force) => runJob(btn, () => api(`/api/servers/${s.id}/push`, { json: { item_ids: ids, force } }), "更新しました");
-    const importPaths = (btn, names) => runJob(btn, () => api(`/api/servers/${s.id}/import`, { json: { names } }), "ライブラリに取り込みました").then(() => refresh());
+    const push = (btn, ids, force) => runJob(ids.map((i) => `up:${i}`), () => api(`/api/servers/${s.id}/push`, { json: { item_ids: ids, force } }), "更新しました");
+    const importPaths = (btn, names) => runJob(names.map((n) => `imp:${n}`), () => api(`/api/servers/${s.id}/import`, { json: { names } }), "ライブラリに取り込みました").then(() => refresh());
     const openItem = (iid) => {
       const it = state.items.find((i) => i.id === iid);
       if (!it) { toast("このアドオンはライブラリにありません", true); return; }
@@ -3041,14 +3054,14 @@ async function pollJobs() {
     const { jobs } = await api("/api/jobs");
     const first = !state.jobsLoaded; state.jobsLoaded = true;
     for (const j of jobs) {
-      if (j.status !== "running" && !seenDone.has(j.id)) {
+      if (!["running", "queued"].includes(j.status) && !seenDone.has(j.id)) {
         seenDone.add(j.id);
         if (!first && j.kind !== "selfupdate") { toast(`${j.title}: ${j.status === "done" ? "完了しました" : "エラーで終了しました"}`, j.status !== "done"); refresh(); }
       }
     }
-    state.jobs = jobs.filter((j) => j.kind !== "selfupdate" && (j.status === "running" || Date.now() - new Date(j.finished).getTime() < 5 * 60 * 1000) && !state.hiddenJobs?.has(j.id));
+    state.jobs = jobs.filter((j) => j.kind !== "selfupdate" && (["running", "queued"].includes(j.status) || Date.now() - new Date(j.finished).getTime() < 5 * 60 * 1000) && !state.hiddenJobs?.has(j.id));
     renderJobs();
-    jobTimer = setTimeout(pollJobs, jobs.some((j) => j.status === "running") ? 1500 : 15000);
+    jobTimer = setTimeout(pollJobs, jobs.some((j) => ["running", "queued"].includes(j.status)) ? 1500 : 15000);
   } catch { jobTimer = setTimeout(pollJobs, 15000); }
 }
 /* 処理の進み具合: ライブラリでは詳しく、ダッシュボードでは小さく1行で。サーバーの処理はサーバー画面にも出す */
@@ -3061,8 +3074,8 @@ function renderJobs() {
     $("#jobs").innerHTML = jobs.length ? `<div class="jobs-mini">${jobs.map((j) => {
       const pct = j.total ? Math.round(j.done / j.total * 100) : 0;
       return `<button class="jm${j.status === "error" ? " error" : ""}" type="button" data-jgo="1" title="ライブラリで詳しく見る">
-        ${j.status === "running" ? '<span class="spinner"></span>' : icon(j.status === "done" ? "check" : "x")}
-        <span class="t">${esc(j.title)}</span><span class="n">${j.status === "running" ? `${j.done} / ${j.total || "?"}` : j.status === "done" ? "完了" : "エラー"}</span>
+        ${j.status === "running" ? '<span class="spinner"></span>' : icon(j.status === "queued" ? "clock" : j.status === "done" ? "check" : "x")}
+        <span class="t">${esc(j.title)}</span><span class="n">${j.status === "running" ? `${j.done} / ${j.total || "?"}` : j.status === "queued" ? "順番待ち" : j.status === "done" ? "完了" : "エラー"}</span>
         ${j.status === "running" ? `<span class="bar"><i style="width:${pct}%"></i></span>` : ""}</button>`;
     }).join("")}</div>` : "";
     return;
@@ -3070,9 +3083,9 @@ function renderJobs() {
   $("#jobs").innerHTML = jobs.map((j) => {
     const pct = j.total ? Math.round(j.done / j.total * 100) : 0;
     return `<div class="job${j.status === "error" ? " error" : ""}">
-      <div class="jl"><div class="l">${j.status === "running" ? '<span class="spinner"></span>' : `<span class="cicon sm ${j.status === "done" ? "c-mod" : "c-red"}">${icon(j.status === "done" ? "check" : "x")}</span>`}
-        <div><div style="font-weight:600">${esc(j.title)}</div><div class="muted">${j.status === "running" ? `実行中 ${j.done} / ${j.total || "?"}` : j.status === "done" ? "完了" : "エラーで終了"}${j.user ? ` · ${esc(j.user)}` : ""}</div></div></div>
-        ${j.status !== "running" ? `<button class="close-x" type="button" data-jclose="${j.id}" aria-label="閉じる">${icon("x")}</button>` : ""}</div>
+      <div class="jl"><div class="l">${j.status === "running" ? '<span class="spinner"></span>' : `<span class="cicon sm ${j.status === "queued" ? "c-gray" : j.status === "done" ? "c-mod" : "c-red"}">${icon(j.status === "queued" ? "clock" : j.status === "done" ? "check" : "x")}</span>`}
+        <div><div style="font-weight:600">${esc(j.title)}</div><div class="muted">${j.status === "running" ? `実行中 ${j.done} / ${j.total || "?"}` : j.status === "queued" ? "順番待ち(前の処理が終わると始まります)" : j.status === "done" ? "完了" : "エラーで終了"}${j.user ? ` · ${esc(j.user)}` : ""}</div></div></div>
+        ${!["running", "queued"].includes(j.status) ? `<button class="close-x" type="button" data-jclose="${j.id}" aria-label="閉じる">${icon("x")}</button>` : ""}</div>
       ${j.status === "running" ? `<div class="progress${j.total ? "" : " indet"}"><i style="width:${pct}%"></i></div>` : ""}
       ${j.log.length ? `<details${j.status !== "running" ? " open" : ""}><summary>記録 (${j.log.length})</summary><div class="log">${esc(j.log.slice(-40).join("\n"))}</div></details>` : ""}
     </div>`;

@@ -1386,6 +1386,11 @@ window.CS_EN = {
   "サーバーソフト: ": "Server software: ",
   "jar を選ばずに追加(フォルダの中身から判定します)": "Added without a jar (detected from the folder's files)",
   "このフォルダは開けません(アクセス権がありません)": "This folder can't be opened (no permission)",
+  // 01.22: 順番待ち
+  "順番待ち": "Queued",
+  "処理中": "Working",
+  "順番待ち(前の処理が終わると始まります)": "Queued (starts when the previous task finishes)",
+  "順番待ちの処理が多すぎます。少し待ってからお試しください": "Too many queued tasks. Try again shortly.",
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [

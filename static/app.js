@@ -1934,34 +1934,124 @@ function drawCompare() {
   const sel = (state.servers || []).filter((s) => (state.cmpSel || []).includes(s.id));
   const box = $("#cmpTable"); if (!box) return;
   if (!sel.length) { box.innerHTML = `<div class="empty">比較するサーバーを選んでください</div>`; return; }
+  state.cmpPick = state.cmpPick || new Map();   // "サーバーID:アイテムID" → 導入する
+  state.cmpBusy = state.cmpBusy || new Map();   // "サーバーID:行のキー" → 順番待ち / 処理中
   const rows = new Map();
   for (const s of sel) {
     for (const f of (state.cmpData[s.id] || {}).files || []) {
       const key = f.item_id ? `i${f.item_id}` : `n${(f.plugin_name || f.name).toLowerCase().replace(/[\W_]+/g, "")}`;
-      if (!rows.has(key)) rows.set(key, { name: f.item_name || f.plugin_name || f.name, item_id: f.item_id, latest: f.latest_version, cells: {} });
+      if (!rows.has(key)) rows.set(key, { key, name: f.item_name || f.plugin_name || f.name, item_id: f.item_id, latest: f.latest_version, category: f.category, cells: {} });
       rows.get(key).cells[s.id] = f;
     }
   }
   let list = [...rows.values()].sort((a, b) => a.name.localeCompare(b.name, "ja", { numeric: true }));
   const differs = (r) => { const vals = sel.map((s) => (r.cells[s.id] ? r.cells[s.id].version || "?" : "-")); return new Set(vals).size > 1; };
   if (state.cmpDiff) list = list.filter(differs);
-  const cell = (f, r) => {
-    if (!f) return `<td class="cmp-cell none"><span class="cmp-dash">—</span></td>`;
-    const cls = f.status === "latest" ? "ok" : f.status === "outdated" ? "upd" : f.status === "unregistered" ? "unk" : "";
-    return `<td class="cmp-cell"><span class="cmp-mark ${cls}">${icon(f.status === "outdated" ? "refresh" : "check")}</span><div class="cmp-ver">${esc(f.version || "?")}</div>
-      <div class="cmp-sub">${f.status === "outdated" ? `→ ${esc(r.latest || "")}` : f.status === "unregistered" ? "未登録" : f.status === "different" ? "別のファイル" : "最新"}</div></td>`;
+  const canEdit = (s) => s.access !== "view";
+  const cell = (s, r) => {
+    const f = r.cells[s.id];
+    const busyK = `${s.id}:${r.key}`;
+    if (state.cmpBusy.has(busyK)) return `<td class="cmp-cell"><span class="badge pend">${state.cmpBusy.get(busyK) === "running" ? '<span class="spinner"></span>処理中' : `${icon("clock")}順番待ち`}</span></td>`;
+    if (!f) {
+      const can = r.item_id && canEdit(s) && (s.dirs || {})[r.category];
+      if (!can) return `<td class="cmp-cell none"><span class="cmp-dash">—</span></td>`;
+      const on = state.cmpPick.has(`${s.id}:${r.item_id}`);
+      return `<td class="cmp-cell none pickable${on ? " on" : ""}"><button type="button" class="cmp-add" data-cpick="${s.id}:${r.item_id}" aria-pressed="${on}" title="このサーバーに導入する">${icon(on ? "check" : "plus")}<span>${on ? "導入する" : "導入"}</span></button></td>`;
+    }
+    const cls = f.status === "latest" ? "ok" : f.status === "outdated" ? "upd" : f.status === "unregistered" ? "unk" : f.status === "newer" ? "acc" : "";
+    const sub = { outdated: `→ ${esc(r.latest || "")}`, unregistered: "未登録", different: "別のファイル", newer: "サーバーの方が新しい", disabled: "無効" }[f.status] || "最新";
+    return `<td class="cmp-cell${canEdit(s) ? " act" : ""}${f.status === "disabled" ? " dim" : ""}"${canEdit(s) ? ` data-ccell="${s.id}" data-path="${esc(f.path)}" role="button" tabindex="0" title="操作を選ぶ"` : ""}>
+      <span class="cmp-mark ${cls}">${icon(f.status === "outdated" ? "refresh" : "check")}</span><div class="cmp-ver">${esc(f.version || "?")}</div><div class="cmp-sub">${sub}</div></td>`;
   };
+  const picks = [...state.cmpPick.keys()];
   box.innerHTML = `<div class="cmp-wrap"><table class="cmp">
     <thead><tr><th class="cmp-name"></th>${sel.map((s) => {
       const d = state.cmpData[s.id] || {};
-      return `<th><div class="cmp-head"><span class="cicon c-teal">${icon("server")}</span><div class="cmp-title">${esc(s.name)}</div>
+      return `<th><div class="cmp-head"><span class="cicon c-teal">${icon(s.kind === "local" ? "folder" : "server")}</span><div class="cmp-title">${esc(s.name)}</div>
         <div class="cmp-sub">${d.error ? esc(d.error) : `${(d.files || []).length} 個 · ${esc(dirsLabel(s))}`}</div>
         ${d.files && d.files.some((f) => f.status === "outdated") ? `<span class="badge upd">更新あり ${d.files.filter((f) => f.status === "outdated").length}</span>` : d.error ? "" : '<span class="badge ok">最新</span>'}</div></th>`;
     }).join("")}</tr></thead>
-    <tbody>${list.map((r) => `<tr class="${differs(r) ? "diff" : ""}"><th class="cmp-name">${r.item_id ? `<button class="linkish" type="button" data-open="${r.item_id}">${esc(r.name)}</button>` : esc(r.name)}</th>${sel.map((s) => cell(r.cells[s.id], r)).join("")}</tr>`).join("")
+    <tbody>${list.map((r) => `<tr class="${differs(r) ? "diff" : ""}"><th class="cmp-name">${r.item_id ? `<button class="linkish" type="button" data-open="${r.item_id}">${esc(r.name)}</button>` : esc(r.name)}</th>${sel.map((s) => cell(s, r)).join("")}</tr>`).join("")
       || `<tr><td colspan="${sel.length + 1}"><div class="empty">${state.cmpDiff ? "違いはありません 🎉" : "プラグインがありません"}</div></td></tr>`}</tbody>
-  </table></div>`;
-  box.onclick = (e) => { const o = e.target.closest("[data-open]"); if (o) openPanel(Number(o.dataset.open)); };
+  </table></div>
+  <p class="group-foot">「導入」を押すと、そのサーバーに入れるものとして選べます。入っているものを押すと、更新・版の変更・削除などができます。</p>
+  ${picks.length ? `<div class="cmp-bar"><span><b>${picks.length} 件</b>を導入します</span><span class="sp"></span>
+    <button class="btn small plain" type="button" data-cclear>選択を解除</button><button class="btn small filled" type="button" data-cinstall>${icon("download")}導入する</button></div>` : ""}`;
+  box.onclick = cmpClick;
+}
+/* 比較の表から操作したとき: 順番待ちで実行して、終わったらそのサーバーの列だけ読み直す */
+async function cmpRun(sid, keys, call, label) {
+  keys.forEach((k) => state.cmpBusy.set(`${sid}:${k}`, "queued")); drawCompare();
+  try {
+    const j = await call();
+    for (;;) {
+      await new Promise((r) => setTimeout(r, 800));
+      let x; try { x = await api(`/api/jobs/${j.id}`); } catch { break; }
+      if (x.status === "running" && keys.some((k) => state.cmpBusy.get(`${sid}:${k}`) !== "running")) { keys.forEach((k) => state.cmpBusy.set(`${sid}:${k}`, "running")); drawCompare(); }
+      if (!["running", "queued"].includes(x.status)) {
+        if (x.status === "done") toast(label); else toast((x.log || []).filter((y) => !y.startsWith("完了")).slice(-1)[0] || "できませんでした", true);
+        break;
+      }
+    }
+  } catch (ex) { toast(ex.message, true); }
+  keys.forEach((k) => state.cmpBusy.delete(`${sid}:${k}`));
+  try { state.cmpData[sid] = await api(`/api/servers/${sid}/inventory`); } catch { /* 前の内容のまま */ }
+  pollJobs(); drawCompare();
+}
+async function cmpChooseVersion(s, f) {
+  const it = state.items.find((i) => i.id === f.item_id);
+  if (!it) return;
+  const r = await sheet(`${sheetHead(`「${it.name}」の版を変える`)}<div class="db">
+      <p>「${esc(s.name)}」に入っている ${esc(f.version || "?")} を、選んだ版に入れ替えます(今の版は退避され、「履歴」から戻せます)。</p>
+      <div class="group">${it.versions.map((v, i) => `<label class="toggle-row"><span class="main"><b>${esc(verLabel(v.version))}</b>${i === 0 ? ' <span class="badge ok">最新</span>' : ""}${v.id === f.version_id ? ' <span class="badge">今の版</span>' : ""}
+        <small>${esc(v.filename)} · ${fmtSize(v.size)}</small></span><input type="radio" class="switch" name="cv" value="${v.id}"${v.id === f.version_id ? " disabled" : ""}></label>`).join("")}</div>
+      ${it.source ? `<button class="btn plain small" type="button" data-cvsrc>${icon("search")}ライブラリに無い版を配布元から選ぶ</button>` : ""}
+    </div><div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok>この版にする</button></div>`, (form, done) => {
+    const first = form.querySelector("[name=cv]:not([disabled])"); if (first) first.checked = true;
+    form.querySelector("[data-ok]").onclick = () => { const c = form.querySelector("[name=cv]:checked"); if (!c) { toast("版を選んでください", true); return; } done(Number(c.value)); };
+    form.querySelector("[data-cvsrc]")?.addEventListener("click", () => done("src"));
+  });
+  if (r === "src") {
+    const so = it.source;
+    await pickVersion({ provider: so.provider, project_id: so.project_id, title: it.name, kind: it.category },
+      { loader: SEARCH_LOADERS[s.software] ? s.software : "", mc: s.mc_version || "", kind: it.category }, { toServer: s });
+    try { state.cmpData[s.id] = await api(`/api/servers/${s.id}/inventory`); } catch { /* そのまま */ }
+    drawCompare();
+    return;
+  }
+  if (r) cmpRun(s.id, [`i${it.id}`], () => api(`/api/servers/${s.id}/push`, { json: { item_ids: [it.id], version_ids: { [it.id]: r }, force: true } }), "版を変えました");
+}
+async function cmpClick(e) {
+  const o = e.target.closest("[data-open]"); if (o) { openPanel(Number(o.dataset.open)); return; }
+  const pk = e.target.closest("[data-cpick]");
+  if (pk) { const k = pk.dataset.cpick; if (state.cmpPick.has(k)) state.cmpPick.delete(k); else state.cmpPick.set(k, true); drawCompare(); return; }
+  if (e.target.closest("[data-cclear]")) { state.cmpPick.clear(); drawCompare(); return; }
+  if (e.target.closest("[data-cinstall]")) {
+    const by = new Map();
+    for (const k of state.cmpPick.keys()) { const [sid, iid] = k.split(":").map(Number); if (!by.has(sid)) by.set(sid, []); by.get(sid).push(iid); }
+    state.cmpPick.clear();
+    for (const [sid, ids] of by) cmpRun(sid, ids.map((i) => `i${i}`), () => api(`/api/servers/${sid}/push`, { json: { item_ids: ids } }), `${(state.servers.find((x) => x.id === sid) || {}).name} に導入しました`);
+    return;
+  }
+  const c = e.target.closest("[data-ccell]"); if (!c) return;
+  const s = state.servers.find((x) => x.id === Number(c.dataset.ccell));
+  const f = ((state.cmpData[s.id] || {}).files || []).find((x) => x.path === c.dataset.path); if (!f) return;
+  const key = f.item_id ? `i${f.item_id}` : `n${(f.plugin_name || f.name).toLowerCase().replace(/[\W_]+/g, "")}`;
+  const it = f.item_id && state.items.find((i) => i.id === f.item_id);
+  openMenu(c, [
+    ...(f.item_id && ["outdated", "different"].includes(f.status) ? [{ label: `最新(${f.latest_version || ""})に更新`, icon: "refresh", run: () => cmpRun(s.id, [key], () => api(`/api/servers/${s.id}/push`, { json: { item_ids: [f.item_id], force: f.compat === false } }), "更新しました") }] : []),
+    ...(it ? [{ label: "版を変える", icon: "arrows", run: () => cmpChooseVersion(s, f) }] : []),
+    ...(["unregistered", "newer"].includes(f.status) ? [{ label: "ライブラリに取り込む", icon: "download", run: () => cmpRun(s.id, [key], () => api(`/api/servers/${s.id}/import`, { json: { names: [f.path] } }), "取り込みました").then(() => refresh()) }] : []),
+    { label: f.status === "disabled" ? "有効にする" : "無効にする(消さずに外す)", icon: f.status === "disabled" ? "check" : "eyeoff", run: async () => {
+      try { await api(`/api/servers/${s.id}/toggle`, { json: { path: f.path, enable: f.status === "disabled" } }); toast("切り替えました。反映には再起動が必要です"); state.cmpData[s.id] = await api(`/api/servers/${s.id}/inventory`); drawCompare(); } catch (ex) { toast(ex.message, true); }
+    } },
+    ...(it ? [{ label: "ライブラリで開く", icon: "box", run: () => openPanel(it.id) }] : []),
+    "-",
+    { label: "このサーバーから削除", icon: "trash", danger: true, run: async () => {
+      if (!await confirmSheet(`「${s.name}」から ${f.item_name || f.name} を削除しますか?`, "ファイルは退避されるので、「履歴」から元に戻せます。反映には再起動が必要です。", "削除")) return;
+      cmpRun(s.id, [key], () => api(`/api/servers/${s.id}/remove`, { json: { paths: [f.path] } }), "削除しました");
+    } },
+  ]);
 }
 
 const INV_STATUS = { latest: ["ok", "最新"], outdated: ["upd", "更新あり"], different: ["", "ライブラリと別のファイル"], unregistered: ["err", "未登録"] };

@@ -1391,6 +1391,21 @@ window.CS_EN = {
   "処理中": "Working",
   "順番待ち(前の処理が終わると始まります)": "Queued (starts when the previous task finishes)",
   "順番待ちの処理が多すぎます。少し待ってからお試しください": "Too many queued tasks. Try again shortly.",
+  // 01.23: 比較から導入・更新・版の変更・削除
+  "導入": "Install",
+  "導入する": "Install",
+  "選択を解除": "Clear selection",
+  "版を変える": "Change version",
+  "この版にする": "Use this version",
+  "版を変えました": "Version changed",
+  "ライブラリに無い版を配布元から選ぶ": "Pick a version not in the library from the source",
+  "このサーバーから削除": "Remove from this server",
+  "このサーバーに導入する": "Install on this server",
+  "操作を選ぶ": "Choose an action",
+  "版を選んでください": "Choose a version",
+  "今の版": "Current",
+  "「導入」を押すと、そのサーバーに入れるものとして選べます。入っているものを押すと、更新・版の変更・削除などができます。": "Press “Install” to pick it for that server. Press an installed one to update, change version, or remove it.",
+  "ファイルは退避されるので、「履歴」から元に戻せます。反映には再起動が必要です。": "The file is backed up, so you can restore it from History. A restart is needed to apply it.",
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [

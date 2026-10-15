@@ -5137,15 +5137,21 @@ def _push_versions(job, conn, srv_row, store, pairs, inventory, title="", fs=Non
             job.note(f"送信不要(同じファイルがあります): {item['name']} {v['version']}")
             continue
         dest = f"{d}/{v['filename']}"
-        for e in old:
-            keep(e["path"])
-            keep_config(e)
-        if dest in on_server:
-            keep(dest)  # 同じ名前のファイルを上書きする場合も退避
-        open_snap()
+        # 先にライブラリから取り出す。無ければこのアドオンだけ飛ばし、サーバーには手を付けない
         tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
         try:
             store.fetch(lib_rel(v["relpath"]), tmp)
+        except (StorageError, OSError):
+            tmp.unlink(missing_ok=True)
+            job.note(f"送れません(ライブラリにファイルが見つかりません): {item['name']} {v['version']}。保存先を確認してください")
+            continue
+        try:
+            for e in old:
+                keep(e["path"])
+                keep_config(e)
+            if dest in on_server:
+                keep(dest)  # 同じ名前のファイルを上書きする場合も退避
+            open_snap()
             fs.upload(d, tmp, v["filename"])
         finally:
             tmp.unlink(missing_ok=True)
@@ -5309,6 +5315,37 @@ def api_servers_import(srv):
     if not names:
         raise ApiError("取り込むファイルを選んでください")
     job = start_job(f"server-{srv}", f"「{row['name']}」から取り込み", _server_import_job, srv, target["id"], names,
+                    current_user()["username"], user=current_user()["username"], queue=True)
+    return jsonify(job.public())
+
+
+def _server_remove_job(job, srv, target_id, paths, user):
+    """サーバーからファイルを取り除く(先に退避するので「履歴」から戻せる)。"""
+    conn = db()
+    row = conn.execute("SELECT * FROM servers WHERE id=?", (srv,)).fetchone()
+    target = conn.execute("SELECT * FROM storage_targets WHERE id=?", (target_id,)).fetchone()
+    fs = server_fs(row)
+    inv, _m, _a = server_inventory(conn, row, target, note=job.note, fs=fs)
+    entries = [e for e in inv if e["path"] in paths]
+    job.total = len(entries)
+    if not entries:
+        job.note("取り除くファイルが見つかりません(すでに無いかもしれません)")
+    n = _push_versions(job, conn, row, open_store(target), [], inv, title=job.title, fs=fs, remove=entries)
+    job.result = {"removed": n}
+    audit("サーバーからアドオンを削除", row["name"], ", ".join(e["name"] for e in entries)[:300], user=user)
+
+
+@app.post("/api/servers/<int:srv>/remove")
+@require("editor")
+def api_servers_remove(srv):
+    row = _server_row(srv, "edit")
+    paths = [str(x) for x in (request.get_json(silent=True) or {}).get("paths") or []][:100]
+    dirs = set(server_dirs(row).values())
+    paths = [p for p in paths if p.rpartition("/")[0] in dirs and p.rpartition("/")[2] and not p.rpartition("/")[2].startswith(".")]
+    if not paths:
+        raise ApiError("削除するファイルを選んでください")
+    _store, target = active_store()
+    job = start_job(f"server-{srv}", f"「{row['name']}」から削除", _server_remove_job, srv, target["id"], paths,
                     current_user()["username"], user=current_user()["username"], queue=True)
     return jsonify(job.public())
 

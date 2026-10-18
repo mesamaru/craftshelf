@@ -359,8 +359,10 @@ def handle_error(e):
 def index():
     # 更新後に古い画面ファイルがブラウザに残らないよう、読み込むファイルにバージョンを付ける
     html = (BASE_DIR / "static" / "index.html").read_text(encoding="utf-8")
-    v = quote(running_version() + "-" + str(int((BASE_DIR / "static" / "app.js").stat().st_mtime)))
-    html = html.replace('/static/app.css"', f'/static/app.css?v={v}"').replace('/static/app.js"', f'/static/app.js?v={v}"').replace('/static/i18n-en.js"', f'/static/i18n-en.js?v={v}"')
+    st = BASE_DIR / "static"
+    newest = max(p.stat().st_mtime for p in [*st.glob("*.js"), *st.glob("*.css"), *(st / "js").glob("*.js")])
+    v = quote(running_version() + "-" + str(int(newest)))
+    html = re.sub(r'(/static/[\w/.-]+\.(?:js|css))"', rf'\1?v={v}"', html)
     return Response(html, mimetype="text/html", headers={"Cache-Control": "no-cache"})
 
 

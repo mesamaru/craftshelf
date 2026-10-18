@@ -171,7 +171,7 @@ c.post(f"/api/items/{LP['id']}/source", json={"url": "https://modrinth.com/plugi
 cl = c.get(f"/api/items/{LP['id']}/source/changelog").get_json()
 check(len(cl.get("entries", [])) >= 1, f"changelog entries {len(cl.get('entries', []))}")
 r = c.get("/")
-check("/static/app.js?v=" in r.get_data(as_text=True), "cache-busting query on assets")
+check("/static/js/base.js?v=" in r.get_data(as_text=True), "cache-busting query on assets")
 srv.shutdown()
 print("\nRESULT:", "ALL PASS" if not fails else f"{len(fails)} FAIL: {fails}")
 

@@ -41,7 +41,7 @@ def test_every_module_is_in_a_layer():
 # 公開リポジトリなので、個人の環境の情報を入れない(LAN のアドレス・共有名など)
 PRIVATE = re.compile(r"\b(?:172\.(?:1[6-9]|2\d|3[01])|192\.168)\.\d{1,3}\.\d{1,3}\b|MCPackLibrary|@gmail\.com")
 ALLOWED = {"192.168.1.10"}  # 画面の入力例として使っている、よくあるアドレス
-SCAN = ["*.py", "craftshelf/*.py", "static/*.js", "static/*.html", "tests/**/*.py", "*.md", "*.yml", "*.sh", "packaging/**/*"]
+SCAN = ["*.py", "craftshelf/*.py", "static/*.js", "static/js/*.js", "static/*.html", "tests/**/*.py", "*.md", "*.yml", "*.sh", "packaging/**/*"]
 
 
 def test_no_private_information():
@@ -57,7 +57,7 @@ def test_no_private_information():
 
 
 @pytest.mark.skipif(not shutil.which("node"), reason="node が無い環境")
-@pytest.mark.parametrize("js", ["static/app.js", "static/i18n-en.js"])
+@pytest.mark.parametrize("js", ["static/i18n-en.js", *sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "static" / "js").glob("*.js"))])
 def test_javascript_syntax(js):
     r = subprocess.run(["node", "--check", str(ROOT / js)], capture_output=True, text=True)
     assert r.returncode == 0, r.stderr

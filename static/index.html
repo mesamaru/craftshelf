@@ -11,7 +11,17 @@
 <link rel="apple-touch-icon" href="/static/icon.svg">
 <link rel="stylesheet" href="/static/app.css">
 <script src="/static/i18n-en.js" defer></script>
-<script src="/static/app.js" defer></script>
+<!-- 画面の処理は役割ごとに分けて、この順に読む(後のファイルは前のファイルの名前を使える) -->
+<script src="/static/js/base.js" defer></script>
+<script src="/static/js/auth.js" defer></script>
+<script src="/static/js/library.js" defer></script>
+<script src="/static/js/dashboard.js" defer></script>
+<script src="/static/js/servers.js" defer></script>
+<script src="/static/js/detail.js" defer></script>
+<script src="/static/js/jobs.js" defer></script>
+<script src="/static/js/settings.js" defer></script>
+<script src="/static/js/upload.js" defer></script>
+<script src="/static/js/init.js" defer></script>
 </head>
 <body>
 <div id="app" hidden>

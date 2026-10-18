@@ -480,7 +480,14 @@ def _restore_pending_snapshot():
             shutil.move(str(cur), str(keep / ("index.db" + suffix)))
     shutil.copyfile(src, DB_PATH)
     if (SNAPSHOT_DIR / name / "secret.key").is_file():
+        if SECRET_KEY_PATH.exists():
+            shutil.copyfile(SECRET_KEY_PATH, keep / "secret.key")
         shutil.copyfile(SNAPSHOT_DIR / name / "secret.key", SECRET_KEY_PATH)
+    bg_src, bg = SNAPSHOT_DIR / name / "backgrounds", CONFIG_DIR / "backgrounds"
+    if bg_src.is_dir():  # バックアップから戻すときは背景の画像も戻す
+        if bg.exists():
+            shutil.move(str(bg), str(keep / "backgrounds"))
+        shutil.copytree(bg_src, bg)
     print(f"[restore] {name} の状態に戻しました(戻す前のデータは {keep.name} に残しています)")
 
 

@@ -384,15 +384,36 @@ const SETTINGS_PAGES = {
         <div class="group-foot" style="margin:0">${st.last_backup ? `前回のバックアップ: ${esc(fmtDateTime(st.last_backup))}` : "まだバックアップしていません"}</div>
         <p style="font-size:12.5px">⚠ バックアップには保存先のパスワードなどを復号する鍵(secret.key)が含まれます。保存先のアクセス権に注意してください。</p>
         <div class="df row2" style="padding:0"><button class="btn" type="button" id="bkRun">今すぐバックアップ</button><button class="btn filled" type="button" id="bkSave">保存</button></div>
-        <div class="group-title">保存されているバックアップ</div><div class="group" id="bkList"><div class="empty"><span class="spinner"></span></div></div>`;
+        <div class="group-title">保存されているバックアップ</div><div class="group" id="bkList"><div class="empty"><span class="spinner"></span></div></div>
+        ${isAdmin() ? `<div class="group-title">バックアップから戻す</div>
+        <p style="font-size:12.5px">登録情報(アイテム・ユーザー・設定)・暗号鍵・背景画像を、バックアップの時点に戻します。保存先にあるアドオンのファイルはそのままです。いまのデータは「パネルのアップデート」の「アップデートの前の状態」に残るので、そこから元に戻せます。入れ直したあとでも、手元の zip から戻せます。</p>
+        <div class="df" style="padding:0"><button class="btn" type="button" id="bkUp">${icon("tray")}zip ファイルから戻す</button></div>
+        <input type="file" id="bkFile" accept=".zip,application/zip" hidden>` : ""}`;
       const save = () => api("/api/settings", { method: "PATCH", json: { backup_target_id: Number($("[name=target]", body).value), backup_keep: Number($("[name=keep]", body).value) } });
+      const restored = (r) => { toast(r.restart ? "戻して再起動します…" : "次の起動で戻します。CraftShelf を終了して、もう一度起動してください"); if (r.restart) setTimeout(() => location.reload(), 6000); };
+      const askRestore = (what) => cfm(`${what} の時点に戻しますか?
+
+登録情報・ユーザー・設定・暗号鍵が入れ替わり、パネルが再起動します。いまのデータは「アップデートの前の状態」に残ります。`);
+      body.addEventListener("click", (e) => {
+        const b = e.target.closest("[data-bkrestore]"); if (!b) return;
+        if (!askRestore(b.dataset.bkrestore)) return;
+        busy(b, async () => { try { restored(await api(`/api/backup/restore/${encodeURIComponent(b.dataset.bkrestore)}`, { method: "POST" })); } catch (ex) { toast(ex.message, true); } }, "");
+      });
+      $("#bkUp", body)?.addEventListener("click", () => $("#bkFile", body).click());
+      $("#bkFile", body)?.addEventListener("change", async (e) => {
+        const f = e.target.files[0]; e.target.value = "";
+        if (!f || !askRestore(f.name)) return;
+        const fd = new FormData(); fd.append("file", f);
+        await busy($("#bkUp", body), async () => { try { restored(await api("/api/backup/restore-upload", { method: "POST", body: fd })); } catch (ex) { toast(ex.message, true); } }, "確かめています…");
+      });
       $("#bkSave", body).onclick = (e) => busy(e.currentTarget, async () => { try { await save(); toast("保存しました"); renderSettings(); } catch (ex) { toast(ex.message, true); } });
       $("#bkRun", body).onclick = (e) => busy(e.currentTarget, async () => {
         try { await save(); jobStarted(await api("/api/backup/run", { method: "POST" })); } catch (ex) { toast(ex.message, true); }
       }, "開始しています…");
       try {
         const l = await api("/api/backup/list");
-        $("#bkList", body).innerHTML = l.files.length ? l.files.map((f) => `<a class="row noicon" href="/api/backup/download/${encodeURIComponent(f)}"><span class="main"><span class="title">${esc(f)}</span><span class="subtitle">${esc(l.target)}</span></span><span class="trail">${icon("download")}</span></a>`).join("")
+        $("#bkList", body).innerHTML = l.files.length ? l.files.map((f) => `<div class="row noicon"><span class="main"><span class="title">${esc(f)}</span><span class="subtitle">${esc(l.target)}</span></span>
+            <span class="trail">${isAdmin() ? `<button class="btn small" type="button" data-bkrestore="${esc(f)}">戻す</button>` : ""}<a class="btn small" href="/api/backup/download/${encodeURIComponent(f)}" aria-label="ダウンロード" title="ダウンロード">${icon("download")}</a></span></div>`).join("")
           : `<div class="empty">まだありません</div>`;
       } catch (ex) { $("#bkList", body).innerHTML = `<div class="empty">${esc(ex.message)}</div>`; }
     },

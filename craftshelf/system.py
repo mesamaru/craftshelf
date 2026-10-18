@@ -6,6 +6,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import sqlite3
 import threading
 import time
@@ -20,7 +21,7 @@ import notify
 import selfupdate
 
 from . import core
-from .core import APP_NAME, ApiError, BASE_DIR, CONFIG_DIR, DATA_READ, DATA_WRITE, PERMS, RESTORE_MARK, SECRET_KEY_PATH, SNAPSHOT_DIR, TMP_DIR, _jl, _truthy, app, db, get_setting, running_version, set_setting, snapshot_data, utcnow
+from .core import APP_NAME, ApiError, BASE_DIR, CONFIG_DIR, DATA_READ, DATA_WRITE, PERMS, RESTORE_MARK, SECRET_KEY_PATH, SNAPSHOT_DIR, TMP_DIR, _jl, _truthy, app, db, get_setting, running_version, safe_name, set_setting, snapshot_data, utcnow
 from .analysis import _MC_REL
 from .auth import current_user, decrypt_secret, encrypt_secret, has_perm, require, require_perm, user_perms, user_prefs
 from .events import DEFAULT_EVENTS, audit, notify_event, prune_audit
@@ -317,6 +318,108 @@ def api_backup_download(name):
         return send_file(store.local_path(rel), as_attachment=True, download_name=name)
     return send_file(store.open_read(rel), as_attachment=True, download_name=name, mimetype="application/zip",
                      conditional=False)
+
+
+_BG_NAME = re.compile(r"^backgrounds/[\w.\-]{1,120}$")
+
+
+def stage_backup_restore(zpath, label):
+    """バックアップの zip を確かめて、アップデートの前の状態と同じ置き場所に展開し、次の起動で戻す印を付ける。"""
+    try:
+        z = zipfile.ZipFile(zpath)
+    except (zipfile.BadZipFile, OSError):
+        raise ApiError("CraftShelf のバックアップ(zip)ではありません")
+    with z:
+        names = set(z.namelist())
+        if "index.db" not in names:
+            raise ApiError("バックアップに登録情報(index.db)が入っていません")
+        if sum(i.file_size for i in z.infolist()) > 8 * 1024 ** 3:
+            raise ApiError("バックアップが大きすぎます")
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        d = SNAPSHOT_DIR / f"{stamp}-backup"
+        n = 1
+        while d.exists():
+            n += 1
+            d = SNAPSHOT_DIR / f"{stamp}-backup-{n}"
+        d.mkdir(parents=True)
+        try:
+            with z.open("index.db") as src, open(d / "index.db", "wb") as dst:
+                shutil.copyfileobj(src, dst)
+            if "secret.key" in names:
+                (d / "secret.key").write_bytes(z.read("secret.key"))
+            bgs = [x for x in names if _BG_NAME.match(x)]
+            if bgs:
+                (d / "backgrounds").mkdir()
+                for x in bgs:
+                    (d / x).write_bytes(z.read(x))
+            # 中身を確かめる(壊れていないか・この版で読める保存方法か)
+            try:
+                c = sqlite3.connect(f"file:{d / 'index.db'}?mode=ro", uri=True)
+                try:
+                    ok = c.execute("PRAGMA integrity_check").fetchone()[0]
+                    users = c.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+                    row = c.execute("SELECT value FROM settings WHERE key='data_format'").fetchone()
+                finally:
+                    c.close()
+            except sqlite3.Error:
+                raise ApiError("バックアップの登録情報(index.db)を読めません")
+            if ok != "ok":
+                raise ApiError("バックアップの登録情報(index.db)が壊れています")
+            if not users:
+                raise ApiError("バックアップにユーザーが 1 人もいません")
+            fmt = int(row[0]) if row and str(row[0]).isdigit() else 1
+            if fmt > DATA_READ:
+                raise ApiError(f"このバックアップは新しい保存方法({fmt})で作られているため、この版では戻せません")
+            (d / "meta.json").write_text(json.dumps({
+                "version": "", "created_at": utcnow(), "reason": f"バックアップから戻す({label})",
+                "data_format": fmt}, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            shutil.rmtree(d, ignore_errors=True)
+            raise
+    RESTORE_MARK.write_text(d.name + "\n", encoding="utf-8")
+    return d.name
+
+
+def _finish_restore(label):
+    audit("バックアップから戻す", label, "次の起動で戻します")
+    if not selfupdate.FROZEN:
+        selfupdate.restart()
+    return jsonify(ok=True, restart=not selfupdate.FROZEN)
+
+
+@app.post("/api/backup/restore/<name>")
+@require("admin")
+def api_backup_restore(name):
+    """保存先にあるバックアップから戻す(次の起動で入れ替える。いまのデータも残す)。"""
+    if not _BACKUP_NAME.match(name):
+        raise ApiError("見つかりません", 404)
+    store, _t = _backup_store()
+    rel = f"{BACKUP_DIR}/{name}"
+    if not store.exists(rel):
+        raise ApiError("見つかりません", 404)
+    tmp = TMP_DIR / f"restore-{uuid.uuid4().hex}.zip"
+    try:
+        store.fetch(rel, tmp)
+        stage_backup_restore(tmp, name)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return _finish_restore(name)
+
+
+@app.post("/api/backup/restore-upload")
+@require("admin")
+def api_backup_restore_upload():
+    """手元のバックアップの zip を送って戻す(入れ直したあとなど、保存先を設定する前でも使える)。"""
+    f = request.files.get("file")
+    if not f:
+        raise ApiError("ファイルを選んでください")
+    tmp = TMP_DIR / f"restore-{uuid.uuid4().hex}.zip"
+    try:
+        f.save(tmp)
+        stage_backup_restore(tmp, safe_name(f.filename or "upload.zip")[:80])
+    finally:
+        tmp.unlink(missing_ok=True)
+    return _finish_restore(f.filename or "upload.zip")
 
 
 # --------------------------------------------------------------------------

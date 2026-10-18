@@ -1469,6 +1469,14 @@ window.CS_EN = {
   "を保存しました": " saved",
   "ファイル": "Files",
   "履歴": "History",
+  // ---- バックアップから戻す ----
+  "登録情報(アイテム・ユーザー・設定)・暗号鍵・背景画像を、バックアップの時点に戻します。保存先にあるアドオンのファイルはそのままです。いまのデータは「パネルのアップデート」の「アップデートの前の状態」に残るので、そこから元に戻せます。入れ直したあとでも、手元の zip から戻せます。": "Restores the database (items, users, settings), the key and background images to the time of the backup. Add-on files in storage are left as they are. The current data is kept under Panel update → state before update, so you can switch back. You can also restore from a zip on your computer, even after reinstalling.",
+  "登録情報・ユーザー・設定・暗号鍵が入れ替わり、パネルが再起動します。いまのデータは「アップデートの前の状態」に残ります。": "The database, users, settings and key will be replaced and the panel will restart. The current data is kept as a state before update.",
+  "の時点に戻しますか?": ": restore to this point?",
+  "バックアップから戻す": "Restore from backup",
+  "zip ファイルから戻す": "Restore from a zip file",
+  "確かめています…": "Checking…",
+  "戻す": "Restore",
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [

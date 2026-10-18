@@ -6,7 +6,12 @@
   - メジャー: 互換性のない変更 / マイナー: 機能追加 / 修正: 不具合修正・小さな改善。上の桁を上げたら下の桁は 00 に戻す。
   - CHANGELOG の見出しは `## 01.02.03 - YYYY-MM-DD タイトル`(画面の「パネルの更新」がこの形式を読む)。
 - 稼働中のパネルは GitHub (`mesamaru/craftshelf` の `main`) の `VERSION` を見て更新を検知し、`git clone` → `rsync` で /app を入れ替えて再起動する(`selfupdate.py`)。`main` に push した時点で配布されるので、動作確認してから push すること。
-- 構成: `app.py`(Flask本体)/ `storage.py`(ローカル・SMB・WebDAV)/ `sources.py`(Modrinth・Spiget・CurseForge)/ `selfupdate.py` / `ptero.py`(Pterodactyl Client API)/ `notify.py`(Discord Webhook)/ `static/index.html`・`app.css`・`app.js`(画面。CSP のためインラインの script は使わない)。
+- 構成(02 から): 本体は `craftshelf/` パッケージ。層ごとのモジュールに分かれていて、**下の層は上の層を import しない**(どうしても要るときは関数の中で import する):
+  `core`(設定・DB・移行・設定値)→ `analysis`(ファイルの解析)→ `auth`(暗号・ログイン・権限・配信)→ `events`(監査ログ・通知)→ `jobs`(ジョブと順番待ち)→ `library`(保存先・ライブラリ・セット・共有)→ `accounts`(ユーザー・個人設定・トークン・二段階認証)→ `upstream`(配布元・検索・Modパック)→ `servers`(サーバー)→ `system`(全体設定・自己更新・バックアップ・利用状況・予約)。
+  `app.py` は入口だけ(gunicorn の `app:app`・launcher から読む。各モジュールの名前もまとめて見せる)。
+- **データベースの変更は「足すだけ」**: 02 からは `craftshelf/core.py` の `MIGRATIONS` に、一度だけ実行するステップとして足す(表・項目を消したり、名前や意味を変えたりしない)。古い版が知らない表・項目を無視できるので、02 から 01.24 以降へ安全に戻せる。互換のない変更がどうしても要るときは、`DATA_FORMAT` の `write` を上げ、その番号を読める 01 の版(橋渡し)を先に出す。
+- 受け取り先: 安定版 = `main`(タグ `v…`)/ 開発ビルド = `dev`(`dev-v…`)/ プレビュー(02)= `next`(`next-v…`)。
+- 補助のモジュール: `storage.py`(ローカル・SMB・WebDAV)/ `sources.py`(Modrinth・Spiget・CurseForge)/ `selfupdate.py` / `ptero.py`(Pterodactyl Client API)/ `notify.py`(Discord Webhook)/ `static/index.html`・`app.css`・`app.js`(画面。CSP のためインラインの script は使わない)。
 - 配布形態は Docker / インストーラー版(`launcher.py` を PyInstaller で実行ファイルにしたもの。`packaging/build.py`、Windows は `packaging/windows/craftshelf.iss`)/ Ubuntu 用 `install.sh` の3つ。`v01.02.03` 形式のタグを push すると `.github/workflows/release.yml` が各 OS 向けにビルドしてリリースを作る。インストーラー版は自分を書き換えられないので、パネルの更新は GitHub のリリースを案内する(`selfupdate.MODE`)。動的な import(`__import__` など)は PyInstaller が拾えないので使わない。
 - 公開リポジトリなので、コミットの作成者は `mesamaru <74803890+mesamaru@users.noreply.github.com>` にする(個人のメールアドレスを使わない)。コード・例・コミットメッセージに、実際の IP アドレス・共有名・ドメインなど個人の環境の情報を書かない。
 - ブランチ: `main` = 安定版(一般向け)、`dev` = 開発ビルド。開発は `dev` で行い、確認できたら `main` にマージする。開発ビルドのリリースは `dev-v01.02.03` タグ(プレリリース)、安定版は `v01.02.03` タグ。パネルは設定の「受け取るアップデート」でどちらを取得するか切り替える(`selfupdate.CHANNEL`)。

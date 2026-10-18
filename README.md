@@ -372,6 +372,21 @@ python app.py
 # 他のPCからもアクセスしたい場合は  set HOST=0.0.0.0  も追加
 ```
 
+## テスト
+
+```
+pip install -r requirements.txt -r tests/requirements.txt
+python -m pytest
+```
+
+- `tests/test_units.py`: 小さな関数の単体テスト / `tests/test_structure.py`: モジュールの層の順番・個人の情報が入っていないか・画面のスクリプトの文法・版の番号
+- `tests/flows/`: パネルを実際に動かす通しテスト(1 本ずつ別のプロセスで、それぞれ自分の一時フォルダを使う)
+- `tests/test_upgrade.py`: 古い版(v01.12.00)のデータを今の版で開き、さらに橋渡しの版(01.24)で開き直す。git のタグを使うので、`git fetch --tags` しておく(タグが無ければ飛ばします)
+- `CRAFTSHELF_TEST_OFFLINE=1` で、外部のサービス(Modrinth・PaperMC など)を使うテストを飛ばせます
+- `CRAFTSHELF_TEST_SMB_SERVER`・`CRAFTSHELF_TEST_SMB_SHARE`(必要なら `_USER`・`_PASSWORD`)を指定すると、SMB の保存先も試します
+
+GitHub では push のたびにテストが動き、リリースのビルドもテストが通ってから行います。
+
 ## 設定(環境変数)
 
 | 変数 | 既定値 | 内容 |

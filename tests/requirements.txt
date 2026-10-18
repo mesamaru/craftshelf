@@ -1,0 +1,4 @@
+# テストに使う(pip install -r requirements.txt -r tests/requirements.txt)
+pytest>=8
+wsgidav>=4.3
+cheroot>=10

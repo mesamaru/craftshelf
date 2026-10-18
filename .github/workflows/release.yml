@@ -10,7 +10,13 @@ permissions:
   contents: write
 
 jobs:
+  test:  # テストが通らない版は配らない(外部のサービスの都合で止まらないよう、それを使うものは飛ばす)
+    uses: ./.github/workflows/test.yml
+    with:
+      offline: true
+
   build:
+    needs: test
     strategy:
       fail-fast: false
       matrix:
@@ -51,7 +57,7 @@ jobs:
         run: |
           python3 - <<'EOF'
           import os, re
-          ver = re.sub(r"^(dev-)?v", "", os.environ["GITHUB_REF_NAME"])
+          ver = re.sub(r"^(dev-|next-)?v", "", os.environ["GITHUB_REF_NAME"])
           text = open("CHANGELOG.md", encoding="utf-8").read()
           m = re.search(rf"^## {re.escape(ver)} - .*?$(.*?)(?=^## |\Z)", text, re.M | re.S)
           body = (m.group(1).strip() if m else "") + "\n\n---\n" + open("packaging/release-notes.md", encoding="utf-8").read()

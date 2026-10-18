@@ -9,6 +9,8 @@ import os
 import craftshelf
 from craftshelf import app, running_version
 
+craftshelf.start()
+
 for _m in craftshelf.MODULES:
     globals().update({k: v for k, v in vars(_m).items() if not k.startswith("__")})
 del _m

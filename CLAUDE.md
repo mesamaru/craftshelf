@@ -10,6 +10,7 @@
   `core`(設定・DB・移行・設定値)→ `analysis`(ファイルの解析)→ `auth`(暗号・ログイン・権限・配信)→ `events`(監査ログ・通知)→ `jobs`(ジョブと順番待ち)→ `library`(保存先・ライブラリ・セット・共有)→ `accounts`(ユーザー・個人設定・トークン・二段階認証)→ `upstream`(配布元・検索・Modパック)→ `servers`(サーバー)→ `system`(全体設定・自己更新・バックアップ・利用状況・予約)。
   `app.py` は入口だけ(gunicorn の `app:app`・launcher から読む。各モジュールの名前もまとめて見せる)。
 - **データベースの変更は「足すだけ」**: 02 からは `craftshelf/core.py` の `MIGRATIONS` に、一度だけ実行するステップとして足す(表・項目を消したり、名前や意味を変えたりしない)。古い版が知らない表・項目を無視できるので、02 から 01.24 以降へ安全に戻せる。互換のない変更がどうしても要るときは、`DATA_FORMAT` の `write` を上げ、その番号を読める 01 の版(橋渡し)を先に出す。
+- **テスト**: `python -m pytest`(依存は `tests/requirements.txt`)。コミットの前に通すこと。通しテストは `tests/flows/` に足し、最後に `FAILS: 0` を出して `sys.exit(1 if fails else 0)` で終える(結果を出さないものは失敗扱い)。外部のサービスを使うものは `tests/test_flows.py` の `NETWORK` に入れる。Windows ではパスが長いと読めないので、ファイル名は短くする。`.github/workflows/test.yml` が push ごとに動き、`release.yml` のビルドはこれが通ってから行う。
 - 受け取り先: 安定版 = `main`(タグ `v…`)/ 開発ビルド = `dev`(`dev-v…`)/ プレビュー(02)= `next`(`next-v…`)。
 - 補助のモジュール: `storage.py`(ローカル・SMB・WebDAV)/ `sources.py`(Modrinth・Spiget・CurseForge)/ `selfupdate.py` / `ptero.py`(Pterodactyl Client API)/ `notify.py`(Discord Webhook)/ `static/index.html`・`app.css`・`app.js`(画面。CSP のためインラインの script は使わない)。
 - 配布形態は Docker / インストーラー版(`launcher.py` を PyInstaller で実行ファイルにしたもの。`packaging/build.py`、Windows は `packaging/windows/craftshelf.iss`)/ Ubuntu 用 `install.sh` の3つ。`v01.02.03` 形式のタグを push すると `.github/workflows/release.yml` が各 OS 向けにビルドしてリリースを作る。インストーラー版は自分を書き換えられないので、パネルの更新は GitHub のリリースを案内する(`selfupdate.MODE`)。動的な import(`__import__` など)は PyInstaller が拾えないので使わない。

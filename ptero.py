@@ -119,6 +119,21 @@ class Ptero:
                     raise PteroError("ファイルが大きすぎます")
                 f.write(chunk)
 
+    def tail(self, ident, path, nbytes=256 * 1024):
+        """ファイルの最後の nbytes だけを返す(ログ用。全体を読みながら、最後の分だけを残す)。"""
+        url = self._req("GET", self._srv(ident) + "/files/download", params={"file": path}).json()["attributes"]["url"]
+        r = self._req("GET", url, stream=True, timeout=(TIMEOUT, 120), headers={"Authorization": None})
+        buf = b""
+        for chunk in r.iter_content(256 * 1024):
+            buf = (buf + chunk)[-nbytes:]
+        return buf
+
+    def command(self, ident, cmd):
+        """コンソールにコマンドを送る(結果は返らないので、ログで確かめる)。サーバーが止まっていると 502。"""
+        r = self._req("POST", self._srv(ident) + "/command", json={"command": cmd}, ok=(200, 204, 502))
+        if r.status_code == 502:
+            raise PteroError("サーバーが動いていないため、コマンドを送れません")
+
     def upload(self, ident, directory, local_path, filename):
         url = self._req("GET", self._srv(ident) + "/files/upload").json()["attributes"]["url"]
         sep = "&" if "?" in url else "?"

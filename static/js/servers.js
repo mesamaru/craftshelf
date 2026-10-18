@@ -424,7 +424,7 @@ function todoList(s) {
 function renderServerPage(s, el) {
   const ro = s.access === "view", owner = !s.access || s.access === "owner";
   const tab = state.srvTab || "overview";
-  const tabs = [["overview", "概要"], ["addons", `アドオン${srvFiles(s) ? ` ${srvFiles(s)}` : ""}`], ["backup", "保存"], ...(ro ? [] : [["settings", "設定"]])];
+  const tabs = [["overview", "概要"], ["addons", `アドオン${srvFiles(s) ? ` ${srvFiles(s)}` : ""}`], ["backup", "保存"], ...(ro ? [] : [["console", "コンソール"], ["settings", "設定"]])];
   el.innerHTML = `<div class="srv-page" data-srv="${s.id}">
     ${wideSrv() ? "" : `<button class="btn plain small srv-back" type="button" data-va="back">${icon("back")}サーバー</button>`}
     <div class="srv-hero"><div class="m"><h3 translate="no">${esc(s.name)}</h3><small>${[srvSoftLabel(s), s.kind === "local" ? "フォルダ" : "Pterodactyl", !owner ? `${esc(s.owner_name)} さんが共有` : ""].filter(Boolean).join(" · ")}</small></div>
@@ -457,6 +457,8 @@ function renderServerPage(s, el) {
   } else if (tab === "backup") {
     pane.innerHTML = `<div class="sgrp">ワールドのバックアップ</div><div id="paneWorlds"></div><div class="sgrp">履歴と巻き戻し</div><div id="paneHist"></div>`;
     worldsDialog(s, $("#paneWorlds", pane)); snapshotsDialog(s, $("#paneHist", pane));
+  } else if (tab === "console") {
+    consolePane(s, pane);
   } else if (tab === "settings") {
     serverSettingsDialog(s, pane);
   }

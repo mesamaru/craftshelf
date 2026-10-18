@@ -1169,3 +1169,21 @@ button.fb-row > svg { width: 15px; height: 15px; color: var(--label-3); flex: no
 .palette-foot { display: flex; gap: 14px; justify-content: center; padding: 8px 12px 12px; border-top: .5px solid var(--sep); }
 .palette-foot kbd { font: inherit; font-size: 11px; padding: 1px 6px; margin-right: 3px; border-radius: 6px; background: var(--fill); }
 @media (hover: none) { .palette-foot { display: none; } }
+
+/* ---------------- サーバーのコンソール ---------------- */
+.con-wrap { padding: 0; overflow: hidden; }
+.con-tools { display: flex; gap: 8px; align-items: center; padding: 10px 12px; flex-wrap: wrap; border-bottom: .5px solid var(--sep); }
+.con-tools input[type=search] { flex: 1; min-width: 140px; }
+.con-follow { display: flex; gap: 6px; align-items: center; font-size: 13px; color: var(--label-2); white-space: nowrap; }
+.con-log { margin: 0; padding: 12px 14px; height: min(52vh, 460px); overflow: auto; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre-wrap; overflow-wrap: anywhere; background: color-mix(in srgb, var(--card) 70%, #000 30%); color: var(--label); overscroll-behavior: contain; }
+.con-log .e { color: var(--red); }
+.con-log .w { color: var(--orange); }
+.con-in { display: flex; gap: 8px; align-items: center; }
+.con-prompt { font: 600 15px ui-monospace, Menlo, Consolas, monospace; color: var(--label-2); }
+.con-in input { flex: 1; min-width: 0; font-family: ui-monospace, Menlo, Consolas, monospace; }
+.con-out { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+.con-out:empty { display: none; }
+.con-entry { border-radius: 12px; background: var(--fill); padding: 8px 12px; font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+.con-entry .c { font-weight: 700; color: var(--tint); }
+.con-entry .r { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; }
+.con-entry .e { color: var(--red); }

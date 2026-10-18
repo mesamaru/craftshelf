@@ -1434,6 +1434,25 @@ window.CS_EN = {
   "お知らせ": "Notifications",
   "画面": "Views",
   "パネル": "Panel",
+  // ---- サーバーのコンソール ----
+  "最近のログ": "Recent log",
+  "自動で読み込む": "Auto refresh",
+  "ログを絞り込む": "Filter log",
+  "読み込んでいます…": "Loading…",
+  "一致する行はありません": "No matching lines",
+  "ログはまだありません(サーバーを一度起動すると作られます)": "No log yet (it is created when the server starts)",
+  "ログのファイルが見つかりません": "Log file not found",
+  "サーバーを一度起動すると作られます。": "It is created when the server starts.",
+  "RCON で送り、結果をここに表示します。": "Sent via RCON; the result is shown here.",
+  "Pterodactyl のコンソールに送ります。結果は上のログで確かめてください(RCON を設定すると、結果もここに出ます)。": "Sent to the Pterodactyl console. Check the result in the log above (set up RCON to see results here).",
+  "送ったコマンドは操作の記録に残ります。": "Commands you send are recorded in the activity log.",
+  "コマンドを送るには、「設定」タブで RCON(ポートとパスワード)を設定してください。server.properties の": "To send commands, set up RCON (port and password) in the Settings tab, using the same values as",
+  "と同じ値にします。": "in server.properties.",
+  "(結果は空です)": "(empty result)",
+  "送りました。ログで結果を確かめてください": "Sent. Check the log for the result",
+  "コンソール": "Console",
+  "コマンド": "Command",
+  "送る": "Send",
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [

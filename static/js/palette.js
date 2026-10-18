@@ -43,18 +43,18 @@ async function openNotices() {
 }
 
 /* ---------------- 全体の検索(Ctrl+K / ⌘K) ---------------- */
-function paletteEntries() {
+function paletteEntries(servers, sets) {
   const out = [];
   const go = (view) => () => setView(view);
   for (const it of state.items || []) {
     out.push({ kind: "アドオン", title: it.name, sub: [CATS[it.category] || it.category, ((it.versions || []).find((v) => v.id === it.latest_id) || (it.versions || [])[0] || {}).version || ""].filter(Boolean).join(" · "),
       ic: "box", run: () => { setView("library"); openPanel(it.id); } });
   }
-  for (const s of state.servers || []) {
+  for (const s of servers || []) {
     out.push({ kind: "サーバー", title: s.name, sub: s.kind === "local" ? "フォルダ" : "Pterodactyl", ic: "server",
       run: () => { state.srvOpen = s.id; setView("servers"); } });
   }
-  for (const s of state.sets || []) out.push({ kind: "セット", title: s.name, sub: `${s.count ?? (s.items || []).length ?? ""} 件`, ic: "stack", run: go("sets") });
+  for (const s of sets || []) out.push({ kind: "セット", title: s.name, sub: `${s.count ?? (s.items || []).length ?? ""} 件`, ic: "stack", run: go("sets") });
   out.push(
     { kind: "画面", title: "ライブラリ", ic: "box", run: go("library") },
     { kind: "画面", title: "ダッシュボード", ic: "grid", run: go("dash") },
@@ -96,7 +96,13 @@ function paletteScore(e, q) {
 async function openPalette() {
   if ($("#dlg").open) return;
   if (!state.user) return;
-  const all = paletteEntries();
+  // サーバー・セットは、その画面を開くまで読み込まれないので、無ければここで読む(画面の状態は変えない)
+  const [servers, sets] = await Promise.all([
+    state.servers || api("/api/servers").then((d) => d.servers).catch(() => []),
+    state.sets || api("/api/sets").then((d) => d.sets).catch(() => []),
+  ]);
+  if ($("#dlg").open) return;
+  const all = paletteEntries(servers, sets);
   let shown = [], cur = 0;
   await sheet(`<div class="palette">
       <div class="palette-in">${icon("search")}<input type="search" id="palQ" placeholder="アドオン・サーバー・設定・操作を検索" autocomplete="off" aria-label="検索"></div>

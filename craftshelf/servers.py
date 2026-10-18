@@ -167,6 +167,12 @@ class _PteroFiles:
     def rename(self, rel_dir, frm, to):
         _pcall(self.p.rename, self.ident, "/" + rel_dir, frm, to)
 
+    def tail(self, rel, nbytes=256 * 1024):
+        try:
+            return self.p.tail(self.ident, "/" + rel, nbytes)
+        except ptero.PteroError:
+            return None
+
     def read_text(self, rel, limit=256 * 1024):
         tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
         try:
@@ -275,6 +281,15 @@ class _LocalFiles:
         try:
             with open(self._p(rel), "rb") as f:
                 return f.read(limit).decode("utf-8", "replace")
+        except OSError:
+            return None
+
+    def tail(self, rel, nbytes=256 * 1024):
+        try:
+            with open(self._p(rel), "rb") as f:
+                f.seek(0, os.SEEK_END)
+                f.seek(max(0, f.tell() - nbytes))
+                return f.read(nbytes)
         except OSError:
             return None
 
@@ -1381,6 +1396,67 @@ def api_servers_power(srv):
     server_power(row, signal)
     audit("サーバーを操作", row["name"], signal)
     return jsonify(ok=True)
+
+
+# --------------------------------------------------------------------------
+# コンソール(RCON・Pterodactyl でコマンドを送る)と、最近のログ
+# --------------------------------------------------------------------------
+_ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07|[\x00-\x08\x0b-\x1f\x7f]")
+LOG_FILE = "logs/latest.log"
+
+
+def server_log_tail(row, lines=200):
+    raw = server_fs(row).tail(LOG_FILE, 256 * 1024)
+    if raw is None:
+        return None
+    text = _ANSI.sub("", raw.decode("utf-8", "replace").replace("\r\n", "\n"))
+    out = text.split("\n")
+    if len(raw) >= 256 * 1024:  # 途中から読んだので、最初の欠けた行は捨てる
+        out = out[1:]
+    while out and not out[-1].strip():
+        out.pop()
+    return out[-lines:]
+
+
+@app.get("/api/servers/<int:srv>/logs")
+@require("editor")
+def api_servers_logs(srv):
+    row = _server_row(srv, "edit")
+    try:
+        n = max(20, min(1000, int(request.args.get("lines", 200))))
+    except ValueError:
+        raise ApiError("数値で指定してください")
+    lines = server_log_tail(row, n)
+    if lines is None:
+        return jsonify(lines=[], found=False, file=LOG_FILE)
+    return jsonify(lines=lines, found=True, file=LOG_FILE)
+
+
+@app.post("/api/servers/<int:srv>/console")
+@require("editor")
+def api_servers_console(srv):
+    row = _server_row(srv, "edit")
+    cmd = str((request.get_json(silent=True) or {}).get("command") or "").strip()
+    if cmd.startswith("/"):
+        cmd = cmd[1:].strip()
+    if not cmd:
+        raise ApiError("コマンドを入力してください")
+    if len(cmd) > 1000 or "\n" in cmd or "\r" in cmd:
+        raise ApiError("コマンドは 1 行・1000 文字までです")
+    rc = _rcon(row)
+    if rc:
+        try:
+            with rc as r:
+                output = _ANSI.sub("", re.sub(r"§.", "", r.command(cmd) or ""))
+        except mcnet.NetError as e:
+            raise ApiError(f"RCON: {e.message}") from e
+        audit("コンソールでコマンドを実行", row["name"], cmd[:300])
+        return jsonify(ok=True, via="rcon", output=output)
+    if row["kind"] == "ptero":
+        _pcall(server_fs(row).p.command, row["identifier"], cmd)
+        audit("コンソールでコマンドを実行", row["name"], cmd[:300])
+        return jsonify(ok=True, via="ptero", output=None)
+    raise ApiError("コマンドを送るには、サーバーの設定で RCON(ポートとパスワード)を設定してください")
 
 
 @app.get("/api/servers/<int:srv>/status")

@@ -3,7 +3,7 @@ name: Release
 
 on:
   push:
-    tags: ["v*", "dev-v*"]
+    tags: ["v*", "dev-v*", "next-v*"]
   workflow_dispatch:
 
 permissions:
@@ -60,8 +60,8 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           name: CraftShelf ${{ github.ref_name }}
-          prerelease: ${{ startsWith(github.ref_name, 'dev-') }}
-          make_latest: ${{ !startsWith(github.ref_name, 'dev-') }}
+          prerelease: ${{ startsWith(github.ref_name, 'dev-') || startsWith(github.ref_name, 'next-') }}
+          make_latest: ${{ !startsWith(github.ref_name, 'dev-') && !startsWith(github.ref_name, 'next-') }}
           body_path: notes.md
           files: |
             artifacts/*

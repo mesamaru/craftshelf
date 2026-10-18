@@ -1406,6 +1406,23 @@ window.CS_EN = {
   "今の版": "Current",
   "「導入」を押すと、そのサーバーに入れるものとして選べます。入っているものを押すと、更新・版の変更・削除などができます。": "Press “Install” to pick it for that server. Press an installed one to update, change version, or remove it.",
   "ファイルは退避されるので、「履歴」から元に戻せます。反映には再起動が必要です。": "The file is backed up, so you can restore it from History. A restart is needed to apply it.",
+  // 01.24: 受け取り先プレビュー・アップデートの前の状態
+  "プレビュー": "Preview",
+  "02・試験中": "02 · testing",
+  "おすすめ": "Recommended",
+  "新しい機能をいち早く試せる代わりに、不具合が含まれることがあります。いつでも安定版に戻せます。": "Try new features early; they may contain bugs. You can go back to stable at any time.",
+  "次の大きなバージョン(02)の試験版です。不具合があるかもしれません。切り替える前にデータを自動で退避し、いつでも安定版・開発ビルドに戻せます。": "A test build of the next major version (02). It may have bugs. Your data is backed up automatically before switching, and you can go back to stable or dev builds at any time.",
+  "プレビュー(02)はまだ公開されていません。公開されると、ここから受け取れます": "Preview (02) isn't published yet. Once it is, you can get it here",
+  "アップデートの前の状態": "Before-update snapshots",
+  "この状態に戻す": "Restore this state",
+  "この版では読めません": "Not readable by this version",
+  "まだありません(アップデートのたびに自動で作られます)": "None yet (one is made automatically before each update)",
+  "アップデートの直前に、登録情報(データベース)と鍵を退避しています(直近 5 回分)。保存しているアドオンのファイルはそのままです。": "Right before each update, the database and key are backed up (last 5). Stored add-on files are left as they are.",
+  "戻して再起動します…": "Restoring and restarting…",
+  "次の起動で戻します。CraftShelf を終了して、もう一度起動してください": "It will be restored on the next start. Quit CraftShelf and start it again",
+  "インストールの前にデータを退避し、インストール後に自動で再起動します(数秒〜数十秒)。": "Your data is backed up before installing, and the panel restarts automatically afterwards (a few seconds to a minute).",
+  "データの保存方法": "Data format",
+  "まで読めます": "readable up to",
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [

@@ -3256,7 +3256,7 @@ const SETTINGS_PAGES = {
           ${rowBtn("lang", "globe", "c-plugin", "言語 / Language", `<span class="val" translate="no">${I18N.lang === "en" ? "English" : "日本語"}</span>`)}
         </div>
         <div class="group-title">CraftShelf</div><div class="group">
-          ${can("system") ? rowBtn("selfupdate", "sparkle", "c-mod", "パネルのアップデート", upd ? `<span class="badge upd">v${esc(state.selfUpd.latest)}</span>` : `<span class="val">v${esc(state.version || "")}${state.selfUpd && state.selfUpd.channel === "dev" ? "(開発ビルド)" : ""}</span>`)
+          ${can("system") ? rowBtn("selfupdate", "sparkle", "c-mod", "パネルのアップデート", upd ? `<span class="badge upd">v${esc(state.selfUpd.latest)}</span>` : `<span class="val">v${esc(state.version || "")}${state.selfUpd && state.selfUpd.channel === "dev" ? "(開発ビルド)" : state.selfUpd && state.selfUpd.channel === "preview" ? "(プレビュー)" : ""}</span>`)
           : `<div class="row"><span class="cicon sm c-mod">${icon("sparkle")}</span><span class="main"><span class="title">バージョン</span></span><span class="trail">v${esc(state.version || "")}</span></div>`}
         </div>
         <div class="group" style="margin-top:18px"><button class="row danger" type="button" data-go="logout"><span class="cicon sm c-red">${icon("logout")}</span><span class="main"><span class="title">ログアウト</span></span></button></div>
@@ -4039,38 +4039,69 @@ const SETTINGS_PAGES = {
     async render(body) {
       const d = await checkSelfUpdate(true);
       if (!d) throw new Error("確認できませんでした");
-      const dev = d.channel === "dev";
+      const CH = {
+        stable: ["安定版", "おすすめ", "動作を確認した正式なバージョンだけを受け取ります。"],
+        dev: ["開発ビルド", "", "新しい機能をいち早く試せる代わりに、不具合が含まれることがあります。いつでも安定版に戻せます。"],
+        preview: ["プレビュー", "02・試験中", "次の大きなバージョン(02)の試験版です。不具合があるかもしれません。切り替える前にデータを自動で退避し、いつでも安定版・開発ビルドに戻せます。"],
+      };
+      const ch = CH[d.channel] ? d.channel : "stable";
+      const back = d.downgrade ? (d.major_down ? `プレビュー v${esc(d.current)} から` : `いまは v${esc(d.current)} です。`) : "";
       body.innerHTML = `<div class="big-version"><img class="logo" src="/static/icon.svg" alt="" aria-hidden="true">
-          <div class="v">${d.update_available ? `v${esc(d.latest)}` : `v${esc(d.current)}`}${dev ? ' <span class="badge upd">開発ビルド</span>' : ""}</div>
+          <div class="v">${d.update_available ? `v${esc(d.latest)}` : `v${esc(d.current)}`}${ch !== "stable" ? ` <span class="badge upd">${CH[ch][0]}</span>` : ""}</div>
           <p>${d.error ? esc(d.error) : d.update_available ? `現在 v${esc(d.current)} · 新しいバージョンがあります`
-            : d.downgrade ? `いまは開発ビルド v${esc(d.current)} です。安定版の最新は v${esc(d.latest)} です` : "CraftShelf は最新です"}</p></div>
+            : d.downgrade ? `${back}${CH[ch][0]}の最新は v${esc(d.latest)} です` : "CraftShelf は最新です"}</p></div>
+        ${d.data_too_new ? `<div class="result err">このデータは、この版より新しいバージョンで作られています。表示や操作がおかしい場合は、下の「アップデートの前の状態」から戻すか、元の受け取り先に戻してください。</div>` : ""}
         <div class="group-title">受け取るアップデート</div>
-        <div class="segmented seg-wide" role="group" aria-label="受け取るアップデート">
-          <button class="seg" type="button" data-ch="stable" aria-pressed="${!dev}">安定版(おすすめ)</button>
-          <button class="seg" type="button" data-ch="dev" aria-pressed="${dev}">開発ビルド</button></div>
-        <div class="group-foot">${dev ? "開発ビルドは新しい機能をいち早く試せる代わりに、不具合が含まれることがあります。大切なデータはバックアップしてからお使いください。" : "動作を確認した正式なバージョンだけを受け取ります。"}</div>
-        ${d.downgrade ? `<button class="btn tinted block" type="button" id="suDown">${icon("download")}安定版 v${esc(d.latest)} に戻す</button>` : ""}
+        <div class="group">${Object.entries(CH).map(([k, [n, tag, desc]]) => `<label class="toggle-row ch-row"><span class="main">${n}${tag ? ` <span class="badge${k === "preview" ? " upd" : " ok"}">${tag}</span>` : ""}<small>${desc}</small></span>
+          <input type="radio" class="switch" name="update_channel" value="${k}"${k === ch ? " checked" : ""}></label>`).join("")}</div>
+        ${d.blocked ? `<div class="result warn">${esc(d.blocked)}</div>` : ""}
+        ${d.major_up && d.update_available && !d.blocked ? `<div class="result">${icon("shield")} v${esc(d.current)} → v${esc(d.latest)} は大きなアップデートです。インストールの前に、いまのデータを自動で退避します(下の「アップデートの前の状態」からいつでも戻せます)。</div>` : ""}
+        ${d.downgrade && !d.blocked ? `<button class="btn tinted block" type="button" id="suDown">${icon("download")}${CH[ch][0]} v${esc(d.latest)} に戻す</button>` : ""}
         ${d.notes && d.notes.length ? `<div class="notes">${d.notes.map((n) => `<h4>v${esc(n.version)} ${esc(n.title)}</h4><div class="body">${esc(n.body)}</div>`).join("")}</div>` : ""}
-        ${d.update_available && d.mode === "installer" && !d.can_apply ? `<a class="btn filled block" href="${esc(safeUrl(d.download_url))}" target="_blank" rel="noopener noreferrer">${icon("download")}新しいインストーラーをダウンロード</a>
+        ${d.blocked ? "" : d.update_available && d.mode === "installer" && !d.can_apply ? `<a class="btn filled block" href="${esc(safeUrl(d.download_url))}" target="_blank" rel="noopener noreferrer">${icon("download")}新しいインストーラーをダウンロード</a>
           <div class="group-foot" style="text-align:center">ダウンロードしたインストーラーを実行すると、上書きでアップデートされます。保存したファイルや登録情報はそのまま残ります。</div>`
           : d.update_available ? `<button class="btn filled block" type="button" id="suGo">ダウンロードしてインストール</button>
-          <div class="group-foot" style="text-align:center">インストール後に自動で再起動します(数秒〜数十秒)。保存したファイルや登録情報はそのまま残ります。</div>`
+          <div class="group-foot" style="text-align:center">インストールの前にデータを退避し、インストール後に自動で再起動します(数秒〜数十秒)。</div>`
           : `<button class="btn tinted block" type="button" id="suRe">${icon("refresh")}もう一度確認</button>`}
-        ${d.mode === "installer" && !d.can_apply ? "" : `<div class="group" style="margin-top:6px">${toggle("self_auto_update", "自動アップデート", "6時間ごとに確認し、新しいバージョンがあれば自動でインストールします", (await api("/api/settings")).self_auto_update)}</div>`}
-        <div class="group-foot">取得元: <a href="https://github.com/${esc(d.repo)}" target="_blank" rel="noopener noreferrer">github.com/${esc(d.repo)}</a> (${esc(d.branch)}${d.mode === "installer" ? " · リリース" : ""})</div>`;
+        ${d.mode === "installer" && !d.can_apply ? "" : `<div class="group" style="margin-top:6px">${toggle("self_auto_update", "自動アップデート", "6時間ごとに確認し、新しいバージョンがあれば自動でインストールします(大きなバージョンアップは自動では行いません)", (await api("/api/settings")).self_auto_update)}</div>`}
+        <div class="group-title">アップデートの前の状態</div>
+        <div id="suSnaps"><div class="empty"><span class="spinner"></span></div></div>
+        <div class="group-foot">取得元: <a href="https://github.com/${esc(d.repo)}" target="_blank" rel="noopener noreferrer">github.com/${esc(d.repo)}</a> (${esc(d.branch)}${d.mode === "installer" ? " · リリース" : ""}) · データの保存方法 ${esc(String(d.data_in_use || 1))}(この版は ${esc(String((d.this_format || {}).read || 1))} まで読めます)</div>`;
+      const loadSnaps = async () => {
+        let s;
+        try { s = await api("/api/system/snapshots"); } catch (ex) { $("#suSnaps", body).innerHTML = `<div class="result err">${esc(ex.message)}</div>`; return; }
+        $("#suSnaps", body).innerHTML = `${s.pending ? `<div class="result">次の起動で「${esc(s.pending)}」の状態に戻します${s.frozen ? "。CraftShelf を終了して、もう一度起動してください" : ""}</div>` : ""}
+          <div class="group">${s.snapshots.map((x) => `<div class="row"><span class="cicon sm c-teal">${icon("clock")}</span>
+            <span class="main"><span class="title">v${esc(x.version || "?")} · ${esc(x.created_at ? fmtDateTime(x.created_at) : x.name)}</span><span class="subtitle">${esc(x.reason || "")} · ${fmtSize(x.size)}</span></span>
+            <span class="trail">${x.can_restore ? `<button class="btn small" type="button" data-snap="${esc(x.name)}">この状態に戻す</button>` : '<span class="badge">この版では読めません</span>'}</span></div>`).join("")
+            || `<div class="empty">まだありません(アップデートのたびに自動で作られます)</div>`}</div>
+          <div class="group-foot">アップデートの直前に、登録情報(データベース)と鍵を退避しています(直近 5 回分)。保存しているアドオンのファイルはそのままです。</div>`;
+      };
+      loadSnaps();
+      $("#suSnaps", body).addEventListener("click", async (e) => {
+        const b = e.target.closest("[data-snap]"); if (!b) return;
+        if (!(cfm(["この状態に戻しますか?", "登録情報(アドオン・サーバー・設定など)を、そのときの状態に戻します。それ以降に変えた登録情報は戻した状態になります(いまのデータも念のため残します)。CraftShelf を再起動します。"].join("\n\n")))) return;
+        try { const r = await api(`/api/system/snapshots/${encodeURIComponent(b.dataset.snap)}/restore`, { method: "POST" }); toast(r.restart ? "戻して再起動します…" : "次の起動で戻します。CraftShelf を終了して、もう一度起動してください"); if (r.restart) setTimeout(() => location.reload(), 6000); else loadSnaps(); }
+        catch (ex) { toast(ex.message, true); }
+      });
       $("#suRe", body)?.addEventListener("click", (e) => busy(e.currentTarget, () => renderSettings(), "確認中…"));
-      $("#suGo", body)?.addEventListener("click", (e) => busy(e.currentTarget, () => startSelfUpdate(d), "開始しています…"));
-      $("#suDown", body)?.addEventListener("click", async (e) => {
-        if (!(await confirmSheet(`安定版 v${d.latest} に戻しますか?`, "開発ビルドで追加された機能は使えなくなります。登録したファイルや情報はそのまま残りますが、念のためバックアップをおすすめします。", "安定版に戻す"))) return;
+      $("#suGo", body)?.addEventListener("click", async (e) => {
+        if (d.major_up && !(cfm([`v${d.latest} にアップデートしますか?`, "大きなアップデートです。いまのデータを自動で退避してからインストールします。不具合があれば、安定版・開発ビルドに切り替えて戻せます。"].join("\n\n")))) return;
         busy(e.currentTarget, () => startSelfUpdate(d), "開始しています…");
       });
-      body.querySelectorAll("[data-ch]").forEach((b) => b.addEventListener("click", async () => {
-        if (b.dataset.ch === d.channel) return;
-        if (b.dataset.ch === "dev" && !(await confirmSheet("開発ビルドを受け取りますか?", "開発中の新しい機能をいち早く試せますが、不具合が含まれることがあります。あとで安定版に戻すこともできます。", "開発ビルドにする"))) return;
-        try { await api("/api/settings", { method: "PATCH", json: { update_channel: b.dataset.ch } }); toast(b.dataset.ch === "dev" ? "開発ビルドを受け取ります" : "安定版を受け取ります"); renderSettings(); }
-        catch (ex) { toast(ex.message, true); }
-      }));
+      $("#suDown", body)?.addEventListener("click", async (e) => {
+        if (!(cfm([`${CH[ch][0]} v${d.latest} に戻しますか?`, "いまの版で追加された機能は使えなくなります。登録したファイルや情報はそのまま残ります(戻す前の状態も自動で退避します)。"].join("\n\n")))) return;
+        busy(e.currentTarget, () => startSelfUpdate(d), "開始しています…");
+      });
       body.onchange = async (e) => {
+        if (e.target.name === "update_channel") {
+          const k = e.target.value;
+          if (k === "dev" && !(cfm(["開発ビルドを受け取りますか?", CH.dev[2]].join("\n\n")))) { renderSettings(); return; }
+          if (k === "preview" && !(cfm(["プレビュー(02・試験中)を受け取りますか?", CH.preview[2]].join("\n\n")))) { renderSettings(); return; }
+          try { await api("/api/settings", { method: "PATCH", json: { update_channel: k } }); toast(`${CH[k][0]}を受け取ります`); renderSettings(); }
+          catch (ex) { toast(ex.message, true); }
+          return;
+        }
         if (e.target.name !== "self_auto_update") return;
         try { await api("/api/settings", { method: "PATCH", json: { self_auto_update: e.target.checked } }); toast("保存しました"); }
         catch (ex) { toast(ex.message, true); }

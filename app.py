@@ -457,9 +457,83 @@ def ensure_local_target(conn):
         conn.execute("UPDATE storage_targets SET active=1 WHERE id=?", (LOCAL_TARGET_ID,))
 
 
+SNAPSHOT_DIR = CONFIG_DIR / "pre-update"   # アップデートの前の状態(データベースと鍵)
+RESTORE_MARK = CONFIG_DIR / "restore-on-start"
+DATA_WRITE, DATA_READ = selfupdate.local_data_format()
+DATA_TOO_NEW = False  # このデータは、この版より新しい保存方法で作られている
+
+
+def _restore_pending_snapshot():
+    """「アップデートの前の状態に戻す」を選んだあとの起動で、退避したデータベースを元に戻す。"""
+    if not RESTORE_MARK.exists():
+        return
+    name = RESTORE_MARK.read_text(encoding="utf-8").strip()
+    RESTORE_MARK.unlink(missing_ok=True)
+    src = SNAPSHOT_DIR / name / "index.db"
+    if not name or "/" in name or "\\" in name or not src.is_file():
+        print(f"[restore] 退避が見つからないため戻しませんでした: {name}")
+        return
+    keep = SNAPSHOT_DIR / f"before-restore-{time.strftime('%Y%m%d-%H%M%S')}"
+    keep.mkdir(parents=True, exist_ok=True)
+    for suffix in ("", "-wal", "-shm"):  # いまのデータも念のため残す
+        cur = Path(str(DB_PATH) + suffix)
+        if cur.exists():
+            shutil.move(str(cur), str(keep / ("index.db" + suffix)))
+    shutil.copyfile(src, DB_PATH)
+    if (SNAPSHOT_DIR / name / "secret.key").is_file():
+        shutil.copyfile(SNAPSHOT_DIR / name / "secret.key", SECRET_KEY_PATH)
+    print(f"[restore] {name} の状態に戻しました(戻す前のデータは {keep.name} に残しています)")
+
+
+def _note_data_format(conn):
+    """データの保存方法の番号を記録する(上げるだけで下げない)。読めない番号なら警告を出す。"""
+    global DATA_TOO_NEW
+    row = conn.execute("SELECT value FROM settings WHERE key='data_format'").fetchone()
+    stored = int(row[0]) if row and str(row[0]).isdigit() else 1
+    if stored > DATA_READ:
+        DATA_TOO_NEW = True
+        print(f"[warn] このデータは保存方法 {stored} で作られていますが、この版は {DATA_READ} までしか読めません")
+    use = max(stored, DATA_WRITE)
+    conn.execute("INSERT INTO settings (key, value) VALUES ('data_format', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                 (str(use),))
+    selfupdate.DATA_IN_USE = use
+    try:  # Docker の起動スクリプトも読めるように
+        (CONFIG_DIR / "data-format").write_text(f"{use}\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def snapshot_data(reason, keep=5):
+    """データベースと鍵を退避する(アップデートの前など)。戻すときは次の起動で入れ替える。"""
+    SNAPSHOT_DIR.mkdir(parents=True, exist_ok=True)
+    base = f"{time.strftime('%Y%m%d-%H%M%S')}-v{running_version()}"
+    name, n = base, 1
+    while (SNAPSHOT_DIR / name).exists():  # 同じ秒に作ったときは番号を付ける
+        n += 1
+        name = f"{base}-{n}"
+    d = SNAPSHOT_DIR / name
+    d.mkdir(parents=True)
+    src = sqlite3.connect(DB_PATH, timeout=30)
+    dst = sqlite3.connect(d / "index.db")
+    try:
+        src.backup(dst)
+    finally:
+        dst.close()
+        src.close()
+    if SECRET_KEY_PATH.exists():
+        shutil.copyfile(SECRET_KEY_PATH, d / "secret.key")
+    (d / "meta.json").write_text(json.dumps({"version": running_version(), "data_format": selfupdate.DATA_IN_USE,
+                                             "created_at": utcnow(), "reason": reason}, ensure_ascii=False), encoding="utf-8")
+    olds = sorted(x for x in SNAPSHOT_DIR.iterdir() if x.is_dir() and not x.name.startswith("before-restore-"))
+    for x in olds[:-keep]:
+        shutil.rmtree(x, ignore_errors=True)
+    return name
+
+
 def init_storage():
     for d in (CONFIG_DIR, TMP_DIR, LOCAL_DIR, LOCAL_DIR / "library", LOCAL_DIR / "inbox"):
         d.mkdir(parents=True, exist_ok=True)
+    _restore_pending_snapshot()
     for p in TMP_DIR.glob("*"):
         try:
             p.unlink()
@@ -470,6 +544,7 @@ def init_storage():
     conn.row_factory = sqlite3.Row
     conn.executescript(SCHEMA)
     migrate_schema(conn)
+    _note_data_format(conn)
     ensure_local_target(conn)
     ensure_initial_admin(conn)
     conn.commit()
@@ -2791,7 +2866,7 @@ def api_settings_update():
         if key in data:
             set_setting(key, "1" if _truthy(data[key]) else "0")
     if "update_channel" in data:
-        _set_channel("dev" if data["update_channel"] == "dev" else "stable")
+        _set_channel(data["update_channel"] if data["update_channel"] in selfupdate.CHANNELS else "stable")
     if "telemetry_enabled" in data:
         on = _truthy(data["telemetry_enabled"])
         set_setting("telemetry_enabled", "1" if on else "0")
@@ -3579,10 +3654,49 @@ def api_system_info():
 @app.get("/api/system/update")
 @require_perm("system")
 def api_system_update_check():
-    return jsonify(selfupdate.check(force=_truthy(request.args.get("force"))))
+    return jsonify({**selfupdate.check(force=_truthy(request.args.get("force"))),
+                    "this_format": {"write": DATA_WRITE, "read": DATA_READ}, "data_too_new": DATA_TOO_NEW})
+
+
+@app.get("/api/system/snapshots")
+@require_perm("system")
+def api_system_snapshots():
+    """アップデートの前の状態の一覧(新しい順)。"""
+    out = []
+    if SNAPSHOT_DIR.exists():
+        for d in sorted((x for x in SNAPSHOT_DIR.iterdir() if x.is_dir() and (x / "index.db").is_file()), reverse=True):
+            meta = _jl((d / "meta.json").read_text(encoding="utf-8") if (d / "meta.json").exists() else "", {})
+            fmt = int(meta.get("data_format") or 1)
+            out.append({"name": d.name, "version": meta.get("version") or "", "created_at": meta.get("created_at") or "",
+                        "reason": meta.get("reason") or ("戻す前のデータ" if d.name.startswith("before-restore-") else ""),
+                        "data_format": fmt, "size": (d / "index.db").stat().st_size, "can_restore": fmt <= DATA_READ})
+    return jsonify(snapshots=out, pending=RESTORE_MARK.read_text(encoding="utf-8").strip() if RESTORE_MARK.exists() else "",
+                   frozen=selfupdate.FROZEN)
+
+
+@app.post("/api/system/snapshots/<name>/restore")
+@require_perm("system")
+def api_system_snapshot_restore(name):
+    """次の起動で、この退避の状態にデータベースを戻す(いまのデータも残しておく)。"""
+    d = SNAPSHOT_DIR / name
+    if "/" in name or "\\" in name or name.startswith(".") or not (d / "index.db").is_file():
+        raise ApiError("退避が見つかりません", 404)
+    meta = _jl((d / "meta.json").read_text(encoding="utf-8") if (d / "meta.json").exists() else "", {})
+    if int(meta.get("data_format") or 1) > DATA_READ:
+        raise ApiError("この版では、その退避のデータを読めません")
+    RESTORE_MARK.write_text(name + "\n", encoding="utf-8")
+    audit("アップデートの前の状態に戻す", name, "次の起動で戻します")
+    if not selfupdate.FROZEN:
+        selfupdate.restart()
+    return jsonify(ok=True, restart=not selfupdate.FROZEN)
 
 
 def _self_update_job(job):
+    try:
+        name = snapshot_data("アップデートの前")
+        job.note(f"アップデートの前の状態を退避しました({name})")
+    except (OSError, sqlite3.Error) as e:
+        raise ApiError(f"アップデートの前の退避に失敗したため中止しました: {e}") from e
     old, new = selfupdate.apply(note=job.note)
     job.result = {"from": old, "to": new}
     audit("パネルをアップデート", f"{old} → {new}", "", user=job.user)
@@ -3597,6 +3711,8 @@ def api_system_update_apply():
     info = selfupdate.check(force=True)
     if info["error"]:
         raise ApiError(info["error"], 502)
+    if info.get("blocked"):
+        raise ApiError(info["blocked"], 409)
     if not info["update_available"] and not info.get("downgrade"):
         raise ApiError(f"すでに最新です({info['current']})", 409)
     job = start_job("selfupdate", f"{APP_NAME} の更新 ({info['current']} → {info['latest']})",
@@ -6511,7 +6627,9 @@ def _self_update_tick():
         return
     _self_update_tick.last = time.monotonic()
     info = selfupdate.check(force=True)
-    if info["update_available"] and info.get("can_apply", True) and get_setting("self_auto_update", "0") == "1":
+    # 自動アップデートでは、メジャー版をまたぐ更新・切り替えられない版には進まない(手動で選んでもらう)
+    if info["update_available"] and info.get("can_apply", True) and get_setting("self_auto_update", "0") == "1" \
+            and not info.get("major_up") and not info.get("blocked"):
         start_job("selfupdate", f"{APP_NAME} の自動更新 ({info['current']} → {info['latest']})",
                   _self_update_job, user="(自動)")
 

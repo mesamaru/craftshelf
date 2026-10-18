@@ -40,7 +40,7 @@ def make_icons():
 
 def pyinstaller(icon):
     sep = ";" if os.name == "nt" else ":"
-    data = [(ROOT / "static", "static"), (ROOT / "VERSION", "."), (ROOT / "CHANGELOG.md", "."),
+    data = [(ROOT / "static", "static"), (ROOT / "VERSION", "."), (ROOT / "DATA_FORMAT", "."), (ROOT / "CHANGELOG.md", "."),
             (PKG / "icon.png", "packaging")]
     cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--name", "CraftShelf", "--windowed",
            "--icon", icon, "--distpath", DIST, "--workpath", BUILD / "pyi", "--specpath", BUILD,

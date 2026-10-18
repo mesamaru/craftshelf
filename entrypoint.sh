@@ -9,15 +9,28 @@ VERSION_FILE="/app/.version"
 
 if [ "${AUTO_UPDATE:-true}" = "true" ] && [ -n "${GITHUB_REPO:-}" ]; then
     BRANCH="${GITHUB_BRANCH:-main}"
-    # パネルの設定で「開発ビルド」を選んでいれば dev ブランチから取得する
-    CH_FILE="${CONFIG_DIR:-${DB_DIR:-${DATA_DIR:-/data}}}/update-channel"
-    if [ -f "$CH_FILE" ] && [ "$(tr -d '[:space:]' < "$CH_FILE")" = "dev" ]; then
+    # パネルの設定で選んだ受け取り先(開発ビルド = dev / プレビュー = next)から取得する
+    CFG_DIR="${CONFIG_DIR:-${DB_DIR:-${DATA_DIR:-/data}}}"
+    CH_FILE="$CFG_DIR/update-channel"
+    CH="$( [ -f "$CH_FILE" ] && tr -d '[:space:]' < "$CH_FILE" )"
+    if [ "$CH" = "dev" ]; then
         BRANCH="${GITHUB_DEV_BRANCH:-dev}"
+    elif [ "$CH" = "preview" ]; then
+        BRANCH="${GITHUB_PREVIEW_BRANCH:-next}"
     fi
+    # いまのデータの保存方法の番号(パネルが書く)。取得したコードが読めない番号なら入れ替えない
+    IN_USE="$( [ -f "$CFG_DIR/data-format" ] && tr -cd '0-9' < "$CFG_DIR/data-format" )"
+    IN_USE="${IN_USE:-1}"
     echo "[update] https://github.com/${GITHUB_REPO} (${BRANCH}) を確認しています..."
     TMP_DIR="$(mktemp -d)"
     if git clone --depth 1 --branch "$BRANCH" "https://github.com/${GITHUB_REPO}.git" "$TMP_DIR" > /tmp/update.log 2>&1; then
         COMMIT="$(git -C "$TMP_DIR" rev-parse --short HEAD)"
+        READS="$( [ -f "$TMP_DIR/DATA_FORMAT" ] && sed -n 's/^[[:space:]]*read[[:space:]]*=[[:space:]]*\([0-9][0-9]*\).*/\1/p' "$TMP_DIR/DATA_FORMAT" | head -n 1 )"
+        READS="${READS:-1}"
+        if [ "$READS" -lt "$IN_USE" ]; then
+            echo "[update] 取得した版(v$(cat "$TMP_DIR/VERSION" 2>/dev/null))は、いまのデータ(保存方法 $IN_USE)を読めないため入れ替えません"
+            rm -rf "$TMP_DIR"
+        else
         # data/永続データには触れず、アプリのコードだけを入れ替える
         rsync -a --delete \
             --exclude ".git" --exclude "data" --exclude ".version" \
@@ -27,6 +40,7 @@ if [ "${AUTO_UPDATE:-true}" = "true" ] && [ -n "${GITHUB_REPO:-}" ]; then
         echo "[update] 依存パッケージを確認しています..."
         pip install --no-cache-dir --quiet -r /app/requirements.txt || \
             echo "[update] 依存パッケージのインストールに失敗しました(起動は続行します)"
+        fi
     else
         echo "[update] 取得に失敗したため、現在のコードのまま起動します:"
         cat /tmp/update.log

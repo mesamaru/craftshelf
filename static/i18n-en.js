@@ -1453,6 +1453,22 @@ window.CS_EN = {
   "コンソール": "Console",
   "コマンド": "Command",
   "送る": "Send",
+  // ---- 設定ファイルの編集 ----
+  "編集できるのは、設定ファイル(.properties・.yml・.json・.toml など、512 KB まで)です。保存の前の内容はファイルごとに 20 回分残り、いつでも戻せます。": "You can edit config files (.properties, .yml, .json, .toml and similar, up to 512 KB). The previous content is kept for the last 20 saves of each file, so you can always go back.",
+  "Ctrl+S(⌘S)で保存。保存の前の内容は「履歴」から戻せます。サーバーが動いている間に変えた設定は、多くの場合、再起動か再読み込みのあとに効きます。": "Press Ctrl+S (⌘S) to save. You can restore earlier content from History. Changes made while the server is running usually take effect after a restart or reload.",
+  "保存していない変更があります。破棄して、この時点の内容を読み込みますか?": "You have unsaved changes. Discard them and load this version?",
+  "保存していない変更があります。破棄して戻りますか?": "You have unsaved changes. Discard them and go back?",
+  "保存していない変更があります。破棄して移動しますか?": "You have unsaved changes. Discard them and leave?",
+  "この時点の内容を読み込みました。「保存」で元に戻ります": "Loaded this version. Press Save to restore it",
+  "それでも保存しますか?": "Save anyway?",
+  "未保存の変更があります": "Unsaved changes",
+  "変更はありませんでした": "No changes",
+  "履歴はまだありません": "No history yet",
+  "空のフォルダです": "Empty folder",
+  "より前": "before",
+  "を保存しました": " saved",
+  "ファイル": "Files",
+  "履歴": "History",
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [

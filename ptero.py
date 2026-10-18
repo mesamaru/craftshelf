@@ -128,6 +128,11 @@ class Ptero:
             buf = (buf + chunk)[-nbytes:]
         return buf
 
+    def write_file(self, ident, path, data):
+        """ファイルを書き換える(無ければ作る)。data は bytes。"""
+        self._req("POST", self._srv(ident) + "/files/write", params={"file": path}, data=data,
+                  headers={"Content-Type": "text/plain"})
+
     def command(self, ident, cmd):
         """コンソールにコマンドを送る(結果は返らないので、ログで確かめる)。サーバーが止まっていると 502。"""
         r = self._req("POST", self._srv(ident) + "/command", json={"command": cmd}, ok=(200, 204, 502))

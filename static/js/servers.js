@@ -424,7 +424,7 @@ function todoList(s) {
 function renderServerPage(s, el) {
   const ro = s.access === "view", owner = !s.access || s.access === "owner";
   const tab = state.srvTab || "overview";
-  const tabs = [["overview", "概要"], ["addons", `アドオン${srvFiles(s) ? ` ${srvFiles(s)}` : ""}`], ["backup", "保存"], ...(ro ? [] : [["console", "コンソール"], ["settings", "設定"]])];
+  const tabs = [["overview", "概要"], ["addons", `アドオン${srvFiles(s) ? ` ${srvFiles(s)}` : ""}`], ["backup", "保存"], ...(ro ? [] : [["console", "コンソール"], ["files", "ファイル"], ["settings", "設定"]])];
   el.innerHTML = `<div class="srv-page" data-srv="${s.id}">
     ${wideSrv() ? "" : `<button class="btn plain small srv-back" type="button" data-va="back">${icon("back")}サーバー</button>`}
     <div class="srv-hero"><div class="m"><h3 translate="no">${esc(s.name)}</h3><small>${[srvSoftLabel(s), s.kind === "local" ? "フォルダ" : "Pterodactyl", !owner ? `${esc(s.owner_name)} さんが共有` : ""].filter(Boolean).join(" · ")}</small></div>
@@ -459,6 +459,8 @@ function renderServerPage(s, el) {
     worldsDialog(s, $("#paneWorlds", pane)); snapshotsDialog(s, $("#paneHist", pane));
   } else if (tab === "console") {
     consolePane(s, pane);
+  } else if (tab === "files") {
+    filesPane(s, pane);
   } else if (tab === "settings") {
     serverSettingsDialog(s, pane);
   }
@@ -512,7 +514,7 @@ $("#serversView").addEventListener("click", async (e) => {
   const sid = Number(e.target.closest("[data-srv]")?.dataset.srv);
   const s = (state.servers || []).find((x) => x.id === sid);
   const tb = e.target.closest("[data-tab2]");
-  if (tb && s) { state.srvTab = tb.dataset.tab2; renderServerPage(s, $("#srvMain")); return; }
+  if (tb && s) { if (state.feDirty && state.feDirty() && !cfm("保存していない変更があります。破棄して移動しますか?")) return; state.feDirty = null; state.srvTab = tb.dataset.tab2; renderServerPage(s, $("#srvMain")); return; }
   const pw = e.target.closest("[data-pw]");
   if (pw && s) { powerAction(s, pw.dataset.pw); return; }
   const b = e.target.closest("[data-va]"); if (!b) return;

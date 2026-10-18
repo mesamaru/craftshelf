@@ -173,6 +173,23 @@ class _PteroFiles:
         except ptero.PteroError:
             return None
 
+    def read_bytes(self, rel, limit):
+        parent, _sep, name = rel.rpartition("/")
+        entry = next((e for e in (self.list(parent) or []) if e["name"] == name and e["is_file"]), None)
+        if entry is None:
+            return None
+        if entry["size"] > limit:
+            raise ApiError("ファイルが大きすぎるため、ここでは編集できません")
+        tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
+        try:
+            _pcall(self.p.download, self.ident, "/" + rel, tmp, limit)
+            return tmp.read_bytes()
+        finally:
+            tmp.unlink(missing_ok=True)
+
+    def write_bytes(self, rel, data):
+        _pcall(self.p.write_file, self.ident, "/" + rel, data)
+
     def read_text(self, rel, limit=256 * 1024):
         tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
         try:
@@ -283,6 +300,28 @@ class _LocalFiles:
                 return f.read(limit).decode("utf-8", "replace")
         except OSError:
             return None
+
+    def read_bytes(self, rel, limit):
+        """ファイルの中身(無ければ None。limit より大きければ ApiError)。"""
+        p = self._p(rel)
+        try:
+            if p.stat().st_size > limit:
+                raise ApiError("ファイルが大きすぎるため、ここでは編集できません")
+            return p.read_bytes()
+        except FileNotFoundError:
+            return None
+        except OSError as e:
+            raise ApiError(f"ファイルを読めません: {rel}({e.strerror or e})") from e
+
+    def write_bytes(self, rel, data):
+        p = self._p(rel)
+        part = p.with_name(f".{p.name}.craftshelf-part")
+        try:
+            part.write_bytes(data)
+            os.replace(part, p)  # 書き終わってから置き換える
+        except OSError as e:
+            part.unlink(missing_ok=True)
+            raise ApiError(f"ファイルに書き込めません: {rel}({e.strerror or e})") from e
 
     def tail(self, rel, nbytes=256 * 1024):
         try:
@@ -975,6 +1014,7 @@ def api_servers_delete(srv):
         conn.execute("DELETE FROM server_files WHERE server_id=?", (srv,))
         conn.execute("DELETE FROM server_acl WHERE server_id=?", (srv,))
         conn.execute("DELETE FROM server_holds WHERE server_id=?", (srv,))
+        conn.execute("DELETE FROM server_file_history WHERE server_id=?", (srv,))
         conn.execute("DELETE FROM servers WHERE id=?", (srv,))
         conn.commit()
     return jsonify(ok=True)
@@ -1457,6 +1497,145 @@ def api_servers_console(srv):
         audit("コンソールでコマンドを実行", row["name"], cmd[:300])
         return jsonify(ok=True, via="ptero", output=None)
     raise ApiError("コマンドを送るには、サーバーの設定で RCON(ポートとパスワード)を設定してください")
+
+
+# --------------------------------------------------------------------------
+# 設定ファイルの編集(server.properties・プラグインの config.yml など。保存の前の内容を残す)
+# --------------------------------------------------------------------------
+EDIT_EXTS = {".properties", ".yml", ".yaml", ".json", ".json5", ".toml", ".txt", ".conf", ".cfg", ".ini", ".mcmeta", ".lang", ".sk"}
+EDIT_LIMIT = 512 * 1024
+FILE_HISTORY_KEEP = 20
+
+
+def _edit_path(raw, allow_dir=False):
+    """利用者が指定した場所を、サーバーのフォルダの中の相対パスにそろえる(外へ出る指定は断る)。"""
+    import posixpath
+    p = str(raw or "").replace("\\", "/").strip().strip("/")
+    if "\x00" in p or any(part in ("..", ".") for part in p.split("/") if part):
+        raise ApiError("場所の指定が不正です")
+    p = posixpath.normpath(p) if p else ""
+    if p == ".":
+        p = ""
+    if not allow_dir:
+        if not p or Path(p).suffix.lower() not in EDIT_EXTS:
+            raise ApiError("この種類のファイルはここでは編集できません")
+    return p
+
+
+def _hash(data):
+    import hashlib
+    return hashlib.sha256(data).hexdigest()
+
+
+def check_syntax(path, text):
+    """書式の誤りを探す。見つかれば「何行目: 内容」を返す(YAML はよくある誤り=字下げのタブだけを調べる)。"""
+    ext = Path(path).suffix.lower()
+    if ext == ".json":
+        try:
+            json.loads(text)
+        except json.JSONDecodeError as e:
+            return f"{e.lineno} 行目: JSON の書き方が正しくありません({e.msg})"
+    elif ext == ".toml":
+        try:
+            import tomllib
+            tomllib.loads(text)
+        except ModuleNotFoundError:
+            return None
+        except Exception as e:  # noqa: BLE001
+            return f"TOML の書き方が正しくありません({e})"
+    elif ext in (".yml", ".yaml"):
+        for i, line in enumerate(text.split("\n"), 1):
+            lead = line[:len(line) - len(line.lstrip(" \t"))]
+            if "\t" in lead:
+                return f"{i} 行目: YAML の字下げにタブが使われています(スペースにしてください)"
+    return None
+
+
+@app.get("/api/servers/<int:srv>/files")
+@require("editor")
+def api_servers_files(srv):
+    row = _server_row(srv, "edit")
+    rel = _edit_path(request.args.get("dir"), allow_dir=True)
+    entries = server_fs(row).list(rel)
+    if entries is None:
+        raise ApiError("フォルダが見つかりません", 404)
+    out = []
+    for e in entries:
+        if e["name"].endswith(".craftshelf-part"):
+            continue
+        editable = e["is_file"] and Path(e["name"]).suffix.lower() in EDIT_EXTS and (e["size"] or 0) <= EDIT_LIMIT
+        out.append({**e, "editable": editable})
+    out.sort(key=lambda e: (e["is_file"], e["name"].lower()))
+    return jsonify(dir=rel, entries=out)
+
+
+@app.get("/api/servers/<int:srv>/file")
+@require("editor")
+def api_servers_file_get(srv):
+    row = _server_row(srv, "edit")
+    rel = _edit_path(request.args.get("path"))
+    data = server_fs(row).read_bytes(rel, EDIT_LIMIT)
+    if data is None:
+        raise ApiError("ファイルが見つかりません", 404)
+    if b"\x00" in data[:8192]:
+        raise ApiError("文字のファイルではないため、ここでは編集できません")
+    n = db().execute("SELECT COUNT(*) FROM server_file_history WHERE server_id=? AND path=?", (srv, rel)).fetchone()[0]
+    return jsonify(path=rel, text=data.decode("utf-8", "replace"), hash=_hash(data), history=n)
+
+
+@app.put("/api/servers/<int:srv>/file")
+@require("editor")
+def api_servers_file_put(srv):
+    row = _server_row(srv, "edit")
+    data = request.get_json(silent=True) or {}
+    rel = _edit_path(data.get("path"))
+    text = data.get("text")
+    if not isinstance(text, str):
+        raise ApiError("内容がありません")
+    new = text.encode("utf-8")
+    if len(new) > EDIT_LIMIT:
+        raise ApiError("内容が大きすぎます(512 KB まで)")
+    if not data.get("force"):
+        err = check_syntax(rel, text)
+        if err:
+            return jsonify(error=err, syntax=True), 422
+    fs = server_fs(row)
+    old = fs.read_bytes(rel, EDIT_LIMIT)
+    if old is not None and data.get("hash") and _hash(old) != data["hash"]:
+        return jsonify(error="開いたあとに、サーバー側でこのファイルが変わりました。読み込み直してから編集してください", conflict=True), 409
+    user = current_user()["username"]
+    conn = db()
+    if old is not None and old != new:
+        conn.execute("INSERT INTO server_file_history (server_id, path, saved_at, username, size, content) VALUES (?,?,?,?,?,?)",
+                     (srv, rel, utcnow(), user, len(old), old))
+        conn.execute("DELETE FROM server_file_history WHERE server_id=? AND path=? AND id NOT IN "
+                     "(SELECT id FROM server_file_history WHERE server_id=? AND path=? ORDER BY id DESC LIMIT ?)",
+                     (srv, rel, srv, rel, FILE_HISTORY_KEEP))
+        conn.commit()
+    if old != new:
+        fs.write_bytes(rel, new)
+        audit("設定ファイルを編集", row["name"], rel)
+    return jsonify(ok=True, hash=_hash(new), changed=old != new)
+
+
+@app.get("/api/servers/<int:srv>/file/history")
+@require("editor")
+def api_servers_file_history(srv):
+    _server_row(srv, "edit")
+    rel = _edit_path(request.args.get("path"))
+    rows = db().execute("SELECT id, saved_at, username, size FROM server_file_history WHERE server_id=? AND path=? ORDER BY id DESC",
+                        (srv, rel)).fetchall()
+    return jsonify(entries=[dict(r) for r in rows])
+
+
+@app.get("/api/servers/<int:srv>/file/history/<int:hid>")
+@require("editor")
+def api_servers_file_history_get(srv, hid):
+    _server_row(srv, "edit")
+    r = db().execute("SELECT path, saved_at, content FROM server_file_history WHERE id=? AND server_id=?", (hid, srv)).fetchone()
+    if not r:
+        raise ApiError("見つかりません", 404)
+    return jsonify(path=r["path"], saved_at=r["saved_at"], text=bytes(r["content"]).decode("utf-8", "replace"))
 
 
 @app.get("/api/servers/<int:srv>/status")

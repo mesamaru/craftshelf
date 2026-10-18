@@ -1187,3 +1187,16 @@ button.fb-row > svg { width: 15px; height: 15px; color: var(--label-3); flex: no
 .con-entry .c { font-weight: 700; color: var(--tint); }
 .con-entry .r { white-space: pre-wrap; overflow-wrap: anywhere; margin-top: 2px; }
 .con-entry .e { color: var(--red); }
+
+/* ---------------- 設定ファイルの編集 ---------------- */
+.fe-top { display: flex; flex-direction: column; gap: 8px; }
+.fe-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
+.fe-crumbs .sep { color: var(--label-3); }
+.fe-quick { display: flex; flex-wrap: wrap; gap: 6px; }
+.fe-list .fe-off { opacity: .5; }
+.fe-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 4px 0 10px; }
+.fe-path { flex: 1; min-width: 120px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; word-break: normal; }
+.fe-state { white-space: nowrap; }
+.fe-text { display: block; width: 100%; box-sizing: border-box; min-height: min(60vh, 560px); resize: vertical; padding: 12px 14px; border-radius: 14px; border: .5px solid var(--sep); background: var(--card); color: var(--label); font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size: 2; white-space: pre; overflow: auto; }
+.fe-text:focus { outline: 2px solid var(--tint); outline-offset: -1px; }
+@media (max-width: 700px) { .fe-text { font-size: 16px; } }

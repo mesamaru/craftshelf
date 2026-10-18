@@ -412,9 +412,18 @@ def _m_notifications(conn):
     conn.execute("CREATE TABLE IF NOT EXISTS notification_reads (user_id INTEGER PRIMARY KEY, last_id INTEGER NOT NULL DEFAULT 0)")
 
 
+def _m_file_history(conn):
+    # サーバーの設定ファイルを編集する前の内容(ファイルごとに直近 20 回分)
+    conn.execute("CREATE TABLE IF NOT EXISTS server_file_history (id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                 "server_id INTEGER NOT NULL, path TEXT NOT NULL, saved_at TEXT NOT NULL, username TEXT NOT NULL DEFAULT '', "
+                 "size INTEGER NOT NULL DEFAULT 0, content BLOB NOT NULL)")
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sfh_path ON server_file_history (server_id, path, id)")
+
+
 MIGRATIONS = [
     ("02.00.00-migration-log", "版ごとの移行の記録を始める", lambda conn: None),
     ("02.01.00-notifications", "お知らせセンター", _m_notifications),
+    ("02.03.00-file-history", "サーバーの設定ファイルの編集履歴", _m_file_history),
 ]
 
 

@@ -5,7 +5,7 @@ from flask import g, jsonify, request
 import notify
 
 from .core import ApiError, _jl, app, db, get_setting, utcnow
-from .auth import current_user, decrypt_secret, require_perm
+from .auth import current_user, decrypt_secret, require_perm, role_level, user_perms
 
 
 # ==========================================================================
@@ -163,6 +163,7 @@ DEFAULT_EVENTS = ["updates", "downloaded", "errors", "servers", "backup", "selfu
 
 
 def notify_event(event, title, lines, level="info"):
+    _remember(event, title, lines, level)
     try:
         url = decrypt_secret(get_setting("discord_webhook"))
         if not url:
@@ -172,6 +173,72 @@ def notify_event(event, title, lines, level="info"):
             notify.send(url, f"CraftShelf: {title}", lines, level)
     except Exception:  # noqa: BLE001
         app.logger.exception("notify")
+
+
+# ==========================================================================
+# お知らせセンター(パネルの中で、Discord と同じ出来事を見られる)
+# ==========================================================================
+# 出来事ごとに、誰に見せるか: all = 全員 / editor = 編集者以上 / admin = 管理者 / perm:xxx = その権限を持つ人
+AUDIENCE = {"updates": "all", "downloaded": "all", "servers": "editor", "errors": "admin",
+            "backup": "perm:storage", "selfupdate": "perm:system"}
+NOTIFY_KEEP = 500
+
+
+def _remember(event, title, lines, level):
+    try:
+        conn = db()
+        conn.execute("INSERT INTO notifications (at, event, level, title, body, audience) VALUES (?,?,?,?,?,?)",
+                     (utcnow(), event, level, str(title)[:300], "\n".join(str(x) for x in (lines or []))[:4000],
+                      AUDIENCE.get(event, "admin")))
+        conn.execute("DELETE FROM notifications WHERE id <= (SELECT id FROM notifications ORDER BY id DESC LIMIT 1 OFFSET ?)",
+                     (NOTIFY_KEEP,))
+        conn.commit()
+    except Exception:  # noqa: BLE001
+        app.logger.exception("remember notification")
+
+
+def _audience_sql(u):
+    """そのユーザーが見られるお知らせの条件(SQL の WHERE と値)。"""
+    allowed = ["all"]
+    if role_level(u) >= 2:
+        allowed.append("editor")
+    if u["role"] == "admin":
+        allowed.append("admin")
+    allowed += [f"perm:{p}" for p in user_perms(u)]
+    return f"audience IN ({','.join('?' * len(allowed))})", allowed
+
+
+@app.get("/api/notifications")
+def api_notifications():
+    u = current_user()
+    try:
+        limit = max(1, min(200, int(request.args.get("limit", 50))))
+    except ValueError:
+        raise ApiError("数値で指定してください")
+    where, args = _audience_sql(u)
+    conn = db()
+    rows = conn.execute(f"SELECT id, at, event, level, title, body FROM notifications WHERE {where} ORDER BY id DESC LIMIT ?",
+                        args + [limit]).fetchall()
+    r = conn.execute("SELECT last_id FROM notification_reads WHERE user_id=?", (u["id"],)).fetchone()
+    last = r[0] if r else 0
+    unread = conn.execute(f"SELECT COUNT(*) FROM notifications WHERE {where} AND id > ?", args + [last]).fetchone()[0]
+    return jsonify(entries=[dict(x) for x in rows], unread=unread, last_read=last)
+
+
+@app.post("/api/notifications/read")
+def api_notifications_read():
+    """ここまで読んだ、を記録する(upto を省くと、いまある分すべて)。"""
+    u = current_user()
+    data = request.get_json(silent=True) or {}
+    conn = db()
+    try:
+        upto = int(data.get("upto") or conn.execute("SELECT COALESCE(MAX(id), 0) FROM notifications").fetchone()[0])
+    except (TypeError, ValueError):
+        raise ApiError("数値で指定してください")
+    conn.execute("INSERT INTO notification_reads (user_id, last_id) VALUES (?, ?) "
+                 "ON CONFLICT(user_id) DO UPDATE SET last_id=MAX(last_id, excluded.last_id)", (u["id"], upto))
+    conn.commit()
+    return jsonify(ok=True)
 
 
 @app.post("/api/settings/discord/test")

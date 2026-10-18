@@ -1423,6 +1423,17 @@ window.CS_EN = {
   "インストールの前にデータを退避し、インストール後に自動で再起動します(数秒〜数十秒)。": "Your data is backed up before installing, and the panel restarts automatically afterwards (a few seconds to a minute).",
   "データの保存方法": "Data format",
   "まで読めます": "readable up to",
+  // ---- お知らせセンター・全体の検索 ----
+  "まだお知らせはありません。": "No notifications yet.",
+  "更新の確認・サーバーの処理・バックアップなどの結果がここに届きます。": "Results of update checks, server tasks, backups and more will show up here.",
+  "同じ内容を Discord にも送れます(設定 → Discord 通知)。": "You can also send these to Discord (Settings → Discord notifications).",
+  "アドオン・サーバー・設定・操作を検索": "Search add-ons, servers, settings and actions",
+  "アカウント・パスワード・二段階認証": "Account, password and two-factor authentication",
+  "検索(Ctrl+K)": "Search (Ctrl+K)",
+  "未読": "unread",
+  "お知らせ": "Notifications",
+  "画面": "Views",
+  "パネル": "Panel",
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [

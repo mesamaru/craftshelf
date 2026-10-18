@@ -1144,3 +1144,28 @@ button.fb-row > svg { width: 15px; height: 15px; color: var(--label-3); flex: no
 .cmp-bar { position: sticky; bottom: 92px; z-index: 5; display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 10px 12px 10px 16px; border-radius: 999px; background: var(--card); box-shadow: 0 8px 26px rgba(0,0,0,.3), 0 0 0 .5px var(--sep); }
 .cmp-bar .sp { flex: 1; }
 @media (max-width: 700px) { .cmp-bar { bottom: calc(env(safe-area-inset-bottom) + 92px); } }
+
+/* ---------------- お知らせセンター ---------------- */
+.icon-btn .bell-dot { position: absolute; top: 2px; right: 0; min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px; background: var(--red); color: #fff; font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; border: 2px solid var(--glass-strong); box-sizing: content-box; font-variant-numeric: tabular-nums; }
+.row.notice { align-items: flex-start; }
+.row.notice .title { white-space: normal; }
+.row.notice.unread .title::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 6px; border-radius: 50%; background: var(--blue); vertical-align: middle; }
+.notice-body { margin-top: 4px; font-size: 13px; color: var(--label-2); white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 420px) { .top-actions { gap: 4px; } .top-actions .icon-btn { width: 36px; height: 36px; } }
+
+/* ---------------- 全体の検索(Ctrl+K) ---------------- */
+.palette { display: flex; flex-direction: column; max-height: min(70vh, 560px); }
+.palette-in { display: flex; align-items: center; gap: 10px; padding: 16px 18px 12px; border-bottom: .5px solid var(--sep); }
+.palette-in svg { width: 20px; height: 20px; color: var(--label-2); flex: none; }
+.palette-in input { flex: 1; min-width: 0; border: 0; background: transparent; font-size: 18px; color: var(--label); outline: none; padding: 4px 0; }
+.palette-list { overflow-y: auto; padding: 6px; flex: 1; overscroll-behavior: contain; }
+.pal-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 9px 10px; border: 0; border-radius: 12px; background: transparent; color: var(--label); text-align: left; }
+.pal-row .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.pal-row .title { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pal-row .subtitle { font-size: 12px; color: var(--label-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pal-row .pal-kind { font-size: 12px; color: var(--label-2); flex: none; }
+.pal-row:hover { background: var(--fill); }
+.pal-row.on { background: var(--tint-soft); }
+.palette-foot { display: flex; gap: 14px; justify-content: center; padding: 8px 12px 12px; border-top: .5px solid var(--sep); }
+.palette-foot kbd { font: inherit; font-size: 11px; padding: 1px 6px; margin-right: 3px; border-radius: 6px; background: var(--fill); }
+@media (hover: none) { .palette-foot { display: none; } }

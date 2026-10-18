@@ -404,8 +404,17 @@ def migrate_schema(conn):
 #   古い版(01.24 以降)は知らない表・項目を無視して動けるので、02 から安全に戻せる。
 #   どうしても互換のない変更が要るときは、DATA_FORMAT の write を上げ、その番号を読める 01 の版を先に出す。
 # 各ステップは一度だけ実行し、schema_migrations に記録する。id は変えない。
+def _m_notifications(conn):
+    # パネルの中のお知らせ(Discord に送る出来事と同じもの)と、ユーザーごとの「どこまで読んだか」
+    conn.execute("CREATE TABLE IF NOT EXISTS notifications (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, "
+                 "event TEXT NOT NULL, level TEXT NOT NULL DEFAULT 'info', title TEXT NOT NULL, body TEXT NOT NULL DEFAULT '', "
+                 "audience TEXT NOT NULL DEFAULT 'all')")
+    conn.execute("CREATE TABLE IF NOT EXISTS notification_reads (user_id INTEGER PRIMARY KEY, last_id INTEGER NOT NULL DEFAULT 0)")
+
+
 MIGRATIONS = [
     ("02.00.00-migration-log", "版ごとの移行の記録を始める", lambda conn: None),
+    ("02.01.00-notifications", "お知らせセンター", _m_notifications),
 ]
 
 

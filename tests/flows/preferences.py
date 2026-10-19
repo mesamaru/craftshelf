@@ -37,6 +37,6 @@ uid = [u for u in a.get("/api/users").get_json()["users"] if u["username"] == "b
 a.delete(f"/api/users/{uid}", headers=H)
 ok(not (A.BG_DIR / bf).exists(), "user deletion removes their image")
 r = a.delete("/api/me/background", headers=H).get_json()
-ok(r["prefs"]["theme"] == "mint" and "bg_file" not in r["prefs"] and not any(A.BG_DIR.iterdir()), "delete image resets theme")
+ok(r["prefs"]["theme"] == "aurora" and "bg_file" not in r["prefs"] and not any(A.BG_DIR.iterdir()), "delete image resets theme")
 print("FAILS:", len(fails))
 sys.exit(1 if fails else 0)

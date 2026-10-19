@@ -357,7 +357,7 @@ def api_me_background_delete():
     prefs = user_prefs(u)
     _remove_bg_file(prefs.pop("bg_file", None))
     if prefs.get("theme") == "custom":
-        prefs["theme"] = "mint"
+        prefs["theme"] = "aurora"  # 02 からの初めのテーマ
     _save_prefs(u["id"], prefs)
     return jsonify(prefs=prefs)
 

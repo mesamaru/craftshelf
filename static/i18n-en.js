@@ -1542,6 +1542,13 @@ window.CS_EN = {
   "端末を紛失した場合)": "if a device was lost)",
   "パスキーをすべて削除": "Delete all passkeys",
   "パスキーを削除しました": "Passkeys deleted",
+  // ---- 02 の画面の枠(サイドバー・検索欄・下のタブ・要約) ----
+  "アドオン・サーバー・設定を検索": "Search add-ons, servers and settings",
+  "すべてを検索": "Search everything",
+  "サーバーで使用中": "In use on servers",
+  "メニュー": "Menu",
+  "ダッシュ": "Dash",
+  "ボード": "board",
   // ---- 01.16〜02 の画面の英訳(まとめて追加) ----
   "APIトークンは「Authorization: Bearer cs_…」で送ります(⚙ 設定 → アカウント → APIトークン)": "Send API tokens as “Authorization: Bearer cs_…” (⚙ Settings → Account → API tokens)",
   "トークンは、作るときに選んだ権限(作った人の権限まで)で動きます。ログイン・二段階認証・ユーザーの管理には使えません": "A token works with the role chosen when it was created (up to its creator's role). Tokens can't be used for sign-in, two-factor authentication or user management",
@@ -1705,6 +1712,7 @@ window.CS_EN = {
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [
+  [/ほか\s*(\d+)\s*台/g, "$1 more servers"],
   [/プレビュー v([\d.]+) から/g, "From preview v$1, "],
   [/いまは v([\d.]+) です。/g, "You are on v$1. "],
   [/(\S+) v([\d.]+) に戻す/g, "Switch back to $1 v$2"],
@@ -1745,6 +1753,7 @@ window.CS_EN_RULES = [
   [/(\d+)\s*時間ごと/g, "every $1 hours"],
   [/(\d+)\s*種類を通知/g, "$1 event types"],
   [/(\d+)\s*台/g, "$1 servers"],
+  [/(\d+)\s*人/g, "$1 players"],
 ];
 /* 最後に、残った日本語の記号を英語向けに整える */
 window.CS_EN_PUNCT = [

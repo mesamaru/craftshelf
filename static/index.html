@@ -28,19 +28,22 @@
 <script src="/static/js/settings.js" defer></script>
 <script src="/static/js/upload.js" defer></script>
 <script src="/static/js/palette.js" defer></script>
+<script src="/static/js/shell.js" defer></script>
 <script src="/static/js/guide.js" defer></script>
 <script src="/static/js/passkey.js" defer></script>
 <script src="/static/js/init.js" defer></script>
 </head>
 <body>
 <div id="app" hidden>
+  <aside class="sidenav glass" id="sidenav" aria-label="メニュー"></aside>
   <header class="topbar glass">
     <div class="brand">
       <img class="logo" src="/static/icon.svg" alt="" aria-hidden="true">
-      <div style="min-width:0"><h1>CraftShelf</h1><div class="sub" id="stats"></div></div>
+      <div style="min-width:0"><h1>CraftShelf <span class="v02" title="CraftShelf 02">02</span></h1><div class="sub" id="stats"></div></div>
     </div>
+    <button class="gsearch" id="gsearch" type="button" aria-label="検索(Ctrl+K)"><span class="gs-i" id="gsIcon"></span><span class="gs-t">アドオン・サーバー・設定を検索</span><kbd>⌘K</kbd></button>
     <div class="top-actions">
-      <button class="icon-btn need-editor" id="addBtn" type="button" aria-label="追加" title="追加"></button>
+      <button class="icon-btn need-editor add-btn" id="addBtn" type="button" aria-label="追加" title="追加"></button>
       <button class="icon-btn need-editor" id="updBtn" type="button" aria-label="更新の確認" title="更新の確認"></button>
       <button class="icon-btn" id="cmdBtn" type="button" aria-label="検索(Ctrl+K)" title="検索(Ctrl+K)"></button>
       <button class="icon-btn bell" id="bellBtn" type="button" aria-label="お知らせ" title="お知らせ"></button>
@@ -53,6 +56,7 @@
       <h2 id="viewTitle">ライブラリ</h2>
       <div class="pill tappable" id="storageInfo" role="button" tabindex="0" aria-label="保存先の状況"></div>
     </div>
+    <button class="gsearch-m" id="gsearchM" type="button"><span id="gsIconM"></span><span>すべてを検索</span></button>
     <div class="banner" id="storageBanner" hidden></div>
     <div class="banner info" id="updBanner" hidden></div>
     <div class="jobs" id="jobs"></div>
@@ -81,6 +85,7 @@
       <div class="queue-list" id="queueList"></div>
     </section>
 
+    <div class="lib-sum" id="libSum"></div>
     <div class="toolbar glass">
       <div class="row1">
         <label class="search"><span id="searchIcon"></span><input type="search" id="search" placeholder="検索" aria-label="検索"></label>
@@ -109,9 +114,10 @@
   <div class="selbar glass" id="selBar" hidden></div>
   <nav class="tabbar glass" id="tabbar" role="tablist" aria-label="画面の切り替え">
     <button type="button" role="tab" data-view="library" aria-selected="true"><span class="ti" id="tiLib"></span><span>ライブラリ</span></button>
-    <button type="button" role="tab" data-view="dash" aria-selected="false"><span class="ti" id="tiDash"></span><span>ダッシュボード</span></button>
-    <button type="button" role="tab" data-view="sets" aria-selected="false"><span class="ti" id="tiSets"></span><span>セット</span></button>
     <button type="button" role="tab" data-view="servers" aria-selected="false"><span class="ti" id="tiSrv"></span><span>サーバー</span></button>
+    <button type="button" class="tab-add need-editor" id="tabAdd" aria-label="追加"><span class="ti" id="tiAdd"></span></button>
+    <button type="button" role="tab" data-view="dash" aria-selected="false"><span class="ti" id="tiDash"></span><span>ダッシュ<span class="hide-s">ボード</span></span></button>
+    <button type="button" role="tab" data-view="sets" aria-selected="false"><span class="ti" id="tiSets"></span><span>セット</span></button>
   </nav>
 </div>
 

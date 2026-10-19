@@ -128,6 +128,7 @@ async function loadServers() {
 /* 稼働状況・人数(一覧ではカードの右上、詳細では状態のパネルに出す) */
 async function loadLive(id) {
   try { state.srvLive[id] = await api(`/api/servers/${id}/status`); } catch { state.srvLive[id] = { state: "unknown" }; }
+  if (typeof renderSideServers === "function") renderSideServers();
   const srv = (state.servers || []).find((x) => x.id === id);
   if (!srv) return;
   document.querySelectorAll(`[data-sdot="${id}"]`).forEach((el) => { el.outerHTML = srvDot(id); });
@@ -433,10 +434,14 @@ function renderServerPage(s, el) {
     <div class="srv-pane" id="srvPane"></div></div>`;
   const pane = $("#srvPane", el);
   if (tab === "overview") {
-    pane.innerHTML = `<div id="srvLivePanel">${livePanel(s)}</div>
+    pane.innerHTML = `${!ro ? `<div class="srv-acts">
+        <button type="button" data-va="push">${icon("send")}<span>同期</span></button>
+        <button type="button" data-tab2="console">${icon("chat")}<span>コマンド</span></button>
+        <button type="button" data-tab2="backup">${icon("download")}<span>保存</span></button>
+        ${canPower(s) ? `<button type="button" data-pw="restart">${icon("refresh")}<span>再起動</span></button>` : `<button type="button" data-tab2="files">${icon("doc")}<span>ファイル</span></button>`}
+      </div>` : ""}<div id="srvLivePanel">${livePanel(s)}</div>
       <div class="sgrp">やること</div><div class="slist stodo-list">${todoList(s)}</div>
       ${!ro ? `<div class="srv-quick">
-        <button class="btn small" type="button" data-va="push">${icon("send")}転送</button>
         <button class="btn small" type="button" data-va="copy">${icon("arrows")}${(s.stage_targets || []).length ? "本番へ反映" : "構成をコピー"}</button>
         ${owner ? `<button class="btn small" type="button" data-va="share">${icon("users")}共有${(s.shared_with || []).length ? ` ${s.shared_with.length}` : ""}</button>` : ""}</div>` : ""}
       ${s.software ? `<div class="sgrp">サーバー本体</div><div class="slist pad" id="srvSoft">${softPanel(s, s.soft_info || {})}</div>` : ""}

@@ -52,6 +52,7 @@ function filtered() {
   let list = state.items.filter((it) => state.cat === "all" || it.category === state.cat
     || (state.cat === "__upd" && it.source && it.source.status === "update")
     || (state.cat === "__deps" && (it.missing_deps || []).length)
+    || (state.cat === "__onsrv" && presenceOf(it).length)
     || (state.cat === "__unlinked" && !it.source)
     || (state.cat === "__nomc" && !mcOf(it)));
   if (state.mc) list = list.filter((it) => mcSupports(mcOf(it), state.mc) === true);
@@ -89,6 +90,7 @@ function render() {
     .map((k) => `<button class="seg${k !== "all" && !counts[k] ? " zero" : ""}" type="button" data-cat="${k}" aria-pressed="${state.cat === k}">${k === "all" ? "" : `<span class="segi c-${k}">${catGlyph(k)}</span>`}${k === "all" ? "すべて" : CATS[k]}<span class="n">${counts[k]}</span></button>`).join("")
     + (nUpd || state.cat === "__upd" ? `<button class="seg upd" type="button" data-cat="__upd" aria-pressed="${state.cat === "__upd"}">更新あり<span class="n">${nUpd}</span></button>` : "")
     + (nDeps || state.cat === "__deps" ? `<button class="seg upd" type="button" data-cat="__deps" aria-pressed="${state.cat === "__deps"}">前提が不足<span class="n">${nDeps}</span></button>` : "")
+    + (state.cat === "__onsrv" ? `<button class="seg" type="button" data-cat="__onsrv" aria-pressed="true">サーバーで使用中<span class="n">${state.items.filter((i) => presenceOf(i).length).length}</span></button>` : "")
     + (state.cat === "__unlinked" ? `<button class="seg" type="button" data-cat="__unlinked" aria-pressed="true">未連携<span class="n">${state.items.filter((i) => !i.source).length}</span></button>` : "")
     + (state.cat === "__nomc" ? `<button class="seg" type="button" data-cat="__nomc" aria-pressed="true">MC不明<span class="n">${state.items.filter((i) => !mcOf(i)).length}</span></button>` : "")
     + (emptyCats.length ? `<button class="seg seg-more" type="button" id="catMore" aria-haspopup="menu">ほかの種類${icon("down")}</button>` : "");
@@ -139,6 +141,8 @@ function render() {
       + (shared.length ? `<div class="list-sep">${icon("users")}共有されたもの<span>${shared.length} 件</span></div>${shared.map(rowHTML).join("")}` : "")
       + webFind;
   }
+  renderLibSummary(nUpd, nDeps);
+  if (typeof renderSide === "function") renderSide();
   if (state.selected) renderPanel();
   if (state.view === "dash") renderDash();
   if (state.view === "sets" && state.sets) renderSets();
@@ -256,6 +260,7 @@ function setView(view) {
   document.body.classList.remove("srv-detail");
   if (state.jobs) renderJobs();
   document.querySelectorAll("#tabbar [data-view]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === view)));
+  document.querySelectorAll("#sidenav [data-view]").forEach((b) => b.setAttribute("aria-current", b.dataset.view === view ? "page" : "false"));
   $("#viewTitle").textContent = VIEWS[view];
   $("#libView").hidden = view !== "library";
   if (view === "library" && state.guide && isAdmin()) loadGuide();

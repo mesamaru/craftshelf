@@ -244,6 +244,7 @@ const STARS = [
   "radial-gradient(1px 1px at 90px 70px, rgba(255,255,255,.7), transparent) 0 0 / 190px 190px",
   "radial-gradient(1.8px 1.8px at 50px 160px, rgba(220,200,255,.8), transparent) 0 0 / 230px 230px",
 ].join(", ");
+const DEFAULT_THEME = "aurora";  // 02 から、はじめはオーロラ(ミントはいつでも選べる)
 const THEMES = [
   { id: "mint", name: "ミント", tone: null, bg: null },
   { id: "aurora", name: "オーロラ", tone: "dark", bg: "radial-gradient(60% 50% at 20% 15%, rgba(61,255,170,.55), transparent 70%), radial-gradient(50% 45% at 85% 25%, rgba(138,92,255,.6), transparent 70%), radial-gradient(60% 50% at 55% 95%, rgba(0,180,255,.4), transparent 70%), linear-gradient(160deg, #050b1f, #0b1a33 50%, #06201f)" },
@@ -255,22 +256,42 @@ const THEMES = [
   { id: "pastel", name: "パステル", tone: "light", bg: "radial-gradient(50% 50% at 10% 10%, #ffcfe6, transparent 70%), radial-gradient(50% 50% at 90% 15%, #c6e2ff, transparent 70%), radial-gradient(60% 60% at 25% 90%, #d3f6e2, transparent 70%), radial-gradient(50% 50% at 90% 90%, #fff0bf, transparent 70%), #f8f6ff" },
   { id: "graphite", name: "グラファイト", tone: "dark", bg: "radial-gradient(60% 50% at 30% 0%, rgba(255,255,255,.12), transparent 70%), radial-gradient(40% 40% at 90% 90%, rgba(255,255,255,.05), transparent 70%), linear-gradient(180deg, #232326, #0c0c0e)" },
 ];
+/* テーマごとのアクセント色(v02)。tint = 文字・アイコン、fill = 塗り、ink = 塗りの上の文字、soft = 薄い面 */
+const THEME_ACCENTS = {
+  aurora: { tint: "#3ef0a0", fill: "#30d18a", ink: "#032016", soft: "rgba(62,240,160,.18)" },
+  sunset: { tint: "#ffd1dc", fill: "#ff6f91", ink: "#3a0613", soft: "rgba(255,111,145,.22)" },
+  ocean: { tint: "#67e8f9", fill: "#22d3ee", ink: "#04293a", soft: "rgba(34,211,238,.18)" },
+  overworld: { tint: "#2f6f1f", fill: "#4c9a2a", ink: "#ffffff", soft: "rgba(76,154,42,.16)" },
+  nether: { tint: "#ffb27a", fill: "#ff8a3d", ink: "#2a0b00", soft: "rgba(255,138,61,.2)" },
+  end: { tint: "#d4b8ff", fill: "#b388ff", ink: "#1b0b33", soft: "rgba(179,136,255,.2)" },
+  pastel: { tint: "#8a3fb0", fill: "#b05cd6", ink: "#ffffff", soft: "rgba(176,92,214,.14)" },
+  graphite: { tint: "#e5e7eb", fill: "#d1d5db", ink: "#111111", soft: "rgba(229,231,235,.14)" },
+};
+function applyAccent(id) {
+  const st = document.documentElement.style, a = THEME_ACCENTS[id];
+  for (const [k, v] of Object.entries({ "--tint": "tint", "--tint-fill": "fill", "--tint-ink": "ink", "--tint-soft": "soft" })) {
+    if (a) st.setProperty(k, a[v]); else st.removeProperty(k);
+  }
+  const meta = document.querySelectorAll('meta[name="theme-color"]');
+  meta.forEach((m) => { if (!m.dataset.orig) m.dataset.orig = m.content; m.content = a ? (THEMES.find((t) => t.id === id)?.tone === "light" ? "#e9f3ff" : "#06263c") : m.dataset.orig; });
+}
 const bgUrl = (file) => `/api/backgrounds/${encodeURIComponent(file)}`;
 function readCachedTheme() { try { return JSON.parse(localStorage.getItem("craftshelf.theme") || "null"); } catch { return null; } }
 function writeCachedTheme(p) { try { localStorage.setItem("craftshelf.theme", JSON.stringify(p)); } catch { /* 保存できない環境 */ } }
 function applyTheme(prefs, { loggedIn = true } = {}) {
   prefs = prefs || {};
   const body = document.body, st = body.style;
-  let id = prefs.theme || "mint";
+  let id = prefs.theme || DEFAULT_THEME;
   let bg = null, tone = null;
   if (id === "custom" && prefs.bg_file && loggedIn) {
     bg = `url("${bgUrl(prefs.bg_file)}") center / cover no-repeat, #111`;
     tone = prefs.tone || "dark";
   } else {
-    const t = THEMES.find((x) => x.id === id) || THEMES[0];
+    const t = THEMES.find((x) => x.id === id) || THEMES.find((x) => x.id === DEFAULT_THEME);
     id = t.id; bg = t.bg; tone = t.tone;
   }
   if (bg) st.setProperty("--app-bg", bg); else st.removeProperty("--app-bg");
+  applyAccent(id === "custom" ? null : id);
   const custom = id === "custom";
   st.setProperty("--bg-dim", String((bg ? (prefs.bg_dim ?? (custom ? 20 : 0)) : 0) / 100));
   st.setProperty("--bg-blur", `${bg ? (prefs.bg_blur ?? 0) : 0}px`);

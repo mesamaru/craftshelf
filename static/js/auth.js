@@ -21,7 +21,7 @@ async function checkAuth() {
   let v = "library"; try { v = localStorage.getItem("craftshelf.view") || "library"; } catch { /* */ }
   setView(v === "dash" ? "dash" : "library");
   refresh();
-  pollJobs(); checkNotices();
+  pollJobs(); checkNotices(); loadSideServers();
   loadTelemetry().then(() => { if (can("system")) setTimeout(askTelemetry, 1500); });
   if (can("system")) {
     checkSelfUpdate(false);

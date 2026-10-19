@@ -18,6 +18,8 @@ function setNoticeBadge(n) {
   dot.hidden = !n;
   dot.textContent = n > 99 ? "99+" : String(n || "");
   $("#bellBtn").setAttribute("aria-label", n ? `お知らせ(未読 ${n} 件)` : "お知らせ");
+  state.unread = n || 0;
+  if (typeof syncSideBadges === "function") syncSideBadges();
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden) checkNotices(); });
 $("#bellBtn").addEventListener("click", openNotices);

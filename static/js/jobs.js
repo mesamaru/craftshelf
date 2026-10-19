@@ -1,6 +1,6 @@
 "use strict";
 /* ---------------- top bar actions ---------------- */
-$("#addBtn").innerHTML = icon("plus");
+$("#addBtn").innerHTML = icon("plus") + '<span class="lbl">追加</span>';
 $("#tiLib").innerHTML = icon("box");
 $("#tiDash").innerHTML = icon("grid");
 $("#tiSets").innerHTML = icon("stack");
@@ -10,7 +10,7 @@ $("#settingsBtn").innerHTML = icon("gear");
 $("#dropIcon").innerHTML = icon("tray");
 $("#searchIcon").innerHTML = icon("search");
 $("#tbMoreIcon").innerHTML = icon("filter");
-$("#addBtn").addEventListener("click", (e) => openMenu(e.currentTarget, [
+const addMenuItems = () => [
   { label: "ファイルを選択", icon: "doc", run: () => $("#fileInput").click() },
   { label: "フォルダを選択", icon: "folder", run: () => $("#dirInput").click() },
   { label: "配布サイトから探して追加", icon: "search", run: () => openSearch({ kind: state.cat }) },
@@ -18,7 +18,8 @@ $("#addBtn").addEventListener("click", (e) => openMenu(e.currentTarget, [
   { label: "Modパックを読み込む(.mrpack / zip)", icon: "stack", run: () => $("#packInput").click() },
   "-",
   { label: "inbox を取り込む", icon: "tray", run: scanInbox },
-]));
+];
+$("#addBtn").addEventListener("click", (e) => openMenu(e.currentTarget, addMenuItems()));
 $("#updBtn").addEventListener("click", (e) => openMenu(e.currentTarget, [
   { label: "更新を確認", icon: "refresh", run: () => runUpdates({ check: true }) },
   { label: "未連携の配布元を探して確認", icon: "wand", run: () => runUpdates({ detect: true, check: true }) },

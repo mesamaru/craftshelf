@@ -28,7 +28,7 @@ async function renderSettings() {
   try { await page.render(body, cur.arg); }
   catch (e) { body.innerHTML = `<div class="result err">${esc(e.message)}</div>`; }
 }
-const themeName = (p) => (p && p.theme === "custom" ? "マイ画像" : (THEMES.find((t) => t.id === (p && p.theme)) || THEMES[0]).name);
+const themeName = (p) => (p && p.theme === "custom" ? "マイ画像" : (THEMES.find((t) => t.id === ((p && p.theme) || DEFAULT_THEME)) || THEMES[0]).name);
 const rowBtn = (key, ic, color, title, val = "", extra = "") =>
   `<button class="row" type="button" data-go="${key}" ${extra}><span class="cicon sm ${color}">${icon(ic)}</span><span class="main"><span class="title">${esc(title)}</span></span><span class="trail">${val}${icon("chev", "i chev")}</span></button>`;
 
@@ -291,7 +291,7 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
     title: () => "テーマと背景",
     async render(body) {
       const p = state.prefs || {};
-      const cur = p.theme || "mint";
+      const cur = p.theme || DEFAULT_THEME;
       const tile = (id, name, bgCss) => `<button class="theme-tile" type="button" data-theme="${id}" aria-pressed="${cur === id}">
         <span class="sw" style="background:${esc(bgCss)}">${cur === id ? `<span class="ck">${icon("check")}</span>` : ""}</span>${esc(name)}</button>`;
       const mintBg = "radial-gradient(120% 80% at 10% 0%, rgba(52,199,89,.35), transparent 60%), radial-gradient(90% 70% at 100% 0%, rgba(0,122,255,.25), transparent 60%), #f2f2f7";

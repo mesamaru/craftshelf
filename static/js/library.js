@@ -10,6 +10,7 @@ async function refresh() {
     if (!state.mcLoaded) { state.mcLoaded = true; loadMcVersions(); }
     if (state.selected && !state.items.some((i) => i.id === state.selected)) closePanel();
     render();
+    if (isAdmin()) loadGuide();
   } catch (e) { if (state.user) toast("読み込みに失敗しました: " + e.message, true); }
 }
 
@@ -257,6 +258,7 @@ function setView(view) {
   document.querySelectorAll("#tabbar [data-view]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === view)));
   $("#viewTitle").textContent = VIEWS[view];
   $("#libView").hidden = view !== "library";
+  if (view === "library" && state.guide && isAdmin()) loadGuide();
   $("#dash").hidden = view !== "dash";
   $("#setsView").hidden = view !== "sets";
   $("#serversView").hidden = view !== "servers";

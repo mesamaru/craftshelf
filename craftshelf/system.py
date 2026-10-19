@@ -756,3 +756,45 @@ def api_docs():
                           "トークンは、作るときに選んだ権限(作った人の権限まで)で動きます。ログイン・二段階認証・ユーザーの管理には使えません",
                           "画面からの書き込みには X-Requested-With: mcpl が要りますが、トークンを使うときは不要です",
                           "答えは JSON です。失敗したときは {\"error\": \"…\"} と HTTP の状態番号を返します"])
+
+
+# ==========================================================================
+# はじめの設定ガイド(管理者向け。実際の状態から、済んだ手順に印を付ける)
+# ==========================================================================
+SETUP_STEPS = ["storage", "addons", "server", "backup", "notify"]
+
+
+def setup_guide(conn):
+    marked = set(_jl(get_setting("setup_marked", ""), []) or [])
+    n_targets = conn.execute("SELECT COUNT(*) FROM storage_targets").fetchone()[0]
+    n_items = conn.execute("SELECT COUNT(*) FROM items").fetchone()[0]
+    n_servers = conn.execute("SELECT COUNT(*) FROM servers").fetchone()[0]
+    real = {"storage": n_targets > 1, "addons": n_items > 0, "server": n_servers > 0,
+            "backup": bool(int(get_setting("backup_target_id", "0") or 0)), "notify": bool(get_setting("discord_webhook"))}
+    steps = [{"id": s, "done": real[s] or s in marked, "skipped": s in marked and not real[s]} for s in SETUP_STEPS]
+    return {"steps": steps, "hidden": get_setting("setup_hidden", "") == "1", "all_done": all(s["done"] for s in steps)}
+
+
+@app.get("/api/setup/guide")
+@require("admin")
+def api_setup_guide():
+    """はじめの設定ガイドの手順と、済んだかどうか。"""
+    return jsonify(setup_guide(db()))
+
+
+@app.post("/api/setup/guide")
+@require("admin")
+def api_setup_guide_update():
+    """手順を「済み(いまは不要)」にする(mark)・戻す(unmark)、ガイドを隠す(hide)・また出す(show)。"""
+    data = request.get_json(silent=True) or {}
+    marked = set(_jl(get_setting("setup_marked", ""), []) or [])
+    for key, add in (("mark", True), ("unmark", False)):
+        step = data.get(key)
+        if step is not None:
+            if step not in SETUP_STEPS:
+                raise ApiError("手順の指定が不正です")
+            (marked.add if add else marked.discard)(step)
+    set_setting("setup_marked", json.dumps(sorted(marked)))
+    if "hide" in data:
+        set_setting("setup_hidden", "1" if _truthy(data["hide"]) else "")
+    return jsonify(setup_guide(db()))

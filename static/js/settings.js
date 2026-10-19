@@ -10,6 +10,7 @@ async function openSettings(start) {
   }, { wide: false });
   settingsNav.form = null;
   state.dashSettings = null;
+  if (isAdmin()) loadGuide();  // 設定で済ませた手順に印を付ける
   if (state.view === "dash") renderDash();
 }
 function pushSettings(page, arg) { settingsNav.stack.push({ page, arg }); renderSettings(); }
@@ -64,6 +65,7 @@ const SETTINGS_PAGES = {
         <div class="group-title">表示</div><div class="group">
           ${rowBtn("appearance", "sparkle", "c-resourcepack", "テーマと背景", `<span class="val">${esc(themeName(state.prefs))}</span>`)}
           ${rowBtn("lang", "globe", "c-plugin", "言語 / Language", `<span class="val" translate="no">${I18N.lang === "en" ? "English" : "日本語"}</span>`)}
+          ${isAdmin() && state.guide && state.guide.hidden ? `<button class="row" type="button" data-guide><span class="cicon sm c-teal">${icon("sparkle")}</span><span class="main"><span class="title">はじめの設定ガイド</span><span class="subtitle">ライブラリの上にまた出します</span></span></button>` : ""}
           ${pwa.available() ? `<button class="row" type="button" data-pwa><span class="cicon sm c-mod">${icon("download")}</span><span class="main"><span class="title">ホーム画面に追加</span><span class="subtitle">アプリのように全画面で開けます</span></span></button>` : ""}
         </div>
         <div class="group-title">CraftShelf</div><div class="group">
@@ -74,6 +76,7 @@ const SETTINGS_PAGES = {
         <div class="group-foot">CraftShelf v${esc(state.version || "")}${state.build ? ` · ${esc(state.build)}` : ""}</div>`;
       body.onclick = async (e) => {
         if (e.target.closest("[data-pwa]")) { pwa.install(); return; }
+        if (e.target.closest("[data-guide]")) { await guidePost({ hide: false }); toast("はじめの設定ガイドを出しました"); renderSettings(); return; }
         const b = e.target.closest("[data-go]"); if (!b) return;
         if (b.dataset.go === "logout") {
           await api("/api/auth/logout", { method: "POST" }).catch(() => {});

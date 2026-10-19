@@ -1482,6 +1482,14 @@ window.CS_EN = {
   "ライブラリに無い前提": "Dependencies not in the library",
   "前提も一緒に入れる": "Also install dependencies",
   "の前提": " needs it",
+  // ---- ホーム画面に追加 ----
+  "Safari の下(iPad は上)の": "Tap the",
+  "共有ボタンを押します": "Share button at the bottom of Safari (top on iPad)",
+  "「ホーム画面に追加」を選びます": "Choose “Add to Home Screen”",
+  "右上の「追加」を押すと、アプリのように開けます": "Tap “Add” at the top right to open it like an app",
+  "アプリのように全画面で開けます": "Opens full screen like an app",
+  "ホーム画面に追加しました": "Added to the home screen",
+  "ホーム画面に追加": "Add to Home Screen",
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [

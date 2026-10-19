@@ -86,5 +86,15 @@ check(raw and "secret-cf-key-123" not in raw[0], "API key is stored encrypted")
 users = c.get("/api/users", headers=H).get_data(as_text=True)
 check("password" not in users.lower().replace("password_", ""), "user list has no password hashes")
 
+# ---- ホーム画面に追加(PWA) ----
+anon = A.app.test_client()
+r = anon.get("/manifest.webmanifest")
+check(r.status_code == 200 and r.mimetype == "application/manifest+json" and r.get_json()["start_url"] == "/", "manifest is public")
+r = anon.get("/sw.js")
+check(r.status_code == 200 and "javascript" in r.mimetype and r.headers.get("Cache-Control") == "no-cache", "service worker is public, not cached")
+sw = r.get_data(as_text=True)
+check('startsWith("/static/")' in sw and "/api/" not in sw.split("const CACHE")[1].split("fetch(req)")[0], "service worker only caches screen files")
+check(anon.get("/api/library", headers=H).status_code == 401, "API still needs login")
+
 print("FAILS:", len(fails))
 sys.exit(1 if fails else 0)

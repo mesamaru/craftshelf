@@ -310,7 +310,7 @@ def _too_many_failures(ip, add=False):
 # --------------------------------------------------------------------------
 # HTTP
 # --------------------------------------------------------------------------
-PUBLIC_PATHS = {"/", "/api/auth/me", "/api/auth/login", "/api/auth/setup", "/api/auth/logout", "/api/auth/totp"}
+PUBLIC_PATHS = {"/", "/sw.js", "/manifest.webmanifest", "/api/auth/me", "/api/auth/login", "/api/auth/setup", "/api/auth/logout", "/api/auth/totp"}
 
 
 @app.before_request
@@ -369,6 +369,26 @@ def index():
 @app.get("/static/<path:name>")
 def static_file(name):
     return send_from_directory(BASE_DIR / "static", name, max_age=0)
+
+
+# ホーム画面に追加(PWA)。サービスワーカーは画面全体を受け持てるよう、いちばん上の場所から配る
+@app.get("/sw.js")
+def service_worker():
+    resp = send_from_directory(BASE_DIR / "static", "sw.js", max_age=0, mimetype="text/javascript")
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+@app.get("/manifest.webmanifest")
+def web_manifest():
+    return Response(json.dumps({
+        "name": "CraftShelf", "short_name": "CraftShelf", "id": "/", "start_url": "/", "scope": "/",
+        "display": "standalone", "background_color": "#000000", "theme_color": "#000000", "lang": "ja",
+        "description": "Minecraft のアドオン(プラグイン・Mod・データパック)とサーバーをまとめて管理するパネル",
+        "icons": [{"src": "/static/icon-192.png", "sizes": "192x192", "type": "image/png"},
+                  {"src": "/static/icon-512.png", "sizes": "512x512", "type": "image/png"},
+                  {"src": "/static/icon.svg", "sizes": "any", "type": "image/svg+xml"}],
+    }, ensure_ascii=False), mimetype="application/manifest+json", headers={"Cache-Control": "no-cache"})
 
 
 @app.after_request

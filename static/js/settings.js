@@ -64,6 +64,7 @@ const SETTINGS_PAGES = {
         <div class="group-title">表示</div><div class="group">
           ${rowBtn("appearance", "sparkle", "c-resourcepack", "テーマと背景", `<span class="val">${esc(themeName(state.prefs))}</span>`)}
           ${rowBtn("lang", "globe", "c-plugin", "言語 / Language", `<span class="val" translate="no">${I18N.lang === "en" ? "English" : "日本語"}</span>`)}
+          ${pwa.available() ? `<button class="row" type="button" data-pwa><span class="cicon sm c-mod">${icon("download")}</span><span class="main"><span class="title">ホーム画面に追加</span><span class="subtitle">アプリのように全画面で開けます</span></span></button>` : ""}
         </div>
         <div class="group-title">CraftShelf</div><div class="group">
           ${can("system") ? rowBtn("selfupdate", "sparkle", "c-mod", "パネルのアップデート", upd ? `<span class="badge upd">v${esc(state.selfUpd.latest)}</span>` : `<span class="val">v${esc(state.version || "")}${state.selfUpd && state.selfUpd.channel === "dev" ? "(開発ビルド)" : state.selfUpd && state.selfUpd.channel === "preview" ? "(プレビュー)" : ""}</span>`)
@@ -72,6 +73,7 @@ const SETTINGS_PAGES = {
         <div class="group" style="margin-top:18px"><button class="row danger" type="button" data-go="logout"><span class="cicon sm c-red">${icon("logout")}</span><span class="main"><span class="title">ログアウト</span></span></button></div>
         <div class="group-foot">CraftShelf v${esc(state.version || "")}${state.build ? ` · ${esc(state.build)}` : ""}</div>`;
       body.onclick = async (e) => {
+        if (e.target.closest("[data-pwa]")) { pwa.install(); return; }
         const b = e.target.closest("[data-go]"); if (!b) return;
         if (b.dataset.go === "logout") {
           await api("/api/auth/logout", { method: "POST" }).catch(() => {});

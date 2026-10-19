@@ -1204,3 +1204,6 @@ button.fb-row > svg { width: 15px; height: 15px; color: var(--label-3); flex: no
 .lt-deps { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
 .lt-deps .toggle-row { background: var(--card); border-radius: 14px; }
 .lt-deps .result.warn { margin: 0; }
+
+.pwa-steps { margin: 4px 0 8px; padding-left: 22px; display: grid; gap: 10px; line-height: 1.6; }
+.pwa-steps svg { width: 18px; height: 18px; vertical-align: -3px; }

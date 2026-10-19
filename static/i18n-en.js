@@ -1490,6 +1490,14 @@ window.CS_EN = {
   "アプリのように全画面で開けます": "Opens full screen like an app",
   "ホーム画面に追加しました": "Added to the home screen",
   "ホーム画面に追加": "Add to Home Screen",
+  // ---- API の説明 ----
+  "この一覧はパネルの実際の API から作っています(": "This list is generated from the panel's actual API (",
+  "で JSON でも取れます)。": " returns it as JSON).",
+  "パス・説明で絞り込み": "Filter by path or description",
+  "あてはまる API はありません": "No matching APIs",
+  "トークンでは使えません": "not available with tokens",
+  "使える API の一覧": "Available APIs",
+  "API の説明": "API reference",
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [

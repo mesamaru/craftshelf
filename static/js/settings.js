@@ -198,6 +198,31 @@ const SETTINGS_PAGES = {
       }, "準備中…");
     },
   },
+  apidocs: {
+    title: () => "API の説明",
+    async render(body) {
+      const d = await api("/api/docs");
+      const origin = location.origin;
+      body.innerHTML = `<ul class="api-notes">${d.notes.map((n) => `<li>${esc(n)}</li>`).join("")}</ul>
+        <pre class="api-ex mono" translate="no">curl -H "Authorization: Bearer cs_…" ${esc(origin)}/api/library
+curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/json" \
+     -d '{"item_ids": [1, 2]}' ${esc(origin)}/api/servers/1/push</pre>
+        <label class="search"><span>${icon("search")}</span><input type="search" id="adQ" placeholder="パス・説明で絞り込み"></label>
+        <div id="adList"></div>
+        <p class="group-foot">CraftShelf v${esc(d.version)} · ${d.endpoints.length} 件。この一覧はパネルの実際の API から作っています(<span class="mono">GET /api/docs</span> で JSON でも取れます)。</p>`;
+      const draw = (q) => {
+        q = q.toLowerCase();
+        const list = d.endpoints.filter((e) => !q || e.path.toLowerCase().includes(q) || e.summary.toLowerCase().includes(q) || e.group.toLowerCase().includes(q));
+        const groups = [...new Set(list.map((e) => e.group))];
+        $("#adList", body).innerHTML = groups.map((g) => `<div class="group-title">${esc(g)}</div><div class="group">${list.filter((e) => e.group === g).map((e) =>
+          `<div class="row noicon api-row"><span class="main"><span class="title" translate="no">${e.methods.map((m) => `<span class="api-m m-${m.toLowerCase()}">${m}</span>`).join("")} <span class="mono">${esc(e.path)}</span></span>
+            <span class="subtitle" style="white-space:normal">${esc(e.summary)} · ${esc(e.need)}${e.token ? "" : " · トークンでは使えません"}</span></span></div>`).join("")}</div>`).join("")
+          || `<div class="empty">あてはまる API はありません</div>`;
+      };
+      $("#adQ", body).addEventListener("input", (e) => draw(e.target.value.trim()));
+      draw("");
+    },
+  },
   tokens: {
     title: () => "APIトークン",
     async render(body) {
@@ -209,8 +234,10 @@ const SETTINGS_PAGES = {
         <div class="group-title">新しいトークン</div>
         ${field("名前(用途)", `<input type="text" name="name" placeholder="例: 自動デプロイ用">`)}
         ${field("権限", `<select name="role">${Object.entries(state.roles || {}).filter(([k]) => ["viewer", "editor", "admin"].indexOf(k) <= ["viewer", "editor", "admin"].indexOf(state.user.role)).map(([k, n]) => `<option value="${k}"${k === "viewer" ? " selected" : ""}>${esc(n)}</option>`).join("")}</select>`)}
-        <button class="btn filled block" type="button" id="tkNew">作成</button><div id="tkOut"></div>`;
+        <button class="btn filled block" type="button" id="tkNew">作成</button><div id="tkOut"></div>
+        <div class="group" style="margin-top:18px">${rowBtn("apidocs", "braces", "c-gray", "API の説明", '<span class="val">使える API の一覧</span>')}</div>`;
       body.onclick = async (e) => {
+        if (e.target.closest('[data-go="apidocs"]')) { pushSettings("apidocs"); return; }
         const d = e.target.closest("[data-del]"); if (!d) return;
         if (!cfm("このトークンを削除しますか?(使っているスクリプトは動かなくなります)")) return;
         try { await api(`/api/me/tokens/${d.dataset.del}`, { method: "DELETE" }); toast("削除しました"); renderSettings(); } catch (ex) { toast(ex.message, true); }

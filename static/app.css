@@ -1207,3 +1207,10 @@ button.fb-row > svg { width: 15px; height: 15px; color: var(--label-3); flex: no
 
 .pwa-steps { margin: 4px 0 8px; padding-left: 22px; display: grid; gap: 10px; line-height: 1.6; }
 .pwa-steps svg { width: 18px; height: 18px; vertical-align: -3px; }
+
+/* ---------------- API の説明 ---------------- */
+.api-notes { margin: 0 0 12px; padding-left: 20px; display: grid; gap: 4px; font-size: 13.5px; color: var(--label-2); }
+.api-ex { margin: 0 0 12px; padding: 10px 12px; border-radius: 12px; background: var(--card-2); white-space: pre; overflow-x: auto; word-break: normal; }
+.api-row .title { white-space: normal; overflow-wrap: anywhere; }
+.api-m { display: inline-block; font: 700 10.5px ui-monospace, Menlo, Consolas, monospace; padding: 1px 6px; margin-right: 4px; border-radius: 6px; background: var(--fill); color: var(--label-2); vertical-align: 1px; }
+.api-m.m-get { color: var(--blue); } .api-m.m-post { color: var(--tint); } .api-m.m-put, .api-m.m-patch { color: var(--orange); } .api-m.m-delete { color: var(--red); }

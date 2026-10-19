@@ -20,8 +20,8 @@ from storage import StorageError
 import notify
 import selfupdate
 
-from . import core
-from .core import APP_NAME, ApiError, BASE_DIR, CONFIG_DIR, DATA_READ, DATA_WRITE, PERMS, RESTORE_MARK, SECRET_KEY_PATH, SNAPSHOT_DIR, TMP_DIR, _jl, _truthy, app, db, get_setting, running_version, safe_name, set_setting, snapshot_data, utcnow
+from . import auth, core
+from .core import APP_NAME, ApiError, BASE_DIR, CONFIG_DIR, DATA_READ, DATA_WRITE, PERMS, RESTORE_MARK, ROLES, SECRET_KEY_PATH, SNAPSHOT_DIR, TMP_DIR, _jl, _truthy, app, db, get_setting, running_version, safe_name, set_setting, snapshot_data, utcnow
 from .analysis import _MC_REL
 from .auth import current_user, decrypt_secret, encrypt_secret, has_perm, require, require_perm, user_perms, user_prefs
 from .events import DEFAULT_EVENTS, audit, notify_event, prune_audit
@@ -678,3 +678,81 @@ def _migrate_mod_filters():
             conn.execute("UPDATE item_sources SET game_versions=?, status='unchecked' WHERE item_id=?", (json.dumps([mc]), iid))
     conn.commit()
     set_setting("mig_mod_mc_filter", "1")
+
+
+# ==========================================================================
+# API の説明(ルートの一覧から作るので、実際の動きとずれない)
+# ==========================================================================
+API_GROUPS = {"core": "全体", "auth": "ログイン・共有の配信", "events": "記録・お知らせ", "jobs": "処理(ジョブ)",
+              "library": "ライブラリ・保存先・セット・共有", "accounts": "ユーザー・個人設定・トークン", "upstream": "配布元・検索",
+              "servers": "サーバー", "system": "パネル全体"}
+
+
+# 説明(docstring)の無い API の、ひとことの説明
+API_SUMMARY = {
+    "api_audit": "操作の記録(q で絞り込み・limit / offset)", "api_notifications": "お知らせの一覧と未読の数",
+    "api_discord_test": "Discord にテストの通知を送る", "api_jobs": "最近の処理(ジョブ)の一覧", "api_job": "処理(ジョブ)の進み具合と記録",
+    "api_library": "ライブラリのアイテムとバージョンの一覧", "api_download": "バージョンのファイルをダウンロード",
+    "api_storage_list": "保存先の一覧", "api_storage_test_new": "保存先の接続を試す(登録の前)", "api_storage_test_existing": "登録済みの保存先の接続を試す",
+    "api_server_acl": "サーバーを共有する相手を設定", "api_item_favorite": "お気に入りの切り替え",
+    "api_storage_contents": "保存先の中身(移行の確認用)", "api_sets": "セットの一覧", "api_sets_download": "セットを zip でダウンロード",
+    "api_auth_me": "ログイン中のユーザー(ログインしていなければ null)", "api_users": "ユーザーの一覧",
+    "api_me_prefs": "自分の表示の設定(テーマなど)を変更", "api_me_background_upload": "背景の画像を送る",
+    "api_me_background_delete": "背景の画像を消す", "api_background_file": "背景の画像",
+    "api_tokens_list": "自分の APIトークンの一覧", "api_tokens_create": "APIトークンを作る(値はこのときだけ返る)",
+    "api_tokens_delete": "APIトークンを無効にする", "api_auth_totp": "二段階認証のコードでログインを終える",
+    "api_totp_setup": "二段階認証の準備(QR コード)", "api_totp_enable": "二段階認証をオンにする", "api_totp_disable": "二段階認証をオフにする",
+    "api_auth_username": "自分のユーザー名を変更", "api_item_icon": "アイテムのアイコン",
+    "api_source_detect": "配布元を自動で探す", "api_source_check": "配布元の新しいバージョンを確認",
+    "api_mc_versions": "Minecraft のバージョンの一覧", "api_search_versions": "配布サイトのプロジェクトのバージョン一覧",
+    "api_source_changelog": "配布元の更新内容", "api_search": "配布サイト(Modrinth・SpigotMC・CurseForge)を検索",
+    "api_ptero_test": "Pterodactyl の接続を試す", "api_ptero_servers": "Pterodactyl のサーバーの一覧",
+    "api_servers": "サーバーの一覧", "api_servers_inventory": "サーバーの中身(アドオンと、ライブラリとの比較)",
+    "api_servers_deps_plan": "入れるアドオンの前提を調べる(一緒に入れるもの・足りないもの)",
+    "api_servers_remove": "サーバーからアドオンを外す(退避して巻き戻せる)", "api_servers_logs": "最近のログ(logs/latest.log の末尾)",
+    "api_servers_console": "コマンドを送る(RCON なら結果も返る)", "api_servers_files": "サーバーのフォルダの中身",
+    "api_servers_file_get": "設定ファイルを読む", "api_servers_file_put": "設定ファイルを保存(前の内容は履歴に残る)",
+    "api_servers_file_history": "設定ファイルの編集履歴", "api_servers_file_history_get": "履歴の時点の内容",
+    "api_servers_status": "稼働状況・人数・応答の速さ", "api_servers_software": "サーバー本体のビルドと最新のビルド",
+    "api_servers_world_backup": "ワールドのバックアップを始める", "api_servers_worlds": "ワールドのバックアップの一覧",
+    "api_servers_world_download": "ワールドのバックアップをダウンロード", "api_servers_world_delete": "ワールドのバックアップを消す",
+    "api_server_snapshots": "サーバーの変更の履歴(巻き戻し用)", "api_settings": "パネル全体の設定",
+    "api_system_info": "パネルの情報(版・動作環境)", "api_system_update_check": "パネルのアップデートの確認",
+    "api_backup_list": "パネルのバックアップの一覧", "api_backup_download": "パネルのバックアップをダウンロード",
+}
+
+
+def api_reference():
+    import inspect
+    from .events import AUDIT_LABELS
+    out = []
+    for rule in app.url_map.iter_rules():
+        path = str(rule.rule)
+        if not path.startswith("/api/"):
+            continue
+        view = app.view_functions[rule.endpoint]
+        need = getattr(view, "cs_need", None)
+        doc = inspect.getdoc(inspect.unwrap(view)) or ""
+        summary = doc.split("\n\n")[0].replace("\n", "") or API_SUMMARY.get(rule.endpoint) or AUDIT_LABELS.get(rule.endpoint, "")
+        methods = sorted(m for m in rule.methods if m not in ("HEAD", "OPTIONS"))
+        if need and need[0] == "role":
+            need_label = f"{ROLES[need[1]][1]}以上"
+        elif need:
+            need_label = f"権限: {PERMS[need[1]].split('(')[0]}"
+        else:
+            need_label = "ログイン不要" if path in auth.PUBLIC_PATHS else "ログイン"
+        out.append({"path": re.sub(r"<(?:\w+:)?(\w+)>", r"{\1}", path), "methods": methods,
+                    "group": API_GROUPS.get(view.__module__.rsplit(".", 1)[-1], "その他"), "summary": summary, "need": need_label,
+                    "token": not path.startswith(auth.TOKEN_BLOCKED)})
+    out.sort(key=lambda e: (list(API_GROUPS.values()).index(e["group"]) if e["group"] in API_GROUPS.values() else 99, e["path"], e["methods"]))
+    return out
+
+
+@app.get("/api/docs")
+def api_docs():
+    """この API の一覧(パス・メソッド・必要な権限・説明)。"""
+    return jsonify(endpoints=api_reference(), version=running_version(),
+                   notes=["APIトークンは「Authorization: Bearer cs_…」で送ります(⚙ 設定 → アカウント → APIトークン)",
+                          "トークンは、作るときに選んだ権限(作った人の権限まで)で動きます。ログイン・二段階認証・ユーザーの管理には使えません",
+                          "画面からの書き込みには X-Requested-With: mcpl が要りますが、トークンを使うときは不要です",
+                          "答えは JSON です。失敗したときは {\"error\": \"…\"} と HTTP の状態番号を返します"])

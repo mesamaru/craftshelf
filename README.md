@@ -278,6 +278,7 @@ plugin.yml(depend / softdepend)、paper-plugin.yml、Fabric・Quilt・Forge・Ne
 
 - **二段階認証**: ⚙ → アカウント →「二段階認証」。認証アプリ(Google Authenticator など)で QR コードを読み取って設定します。回復コードは必ず保管してください。管理者は「ユーザー」から他のユーザーの二段階認証をリセットできます
 - **APIトークン**: ⚙ → アカウント →「APIトークン」。`Authorization: Bearer cs_…` ヘッダーで API を呼べます。トークンの権限は作成者の権限以下で選べます。例: `curl -H "Authorization: Bearer cs_xxx" http://<サーバー>:8765/api/library`
+- **API の説明**: ⚙ → アカウント →「APIトークン」→「API の説明」(または Ctrl+K で「API」)。使える API のパス・メソッド・必要な権限・説明の一覧を、パネルの実際の API から作って表示します。`GET /api/docs` で JSON でも取れます
 - **サーバーの操作**: フォルダのサーバーの追加・場所の変更、起動・停止のコマンドや Docker のコンテナの設定は、管理者か「パネル全体の設定」の権限がある人だけができます(パネルを動かしている PC でコマンドを実行するため)。`/var/run/docker.sock` をマウントすると CraftShelf からほかのコンテナも操作できるようになるので、必要なときだけマウントしてください。RCON のパスワードは暗号化して保存し、画面には返しません
 
 ## 通知・バックアップ・記録

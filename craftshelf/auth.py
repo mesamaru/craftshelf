@@ -153,6 +153,7 @@ def require_perm(perm):
             if perm not in user_perms(u):
                 raise ApiError(f"この操作には「{PERMS[perm].split('(')[0]}」の権限が必要です", 403)
             return fn(*a, **kw)
+        wrapper.cs_need = ("perm", perm)
         return wrapper
     return deco
 
@@ -228,6 +229,7 @@ def require(role):
             if role_level(u) < ROLES[role][0]:
                 raise ApiError(f"この操作には「{ROLES[role][1]}」以上の権限が必要です", 403)
             return fn(*a, **kw)
+        wrapper.cs_need = ("role", role)  # API の説明(/api/docs)に使う
         return wrapper
     return deco
 
@@ -310,6 +312,8 @@ def _too_many_failures(ip, add=False):
 # --------------------------------------------------------------------------
 # HTTP
 # --------------------------------------------------------------------------
+# APIトークンでは使えない場所(ログイン・二段階認証・パスキー・ユーザーの管理)
+TOKEN_BLOCKED = ("/api/auth/", "/api/me/totp", "/api/me/passkeys", "/api/users")
 PUBLIC_PATHS = {"/", "/sw.js", "/manifest.webmanifest", "/api/auth/me", "/api/auth/login", "/api/auth/setup", "/api/auth/logout", "/api/auth/totp"}
 
 
@@ -321,7 +325,7 @@ def check_auth():
         u = user_from_token(auth[len("Bearer "):].strip())
         if not u:
             raise ApiError("APIトークンが無効です", 401)
-        if request.path.startswith(("/api/auth/", "/api/me/totp", "/api/users")):
+        if request.path.startswith(TOKEN_BLOCKED):
             raise ApiError("この操作は APIトークンでは行えません", 403)
         g.user, g.via_token = u, True
         return None

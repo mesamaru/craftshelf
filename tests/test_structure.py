@@ -73,3 +73,17 @@ def test_version_and_data_format_files():
     assert 1 <= w <= r
     head = (ROOT / "CHANGELOG.md").read_text(encoding="utf-8")
     assert f"## {v} - " in head, "CHANGELOG に今の版の見出しがありません"
+
+
+def test_every_api_is_documented():
+    """API の説明(/api/docs)に、すべての API の説明があること(新しく足したら docstring か API_SUMMARY に書く)。"""
+    import os
+    import subprocess
+    import sys
+    code = ("import os, sys, tempfile; t = tempfile.mkdtemp(); os.environ.update(DATA_DIR=t, MCPL_NO_SCHEDULER='1', "
+            "CRAFTSHELF_TELEMETRY_URL=''); sys.path.insert(0, '.'); import app as A; "
+            "print(chr(10).join(e['path'] + ' ' + ','.join(e['methods']) for e in A.api_reference() if not e['summary']))")
+    r = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True, encoding="utf-8",
+                       env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=120)
+    assert r.returncode == 0, r.stderr[-2000:]
+    assert not r.stdout.strip(), "説明の無い API があります:\n" + r.stdout

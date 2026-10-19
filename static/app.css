@@ -1314,7 +1314,12 @@ body:not(.can-edit) .tabbar .tab-add { display: none; }
   .toasts { bottom: 24px; }
   body.selecting .selbar { left: calc(50% + var(--side-w) / 2); }
 }
-@media (min-width: 1500px) { .wrap { margin-left: max(calc(var(--side-w) + 10px), calc((100vw - 1180px) / 2)); } }
+/* サイドバーの右側を本文の場所にして、その中央に、上のバーと本文を同じ幅でそろえる */
+@media (min-width: 1000px) {
+  body { --main-x: calc(var(--side-w) + 10px); --col: min(1180px, calc(100vw - var(--main-x) - 16px)); --col-x: calc(var(--main-x) + (100vw - var(--main-x) - var(--col)) / 2); }
+  .wrap { box-sizing: border-box; width: var(--col); max-width: none; margin: 0 0 0 var(--col-x); }
+  .topbar { box-sizing: border-box; width: calc(var(--col) - 48px); margin: 10px 0 0 calc(var(--col-x) + 24px); }
+}
 @media (max-width: 999px) {
   .tabbar { gap: 2px; padding: 5px; }
   .tabbar button { min-width: 64px; padding: 6px 10px 5px; }

@@ -314,7 +314,7 @@ def _too_many_failures(ip, add=False):
 # --------------------------------------------------------------------------
 # APIトークンでは使えない場所(ログイン・二段階認証・パスキー・ユーザーの管理)
 TOKEN_BLOCKED = ("/api/auth/", "/api/me/totp", "/api/me/passkeys", "/api/users")
-PUBLIC_PATHS = {"/", "/sw.js", "/manifest.webmanifest", "/api/auth/me", "/api/auth/login", "/api/auth/setup", "/api/auth/logout", "/api/auth/totp"}
+PUBLIC_PATHS = {"/", "/sw.js", "/manifest.webmanifest", "/api/auth/me", "/api/auth/login", "/api/auth/setup", "/api/auth/logout", "/api/auth/totp", "/api/auth/passkey/options", "/api/auth/passkey"}
 
 
 @app.before_request

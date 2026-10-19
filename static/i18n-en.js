@@ -1524,6 +1524,22 @@ window.CS_EN = {
   "ガイドを閉じる": "Close guide",
   "使わない": "Not needed",
   "あとで": "Later",
+  // ---- パスキー ----
+  "パスワードの代わりに、端末の指紋・顔・PIN やセキュリティキーでログインできます。パスキーは端末の中にあり、パネルには公開鍵だけを保存します(二段階認証のコードも要りません)。": "Sign in with your device's fingerprint, face, PIN or a security key instead of a password. The passkey stays on your device; the panel stores only the public key (no two-factor code needed).",
+  "パスキーは HTTPS で開いたときだけ使えます。": "Passkeys only work over HTTPS.",
+  "このブラウザ・この開き方ではパスキーを使えません。": "Passkeys aren't available in this browser or with this address.",
+  "IP アドレスではなく、名前(ドメイン)で開いてください。": "Open the panel by name (domain), not by IP address.",
+  "パスキーを登録しました。次からログインの画面で使えます": "Passkey registered. You can use it on the sign-in screen from now on",
+  "このパスキーを削除しますか?(端末側のパスキーは、端末の設定から消してください)": "Delete this passkey? (Remove it from the device in the device's settings.)",
+  "この端末をパスキーとして登録": "Register this device as a passkey",
+  "取り消されたか、時間切れになりました": "Cancelled or timed out",
+  "この端末のパスキーはすでに登録されています": "This device's passkey is already registered",
+  "パスキーを使えませんでした": "Couldn't use the passkey",
+  "パスキーでログイン": "Sign in with a passkey",
+  "この端末の名前": "Name of this device",
+  "新しい名前": "New name",
+  "登録中…": "Registering…",
+  "パスキー": "Passkeys",
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [

@@ -1235,3 +1235,6 @@ button.fb-row > svg { width: 15px; height: 15px; color: var(--label-3); flex: no
 .sg-main .s { font-size: 13px; color: var(--label-2); margin-top: 2px; }
 .sg-acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 @media (max-width: 560px) { .sg-steps li { flex-wrap: wrap; } .sg-acts { width: 100%; padding-left: 36px; justify-content: flex-start; } }
+
+.pk-login { margin-top: 8px; gap: 6px; }
+.pk-login svg { width: 18px; height: 18px; }

@@ -132,6 +132,7 @@ const SETTINGS_PAGES = {
         </div>
         <div class="group-title">セキュリティ</div><div class="group">
           ${rowBtn("totp", "shield", "c-mod", "二段階認証", u.totp_enabled ? '<span class="badge ok">オン</span>' : '<span class="badge">オフ</span>')}
+          ${rowBtn("passkeys", "key", "c-teal", "パスキー")}
           ${rowBtn("tokens", "key", "c-plugin", "APIトークン")}
         </div>
         <div class="group-title">連携の状況</div><div class="group">
@@ -199,6 +200,39 @@ const SETTINGS_PAGES = {
           } catch (ex) { toast(ex.message, true); }
         });
       }, "準備中…");
+    },
+  },
+  passkeys: {
+    title: () => "パスキー",
+    async render(body) {
+      const { passkeys } = await api("/api/me/passkeys");
+      const ok = passkeySupported();
+      body.innerHTML = `<p>パスワードの代わりに、端末の指紋・顔・PIN やセキュリティキーでログインできます。パスキーは端末の中にあり、パネルには公開鍵だけを保存します(二段階認証のコードも要りません)。</p>
+        ${ok ? "" : `<div class="result warn">${location.protocol !== "https:" && location.hostname !== "localhost" ? "パスキーは HTTPS で開いたときだけ使えます。" : "このブラウザ・この開き方ではパスキーを使えません。"}IP アドレスではなく、名前(ドメイン)で開いてください。</div>`}
+        <div class="group">${passkeys.map((k) => `<div class="row"><span class="cicon sm c-teal">${icon("key")}</span><span class="main"><span class="title" translate="no">${esc(k.name)}</span>
+          <span class="subtitle">登録 ${esc(fmtDate(k.created_at))}${k.last_used ? ` · 最終使用 ${esc(fmtDateTime(k.last_used))}` : " · 未使用"}</span></span>
+          <span class="trail"><button class="icon-btn sm" type="button" data-pkren="${k.id}" title="名前を変更" aria-label="名前を変更">${icon("edit")}</button>
+          <button class="icon-btn sm danger" type="button" data-pkdel="${k.id}" title="削除" aria-label="削除">${icon("trash")}</button></span></div>`).join("") || `<div class="empty">まだありません</div>`}</div>
+        ${ok ? `${field("この端末の名前", `<input type="text" id="pkName" value="${esc(pkGuessName())}" maxlength="60">`)}<button class="btn filled block" type="button" id="pkAdd">${icon("plus")}この端末をパスキーとして登録</button>` : ""}`;
+      $("#pkAdd", body)?.addEventListener("click", (e) => busy(e.currentTarget, async () => {
+        try { await passkeyRegister($("#pkName", body).value.trim()); toast("パスキーを登録しました。次からログインの画面で使えます"); renderSettings(); }
+        catch (ex) { toast(ex.message, true); }
+      }, "登録中…"));
+      body.onclick = async (e) => {
+        const del = e.target.closest("[data-pkdel]");
+        if (del) {
+          if (!cfm("このパスキーを削除しますか?(端末側のパスキーは、端末の設定から消してください)")) return;
+          try { await api(`/api/me/passkeys/${del.dataset.pkdel}`, { method: "DELETE" }); toast("削除しました"); renderSettings(); } catch (ex) { toast(ex.message, true); }
+          return;
+        }
+        const ren = e.target.closest("[data-pkren]");
+        if (ren) {
+          const cur = passkeys.find((k) => String(k.id) === ren.dataset.pkren);
+          const name = prompt(trText("新しい名前"), cur ? cur.name : "");
+          if (!name || !name.trim()) return;
+          try { await api(`/api/me/passkeys/${ren.dataset.pkren}`, { method: "PATCH", json: { name: name.trim() } }); renderSettings(); } catch (ex) { toast(ex.message, true); }
+        }
+      };
     },
   },
   apidocs: {

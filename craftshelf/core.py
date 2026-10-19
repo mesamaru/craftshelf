@@ -420,10 +420,19 @@ def _m_file_history(conn):
     conn.execute("CREATE INDEX IF NOT EXISTS idx_sfh_path ON server_file_history (server_id, path, id)")
 
 
+def _m_passkeys(conn):
+    # パスキー(WebAuthn)。user_created は、古い版でユーザーを消したあと同じ ID が使い回されても取り違えないための印
+    conn.execute("CREATE TABLE IF NOT EXISTS passkeys (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, "
+                 "user_created TEXT NOT NULL DEFAULT '', credential_id TEXT NOT NULL UNIQUE, public_key BLOB NOT NULL, "
+                 "sign_count INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL DEFAULT '', transports TEXT NOT NULL DEFAULT '', "
+                 "created_at TEXT NOT NULL, last_used TEXT NOT NULL DEFAULT '')")
+
+
 MIGRATIONS = [
     ("02.00.00-migration-log", "版ごとの移行の記録を始める", lambda conn: None),
     ("02.01.00-notifications", "お知らせセンター", _m_notifications),
     ("02.03.00-file-history", "サーバーの設定ファイルの編集履歴", _m_file_history),
+    ("02.09.00-passkeys", "パスキーでのログイン", _m_passkeys),
 ]
 
 

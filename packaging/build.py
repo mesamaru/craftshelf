@@ -45,7 +45,7 @@ def pyinstaller(icon):
     cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--name", "CraftShelf", "--windowed",
            "--icon", icon, "--distpath", DIST, "--workpath", BUILD / "pyi", "--specpath", BUILD,
            "--osx-bundle-identifier", "io.github.mesamaru.craftshelf",
-           "--hidden-import", "app", "--collect-submodules", "waitress", "--collect-submodules", "pystray"]
+           "--hidden-import", "app", "--collect-submodules", "waitress", "--collect-submodules", "pystray", "--collect-submodules", "webauthn"]
     for src, dst in data:
         cmd += ["--add-data", f"{src}{sep}{dst}"]
     run(cmd + [ROOT / "launcher.py"])

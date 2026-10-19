@@ -50,7 +50,8 @@ function showAuth(setup) {
     ${field("ユーザー名", `<input type="text" name="username" autocomplete="username" required>`)}
     ${field("パスワード", `<input type="password" name="password" autocomplete="current-password" required>`)}
     <div class="err" id="authErr"></div>
-    <button class="btn filled block" type="submit">ログイン</button>`;
+    <button class="btn filled block" type="submit">ログイン</button>
+    ${passkeySupported() ? `<button class="btn block pk-login" type="button" id="pkLogin">${icon("key")}パスキーでログイン</button>` : ""}`;
   f.insertAdjacentHTML("beforeend", `<div class="ver">${state.appVersion ? `v${esc(state.appVersion)} · ` : ""}<button class="linkish" type="button" id="langToggle" translate="no">${I18N.lang === "en" ? "日本語" : "English"}</button></div>`);
   $("#langToggle").onclick = () => { setLang(I18N.lang === "en" ? "ja" : "en"); showAuth(setup); };
   f.onsubmit = async (e) => {
@@ -66,6 +67,9 @@ function showAuth(setup) {
       } catch (ex) { err.textContent = ex.message; }
     }, setup ? "作成中…" : "ログイン中…");
   };
+  $("#pkLogin")?.addEventListener("click", (e) => busy(e.currentTarget, async () => {
+    try { await passkeyLogin(); await checkAuth(); } catch (ex) { $("#authErr").textContent = ex.message; }
+  }, "確認中…"));
   $("#auth").hidden = false;
   f.querySelector("input")?.focus();
 }

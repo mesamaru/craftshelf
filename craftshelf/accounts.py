@@ -174,6 +174,7 @@ def api_users_delete(uid):
         raise ApiError("管理者を削除できるのは管理者だけです", 403)
     _remove_bg_file(user_prefs(u).get("bg_file"))
     moved = _transfer_owner(conn, uid, current_user()["id"])
+    conn.execute("DELETE FROM passkeys WHERE user_id=?", (uid,))
     conn.execute("DELETE FROM users WHERE id=?", (uid,))
     conn.commit()
     audit("ユーザーを削除", u["username"], f"アイテム {moved['items']} 件・サーバー {moved['servers']} 台を引き継ぎ")
@@ -521,3 +522,159 @@ def api_auth_username():
     conn.commit()
     audit("ユーザー名を変更", f"{u['username']} → {new}", "")
     return jsonify(ok=True)
+
+
+# ==========================================================================
+# パスキー(WebAuthn。指紋・顔・PIN・セキュリティキーでログイン)
+# ==========================================================================
+# ブラウザの決まりで、HTTPS(か localhost)の名前で開いたときだけ使える(IP アドレスでは使えない)
+def _rp():
+    """呼び出し元の画面のオリジンと RP ID。Origin の名前が、届いた Host と同じときだけ受け付ける
+    (リバースプロキシの後ろでも動くように。署名は RP ID に結び付くので、ほかのサイトからは使えない)。"""
+    from urllib.parse import urlsplit
+    origin = request.headers.get("Origin", "")
+    o = urlsplit(origin)
+    host = urlsplit("//" + (request.host or "")).hostname or ""
+    if not o.hostname or o.hostname.lower() != host.lower():
+        raise ApiError("パスキーを使えない接続です(画面を開き直してください)", 400)
+    name = o.hostname.lower()
+    if o.scheme != "https" and name != "localhost" and not name.endswith(".localhost"):
+        raise ApiError("パスキーは HTTPS で開いたときだけ使えます", 400)
+    if re.fullmatch(r"[\d.]+|[0-9a-f:]+", name):
+        raise ApiError("パスキーは IP アドレスでは使えません。名前(ドメイン)で開いてください", 400)
+    return origin, name
+
+
+def _b64e(b):
+    return base64.urlsafe_b64encode(b).decode()
+
+
+def _passkey_public(r):
+    return {"id": r["id"], "name": r["name"], "created_at": r["created_at"], "last_used": r["last_used"]}
+
+
+@app.get("/api/me/passkeys")
+def api_passkeys_list():
+    """自分のパスキーの一覧。"""
+    rows = db().execute("SELECT * FROM passkeys WHERE user_id=? ORDER BY id", (current_user()["id"],)).fetchall()
+    return jsonify(passkeys=[_passkey_public(r) for r in rows])
+
+
+@app.post("/api/me/passkeys/options")
+def api_passkeys_register_options():
+    """パスキーを登録する準備(ブラウザに渡す設定)。"""
+    import webauthn
+    from webauthn.helpers import base64url_to_bytes
+    from webauthn.helpers.structs import (AuthenticatorSelectionCriteria, PublicKeyCredentialDescriptor,
+                                          ResidentKeyRequirement, UserVerificationRequirement)
+    u = current_user()
+    _origin, rp_id = _rp()
+    have = db().execute("SELECT credential_id FROM passkeys WHERE user_id=?", (u["id"],)).fetchall()
+    opts = webauthn.generate_registration_options(
+        rp_id=rp_id, rp_name=APP_NAME, user_name=u["username"], user_id=hashlib.sha256(f"{u['id']}:{u['created_at']}".encode()).digest()[:32],
+        authenticator_selection=AuthenticatorSelectionCriteria(resident_key=ResidentKeyRequirement.REQUIRED,
+                                                               user_verification=UserVerificationRequirement.REQUIRED),
+        exclude_credentials=[PublicKeyCredentialDescriptor(id=base64url_to_bytes(r[0])) for r in have])
+    session["pk_reg"] = {"challenge": _b64e(opts.challenge), "at": time.time()}
+    return app.response_class(webauthn.options_to_json(opts), mimetype="application/json")
+
+
+@app.post("/api/me/passkeys")
+def api_passkeys_register():
+    """パスキーを登録する(ブラウザが作った公開鍵を確かめて保存)。"""
+    import webauthn
+    from webauthn.helpers import bytes_to_base64url
+    from webauthn.helpers.exceptions import InvalidRegistrationResponse
+    u = current_user()
+    origin, rp_id = _rp()
+    pend = session.pop("pk_reg", None)
+    if not pend or time.time() - pend["at"] > 300:
+        raise ApiError("時間が経ちすぎました。もう一度お試しください")
+    data = request.get_json(silent=True) or {}
+    cred = data.get("credential") or {}
+    try:
+        v = webauthn.verify_registration_response(credential=cred, expected_challenge=base64.urlsafe_b64decode(pend["challenge"]),
+                                                  expected_rp_id=rp_id, expected_origin=origin, require_user_verification=True)
+    except (InvalidRegistrationResponse, ValueError, KeyError, TypeError) as e:
+        raise ApiError(f"パスキーを確かめられませんでした({e})")
+    name = str(data.get("name") or "").strip()[:60] or "パスキー"
+    transports = ",".join(str(t) for t in ((cred.get("response") or {}).get("transports") or []))[:200]
+    conn = db()
+    cid = bytes_to_base64url(v.credential_id)
+    if conn.execute("SELECT 1 FROM passkeys WHERE credential_id=?", (cid,)).fetchone():
+        raise ApiError("このパスキーはすでに登録されています", 409)
+    conn.execute("INSERT INTO passkeys (user_id, user_created, credential_id, public_key, sign_count, name, transports, created_at) "
+                 "VALUES (?,?,?,?,?,?,?,?)", (u["id"], u["created_at"], cid, v.credential_public_key, v.sign_count, name, transports, utcnow()))
+    conn.commit()
+    audit("パスキーを登録", u["username"], name)
+    return jsonify(ok=True)
+
+
+@app.patch("/api/me/passkeys/<int:pid>")
+def api_passkeys_rename(pid):
+    """パスキーの名前を変える。"""
+    name = str((request.get_json(silent=True) or {}).get("name") or "").strip()[:60]
+    if not name:
+        raise ApiError("名前を入力してください")
+    conn = db()
+    if not conn.execute("UPDATE passkeys SET name=? WHERE id=? AND user_id=?", (name, pid, current_user()["id"])).rowcount:
+        raise ApiError("見つかりません", 404)
+    conn.commit()
+    return jsonify(ok=True)
+
+
+@app.delete("/api/me/passkeys/<int:pid>")
+def api_passkeys_delete(pid):
+    """パスキーを削除する。"""
+    conn = db()
+    r = conn.execute("SELECT name FROM passkeys WHERE id=? AND user_id=?", (pid, current_user()["id"])).fetchone()
+    if not r:
+        raise ApiError("見つかりません", 404)
+    conn.execute("DELETE FROM passkeys WHERE id=?", (pid,))
+    conn.commit()
+    audit("パスキーを削除", current_user()["username"], r["name"])
+    return jsonify(ok=True)
+
+
+@app.post("/api/auth/passkey/options")
+def api_auth_passkey_options():
+    """パスキーでログインする準備(ユーザー名の入力は要らない)。"""
+    import webauthn
+    from webauthn.helpers.structs import UserVerificationRequirement
+    _origin, rp_id = _rp()
+    opts = webauthn.generate_authentication_options(rp_id=rp_id, user_verification=UserVerificationRequirement.REQUIRED)
+    session["pk_auth"] = {"challenge": _b64e(opts.challenge), "at": time.time()}
+    return app.response_class(webauthn.options_to_json(opts), mimetype="application/json")
+
+
+@app.post("/api/auth/passkey")
+def api_auth_passkey():
+    """パスキーでログインする(指紋・顔・PIN の確認つきなので、二段階認証のコードは求めない)。"""
+    import webauthn
+    from webauthn.helpers.exceptions import InvalidAuthenticationResponse
+    origin, rp_id = _rp()
+    key = "ip:" + (request.remote_addr or "")
+    if _too_many_failures(key):
+        raise ApiError("ログインの失敗が続いたため、しばらく(10分ほど)待ってからお試しください", 429)
+    pend = session.pop("pk_auth", None)
+    if not pend or time.time() - pend["at"] > 300:
+        raise ApiError("時間が経ちすぎました。もう一度お試しください", 401)
+    cred = (request.get_json(silent=True) or {}).get("credential") or {}
+    conn = db()
+    r = conn.execute("SELECT * FROM passkeys WHERE credential_id=?", (str(cred.get("id") or "")[:500],)).fetchone()
+    u = conn.execute("SELECT * FROM users WHERE id=?", (r["user_id"],)).fetchone() if r else None
+    if not r or not u or (r["user_created"] and r["user_created"] != u["created_at"]):
+        _too_many_failures(key, add=True)
+        raise ApiError("このパスキーは登録されていません", 401)
+    try:
+        v = webauthn.verify_authentication_response(credential=cred, expected_challenge=base64.urlsafe_b64decode(pend["challenge"]),
+                                                    expected_rp_id=rp_id, expected_origin=origin, credential_public_key=bytes(r["public_key"]),
+                                                    credential_current_sign_count=r["sign_count"], require_user_verification=True)
+    except (InvalidAuthenticationResponse, ValueError, KeyError, TypeError):
+        _too_many_failures(key, add=True)
+        raise ApiError("パスキーを確かめられませんでした", 401)
+    conn.execute("UPDATE passkeys SET sign_count=?, last_used=? WHERE id=?", (v.new_sign_count, utcnow(), r["id"]))
+    conn.commit()
+    _login(u)
+    audit("ログイン(パスキー)", u["username"], r["name"], user=u["username"])
+    return jsonify(ok=True, user=user_public(u))

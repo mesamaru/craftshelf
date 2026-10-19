@@ -1200,3 +1200,7 @@ button.fb-row > svg { width: 15px; height: 15px; color: var(--label-3); flex: no
 .fe-text { display: block; width: 100%; box-sizing: border-box; min-height: min(60vh, 560px); resize: vertical; padding: 12px 14px; border-radius: 14px; border: .5px solid var(--sep); background: var(--card); color: var(--label); font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; tab-size: 2; white-space: pre; overflow: auto; }
 .fe-text:focus { outline: 2px solid var(--tint); outline-offset: -1px; }
 @media (max-width: 700px) { .fe-text { font-size: 16px; } }
+
+.lt-deps { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.lt-deps .toggle-row { background: var(--card); border-radius: 14px; }
+.lt-deps .result.warn { margin: 0; }

@@ -1477,6 +1477,11 @@ window.CS_EN = {
   "zip ファイルから戻す": "Restore from a zip file",
   "確かめています…": "Checking…",
   "戻す": "Restore",
+  // ---- 前提を一緒に入れる ----
+  "サーバーに無ければ、配布サイトから探して入れてください。": "If the server doesn't have it, find it on a distribution site and add it.",
+  "ライブラリに無い前提": "Dependencies not in the library",
+  "前提も一緒に入れる": "Also install dependencies",
+  "の前提": " needs it",
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [

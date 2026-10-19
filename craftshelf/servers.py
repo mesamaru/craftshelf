@@ -22,7 +22,7 @@ from .analysis import analyze, auto_mc_versions, version_key
 from .auth import current_user, decrypt_secret, encrypt_secret, get_server_checked, has_perm, require, require_perm, visible_item_ids
 from .events import audit, notify_event
 from .jobs import start_job
-from .library import _item_versions, _uid_of, active_store, ingest, lib_rel, open_store, resolve_set_versions, sha256_file
+from .library import _item_versions, _uid_of, active_store, build_library, ingest, lib_rel, open_store, resolve_set_versions, sha256_file
 from .upstream import source_public
 
 
@@ -1347,6 +1347,50 @@ def api_servers_push(srv):
                     item_ids, version_ids, _truthy(data.get("restart")), current_user()["username"], _truthy(data.get("force")),
                     user=current_user()["username"], queue=True)
     return jsonify(job.public())
+
+
+def deps_plan(conn, srv_row, item_ids, user):
+    """選んだアドオンを入れるのに要る前提(前提の前提も)を調べる。
+    サーバーにすでにあるものは除き、ライブラリにあるものは一緒に入れる候補に、無いものは「足りない」にする。"""
+    store, target = active_store()
+    items = {it["id"]: it for it in build_library(conn, store, target, user)}
+    on_server = set()
+    for r in conn.execute("SELECT name, plugin_name FROM server_files WHERE server_id=?", (srv_row["id"],)):
+        if r["plugin_name"]:
+            on_server.add(norm_key(r["plugin_name"]))
+        on_server.add(norm_key(re.split(r"[-_ ]\d", Path(r["name"]).stem)[0]))
+    picked = [i for i in item_ids if i in items]
+    seen, add, missing, present = set(picked), [], {}, set()
+    queue = list(picked)
+    while queue:
+        it = items[queue.pop(0)]
+        for d in it.get("dep_status") or []:
+            if not d["required"]:
+                continue
+            dep = items.get(d["item_id"]) if d["item_id"] else None
+            keys = {norm_key(d["name"])} | set((dep or {}).get("dep_key") or [])
+            if keys & on_server:
+                present.add(d["name"])
+            elif dep:
+                if dep["id"] not in seen:
+                    seen.add(dep["id"])
+                    add.append({"id": dep["id"], "name": dep["name"], "for": it["name"]})
+                    queue.append(dep["id"])
+            else:
+                missing.setdefault(d["name"], it["name"])
+    return {"add": add, "missing": [{"name": k, "for": v} for k, v in missing.items()], "present": sorted(present)}
+
+
+@app.post("/api/servers/<int:srv>/deps-plan")
+@require("editor")
+def api_servers_deps_plan(srv):
+    row = _server_row(srv, "edit")
+    data = request.get_json(silent=True) or {}
+    try:
+        ids = [int(x) for x in data.get("item_ids") or []]
+    except (TypeError, ValueError):
+        raise ApiError("数値で指定してください")
+    return jsonify(deps_plan(db(), row, ids, current_user()))
 
 
 def _server_import_job(job, srv, target_id, names, user):

@@ -878,9 +878,30 @@ async function libraryToServer(s, cats, onServer, kind = "") {
       <label class="search"><span>${icon("search")}</span><input type="search" id="ltQ" placeholder="名前・タグで絞り込み"></label>
       ${cats.length > 1 ? `<div class="segmented seg-wide" id="ltCat">${["", ...cats].map((c) => `<button class="seg" type="button" data-c="${c}" aria-pressed="${c === cat}">${c ? CATS[c] : "すべて"}</button>`).join("")}</div>` : ""}
       <div class="group scroll" id="ltList"></div>
+      <div class="lt-deps" id="ltDeps" hidden></div>
       <p class="group-foot">版を選ばなければ、ライブラリの最新を入れます。同じアドオンの別の版がサーバーにあれば置き換えます(退避されるので巻き戻せます)。</p>
     </div><div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok>サーバーに入れる</button></div>`, (form, done) => {
     const picked = new Map();  // item_id → version_id(0 = 最新)
+    let plan = null, withDeps = true, planSeq = 0, planTimer = null;
+    /* 選んだアドオンの前提(前提の前提も)を調べて、一緒に入れるもの・足りないものを出す */
+    const drawPlan = () => {
+      const box = $("#ltDeps", form);
+      if (!plan || (!plan.add.length && !plan.missing.length)) { box.hidden = true; box.innerHTML = ""; return; }
+      box.hidden = false;
+      box.innerHTML = `${plan.add.length ? `${toggle("lt_withdeps", `前提も一緒に入れる(${plan.add.length} 件)`, plan.add.map((a) => `${a.name}(${a.for} の前提)`).join("、"), withDeps)}` : ""}
+        ${plan.missing.length ? `<div class="result warn">${icon("puzzle")} ライブラリに無い前提: ${plan.missing.map((m) => `<b translate="no">${esc(m.name)}</b>(${esc(m.for)})`).join("、")}。サーバーに無ければ、配布サイトから探して入れてください。</div>` : ""}`;
+      const t = box.querySelector("[name=lt_withdeps]");
+      if (t) t.onchange = () => { withDeps = t.checked; };
+    };
+    const refreshPlan = () => {
+      clearTimeout(planTimer);
+      planTimer = setTimeout(async () => {
+        const seq = ++planSeq;
+        if (!picked.size) { plan = null; drawPlan(); return; }
+        try { const p = await api(`/api/servers/${s.id}/deps-plan`, { json: { item_ids: [...picked.keys()] } }); if (seq === planSeq) { plan = p; drawPlan(); } }
+        catch { /* 前提の確認ができなくても入れられる */ }
+      }, 250);
+    };
     const draw = () => {
       const ql = q.toLowerCase();
       const list = pool.filter((it) => (!cat || it.category === cat) && (!ql || it.name.toLowerCase().includes(ql) || (it.tags || []).some((t) => t.toLowerCase().includes(ql))));
@@ -901,15 +922,16 @@ async function libraryToServer(s, cats, onServer, kind = "") {
     });
     form.addEventListener("change", (e) => {
       const cb = e.target.closest("[data-lt]");
-      if (cb) { const id = Number(cb.dataset.lt); if (cb.checked) picked.set(id, Number(form.querySelector(`[data-ltv="${id}"]`).value)); else picked.delete(id); draw(); }
+      if (cb) { const id = Number(cb.dataset.lt); if (cb.checked) picked.set(id, Number(form.querySelector(`[data-ltv="${id}"]`).value)); else picked.delete(id); draw(); refreshPlan(); }
       const vs = e.target.closest("[data-ltv]");
       if (vs) { picked.set(Number(vs.dataset.ltv), Number(vs.value)); draw(); }
     });
     form.querySelector("[data-ok]").onclick = (ev) => busy(ev.currentTarget, async () => {
       if (!picked.size) { toast("入れるアドオンを選んでください", true); return; }
       const vmap = Object.fromEntries([...picked].filter(([, v]) => v));
+      const ids = [...picked.keys(), ...(withDeps && plan ? plan.add.map((a) => a.id).filter((id) => !picked.has(id)) : [])];
       try {
-        const j = await api(`/api/servers/${s.id}/push`, { json: { item_ids: [...picked.keys()], version_ids: vmap, force: true } });
+        const j = await api(`/api/servers/${s.id}/push`, { json: { item_ids: ids, version_ids: vmap, force: true } });
         const r = await waitJob(j.id);
         if (r && r.status === "done") { toast(`${(r.result || {}).sent || 0} 件を「${s.name}」に入れました`); done(true); }
         else if (r) toast((r.log || []).slice(-1)[0] || "入れられませんでした", true);

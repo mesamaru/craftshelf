@@ -1368,3 +1368,7 @@ body:not(.can-edit) .tabbar .tab-add { display: none; }
 
 /* サーバーのアドオン: 一覧の下の「まとめて同期」は一覧から少し離す */
 .inv-syncbar { padding: 0; margin-top: 18px; }
+
+/* お知らせの枠(.result)の中のアイコンを、文字の高さの中央にそろえる */
+.result svg.i { width: 16px; height: 16px; vertical-align: -3px; margin-right: 2px; }
+.result.warn svg.i, .result.ok svg.i, .result.err svg.i { color: inherit; }

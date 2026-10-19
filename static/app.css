@@ -1329,3 +1329,23 @@ body:not(.can-edit) .tabbar .tab-add { display: none; }
 @media (max-width: 700px) { .srv-tabs { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; } .srv-tabs .seg { flex: none; } }
 
 @media (max-width: 999px) { .topbar .add-btn { display: none; } }
+
+/* サイドバーをしまったとき(アイコンだけ) */
+.sn-fold { margin-left: auto; width: 28px; height: 28px; border: 0; border-radius: 8px; background: transparent; color: var(--label-2); display: grid; place-items: center; flex: none; }
+.sn-fold:hover { background: var(--fill); color: var(--label); }
+.sn-fold svg { width: 16px; height: 16px; }
+@media (min-width: 1000px) {
+  body.side-mini { --side-w: 68px; }
+  body.side-mini .sidenav { padding: 12px 8px; align-items: center; }
+  body.side-mini .sn-brand { flex-direction: column; gap: 6px; padding: 2px 0 12px; }
+  body.side-mini .sn-brand b, body.side-mini .sn-brand .v02 { display: none; }
+  body.side-mini .sn-fold { margin: 0; }
+  body.side-mini .sn-nav, body.side-mini .sn-foot, body.side-mini .sn-srv { width: 100%; align-items: center; }
+  body.side-mini .sn-item { justify-content: center; padding: 10px 0; position: relative; }
+  body.side-mini .sn-item .t, body.side-mini .sn-item .n, body.side-mini .sn-sub .t, body.side-mini .sn-sub small { display: none; }
+  body.side-mini .sn-item .spill, body.side-mini .sn-badge { position: absolute; top: 2px; right: 4px; font-size: 10px; padding: 0 5px; min-width: 16px; height: 16px; line-height: 16px; }
+  body.side-mini .sn-srv { margin: 2px 0 6px; padding: 0; border-left: 0; }
+  body.side-mini .sn-sub { justify-content: center; padding: 6px 0; }
+  body.side-mini .sn-sub.more { display: none; }
+  .sidenav, .topbar, .wrap { transition: width .25s var(--ease), margin .25s var(--ease); }
+}

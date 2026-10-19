@@ -16,13 +16,15 @@ function renderSide() {
   if (!state.user) { side.innerHTML = ""; return; }
   const u = state.user;
   const nUpd = (state.items || []).filter((i) => i.source && i.source.status === "update").length;
-  side.innerHTML = `<div class="sn-brand"><img class="logo" src="/static/icon.svg" alt="" aria-hidden="true"><b>CraftShelf</b><span class="v02" title="CraftShelf 02">02</span></div>
-    <nav class="sn-nav" aria-label="画面">${SIDE_VIEWS.map(([v, ic, n]) => `<button type="button" class="sn-item" data-view="${v}" aria-current="${state.view === v ? "page" : "false"}">
+  const mini = document.body.classList.contains("side-mini");
+  side.innerHTML = `<div class="sn-brand"><img class="logo" src="/static/icon.svg" alt="" aria-hidden="true"><b>CraftShelf</b><span class="v02" title="CraftShelf v02">v02</span>
+      <button type="button" class="sn-fold" data-sn="fold" aria-label="${mini ? "サイドバーを広げる" : "サイドバーをしまう"}" title="${mini ? "サイドバーを広げる" : "サイドバーをしまう"}(Ctrl+B)" aria-expanded="${!mini}">${icon(mini ? "chev" : "back")}</button></div>
+    <nav class="sn-nav" aria-label="画面">${SIDE_VIEWS.map(([v, ic, n]) => `<button type="button" class="sn-item" data-view="${v}" title="${n}" aria-current="${state.view === v ? "page" : "false"}">
       ${icon(ic)}<span class="t">${n}</span>${v === "library" && nUpd ? `<span class="spill warn" title="更新あり">${nUpd}</span>` : v === "library" && state.items ? `<span class="n">${state.items.length}</span>` : ""}</button>`).join("")}</nav>
     <div class="sn-srv" id="snSrv"></div>
     <div class="sn-foot">
-      <button type="button" class="sn-item" data-sn="bell">${icon("bell")}<span class="t">お知らせ</span><span class="sn-badge" id="snBell" hidden></span></button>
-      <button type="button" class="sn-item" data-sn="settings">${icon("gear")}<span class="t">設定</span></button>
+      <button type="button" class="sn-item" data-sn="bell" title="お知らせ">${icon("bell")}<span class="t">お知らせ</span><span class="sn-badge" id="snBell" hidden></span></button>
+      <button type="button" class="sn-item" data-sn="settings" title="設定">${icon("gear")}<span class="t">設定</span></button>
       <button type="button" class="sn-item sn-user" data-sn="account"><span class="avatar sm">${esc((u.username || "?").slice(0, 1).toUpperCase())}</span>
         <span class="t"><span translate="no">${esc(u.username)}</span><small>${esc(u.role_label || "")}</small></span></button>
     </div>`;
@@ -37,7 +39,7 @@ function renderSideServers() {
   box.innerHTML = list.slice(0, SIDE_MAX_SERVERS).map((s) => {
     const l = (state.srvLive || {})[s.id];
     const ppl = l && l.ping ? `${l.ping.players}人` : "";
-    return `<button type="button" class="sn-sub${state.view === "servers" && state.srvOpen === s.id ? " on" : ""}" data-srvgo="${s.id}">${srvDot(s.id)}<span class="t" translate="no">${esc(s.name)}</span>${ppl ? `<small>${esc(ppl)}</small>` : ""}</button>`;
+    return `<button type="button" class="sn-sub${state.view === "servers" && state.srvOpen === s.id ? " on" : ""}" data-srvgo="${s.id}" title="${esc(s.name)}${ppl ? ` · ${esc(ppl)}` : ""}">${srvDot(s.id)}<span class="t" translate="no">${esc(s.name)}</span>${ppl ? `<small>${esc(ppl)}</small>` : ""}</button>`;
   }).join("") + (list.length > SIDE_MAX_SERVERS ? `<button type="button" class="sn-sub more" data-view="servers"><span class="t">ほか ${list.length - SIDE_MAX_SERVERS} 台</span></button>` : "");
 }
 function syncSideBadges() {
@@ -62,7 +64,8 @@ $("#sidenav").addEventListener("click", (e) => {
   if (g) { state.srvOpen = Number(g.dataset.srvgo); state.srvTab = "overview"; setView("servers"); renderSideServers(); return; }
   const a = e.target.closest("[data-sn]");
   if (!a) return;
-  if (a.dataset.sn === "bell") openNotices();
+  if (a.dataset.sn === "fold") toggleSide();
+  else if (a.dataset.sn === "bell") openNotices();
   else if (a.dataset.sn === "settings") openSettings();
   else if (a.dataset.sn === "account") openSettings("account");
 });
@@ -82,4 +85,18 @@ $("#libSum").addEventListener("click", (e) => {
   state.cat = state.cat === b.dataset.cat ? "all" : b.dataset.cat;
   render();
   $("#list").scrollIntoView({ behavior: "smooth", block: "start" });
+});
+
+/* サイドバーをしまう(アイコンだけにする)。この端末に覚えておく */
+function toggleSide(force) {
+  const mini = force ?? !document.body.classList.contains("side-mini");
+  document.body.classList.toggle("side-mini", mini);
+  try { localStorage.setItem("craftshelf.sideMini", mini ? "1" : ""); } catch { /* */ }
+  renderSide();
+}
+try { if (localStorage.getItem("craftshelf.sideMini")) document.body.classList.add("side-mini"); } catch { /* */ }
+document.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "b" && !(e.target instanceof Element && e.target.closest("input, textarea, [contenteditable]")) && window.innerWidth >= 1000) {
+    e.preventDefault(); toggleSide();
+  }
 });

@@ -50,7 +50,7 @@ def version_key(v):
         else:
             tl = t.lower()
             toks.append((-1, _PRE[tl], "") if tl in _PRE else (1, 0, tl))
-    toks.append((0, 0, ""))  # 終端。これでリリース版がプレリリースより上になる
+    toks.append((0, 0, ""))  # 終端。これでリリースバージョンがプレリリースより上になる
     return toks
 
 
@@ -441,7 +441,7 @@ def auto_mc_versions(meta, category, source):
     mc = str((meta or {}).get("mc") or "").strip()
     if mc:
         if category == "plugin" and re.match(r"^\d+\.\d+(\.\d+)?$", mc):
-            # plugin.yml の api-version は「このバージョン以降」の意味。保存している版が配布元の最新と
+            # plugin.yml の api-version は「このバージョン以降」の意味。保存しているバージョンが配布元の最新と
             # 同じなら、配布元が示す対応バージョンの上限を付けて「1.13〜1.21.4」のように表示する
             top = mc_max(((source or {}).get("latest") or {}).get("game_versions")) if (source or {}).get("status") == "up_to_date" else ""
             if top and _mc_key(top) > _mc_key(mc):

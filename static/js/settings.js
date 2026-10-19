@@ -578,9 +578,9 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
       const monthsAgo = (iso) => (Date.now() - new Date(iso).getTime()) / (30.4 * 86400000);
       const CONDS = {
         oldver: { label: "古いバージョン(新しい方から決まった数だけ残す)", param: ["残す数", 3], unit: "個" },
-        dupver: { label: "同じバージョンの重複(同じ版のファイルが複数ある)" },
+        dupver: { label: "同じバージョンの重複(同じバージョンのファイルが複数ある)" },
         stale_src: { label: "配布元で長く更新されていない", param: ["期間", 12], unit: "か月以上" },
-        stale_lib: { label: "ライブラリに長く新しい版が追加されていない", param: ["期間", 12], unit: "か月以上" },
+        stale_lib: { label: "ライブラリに長く新しいバージョンが追加されていない", param: ["期間", 12], unit: "か月以上" },
         missing: { label: "保存先にファイルが見つからない(記録だけ残っている)" },
         samename: { label: "同じ名前のアドオンが別の種類で登録されている" },
       };
@@ -952,7 +952,7 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
           <div class="v">${d.update_available ? `v${esc(d.latest)}` : `v${esc(d.current)}`}${ch !== "stable" ? ` <span class="badge upd">${CH[ch][0]}</span>` : ""}</div>
           <p>${d.error ? esc(d.error) : d.update_available ? `現在 v${esc(d.current)} · 新しいバージョンがあります`
             : d.downgrade ? `${back}${CH[ch][0]}の最新は v${esc(d.latest)} です` : "CraftShelf は最新です"}</p></div>
-        ${d.data_too_new ? `<div class="result err">このデータは、この版より新しいバージョンで作られています。表示や操作がおかしい場合は、下の「アップデートの前の状態」から戻すか、元の受け取り先に戻してください。</div>` : ""}
+        ${d.data_too_new ? `<div class="result err">このデータは、このバージョンより新しいバージョンで作られています。表示や操作がおかしい場合は、下の「アップデートの前の状態」から戻すか、元の受け取り先に戻してください。</div>` : ""}
         <div class="group-title">受け取るアップデート</div>
         <div class="group">${Object.entries(CH).map(([k, [n, tag, desc]]) => `<label class="toggle-row ch-row"><span class="main">${n}${tag ? ` <span class="badge${k === "preview" ? " upd" : " ok"}">${tag}</span>` : ""}<small>${desc}</small></span>
           <input type="radio" class="switch" name="update_channel" value="${k}"${k === ch ? " checked" : ""}></label>`).join("")}</div>
@@ -968,14 +968,14 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
         ${d.mode === "installer" && !d.can_apply ? "" : `<div class="group" style="margin-top:6px">${toggle("self_auto_update", "自動アップデート", "6時間ごとに確認し、新しいバージョンがあれば自動でインストールします(大きなバージョンアップは自動では行いません)", (await api("/api/settings")).self_auto_update)}</div>`}
         <div class="group-title">アップデートの前の状態</div>
         <div id="suSnaps"><div class="empty"><span class="spinner"></span></div></div>
-        <div class="group-foot">取得元: <a href="https://github.com/${esc(d.repo)}" target="_blank" rel="noopener noreferrer">github.com/${esc(d.repo)}</a> (${esc(d.branch)}${d.mode === "installer" ? " · リリース" : ""}) · データの保存方法 ${esc(String(d.data_in_use || 1))}(この版は ${esc(String((d.this_format || {}).read || 1))} まで読めます)</div>`;
+        <div class="group-foot">取得元: <a href="https://github.com/${esc(d.repo)}" target="_blank" rel="noopener noreferrer">github.com/${esc(d.repo)}</a> (${esc(d.branch)}${d.mode === "installer" ? " · リリース" : ""}) · データの保存方法 ${esc(String(d.data_in_use || 1))}(このバージョンは ${esc(String((d.this_format || {}).read || 1))} まで読めます)</div>`;
       const loadSnaps = async () => {
         let s;
         try { s = await api("/api/system/snapshots"); } catch (ex) { $("#suSnaps", body).innerHTML = `<div class="result err">${esc(ex.message)}</div>`; return; }
         $("#suSnaps", body).innerHTML = `${s.pending ? `<div class="result">次の起動で「${esc(s.pending)}」の状態に戻します${s.frozen ? "。CraftShelf を終了して、もう一度起動してください" : ""}</div>` : ""}
           <div class="group">${s.snapshots.map((x) => `<div class="row"><span class="cicon sm c-teal">${icon("clock")}</span>
             <span class="main"><span class="title">v${esc(x.version || "?")} · ${esc(x.created_at ? fmtDateTime(x.created_at) : x.name)}</span><span class="subtitle">${esc(x.reason || "")} · ${fmtSize(x.size)}</span></span>
-            <span class="trail">${x.can_restore ? `<button class="btn small" type="button" data-snap="${esc(x.name)}">この状態に戻す</button>` : '<span class="badge">この版では読めません</span>'}</span></div>`).join("")
+            <span class="trail">${x.can_restore ? `<button class="btn small" type="button" data-snap="${esc(x.name)}">この状態に戻す</button>` : '<span class="badge">このバージョンでは読めません</span>'}</span></div>`).join("")
             || `<div class="empty">まだありません(アップデートのたびに自動で作られます)</div>`}</div>
           <div class="group-foot">アップデートの直前に、登録情報(データベース)と鍵を退避しています(直近 5 回分)。保存しているアドオンのファイルはそのままです。</div>`;
       };
@@ -992,7 +992,7 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
         busy(e.currentTarget, () => startSelfUpdate(d), "開始しています…");
       });
       $("#suDown", body)?.addEventListener("click", async (e) => {
-        if (!(cfm([`${CH[ch][0]} v${d.latest} に戻しますか?`, "いまの版で追加された機能は使えなくなります。登録したファイルや情報はそのまま残ります(戻す前の状態も自動で退避します)。"].join("\n\n")))) return;
+        if (!(cfm([`${CH[ch][0]} v${d.latest} に戻しますか?`, "いまのバージョンで追加された機能は使えなくなります。登録したファイルや情報はそのまま残ります(戻す前の状態も自動で退避します)。"].join("\n\n")))) return;
         busy(e.currentTarget, () => startSelfUpdate(d), "開始しています…");
       });
       body.onchange = async (e) => {
@@ -1019,7 +1019,7 @@ async function loadTelemetry() {
   return state.tele;
 }
 const teleWhat = `<ul class="telelist">
-  <li>CraftShelf のバージョン・受け取っている版(安定版 / 開発ビルド)</li>
+  <li>CraftShelf のバージョン・受け取っているバージョン(安定版 / 開発ビルド)</li>
   <li>OS・CPU の種類・導入方法(Docker / インストーラー / install.sh)・表示言語</li>
   <li>アドオン・ユーザー・サーバー・セットの<b>おおよその数</b>(「10〜49」のような幅だけ)</li>
   <li>使っている保存先の種類・機能(Pterodactyl 連携を使っているか、など)・扱っている種類</li>
@@ -1044,7 +1044,7 @@ async function askTelemetry() {
   catch (e) { toast(e.message, true); }
 }
 
-/* パネルの新しいバージョンのお知らせ(閉じたら、その版では出さない) */
+/* パネルの新しいバージョンのお知らせ(閉じたら、そのバージョンでは出さない) */
 function drawUpdBanner(d) {
   const b = $("#updBanner");
   let dismissed = "";
@@ -1087,7 +1087,7 @@ async function startSelfUpdate(d) {
       ${failed ? '<button class="btn filled block" type="button" id="updClose">閉じる</button>' : ""}`;
     $("#updClose")?.addEventListener("click", () => { ov.hidden = true; });
   };
-  draw(0, d.mode === "installer" ? "GitHub から新しい版をダウンロードしています…(画面を閉じずにお待ちください)" : "GitHub から取得しています…(画面を閉じずにお待ちください)");
+  draw(0, d.mode === "installer" ? "GitHub から新しいバージョンをダウンロードしています…(画面を閉じずにお待ちください)" : "GitHub から取得しています…(画面を閉じずにお待ちください)");
   const t0 = Date.now();
   let restarting = false;
   while (Date.now() - t0 < 6 * 60 * 1000) {

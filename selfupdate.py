@@ -1,4 +1,4 @@
-"""CraftShelf 自身のアップデート(GitHub から最新版を取得して入れ替え、再起動する)。
+"""CraftShelf 自身のアップデート(GitHub から最新バージョンを取得して入れ替え、再起動する)。
 
 バージョンはリポジトリ直下の VERSION ファイルに「00.00.00」(メジャー.マイナー.修正)の形で書く。
 更新内容は CHANGELOG.md の「## 01.02.03 - 2026-09-30」形式の見出しごとに書く。
@@ -21,10 +21,10 @@ REPO = (os.environ.get("GITHUB_REPO") or "").strip() or "mesamaru/craftshelf"
 BRANCH = (os.environ.get("GITHUB_BRANCH") or "").strip() or "main"
 DEV_BRANCH = (os.environ.get("GITHUB_DEV_BRANCH") or "").strip() or "dev"
 PREVIEW_BRANCH = (os.environ.get("GITHUB_PREVIEW_BRANCH") or "").strip() or "next"
-# 受け取る版: "stable"(main・正式リリース)/ "dev"(dev・開発ビルド)/ "preview"(next・次のメジャー版の試験版)
+# 受け取るバージョン: "stable"(main・正式リリース)/ "dev"(dev・開発ビルド)/ "preview"(next・次のメジャーバージョンの試験版)
 CHANNELS = ("stable", "dev", "preview")
 CHANNEL = "stable"
-# いま使っているデータの保存方法の番号(app.py が起動時に入れる)。これより古い番号しか読めない版には切り替えない
+# いま使っているデータの保存方法の番号(app.py が起動時に入れる)。これより古い番号しか読めないバージョンには切り替えない
 DATA_IN_USE = 1
 _cache_lock = threading.Lock()
 _cache = {"at": 0.0, "data": None}
@@ -42,7 +42,7 @@ def branch():
 
 
 def parse_data_format(text):
-    """DATA_FORMAT ファイル(write=1 / read=2)を読む。無い・読めないときは古い版とみなす (1, 1)。"""
+    """DATA_FORMAT ファイル(write=1 / read=2)を読む。無い・読めないときは古いバージョンとみなす (1, 1)。"""
     vals = dict(re.findall(r"^\s*(write|read)\s*=\s*(\d+)\s*$", text or "", re.M))
     w = int(vals.get("write", 1))
     return w, max(w, int(vals.get("read", w)))
@@ -54,7 +54,7 @@ def local_data_format():
     except OSError:
         return 1, 1
 CHECK_TTL = 600  # 秒。GitHub への確認結果をこの間は使い回す
-# インストーラー版(実行ファイル)は自分自身を書き換えられないので、GitHub のリリースを見て
+# インストーラーバージョン(実行ファイル)は自分自身を書き換えられないので、GitHub のリリースを見て
 # 新しいインストーラーのダウンロードを案内する。それ以外(Docker・git から入れたもの)はコードを入れ替える。
 FROZEN = getattr(sys, "frozen", False)
 MODE = "installer" if FROZEN else "git"
@@ -158,7 +158,7 @@ def check(force=False):
         data["downgrade"] = CHANNEL in ("stable", "dev") and parse_version(latest) < parse_version(cur)
         data["major_up"] = parse_version(latest)[0] > parse_version(cur)[0]
         data["major_down"] = parse_version(latest)[0] < parse_version(cur)[0]
-        # 取得先がいまのデータを読めるか(DATA_FORMAT が無い古い版は保存方法 1 までしか読めない)
+        # 取得先がいまのデータを読めるか(DATA_FORMAT が無い古いバージョンは保存方法 1 までしか読めない)
         try:
             tw, tr = parse_data_format(_github_file("DATA_FORMAT", ref))
         except UpdateError:
@@ -167,7 +167,7 @@ def check(force=False):
         data["data_in_use"] = DATA_IN_USE
         if (data["update_available"] or data["downgrade"]) and tr < DATA_IN_USE:
             data["blocked"] = (f"v{latest} は、いまのデータ(保存方法 {DATA_IN_USE})を読めないため切り替えられません。"
-                               "その版が新しい保存方法に対応するまで待つか、「アップデートの前の状態」から戻してください")
+                               "そのバージョンが新しい保存方法に対応するまで待つか、「アップデートの前の状態」から戻してください")
         try:
             notes = parse_changelog(_github_file("CHANGELOG.md"))
         except UpdateError:
@@ -215,7 +215,7 @@ def _release_info():
     if r.status_code != 200:
         raise UpdateError(f"GitHub からリリース情報を取得できません(HTTP {r.status_code})")
     d = r.json()
-    if isinstance(d, list):  # 開発ビルド・プレビュー: 一覧からいちばん新しい版
+    if isinstance(d, list):  # 開発ビルド・プレビュー: 一覧からいちばん新しいバージョン
         want = (lambda t: t.startswith("next-")) if CHANNEL == "preview" else (lambda t: not t.startswith("next-"))
         d = [x for x in d if not x.get("draft") and want(str(x.get("tag_name") or ""))
              and parse_version(_tag_version(x.get("tag_name")))]
@@ -241,7 +241,7 @@ def _run(cmd, **kw):
 
 
 def apply(note=print):
-    """最新版を取得して /app を入れ替える。成功したら (旧, 新) を返す(再起動は restart() で別に行う)。"""
+    """最新バージョンを取得して /app を入れ替える。成功したら (旧, 新) を返す(再起動は restart() で別に行う)。"""
     if FROZEN:
         return _apply_installer(note)
     if os.name != "posix":
@@ -252,7 +252,7 @@ def apply(note=print):
     old = current_version()
     work = Path(tempfile.mkdtemp(prefix="craftshelf-update-"))
     try:
-        note(f"GitHub ({REPO} / {branch()}) から最新版をダウンロードしています…")
+        note(f"GitHub ({REPO} / {branch()}) から最新バージョンをダウンロードしています…")
         _run(["git", "clone", "--depth", "1", "--branch", branch(), f"https://github.com/{REPO}.git", str(work / "src")])
         src = work / "src"
         new = (src / "VERSION").read_text(encoding="utf-8").strip() if (src / "VERSION").exists() else ""
@@ -284,7 +284,7 @@ def apply(note=print):
 
 
 # --------------------------------------------------------------------------
-# インストーラー版(Windows / macOS / Linux の実行ファイル)の更新
+# インストーラーバージョン(Windows / macOS / Linux の実行ファイル)の更新
 # --------------------------------------------------------------------------
 def _download_asset(asset, dest, note):
     """配布ファイルをダウンロードし、GitHub が公開している SHA-256 と一致するか確かめる。"""
@@ -381,7 +381,7 @@ nohup "{appdir}/{exe.name}" --no-browser >/dev/null 2>&1 &
 def restart(delay=1.5):
     """新しいコードで動かし直す。gunicorn なら親プロセスに HUP を送り、ワーカーを入れ替えてもらう。"""
     if FROZEN:
-        return  # インストーラー版は _apply_installer が終了・再起動まで行う
+        return  # インストーラーバージョンは _apply_installer が終了・再起動まで行う
 
     def go():
         time.sleep(delay)

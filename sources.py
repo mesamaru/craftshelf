@@ -1,6 +1,6 @@
 """外部の配布サイト(Modrinth / SpigotMC / CurseForge)から、プラグイン・Modの情報を取得する。
 
-- Modrinth  : 公開API。ファイルのハッシュ(SHA-1)から、どのプロジェクトのどの版かを特定できる
+- Modrinth  : 公開API。ファイルのハッシュ(SHA-1)から、どのプロジェクトのどのバージョンかを特定できる
 - SpigotMC  : Spiget(非公式の公開API)を使う。ハッシュ検索はできないので、名前検索かURLで紐付ける
 - CurseForge: 公式APIキー(無料、https://console.curseforge.com で発行)が必要。
               ファイルのフィンガープリントから特定できる
@@ -177,7 +177,7 @@ def _norm(v):
 
 
 def same_version(a, b):
-    """'v5.5.71-bukkit' と '5.5.71' のような表記揺れを許して、同じ版か判定する。"""
+    """'v5.5.71-bukkit' と '5.5.71' のような表記揺れを許して、同じバージョンか判定する。"""
     na, nb = _norm(a), _norm(b)
     if not na or not nb:
         return False
@@ -553,7 +553,7 @@ def html_to_text(html_text, limit=4000):
 
 def changelogs(provider, project_id, *, have_versions=(), loaders=None, game_versions=None,
                stable_only=True, api_key=None, limit=5):
-    """保存している版より新しい版の変更内容を、新しい順に最大 limit 件返す。[{version, date, text}]"""
+    """保存しているバージョンより新しいバージョンの変更内容を、新しい順に最大 limit 件返す。[{version, date, text}]"""
     out = []
 
     def seen(v):
@@ -671,7 +671,7 @@ def curseforge_files(file_ids, api_key):
 
 
 # --------------------------------------------------------------------------
-# バージョンの一覧(検索画面で、条件に合う版を選んでダウンロードする)
+# バージョンの一覧(検索画面で、条件に合うバージョンを選んでダウンロードする)
 # --------------------------------------------------------------------------
 def _mr_deps(version):
     out = []
@@ -690,7 +690,7 @@ def _cf_deps(f):
 
 
 def versions(provider, project_id, *, loaders=None, game_versions=None, api_key=None, limit=30):
-    """条件に合う版の一覧(新しい順)。各版に前提(deps)も付ける。"""
+    """条件に合うバージョンの一覧(新しい順)。各バージョンに前提(deps)も付ける。"""
     out = []
     if provider == "modrinth":
         params = {"include_changelog": "false"}
@@ -720,7 +720,7 @@ def versions(provider, project_id, *, loaders=None, game_versions=None, api_key=
             info.update(type={1: "release", 2: "beta", 3: "alpha"}.get(f.get("releaseType"), "release"), deps=_cf_deps(f))
             out.append(info)
     elif provider == "spigot":
-        info = spigot_latest(project_id)  # Spiget は最新版しかダウンロードできない
+        info = spigot_latest(project_id)  # Spiget は最新バージョンしかダウンロードできない
         info.update(type="release", deps=[])
         out.append(info)
     else:
@@ -729,7 +729,7 @@ def versions(provider, project_id, *, loaders=None, game_versions=None, api_key=
 
 
 def version_info(provider, project_id, version_id, api_key=None):
-    """特定の版の情報(ダウンロード用)。"""
+    """特定のバージョンの情報(ダウンロード用)。"""
     if provider == "modrinth":
         v = _json("GET", f"{MODRINTH}/version/{quote(str(version_id), safe='')}")
         if v.get("project_id") != project_id:

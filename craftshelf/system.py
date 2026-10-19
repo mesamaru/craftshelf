@@ -192,7 +192,7 @@ def api_system_snapshot_restore(name):
         raise ApiError("退避が見つかりません", 404)
     meta = _jl((d / "meta.json").read_text(encoding="utf-8") if (d / "meta.json").exists() else "", {})
     if int(meta.get("data_format") or 1) > DATA_READ:
-        raise ApiError("この版では、その退避のデータを読めません")
+        raise ApiError("このバージョンでは、その退避のデータを読めません")
     RESTORE_MARK.write_text(name + "\n", encoding="utf-8")
     audit("アップデートの前の状態に戻す", name, "次の起動で戻します")
     if not selfupdate.FROZEN:
@@ -352,7 +352,7 @@ def stage_backup_restore(zpath, label):
                 (d / "backgrounds").mkdir()
                 for x in bgs:
                     (d / x).write_bytes(z.read(x))
-            # 中身を確かめる(壊れていないか・この版で読める保存方法か)
+            # 中身を確かめる(壊れていないか・このバージョンで読める保存方法か)
             try:
                 c = sqlite3.connect(f"file:{d / 'index.db'}?mode=ro", uri=True)
                 try:
@@ -369,7 +369,7 @@ def stage_backup_restore(zpath, label):
                 raise ApiError("バックアップにユーザーが 1 人もいません")
             fmt = int(row[0]) if row and str(row[0]).isdigit() else 1
             if fmt > DATA_READ:
-                raise ApiError(f"このバックアップは新しい保存方法({fmt})で作られているため、この版では戻せません")
+                raise ApiError(f"このバックアップは新しい保存方法({fmt})で作られているため、このバージョンでは戻せません")
             (d / "meta.json").write_text(json.dumps({
                 "version": "", "created_at": utcnow(), "reason": f"バックアップから戻す({label})",
                 "data_format": fmt}, ensure_ascii=False), encoding="utf-8")
@@ -444,7 +444,7 @@ def _self_update_tick():
         return
     _self_update_tick.last = time.monotonic()
     info = selfupdate.check(force=True)
-    # 自動アップデートでは、メジャー版をまたぐ更新・切り替えられない版には進まない(手動で選んでもらう)
+    # 自動アップデートでは、メジャーバージョンをまたぐ更新・切り替えられないバージョンには進まない(手動で選んでもらう)
     if info["update_available"] and info.get("can_apply", True) and get_setting("self_auto_update", "0") == "1" \
             and not info.get("major_up") and not info.get("blocked"):
         start_job("selfupdate", f"{APP_NAME} の自動更新 ({info['current']} → {info['latest']})",
@@ -655,7 +655,7 @@ def start_scheduler():
 
 
 def _set_channel(ch):
-    """受け取る版を切り替える。Docker の起動スクリプトも読めるよう、ファイルにも書いておく。"""
+    """受け取るバージョンを切り替える。Docker の起動スクリプトも読めるよう、ファイルにも書いておく。"""
     set_setting("update_channel", ch)
     selfupdate.set_channel(ch)
     try:
@@ -717,7 +717,7 @@ API_SUMMARY = {
     "api_servers_world_backup": "ワールドのバックアップを始める", "api_servers_worlds": "ワールドのバックアップの一覧",
     "api_servers_world_download": "ワールドのバックアップをダウンロード", "api_servers_world_delete": "ワールドのバックアップを消す",
     "api_server_snapshots": "サーバーの変更の履歴(巻き戻し用)", "api_settings": "パネル全体の設定",
-    "api_system_info": "パネルの情報(版・動作環境)", "api_system_update_check": "パネルのアップデートの確認",
+    "api_system_info": "パネルの情報(バージョン・動作環境)", "api_system_update_check": "パネルのアップデートの確認",
     "api_backup_list": "パネルのバックアップの一覧", "api_backup_download": "パネルのバックアップをダウンロード",
 }
 

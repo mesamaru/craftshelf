@@ -82,12 +82,12 @@ def _default_filters(conn, item, matched=None):
     loaders = src.default_loaders(item["category"], loader)
     if not loaders and matched:
         loaders = matched.get("loaders") or []
-    # Mod は MC のバージョンが合わないと動かないので、一致した版の対応バージョンで絞る。
-    # プラグインは新しい版が古いMCを切り捨てることが多いので絞らない。
+    # Mod は MC のバージョンが合わないと動かないので、一致したバージョンの対応バージョンで絞る。
+    # プラグインは新しいバージョンが古いMCを切り捨てることが多いので絞らない。
     game_versions = (matched.get("game_versions") or []) if (matched and item["category"] == "mod") else []
     if item["category"] == "mod" and not game_versions and vs:
         # URL や検索で紐付けたときも、ファイルに書かれた MC バージョン(例 1.20.1)で絞る。
-        # 絞らないと、別の MC 向けの版(例 26.x 用)が「新しいバージョン」として出てしまう
+        # 絞らないと、別の MC 向けのバージョン(例 26.x 用)が「新しいバージョン」として出てしまう
         mc = str(_jl(vs[0]["meta"], {}).get("mc") or "").strip().lstrip("~^=")
         if _MC_REL.match(mc):
             game_versions = [mc]
@@ -199,7 +199,7 @@ _PRERELEASE = re.compile(r"(snapshot|alpha|beta|\bpre(?=[0-9.\-]|$)|\brc\d*\b|-d
 
 def _stable_only(conn, item_id, s=None):
     """正式版だけを探すか。アドオンごとの指定 → 無ければ全体の設定。
-    ただし、保存している版やサーバーに入っている版がスナップショット・ベータなら、ベータ版も探す
+    ただし、保存しているバージョンやサーバーに入っているバージョンがスナップショット・ベータなら、ベータ版も探す
     (正式版だけを見ると、一つ前の正式版を「最新」と表示してしまうため)。"""
     s = s or conn.execute("SELECT * FROM item_sources WHERE item_id=?", (item_id,)).fetchone()
     ch = (s["channel"] if s is not None and "channel" in s.keys() else "") or ""
@@ -218,7 +218,7 @@ def _stable_only(conn, item_id, s=None):
 
 
 def check_item(conn, item):
-    """紐付けた配布元の最新版を確認し、保存済みと比べて状態を記録する。"""
+    """紐付けた配布元の最新バージョンを確認し、保存済みと比べて状態を記録する。"""
     s = conn.execute("SELECT * FROM item_sources WHERE item_id=?", (item["id"],)).fetchone()
     if not s:
         raise ApiError("配布元が紐付けられていません")
@@ -228,7 +228,7 @@ def check_item(conn, item):
                           game_versions=_jl(s["game_versions"], []),
                           stable_only=_stable_only(conn, item["id"], s), api_key=cf_api_key())
         if not info:
-            message = "条件に合う版が見つかりません(ローダー・MCバージョンの絞り込みを確認してください)"
+            message = "条件に合うバージョンが見つかりません(ローダー・MCバージョンの絞り込みを確認してください)"
         else:
             vs = _item_versions(conn, item["id"])
             have = any((info.get("sha1") and v["sha1"] == info["sha1"]) or v["filename"] == info.get("file_name")
@@ -254,11 +254,11 @@ def check_item(conn, item):
 
 
 def download_latest(conn, item, store=None, target=None):
-    """配布元の最新版をダウンロードして、そのアイテムの新しいバージョンとして保存する。"""
+    """配布元の最新バージョンをダウンロードして、そのアイテムの新しいバージョンとして保存する。"""
     s = check_item(conn, item)
     info = _jl(s["latest"], {})
     if s["status"] == "error":
-        raise ApiError(s["message"] or "最新版を確認できません")
+        raise ApiError(s["message"] or "最新バージョンを確認できません")
     if s["status"] == "up_to_date":
         return {"status": "duplicate", "message": s["message"]}
     if not info.get("downloadable") or not info.get("url"):
@@ -341,7 +341,7 @@ def api_source_update(iid):
                          (json.dumps(split(data["game_versions"])), iid))
         if "channel" in data:
             if data["channel"] not in ("", "all", "release"):
-                raise ApiError("受け取る版の指定が不正です")
+                raise ApiError("受け取るバージョンの指定が不正です")
             conn.execute("UPDATE item_sources SET channel=? WHERE item_id=?", (data["channel"], iid))
         conn.commit()
     return jsonify(source=source_public(check_item(conn, item)))
@@ -442,7 +442,7 @@ def _bulk_job(job, target_id, do_detect, do_check, do_download, only_user_id=Non
 @app.post("/api/updates/run")
 @require("editor")
 def api_updates_run():
-    """detect=未連携のアイテムの配布元を探す / check=最新版を確認 / download=更新を保存。"""
+    """detect=未連携のアイテムの配布元を探す / check=最新バージョンを確認 / download=更新を保存。"""
     data = request.get_json(silent=True) or {}
     _store, target = active_store()
     detect, check, dl = _truthy(data.get("detect")), _truthy(data.get("check", True)), _truthy(data.get("download"))
@@ -453,7 +453,7 @@ def api_updates_run():
 
 
 def _import_version(info, ver, loaders, game_versions, force_cat=None):
-    """配布元の特定の版をダウンロードして登録し、配布元も紐付ける。登録結果を返す。"""
+    """配布元の特定のバージョンをダウンロードして登録し、配布元も紐付ける。登録結果を返す。"""
     if not ver.get("downloadable") or not ver.get("url"):
         raise ApiError(ver.get("note") or "この配布元からは自動ダウンロードできません")
     tmp = TMP_DIR / (uuid.uuid4().hex + ".part")
@@ -496,7 +496,7 @@ def _in_library(conn, target_id, provider, project_id, title=""):
 @app.post("/api/import")
 @require("editor")
 def api_import():
-    """配布元からダウンロードして登録する。version_id を指定するとその版、無ければ条件に合う最新版。
+    """配布元からダウンロードして登録する。version_id を指定するとそのバージョン、無ければ条件に合う最新バージョン。
     with_deps に前提のプロジェクトIDを渡すと、ライブラリに無いものを同じ条件でまとめて登録する。"""
     data = request.get_json(silent=True) or {}
     info = _source_from_request(data)

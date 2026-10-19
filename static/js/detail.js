@@ -361,14 +361,14 @@ function linkPageHTML(it) {
 
         <div class="group-title">新しいバージョンを探す条件</div>
         <div class="group"><div class="card-b" style="padding:12px 14px">
-          <div class="flabel">サーバーソフト・ローダー(選んだものに対応する版だけを探します。何も選ばなければすべて)</div>
+          <div class="flabel">サーバーソフト・ローダー(選んだものに対応するバージョンだけを探します。何も選ばなければすべて)</div>
           <div class="chips">${[...known, ...extra].map((l) => `<button class="tagchip" type="button" data-act="src-loader" data-l="${esc(l)}" aria-pressed="${d.loaders.includes(l)}" translate="no">${esc(l)}</button>`).join("")}
             <button class="tagchip" type="button" data-act="src-loader-add">＋ ほかを追加</button></div>
           <label class="field" style="margin-top:12px"><span>Minecraft のバージョン(カンマ区切り。空欄ならすべて)</span>
             <input type="text" id="lkMc" value="${esc(d.mc)}" placeholder="例: 1.21.1, 1.21.4"></label>
-          <div class="flabel" style="margin-top:12px">受け取る版</div>
-          <div class="segmented seg-wide" role="group" aria-label="受け取る版">${[["", "自動"], ["release", "正式版だけ"], ["all", "ベータ版も"]].map(([k, n]) => `<button class="seg" type="button" data-act="src-channel" data-ch="${k}" aria-pressed="${(d.channel || "") === k}">${n}</button>`).join("")}</div>
-          <div class="group-foot" style="margin:6px 2px 0">「自動」は、保存している版やサーバーの版がスナップショット・ベータなら、ベータ版も含めて最新を探します</div>
+          <div class="flabel" style="margin-top:12px">受け取るバージョン</div>
+          <div class="segmented seg-wide" role="group" aria-label="受け取るバージョン">${[["", "自動"], ["release", "正式版だけ"], ["all", "ベータ版も"]].map(([k, n]) => `<button class="seg" type="button" data-act="src-channel" data-ch="${k}" aria-pressed="${(d.channel || "") === k}">${n}</button>`).join("")}</div>
+          <div class="group-foot" style="margin:6px 2px 0">「自動」は、保存しているバージョンやサーバーのバージョンがスナップショット・ベータなら、ベータ版も含めて最新を探します</div>
           <button class="btn filled block" type="button" data-act="src-savefilter" style="margin-top:10px">保存して確認</button>
         </div></div>
 
@@ -407,7 +407,7 @@ function sourceBoxHTML(it) {
     state_ = `<div class="srcstate upd">${icon("download")}<div><b>新しいバージョン ${esc(verLabel(L.version || ""))} が公開されています</b>
       <span>${L.date ? `${fmtDate(L.date)} 公開` : ""}${top ? `${L.date ? " · " : ""}MC ${esc(top)} まで対応` : ""}</span></div></div>`;
     main = L.downloadable
-      ? `<button class="btn filled block need-editor" type="button" data-act="src-download">${icon("download")}${esc(verLabel(L.version || "最新版"))} をダウンロードして保存</button>`
+      ? `<button class="btn filled block need-editor" type="button" data-act="src-download">${icon("download")}${esc(verLabel(L.version || "最新バージョン"))} をダウンロードして保存</button>`
       : `<a class="btn filled block" href="${esc(safeUrl(s.page_url))}" target="_blank" rel="noopener noreferrer">${icon("external")}配布ページを開いてダウンロード</a>
         <div class="group-foot" style="margin:6px 2px 0">${esc(s.message || "")} ダウンロードしたファイルをライブラリにドロップすると、このアイテムの新しいバージョンとして追加されます。</div>`;
   } else if (s.status === "up_to_date") {
@@ -428,7 +428,7 @@ function sourceBoxHTML(it) {
     <div class="srcbar">
       <button class="btn tinted small need-editor" type="button" data-act="src-check">${icon("refresh")}更新を確認</button>
       <span class="sp"></span>
-      <button class="mini-act need-editor" type="button" data-act="src-pickver" title="配布元のバージョンを選んでダウンロード">${icon("download")}<span>版を選ぶ</span></button>
+      <button class="mini-act need-editor" type="button" data-act="src-pickver" title="配布元のバージョンを選んでダウンロード">${icon("download")}<span>バージョンを選ぶ</span></button>
       <button class="mini-act" type="button" data-act="src-linkpage" title="配布元の紐づけ(紐づけ先の変更・探す条件)">${icon("link")}<span>紐づけ</span></button>
       <button class="mini-act" type="button" data-act="src-changelog" title="配布元で公開されている更新の履歴">${icon("doc")}<span>履歴</span></button>
     </div>
@@ -560,7 +560,7 @@ async function openSearch({ q = "", kind = "", linkTo = null, toServer = null, l
           <span class="trail">
             <a class="icon-btn sm" href="${esc(safeUrl(r.page_url))}" target="_blank" rel="noopener noreferrer" title="配布ページを開く" aria-label="配布ページを開く">${icon("external")}</a>
             ${linkTo ? `<button class="btn small filled" type="button" data-pick="${i}">紐付け</button>`
-              : toServer ? `<button class="btn small filled" type="button" data-add="${i}">${r.item_id ? "版を選んで入れる" : "追加"}</button>`
+              : toServer ? `<button class="btn small filled" type="button" data-add="${i}">${r.item_id ? "バージョンを選んで入れる" : "追加"}</button>`
               : r.item_id ? `<button class="btn small" type="button" data-show="${r.item_id}">表示</button>`
               : `<button class="btn small filled need-editor" type="button" data-add="${i}">追加</button>`}
           </span></div>`).join("") : `<div class="empty">見つかりませんでした</div>`;
@@ -598,10 +598,10 @@ async function openSearch({ q = "", kind = "", linkTo = null, toServer = null, l
   }, { wide: true });
 }
 
-/* ---------------- 版を選んでダウンロード(前提もまとめて) ---------------- */
+/* ---------------- バージョンを選んでダウンロード(前提もまとめて) ---------------- */
 async function pickVersion(r, st, { toServer = null } = {}) {
   if (st.mc && !MC_VERSIONS.includes(st.mc)) MC_VERSIONS.unshift(st.mc);
-  const done = await sheet(`${sheetHead(toServer ? `「${r.title}」を「${toServer.name}」へ` : `「${r.title}」の版を選ぶ`)}
+  const done = await sheet(`${sheetHead(toServer ? `「${r.title}」を「${toServer.name}」へ` : `「${r.title}」のバージョンを選ぶ`)}
     <div class="db">
       <div class="chips">
         <select id="pvLoader" class="compact">${Object.entries(SEARCH_LOADERS).map(([k, n]) => `<option value="${k}"${k === st.loader ? " selected" : ""}>${n}</option>`).join("")}</select>
@@ -610,9 +610,9 @@ async function pickVersion(r, st, { toServer = null } = {}) {
       <div id="pvList" class="group"></div>
       <div id="pvDeps"></div>
       <div class="group">${toServer ? toggle("pv_deps_srv", "前提もサーバーに入れる", "オンにした前提プラグイン・Mod も、ライブラリに追加したあとサーバーへ送ります", true)
-        : toggle("pv_save", "このパソコンにも保存する", "ライブラリに追加したあと、選んだ版のファイルをダウンロードします", false)}</div>
+        : toggle("pv_save", "このパソコンにも保存する", "ライブラリに追加したあと、選んだバージョンのファイルをダウンロードします", false)}</div>
     </div>
-    <div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok disabled>${toServer ? "ダウンロードしてサーバーに入れる" : "この版をライブラリに追加"}</button></div>`, (form, finish) => {
+    <div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok disabled>${toServer ? "ダウンロードしてサーバーに入れる" : "このバージョンをライブラリに追加"}</button></div>`, (form, finish) => {
     let vers = [], sel = 0;
     const drawDeps = () => {
       const v = vers[sel];
@@ -620,7 +620,7 @@ async function pickVersion(r, st, { toServer = null } = {}) {
       $("#pvDeps", form).innerHTML = deps.length ? `<div class="group-title">前提プラグイン・Mod</div><div class="group">${deps.map((d, i) => `<label class="toggle-row">
           <span class="main">${esc(d.title)}<small>${d.required ? "必須" : "任意"}${d.item_id ? " · ライブラリにあります" : ""}</small></span>
           ${d.item_id ? '<span class="badge ok">✓</span>' : `<input type="checkbox" class="switch" data-dep="${i}"${d.required ? " checked" : ""}>`}</label>`).join("")}</div>
-        <div class="group-foot">オンにした前提も、同じ条件(サーバーソフト・MCバージョン)の最新版をまとめて追加します</div>` : "";
+        <div class="group-foot">オンにした前提も、同じ条件(サーバーソフト・MCバージョン)の最新バージョンをまとめて追加します</div>` : "";
     };
     const draw = () => {
       $("#pvList", form).innerHTML = vers.length ? vers.map((v, i) => `<label class="toggle-row">
@@ -655,10 +655,10 @@ async function pickVersion(r, st, { toServer = null } = {}) {
         (d.deps || []).filter((x) => ["error", "notfound"].includes(x.status)).forEach((x) => toast(`前提「${x.title}」を追加できませんでした${x.message ? `: ${x.message}` : ""}`, true));
         r.item_id = d.item_id;
         await refresh();
-        if (form.querySelector("[name=pv_save]")?.checked && d.version_id) {  // 選んだ版をこのパソコンにも保存
+        if (form.querySelector("[name=pv_save]")?.checked && d.version_id) {  // 選んだバージョンをこのパソコンにも保存
           const a = document.createElement("a"); a.href = `/api/versions/${d.version_id}/download`; a.download = ""; document.body.appendChild(a); a.click(); a.remove();
         }
-        if (toServer) {  // サーバーへ送る(選んだ版をそのまま。前提はライブラリの最新)
+        if (toServer) {  // サーバーへ送る(選んだバージョンをそのまま。前提はライブラリの最新)
           const ids = [d.item_id], vmap = { [d.item_id]: d.version_id };
           if (form.querySelector("[name=pv_deps_srv]")?.checked) {
             for (const x of (d.deps || []).filter((y) => ["added", "duplicate", "exists"].includes(y.status))) {

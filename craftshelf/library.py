@@ -1,4 +1,4 @@
-"""CraftShelf: 保存先・ライブラリ(取り込み・一覧・版・セット・共有リンク・アクセス権)。"""
+"""CraftShelf: 保存先・ライブラリ(取り込み・一覧・バージョン・セット・共有リンク・アクセス権)。"""
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -392,7 +392,7 @@ def build_library(conn, store, target, user=None):
         it["versions"] = vs
         it["latest_id"] = vs[0]["id"]
         it["mc_auto"] = auto_mc_versions(vs[0]["meta"], it["category"], it.get("source"))
-        # 配布元の最新版がどの MC まで対応しているか(保存している版より新しい場合もある)
+        # 配布元の最新バージョンがどの MC まで対応しているか(保存しているバージョンより新しい場合もある)
         it["mc_latest_max"] = mc_max(((it.get("source") or {}).get("latest") or {}).get("game_versions"))
         it["tags"] = _jl(it.get("tags"), [])
         it["total_size"] = sum(v["size"] for v in vs)

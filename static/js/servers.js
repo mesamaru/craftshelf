@@ -414,7 +414,7 @@ function todoList(s) {
   const row = (ic, cls, title, sub, btn) => `<div class="stodo"><span class="ti-ic ${cls}">${icon(ic)}</span><span class="m">${title}${sub ? `<small>${sub}</small>` : ""}</span>${btn || ""}</div>`;
   const u = srvUpdates(s);
   if (!s.checked) out.push(row("search", "", "中身をまだ確認していません", "アドオンのタブで確認します", `<button class="btn small" type="button" data-tab2="addons">確認</button>`));
-  if (u) out.push(row("download", "warn", `${u} 件の更新があります`, s.mc_version ? `MC ${esc(s.mc_version)} に対応していない版は入れません` : "", ro ? "" : `<button class="btn small filled" type="button" data-va="sync">同期</button>`));
+  if (u) out.push(row("download", "warn", `${u} 件の更新があります`, s.mc_version ? `MC ${esc(s.mc_version)} に対応していないバージョンは入れません` : "", ro ? "" : `<button class="btn small filled" type="button" data-va="sync">同期</button>`));
   if (si.update) out.push(row("server", "acc", `本体 #${esc(si.latest.build)} が出ています`, si.build ? `今は #${esc(si.build)}` : "", si.latest.url ? `<a class="btn small" href="${esc(si.latest.url)}" target="_blank" rel="noopener">取得</a>` : ""));
   const targets = (s.stage_targets || []).map((id) => (state.servers.find((x) => x.id === id) || {}).name).filter(Boolean);
   if (targets.length && !ro) out.push(row("arrows", "", "検証した構成を本番へ広げる", `${targets.map(esc).join("、")} へ`, `<button class="btn small" type="button" data-va="copy">反映</button>`));
@@ -434,7 +434,7 @@ function renderServerPage(s, el) {
     <div class="srv-pane" id="srvPane"></div></div>`;
   const pane = $("#srvPane", el);
   if (tab === "overview") {
-    pane.innerHTML = `${!ro ? `<div class="srv-acts">
+    pane.innerHTML = `${!ro ? `<div class="srv-qacts">
         <button type="button" data-va="push">${icon("send")}<span>同期</span></button>
         <button type="button" data-tab2="console">${icon("chat")}<span>コマンド</span></button>
         <button type="button" data-tab2="backup">${icon("download")}<span>保存</span></button>
@@ -502,7 +502,7 @@ async function syncDialog(s) {
   const r = await formSheet(`「${s.name}」を同期`, `<p>ライブラリに新しいバージョンがあるものを、サーバーの ${esc(dirsLabel(s))} で入れ替えます${s.set_name ? `。セット「${esc(s.set_name)}」にあってサーバーに無いものも入れます` : ""}。</p>
     <ul class="plain-list">
       <li>${icon("check")}置き換えるファイル${s.backup_config ? "とプラグインの設定フォルダ" : ""}は退避され、「保存」タブの履歴から戻せます</li>
-      ${s.mc_version ? `<li>${icon("check")}MC ${esc(s.mc_version)} に対応していない版は入れません</li>` : `<li>${icon("clock")}「設定」で MC のバージョンを入れると、対応していない版を入れないようにできます</li>`}
+      ${s.mc_version ? `<li>${icon("check")}MC ${esc(s.mc_version)} に対応していないバージョンは入れません</li>` : `<li>${icon("clock")}「設定」で MC のバージョンを入れると、対応していないバージョンを入れないようにできます</li>`}
       ${s.holds ? `<li>${icon("clock")}見送り中の ${s.holds} 件は入れ替えません</li>` : ""}
     </ul>
     ${canPower(s) ? `<div class="group">${toggle("restart", "完了後にサーバーを再起動", "入れ替えを反映させるには再起動が必要です", false)}</div>` : `<p class="muted">このサーバーはパネルから再起動できません。反映するにはサーバーを再起動してください。</p>`}`, "同期する");
@@ -528,7 +528,7 @@ $("#serversView").addEventListener("click", async (e) => {
   if (a === "add") addServerMenu(b);
   if (a === "syncall") {
     const targets = (state.servers || []).filter((x) => x.access !== "view" && srvUpdates(x) > 0);
-    if (!await confirmSheet("すべて最新にしますか?", `${targets.map((x) => x.name).join("、")} を同期します。対応していない版・見送り中のものは入れません。再起動はしません。`, "同期する", false)) return;
+    if (!await confirmSheet("すべて最新にしますか?", `${targets.map((x) => x.name).join("、")} を同期します。対応していないバージョン・見送り中のものは入れません。再起動はしません。`, "同期する", false)) return;
     for (const x of targets) { try { jobStarted(await api(`/api/servers/${x.id}/sync`, { json: {} })); } catch (ex) { toast(`${x.name}: ${ex.message}`, true); } }
     return;
   }
@@ -619,12 +619,12 @@ async function serverSettingsDialog(s, container = null) {
         ${local ? field("サーバーのフォルダ", `<div class="inline-input"><input type="text" name="root_dir" value="${esc(s.root_dir || "")}"${sys_ ? "" : " readonly"} spellcheck="false"><button class="btn tinted small" type="button" data-detect>${icon("search")}判定</button></div>`)
           : `<div class="inline-input" style="margin-bottom:10px"><span class="muted" style="flex:1">サーバーのフォルダの中身から、サーバーソフト・バージョン・フォルダを判定できます</span><button class="btn tinted small" type="button" data-detect>${icon("search")}判定</button></div>`}
         <div class="detect-out" data-dtout></div>
-        ${field("MC のバージョン(対応していない版を入れないために使います)", `<input type="text" name="mc_version" value="${esc(s.mc_version || "")}" placeholder="例: 1.21.4" inputmode="decimal">`)}
+        ${field("MC のバージョン(対応していないバージョンを入れないために使います)", `<input type="text" name="mc_version" value="${esc(s.mc_version || "")}" placeholder="例: 1.21.4" inputmode="decimal">`)}
         ${srvFields(s)}
         ${field("セット(同期のときに、セットの中身もサーバーに入れる)", `<select name="set_id">${setOpts}</select>`)}`, true)}
       ${sec("update", "更新の受け取り方", `
         <div class="group">
-          ${toggle("auto_update", "自動で最新にする", "ライブラリに新しい版が入ったら、このサーバーへ自動で同期します(6 時間ごとに確認。見送り中・対応していない版は入れません)", s.auto_update === "auto")}
+          ${toggle("auto_update", "自動で最新にする", "ライブラリに新しいバージョンが入ったら、このサーバーへ自動で同期します(6 時間ごとに確認。見送り中・対応していないバージョンは入れません)", s.auto_update === "auto")}
           ${toggle("backup_config", "プラグインの設定フォルダも退避する", "入れ替えるときに plugins/<名前>/ も保存し、巻き戻しで設定まで戻せるようにします", !!s.backup_config)}
           ${canPower(s) ? toggle("sched_restart", "自動・予約の同期のあとに再起動", "更新があったときだけ再起動します", !!s.sched_restart) : ""}
         </div>
@@ -793,7 +793,7 @@ function drawCompare() {
     <tbody>${list.map((r) => `<tr class="${differs(r) ? "diff" : ""}"><th class="cmp-name">${r.item_id ? `<button class="linkish" type="button" data-open="${r.item_id}">${esc(r.name)}</button>` : esc(r.name)}</th>${sel.map((s) => cell(s, r)).join("")}</tr>`).join("")
       || `<tr><td colspan="${sel.length + 1}"><div class="empty">${state.cmpDiff ? "違いはありません 🎉" : "プラグインがありません"}</div></td></tr>`}</tbody>
   </table></div>
-  <p class="group-foot">「導入」を押すと、そのサーバーに入れるものとして選べます。入っているものを押すと、更新・版の変更・削除などができます。</p>
+  <p class="group-foot">「導入」を押すと、そのサーバーに入れるものとして選べます。入っているものを押すと、更新・バージョンの変更・削除などができます。</p>
   ${picks.length ? `<div class="cmp-bar"><span><b>${picks.length} 件</b>を導入します</span><span class="sp"></span>
     <button class="btn small plain" type="button" data-cclear>選択を解除</button><button class="btn small filled" type="button" data-cinstall>${icon("download")}導入する</button></div>` : ""}`;
   box.onclick = cmpClick;
@@ -817,28 +817,79 @@ async function cmpRun(sid, keys, call, label) {
   try { state.cmpData[sid] = await api(`/api/servers/${sid}/inventory`); } catch { /* 前の内容のまま */ }
   pollJobs(); drawCompare();
 }
-async function cmpChooseVersion(s, f) {
+/* サーバーに入っているアドオンのバージョンを変える(ライブラリにあるバージョン → 無ければ配布元から取得して入れる) */
+const normVer = (v) => String(v || "").trim().replace(/^v/i, "").toLowerCase();
+const isCurVer = (v, f) => (f.version_id ? v.id === f.version_id : normVer(v.version) === normVer(f.version));
+function prevVersionOf(it, f) {
+  const i = it.versions.findIndex((v) => isCurVer(v, f));
+  return i >= 0 ? it.versions[i + 1] || null : null;
+}
+async function changeVersionSheet(s, f, run) {
   const it = state.items.find((i) => i.id === f.item_id);
   if (!it) return;
-  const r = await sheet(`${sheetHead(`「${it.name}」の版を変える`)}<div class="db">
-      <p>「${esc(s.name)}」に入っている ${esc(f.version || "?")} を、選んだ版に入れ替えます(今の版は退避され、「履歴」から戻せます)。</p>
-      <div class="group">${it.versions.map((v, i) => `<label class="toggle-row"><span class="main"><b>${esc(verLabel(v.version))}</b>${i === 0 ? ' <span class="badge ok">最新</span>' : ""}${v.id === f.version_id ? ' <span class="badge">今の版</span>' : ""}
-        <small>${esc(v.filename)} · ${fmtSize(v.size)}</small></span><input type="radio" class="switch" name="cv" value="${v.id}"${v.id === f.version_id ? " disabled" : ""}></label>`).join("")}</div>
-      ${it.source ? `<button class="btn plain small" type="button" data-cvsrc>${icon("search")}ライブラリに無い版を配布元から選ぶ</button>` : ""}
-    </div><div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok>この版にする</button></div>`, (form, done) => {
-    const first = form.querySelector("[name=cv]:not([disabled])"); if (first) first.checked = true;
-    form.querySelector("[data-ok]").onclick = () => { const c = form.querySelector("[name=cv]:checked"); if (!c) { toast("版を選んでください", true); return; } done(Number(c.value)); };
-    form.querySelector("[data-cvsrc]")?.addEventListener("click", () => done("src"));
+  const so = it.source;
+  const local = it.versions;
+  const haveVer = new Set(local.map((v) => normVer(v.version)));
+  const cur = local.findIndex((v) => isCurVer(v, f));
+  let remote = null, picked = null;  // picked = { local: version_id } か { remote: index }
+  const choice = await sheet(`${sheetHead(`「${it.name}」のバージョンを変える`)}<div class="db">
+      <p class="muted small" style="margin-top:0" translate="no">${esc(s.name)}${s.mc_version ? ` · MC ${esc(s.mc_version)}` : ""} · 今は ${esc(f.version || "?")}</p>
+      <div class="group-title">ライブラリに保存しているバージョン</div>
+      <div class="group">${local.map((v, i) => `<label class="toggle-row"><span class="main"><b translate="no">${esc(verLabel(v.version))}</b>
+          ${i === 0 ? ' <span class="badge ok">最新</span>' : ""}${isCurVer(v, f) ? ' <span class="badge">今のバージョン</span>' : ""}${cur >= 0 && i === cur + 1 ? ' <span class="badge">ひとつ前</span>' : ""}
+          <small translate="no">${esc(fmtDate(v.added_at || v.created_at || ""))}${v.filename ? ` · ${esc(v.filename)}` : ""}</small></span>
+          <input type="radio" class="switch" name="cv" value="l${v.id}"${isCurVer(v, f) ? " disabled" : ""}></label>`).join("")}</div>
+      ${so ? `<div class="group-title">配布元(${esc(PROVIDERS[so.provider] || so.provider)})のバージョン <small>ライブラリに無いもの</small></div>
+        <div class="group" id="cvRemote"><div class="empty"><span class="spinner"></span></div></div>` : ""}
+      <p class="muted small">${icon("shield")} 今のバージョンは退避され、「保存」→「履歴と巻き戻し」からいつでも戻せます。反映には再起動が要ります。</p>
+    </div><div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok>このバージョンにする</button></div>`, (form, done) => {
+    const ok = form.querySelector("[data-ok]");
+    const label = () => {
+      const c = form.querySelector("[name=cv]:checked");
+      if (!c) { ok.textContent = "このバージョンにする"; return; }
+      const v = c.value.startsWith("l") ? local.find((x) => x.id === Number(c.value.slice(1))).version : remote[Number(c.value.slice(1))].version;
+      ok.textContent = c.value.startsWith("r") ? `${v} を取得して入れる` : `${v} にする`;
+    };
+    const prev = cur >= 0 ? local[cur + 1] : null;
+    const first = form.querySelector(prev ? `[value="l${prev.id}"]` : "[name=cv]:not([disabled])");
+    if (first) first.checked = true;
+    label();
+    form.addEventListener("change", (e) => { if (e.target.name === "cv") label(); });
+    ok.onclick = () => {
+      const c = form.querySelector("[name=cv]:checked");
+      if (!c) { toast("バージョンを選んでください", true); return; }
+      done(c.value.startsWith("l") ? { local: Number(c.value.slice(1)) } : { remote: Number(c.value.slice(1)) });
+    };
+    if (so) {
+      const p = new URLSearchParams({ provider: so.provider, project_id: so.project_id, loader: SEARCH_LOADERS[s.software] ? s.software : "", mc: s.mc_version || "" });
+      api(`/api/search/versions?${p}`).then((d) => {
+        remote = d.versions.filter((v) => !haveVer.has(normVer(v.version)));
+        const box = $("#cvRemote", form);
+        if (!box) return;
+        box.innerHTML = remote.length ? remote.slice(0, 30).map((v, i) => `<label class="toggle-row"><span class="main"><b translate="no">${esc(v.version)}</b>
+            ${v.type && v.type !== "release" ? ` <span class="badge upd">${esc(v.type === "beta" ? "ベータ" : v.type === "alpha" ? "アルファ" : v.type)}</span>` : ""}
+            <small>${v.date ? esc(fmtDate(v.date)) : ""}${(v.game_versions || []).length ? ` · MC ${esc(summarizeMc(v.game_versions))}` : ""}${v.downloadable ? "" : " · 自動では取得できません"}</small></span>
+            <input type="radio" class="switch" name="cv" value="r${i}"${v.downloadable ? "" : " disabled"}></label>`).join("")
+          : `<div class="empty">ライブラリに無いバージョンは見つかりませんでした${s.mc_version ? `(MC ${esc(s.mc_version)} に対応するもの)` : ""}</div>`;
+      }).catch((ex) => { const box = $("#cvRemote", form); if (box) box.innerHTML = `<div class="empty">${esc(ex.message)}</div>`; });
+    }
   });
-  if (r === "src") {
-    const so = it.source;
-    await pickVersion({ provider: so.provider, project_id: so.project_id, title: it.name, kind: it.category },
-      { loader: SEARCH_LOADERS[s.software] ? s.software : "", mc: s.mc_version || "", kind: it.category }, { toServer: s });
-    try { state.cmpData[s.id] = await api(`/api/servers/${s.id}/inventory`); } catch { /* そのまま */ }
-    drawCompare();
+  if (!choice) return;
+  if (choice.local) {
+    await run(() => api(`/api/servers/${s.id}/push`, { json: { item_ids: [it.id], version_ids: { [it.id]: choice.local }, force: true } }), "バージョンを変えました");
     return;
   }
-  if (r) cmpRun(s.id, [`i${it.id}`], () => api(`/api/servers/${s.id}/push`, { json: { item_ids: [it.id], version_ids: { [it.id]: r }, force: true } }), "版を変えました");
+  const v = remote[choice.remote];
+  const t = toastProgress(`${v.version} を取得しています…`);
+  try {
+    const d = await api("/api/import", { json: { provider: so.provider, project_id: so.project_id, version_id: v.version_id, category: it.category } });
+    await refresh();
+    await run(() => api(`/api/servers/${s.id}/push`, { json: { item_ids: [d.item_id], version_ids: { [d.item_id]: d.version_id }, force: true } }), `${v.version} に変えました`);
+  } catch (ex) { toast(ex.message, true); }
+  finally { t.remove(); }
+}
+async function cmpChooseVersion(s, f) {
+  await changeVersionSheet(s, f, (p, label) => cmpRun(s.id, [`i${f.item_id}`], p, label));
 }
 async function cmpClick(e) {
   const o = e.target.closest("[data-open]"); if (o) { openPanel(Number(o.dataset.open)); return; }
@@ -859,7 +910,7 @@ async function cmpClick(e) {
   const it = f.item_id && state.items.find((i) => i.id === f.item_id);
   openMenu(c, [
     ...(f.item_id && ["outdated", "different"].includes(f.status) ? [{ label: `最新(${f.latest_version || ""})に更新`, icon: "refresh", run: () => cmpRun(s.id, [key], () => api(`/api/servers/${s.id}/push`, { json: { item_ids: [f.item_id], force: f.compat === false } }), "更新しました") }] : []),
-    ...(it ? [{ label: "版を変える", icon: "arrows", run: () => cmpChooseVersion(s, f) }] : []),
+    ...(it ? [{ label: "バージョンを変える…", icon: "arrows", run: () => cmpChooseVersion(s, f) }] : []),
     ...(["unregistered", "newer"].includes(f.status) ? [{ label: "ライブラリに取り込む", icon: "download", run: () => cmpRun(s.id, [key], () => api(`/api/servers/${s.id}/import`, { json: { names: [f.path] } }), "取り込みました").then(() => refresh()) }] : []),
     { label: f.status === "disabled" ? "有効にする" : "無効にする(消さずに外す)", icon: f.status === "disabled" ? "check" : "eyeoff", run: async () => {
       try { await api(`/api/servers/${s.id}/toggle`, { json: { path: f.path, enable: f.status === "disabled" } }); toast("切り替えました。反映には再起動が必要です"); state.cmpData[s.id] = await api(`/api/servers/${s.id}/inventory`); drawCompare(); } catch (ex) { toast(ex.message, true); }
@@ -874,7 +925,7 @@ async function cmpClick(e) {
 }
 
 const INV_STATUS = { latest: ["ok", "最新"], outdated: ["upd", "更新あり"], different: ["", "ライブラリと別のファイル"], unregistered: ["err", "未登録"] };
-/* ライブラリから選んでサーバーへ入れる(版も選べる) */
+/* ライブラリから選んでサーバーへ入れる(バージョンも選べる) */
 async function libraryToServer(s, cats, onServer, kind = "") {
   const have = new Map(onServer.filter((f) => f.item_id).map((f) => [f.item_id, f.version]));
   const pool = state.items.filter((it) => cats.includes(it.category) && it.access !== undefined).sort((a, b) => a.name.localeCompare(b.name, "ja", { numeric: true }));
@@ -884,7 +935,7 @@ async function libraryToServer(s, cats, onServer, kind = "") {
       ${cats.length > 1 ? `<div class="segmented seg-wide" id="ltCat">${["", ...cats].map((c) => `<button class="seg" type="button" data-c="${c}" aria-pressed="${c === cat}">${c ? CATS[c] : "すべて"}</button>`).join("")}</div>` : ""}
       <div class="group scroll" id="ltList"></div>
       <div class="lt-deps" id="ltDeps" hidden></div>
-      <p class="group-foot">版を選ばなければ、ライブラリの最新を入れます。同じアドオンの別の版がサーバーにあれば置き換えます(退避されるので巻き戻せます)。</p>
+      <p class="group-foot">バージョンを選ばなければ、ライブラリの最新を入れます。同じアドオンの別のバージョンがサーバーにあれば置き換えます(退避されるので巻き戻せます)。</p>
     </div><div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok>サーバーに入れる</button></div>`, (form, done) => {
     const picked = new Map();  // item_id → version_id(0 = 最新)
     let plan = null, withDeps = true, planSeq = 0, planTimer = null;
@@ -914,7 +965,7 @@ async function libraryToServer(s, cats, onServer, kind = "") {
         <input type="checkbox" class="cbox" data-lt="${it.id}"${picked.has(it.id) ? " checked" : ""} aria-label="選ぶ">${itemIcon(it, true)}
         <span class="main"><span class="title" translate="no">${esc(it.name)}${have.has(it.id) ? ` <span class="badge">サーバーに ${esc(have.get(it.id) || "")}</span>` : ""}</span>
           <span class="subtitle">${esc(CATS[it.category] || "")}${(it.tags || []).length ? ` · ${it.tags.map((t) => `#${esc(t)}`).join(" ")}` : ""}</span></span>
-        <select class="compact" data-ltv="${it.id}" aria-label="入れる版">${it.versions.map((v, i) => `<option value="${i ? v.id : 0}"${(picked.get(it.id) || 0) === (i ? v.id : 0) ? " selected" : ""}>${esc(verLabel(v.version))}${i ? "" : "(最新)"}</option>`).join("")}</select></div>`).join("")
+        <select class="compact" data-ltv="${it.id}" aria-label="入れるバージョン">${it.versions.map((v, i) => `<option value="${i ? v.id : 0}"${(picked.get(it.id) || 0) === (i ? v.id : 0) ? " selected" : ""}>${esc(verLabel(v.version))}${i ? "" : "(最新)"}</option>`).join("")}</select></div>`).join("")
         || `<div class="empty">あてはまるアドオンがありません</div>`;
       form.querySelector("[data-ok]").textContent = picked.size ? `${picked.size} 件をサーバーに入れる` : "サーバーに入れる";
     };
@@ -1002,7 +1053,7 @@ async function inventoryDialog(s, startCat = "all", container = null) {
         if (f.status === "unregistered" || f.status === "newer") return `<button class="btn small tinted" type="button" data-imp1="${esc(f.path)}" title="このファイルをライブラリに取り込む">${icon("download")}取り込む</button>`;
         if (f.status === "disabled" || !f.item_id || !["outdated", "different"].includes(f.status)) return `<span class="badge ${STAT[f.status][0]}">${STAT[f.status][1]}</span>`;
         if (f.held) return `<span class="badge">見送り中</span>`;
-        if (f.compat === false) return `<button class="btn small plain" type="button" data-up="${f.item_id}" data-force="1" title="MC ${esc(d.mc_version)} に対応していない版です(対応: ${esc(f.compat_mc || "")})">${icon("download")}それでも入れる</button>`;
+        if (f.compat === false) return `<button class="btn small plain" type="button" data-up="${f.item_id}" data-force="1" title="MC ${esc(d.mc_version)} に対応していないバージョンです(対応: ${esc(f.compat_mc || "")})">${icon("download")}それでも入れる</button>`;
         return `<button class="btn small ${f.status === "outdated" ? "filled" : "tinted"}" type="button" data-up="${f.item_id}" title="ライブラリの最新(${esc(f.latest_version || "")})をこのサーバーに入れる">${icon("download")}${f.status === "outdated" ? "更新" : "最新に"}</button>`;
       };
       const picked = d.files.filter((f) => sel.has(f.path));
@@ -1018,10 +1069,12 @@ async function inventoryDialog(s, startCat = "all", container = null) {
           </div>
         </div>
         ${tags.length ? `<div class="tagrow inv-tags"><span class="tag-lab">${icon("tag")}</span>${tags.map((t) => `<button class="tagchip" type="button" data-tagf="${esc(t)}" aria-pressed="${tagF === t}" translate="no">#${esc(t)}</button>`).join("")}</div>` : ""}
-        ${d.mc_version ? "" : `<div class="result">${icon("clock")} 「設定」で MC のバージョンを入れると、対応していない版に印が付き、同期で入れないようにできます</div>`}
+        ${d.mc_version ? "" : `<div class="result">${icon("clock")} 「設定」で MC のバージョンを入れると、対応していないバージョンに印が付き、同期で入れないようにできます</div>`}
         ${d.absent.filter((c) => tab === "all" || c === tab).map((c) => `<div class="result warn">${esc(CATS[c])}のフォルダ(${esc(d.dirs[c])})が見つかりません。送ると作られます。場所が違う場合は「設定」で変えられます</div>`).join("")}
-        ${selecting ? `<div class="inv-selhead"><span>${picked.length} 件選択</span><span class="sp"></span>
-          <button class="btn plain small" type="button" data-selall>すべて選択</button><button class="btn plain small" type="button" data-selnone${picked.length ? "" : " disabled"}>解除</button></div>` : ""}
+        ${selecting ? `<div class="inv-selhead glass"><span class="cnt">${picked.length} 件選択</span><div class="acts"><button class="sbtn" type="button" data-bulk="import"${n((f) => ["unregistered", "newer"].includes(f.status)) ? "" : " disabled"}>${icon("download")}<span>取り込む ${n((f) => ["unregistered", "newer"].includes(f.status)) || ""}</span></button>
+            <button class="sbtn" type="button" data-bulk="update"${n((f) => f.item_id && ["outdated", "different"].includes(f.status)) ? "" : " disabled"}>${icon("refresh")}<span>更新 ${n((f) => f.item_id && ["outdated", "different"].includes(f.status)) || ""}</span></button>
+            <button class="sbtn" type="button" data-bulk="hold"${n((f) => f.item_id) ? "" : " disabled"}>${icon("clock")}<span>見送り</span></button>
+            <button class="sbtn" type="button" data-bulk="disable"${picked.length ? "" : " disabled"}>${icon("eyeoff")}<span>無効・有効</span></button></div><span class="sp"></span><button class="btn plain small" type="button" data-selall>すべて</button><button class="btn plain small" type="button" data-selnone${picked.length ? "" : " disabled"}>解除</button></div>` : ""}
         <div class="group">${files.map((f) => `<div class="row inv-row${f.status === "disabled" ? " dim" : ""}${sel.has(f.path) ? " picked" : ""}" data-path="${esc(f.path)}">
           ${selecting ? `<input type="checkbox" class="cbox" data-pick="${esc(f.path)}"${sel.has(f.path) ? " checked" : ""} aria-label="選ぶ">` : ""}${rowIcon(f)}
           <span class="main"${f.item_id && !selecting ? ` data-openit="${f.item_id}" role="button" tabindex="0" title="アドオンのページを開く"` : ""}><span class="title" translate="no">${esc(nameOf(f))}
@@ -1030,12 +1083,7 @@ async function inventoryDialog(s, startCat = "all", container = null) {
           <span class="trail">${selecting ? "" : `${actBtn(f)}${ro ? "" : `<button class="icon-btn sm" type="button" data-rowmenu="${esc(f.path)}" title="その他" aria-label="その他の操作">${icon("more")}</button>`}`}</span></div>`).join("") || `<div class="empty">${filter === "all" && !tagF ? "ファイルがありません" : "あてはまるものはありません"}</div>`}</div>
         ${missing.length && !selecting ? `<div class="group-title">セットにあってサーバーに無いもの</div><div class="group">${missing.map((m) => `<div class="row"><span class="cicon sm c-${m.category}">${catGlyph(m.category)}</span><span class="main" data-openit="${m.item_id}" role="button" tabindex="0"><span class="title" translate="no">${esc(m.item_name)}${m.compat === false ? ` <span class="badge err">MC ${esc(d.mc_version)} 非対応</span>` : ""}</span><span class="subtitle">${esc(m.version)}${m.no_dir ? ` · ${esc(CATS[m.category] || m.category)}のフォルダが未設定のため入れられません` : ""}</span></span>
           <span class="trail">${wait(`up:${m.item_id}`) || (m.no_dir || ro ? '<span class="badge upd">未導入</span>' : `<button class="btn small tinted" type="button" data-up="${m.item_id}"${m.compat === false ? ' data-force="1"' : ""}>${icon("plus")}入れる</button>`)}</span></div>`).join("")}</div>` : ""}
-        ${ro ? "" : selecting ? `<div class="df inv-selbar">
-            <button class="sbtn" type="button" data-bulk="import"${n((f) => ["unregistered", "newer"].includes(f.status)) ? "" : " disabled"}>${icon("download")}<span>取り込む ${n((f) => ["unregistered", "newer"].includes(f.status)) || ""}</span></button>
-            <button class="sbtn" type="button" data-bulk="update"${n((f) => f.item_id && ["outdated", "different"].includes(f.status)) ? "" : " disabled"}>${icon("refresh")}<span>更新 ${n((f) => f.item_id && ["outdated", "different"].includes(f.status)) || ""}</span></button>
-            <button class="sbtn" type="button" data-bulk="hold"${n((f) => f.item_id) ? "" : " disabled"}>${icon("clock")}<span>見送り</span></button>
-            <button class="sbtn" type="button" data-bulk="disable"${picked.length ? "" : " disabled"}>${icon("eyeoff")}<span>無効・有効</span></button>
-          </div>` : `<div class="df" style="padding:0">
+        ${ro || selecting ? "" : `<div class="df inv-syncbar">
           ${syncable ? `<button class="btn filled block" type="button" data-inv="sync">${icon("refresh")}更新があるもの ${syncable} 件をまとめて同期</button>` : `<div class="result ok">${icon("check")} 同期で入れ替えるものはありません</div>`}
         </div>`}`;
     };
@@ -1097,7 +1145,7 @@ async function inventoryDialog(s, startCat = "all", container = null) {
       const im = e.target.closest("[data-imp1]"); if (im) { importPaths(im, [im.dataset.imp1]); return; }
       const up = e.target.closest("[data-up]");
       if (up) {
-        if (up.dataset.force && !cfm("この版は、サーバーの MC のバージョンに対応していない可能性があります。それでも入れますか?")) return;
+        if (up.dataset.force && !cfm("このバージョンは、サーバーの MC のバージョンに対応していない可能性があります。それでも入れますか?")) return;
         push(up, [Number(up.dataset.up)], !!up.dataset.force); return;
       }
       const bk = e.target.closest("[data-bulk]");
@@ -1123,7 +1171,17 @@ async function inventoryDialog(s, startCat = "all", container = null) {
         const f = d.files.find((x) => x.path === rm.dataset.rowmenu); if (!f) return;
         const it = itemOf(f);
         const page = it && it.source && it.source.page_url;
+        const prev = it ? prevVersionOf(it, f) : null;
+        const verRun = (p, label) => runJob([`up:${f.item_id}`], p, label);
         openMenu(rm, [
+          ...(it ? [{ label: "バージョンを変える…", icon: "arrows", run: () => changeVersionSheet({ ...s, ...d, id: s.id }, f, verRun) }] : []),
+          ...(prev ? [{ label: `ひとつ前のバージョン(${prev.version || "?"})に戻す`, icon: "back", run: () => {
+            if (!cfm(`${it.name} を ${prev.version || "?"} に戻しますか?
+
+今のバージョンは退避され、「保存」→「履歴と巻き戻し」から戻せます。`)) return;
+            verRun(() => api(`/api/servers/${s.id}/push`, { json: { item_ids: [it.id], version_ids: { [it.id]: prev.id }, force: true } }), `${prev.version || ""} に戻しました`);
+          } }] : []),
+          ...(it ? ["-"] : []),
           ...(it ? [{ label: "アドオンのページを開く", icon: "box", run: () => openItem(it.id) }] : []),
           ...(page ? [{ label: "配布ページを開く", icon: "external", run: () => window.open(safeUrl(page), "_blank", "noopener") }] : []),
           ...(["unregistered", "newer"].includes(f.status) ? [{ label: "ライブラリに取り込む", icon: "download", run: () => importPaths(null, [f.path]) }] : []),

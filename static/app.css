@@ -1327,10 +1327,10 @@ body:not(.can-edit) .tabbar .tab-add { display: none; }
 @media (max-width: 420px) { .tabbar button { min-width: 0; padding: 6px 8px 5px; font-size: 10.5px; } .tabbar .tab-add .ti { width: 42px; height: 42px; } }
 
 /* サーバーの概要のいちばん上: よく使う操作 */
-.srv-acts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
-.srv-acts button { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px; border-radius: 16px; border: .5px solid var(--glass-edge); background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); color: var(--label); font: inherit; font-size: 12.5px; font-weight: 600; }
-.srv-acts button svg { width: 20px; height: 20px; color: var(--tint); }
-.srv-acts button:hover { background: var(--tint-soft); }
+.srv-qacts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 12px; }
+.srv-qacts button { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px; border-radius: 16px; border: .5px solid var(--glass-edge); background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); color: var(--label); font: inherit; font-size: 12.5px; font-weight: 600; }
+.srv-qacts button svg { width: 20px; height: 20px; color: var(--tint); }
+.srv-qacts button:hover { background: var(--tint-soft); }
 @media (max-width: 700px) { .srv-tabs { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; } .srv-tabs .seg { flex: none; } }
 
 @media (max-width: 999px) { .topbar .add-btn { display: none; } }
@@ -1354,3 +1354,17 @@ body:not(.can-edit) .tabbar .tab-add { display: none; }
   body.side-mini .sn-sub.more { display: none; }
   .sidenav, .topbar, .wrap { transition: width .25s var(--ease), margin .25s var(--ease); }
 }
+
+/* サーバーのアドオンを選んだときの操作(上に横一列。スクロールしても残る) */
+.inv-selhead { position: sticky; top: 70px; z-index: 5; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 0 0 8px; padding: 6px 8px 6px 14px; border-radius: 16px; font-size: 13px; font-weight: 600; }
+.inv-selhead .cnt { white-space: nowrap; margin-right: 4px; }
+.inv-selhead .acts { display: flex; gap: 4px; flex-wrap: wrap; }
+.inv-selhead .sbtn { flex-direction: row; gap: 5px; min-width: 0; padding: 6px 11px; border-radius: 999px; background: var(--tint-soft); font-size: 12.5px; }
+.inv-selhead .sbtn svg.i { width: 16px; height: 16px; }
+.inv-selhead .sbtn span { display: inline; }
+.inv-selhead .sbtn:disabled { background: var(--fill); }
+.inv-selhead .sp { flex: 1; }
+@media (max-width: 700px) { .inv-selhead { top: 64px; } .inv-selhead .sbtn span { display: none; } .inv-selhead .sbtn { padding: 7px 9px; } }
+
+/* サーバーのアドオン: 一覧の下の「まとめて同期」は一覧から少し離す */
+.inv-syncbar { padding: 0; margin-top: 18px; }

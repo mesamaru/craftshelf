@@ -32,7 +32,7 @@ function upload(t) {
       let d = null; try { d = JSON.parse(xhr.responseText); } catch { /* */ }
       if (xhr.status >= 200 && xhr.status < 300 && d) {
         t.pct = 100;
-        if (d.status === "added") { t.status = "added"; batchAdded++; t.msg = `追加: ${d.name} ${d.version || "(版不明)"} [${CATS[d.category]}]`; scheduleRefresh(); }
+        if (d.status === "added") { t.status = "added"; batchAdded++; t.msg = `追加: ${d.name} ${d.version || "(バージョン不明)"} [${CATS[d.category]}]`; scheduleRefresh(); }
         else { t.status = "dup"; batchDup++; t.msg = `登録済み: ${d.name} ${d.version || ""}`; }
       } else { t.status = "error"; batchErr++; t.msg = (d && d.error) || `エラー (HTTP ${xhr.status})`; }
       scheduleQueue(); resolve();
@@ -188,7 +188,7 @@ const PLATFORM_DEFS = [
 ];
 const PLATFORMS = PLATFORM_DEFS.map((p) => p.id);
 const PLAT = Object.fromEntries(PLATFORM_DEFS.map((p) => [p.id, p]));
-// 以前の版で保存した表示名 → id
+// 以前のバージョンで保存した表示名 → id
 const PLAT_LEGACY = { "paper": "paper", "spigot / paper": "bukkit", "folia": "folia", "velocity": "velocity", "bungeecord": "bungee",
   "fabric": "fabric", "quilt": "quilt", "forge": "forge", "neoforge": "neoforge", "iris / optifine": "shader", "datapack": "datapack", "minecraft": "resourcepack" };
 const platLabel = (id) => (PLAT[id] ? PLAT[id].label : id || "");

@@ -28,7 +28,7 @@ $("#updBtn").addEventListener("click", (e) => openMenu(e.currentTarget, [
 $("#settingsBtn").addEventListener("click", () => openSettings());
 
 async function importFromUrl() {
-  const r = await formSheet("URLから追加", `<p>Modrinth / SpigotMC / CurseForge の配布ページのURLから最新版をダウンロードして登録し、配布元も紐付けます。</p>
+  const r = await formSheet("URLから追加", `<p>Modrinth / SpigotMC / CurseForge の配布ページのURLから最新バージョンをダウンロードして登録し、配布元も紐付けます。</p>
     ${field("URL", `<input type="url" name="url" placeholder="https://modrinth.com/mod/fabric-api" required>`)}
     ${field("ローダー(Mod は指定を推奨。例: fabric / neoforge / forge / paper)", `<input type="text" name="loaders">`)}
     ${field("Minecraft のバージョン(Mod は指定を推奨。例: 1.20.1)", `<input type="text" name="game_versions">`)}`, "取得して登録");

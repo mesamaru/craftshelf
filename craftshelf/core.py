@@ -234,7 +234,7 @@ CREATE TABLE IF NOT EXISTS audit (
     target    TEXT NOT NULL DEFAULT '',
     detail    TEXT NOT NULL DEFAULT ''
 );
--- アイテムと配布元(Modrinth / SpigotMC / CurseForge)の紐付け、および最新版の確認結果
+-- アイテムと配布元(Modrinth / SpigotMC / CurseForge)の紐付け、および最新バージョンの確認結果
 CREATE TABLE IF NOT EXISTS item_sources (
     item_id        INTEGER PRIMARY KEY REFERENCES items(id) ON DELETE CASCADE,
     provider       TEXT NOT NULL,
@@ -370,7 +370,7 @@ def migrate_schema(conn):
                      ("server_jar", "TEXT NOT NULL DEFAULT ''")):
         if col not in _table_cols(conn, "servers"):  # 状態・起動停止・自動更新・ワールドのバックアップなど(01.17)
             conn.execute(f"ALTER TABLE servers ADD COLUMN {col} {ddl}")
-    if "channel" not in _table_cols(conn, "item_sources"):  # 受け取る版: '' = 自動 / all = ベータも / release = 正式版だけ
+    if "channel" not in _table_cols(conn, "item_sources"):  # 受け取るバージョン: '' = 自動 / all = ベータも / release = 正式版だけ
         conn.execute("ALTER TABLE item_sources ADD COLUMN channel TEXT NOT NULL DEFAULT ''")
     conn.execute("CREATE TABLE IF NOT EXISTS server_holds (server_id INTEGER NOT NULL, item_id INTEGER NOT NULL, "
                  "created_at TEXT NOT NULL DEFAULT '', PRIMARY KEY (server_id, item_id))")
@@ -398,11 +398,11 @@ def migrate_schema(conn):
 
 
 # --------------------------------------------------------------------------
-# 02 からのデータベースの変更(版ごとの移行)
+# 02 からのデータベースの変更(バージョンごとの移行)
 # --------------------------------------------------------------------------
 # 決まり: 表や項目を「足す」だけにする(消す・名前や意味を変えることはしない)。
-#   古い版(01.24 以降)は知らない表・項目を無視して動けるので、02 から安全に戻せる。
-#   どうしても互換のない変更が要るときは、DATA_FORMAT の write を上げ、その番号を読める 01 の版を先に出す。
+#   古いバージョン(01.24 以降)は知らない表・項目を無視して動けるので、02 から安全に戻せる。
+#   どうしても互換のない変更が要るときは、DATA_FORMAT の write を上げ、その番号を読める 01 のバージョンを先に出す。
 # 各ステップは一度だけ実行し、schema_migrations に記録する。id は変えない。
 def _m_notifications(conn):
     # パネルの中のお知らせ(Discord に送る出来事と同じもの)と、ユーザーごとの「どこまで読んだか」
@@ -421,7 +421,7 @@ def _m_file_history(conn):
 
 
 def _m_passkeys(conn):
-    # パスキー(WebAuthn)。user_created は、古い版でユーザーを消したあと同じ ID が使い回されても取り違えないための印
+    # パスキー(WebAuthn)。user_created は、古いバージョンでユーザーを消したあと同じ ID が使い回されても取り違えないための印
     conn.execute("CREATE TABLE IF NOT EXISTS passkeys (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, "
                  "user_created TEXT NOT NULL DEFAULT '', credential_id TEXT NOT NULL UNIQUE, public_key BLOB NOT NULL, "
                  "sign_count INTEGER NOT NULL DEFAULT 0, name TEXT NOT NULL DEFAULT '', transports TEXT NOT NULL DEFAULT '', "
@@ -429,7 +429,7 @@ def _m_passkeys(conn):
 
 
 MIGRATIONS = [
-    ("02.00.00-migration-log", "版ごとの移行の記録を始める", lambda conn: None),
+    ("02.00.00-migration-log", "バージョンごとの移行の記録を始める", lambda conn: None),
     ("02.01.00-notifications", "お知らせセンター", _m_notifications),
     ("02.03.00-file-history", "サーバーの設定ファイルの編集履歴", _m_file_history),
     ("02.09.00-passkeys", "パスキーでのログイン", _m_passkeys),
@@ -468,7 +468,7 @@ def ensure_local_target(conn):
 SNAPSHOT_DIR = CONFIG_DIR / "pre-update"   # アップデートの前の状態(データベースと鍵)
 RESTORE_MARK = CONFIG_DIR / "restore-on-start"
 DATA_WRITE, DATA_READ = selfupdate.local_data_format()
-DATA_TOO_NEW = False  # このデータは、この版より新しい保存方法で作られている
+DATA_TOO_NEW = False  # このデータは、このバージョンより新しい保存方法で作られている
 
 
 def _restore_pending_snapshot():
@@ -507,7 +507,7 @@ def _note_data_format(conn):
     stored = int(row[0]) if row and str(row[0]).isdigit() else 1
     if stored > DATA_READ:
         DATA_TOO_NEW = True
-        print(f"[warn] このデータは保存方法 {stored} で作られていますが、この版は {DATA_READ} までしか読めません")
+        print(f"[warn] このデータは保存方法 {stored} で作られていますが、このバージョンは {DATA_READ} までしか読めません")
     use = max(stored, DATA_WRITE)
     conn.execute("INSERT INTO settings (key, value) VALUES ('data_format', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
                  (str(use),))

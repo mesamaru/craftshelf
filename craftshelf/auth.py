@@ -268,7 +268,8 @@ def _clean_widgets(v):
 def user_public(u):
     return {"id": u["id"], "username": u["username"], "role": u["role"],
             "role_label": ROLES.get(u["role"], (0, u["role"]))[1], "perms": sorted(user_perms(u)),
-            "created_at": u["created_at"], "last_login": u["last_login"], "totp_enabled": bool(u["totp_enabled"])}
+            "created_at": u["created_at"], "last_login": u["last_login"], "totp_enabled": bool(u["totp_enabled"]),
+            "passkeys": db().execute("SELECT COUNT(*) FROM passkeys WHERE user_id=?", (u["id"],)).fetchone()[0]}
 
 
 def _login(u):

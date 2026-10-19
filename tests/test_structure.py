@@ -87,3 +87,18 @@ def test_every_api_is_documented():
                        env={**os.environ, "PYTHONIOENCODING": "utf-8"}, timeout=120)
     assert r.returncode == 0, r.stderr[-2000:]
     assert not r.stdout.strip(), "説明の無い API があります:\n" + r.stdout
+
+
+@pytest.mark.skipif(not shutil.which("node"), reason="node が無い環境")
+def test_english_translation_samples():
+    """英語表示で、よく出る文が日本語を残さずに置き換わること(画面と同じ順番で辞書を当てる)。"""
+    import json
+    samples = ["キャンセル", "3 件を削除しますか?", "5 件を共有しました", "比較するには 2 台以上のサーバーを連携してください",
+               "Pterodactyl からサーバーが 1 台も返りませんでした。APIキー(ptlc_…)を作ったユーザーに、サーバーの所有者・サブユーザー・管理者のいずれかの権限があるか確認してください",
+               "お知らせ", "パスキーでログイン", "前提も一緒に入れる", "はじめの設定", "最近のログ", "API の説明", "ホーム画面に追加"]
+    r = subprocess.run(["node", str(ROOT / "tests" / "i18n_check.js"), str(ROOT / "static" / "i18n-en.js"), json.dumps(samples)],
+                       capture_output=True, text=True, encoding="utf-8")
+    assert r.returncode == 0, r.stderr
+    out = [json.loads(line) for line in r.stdout.splitlines()]
+    left = [f"{s} → {o}" for s, o in zip(samples, out) if re.search(r"[぀-ヿ一-鿿]", o)]
+    assert not left, "日本語が残っています:\n" + "\n".join(left)

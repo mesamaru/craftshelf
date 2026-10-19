@@ -19,7 +19,10 @@ drag &amp; drop to add, check for updates, and push them to your servers.
 - 🖥️ **Server management** — Pterodactyl servers or server folders the panel can see (same PC / NAS): plugins, mods and datapacks per folder, one-click sync, per-add-on updates with MC compatibility checks, holds and disabling, auto-update, live players/status, start/stop (Pterodactyl, commands or Docker), server software build checks, world backups, copying setups between servers with staging → production, side-by-side comparison, rollback incl. plugin configs, scheduled syncs
 - 🗂️ **Flexible storage** — local folder, SMB (Unraid, TrueNAS, Synology, Windows shares) or WebDAV (Nextcloud etc.), with a live storage status view (connection, latency, capacity)
 - 👥 **Multi-user** — viewer / editor / admin roles, two-factor authentication, API tokens and an audit log
-- 🌐 **English / Japanese UI**, themes and custom backgrounds, mobile friendly
+- 🔔 **Notifications and global search** — see update checks, server tasks and backups under the bell; press Ctrl+K to search add-ons, servers and settings
+- 🛠️ **Inside your servers** — console (recent log and commands), config file editing with history, dependencies installed together
+- 🔐 **Passkey sign-in** (fingerprint, face, PIN), restore from panel backups, a getting-started guide and an API reference
+- 🌐 **English / Japanese UI**, themes and custom backgrounds, mobile friendly (add it to your home screen to use it like an app)
 
 Files are stored in a human-readable layout (`library/plugins/<Name>/<file>.jar`), so they stay usable even without CraftShelf.
 
@@ -82,9 +85,13 @@ The panel checks GitHub for new versions. Docker and script installs can update 
 
 Under ⚙ → "Panel update" you can choose the update channel: **Stable** (the `main` branch / official releases, recommended) or **Development build** (the `dev` branch / pre-releases, may contain bugs). You can switch back to stable at any time.
 
+The **Preview (02, testing)** channel receives the next major version. Before switching, your data is backed up automatically, and you can always switch back to Stable or Development build: 02 only adds to the database, and builds that can't read the data are blocked from being installed.
+
 ## Security
 
 CraftShelf is designed for use on a LAN. If you expose it to the internet, put it behind an HTTPS reverse proxy and enable two-factor authentication (a VPN such as Tailscale is safer). Please report vulnerabilities as described in [SECURITY.md](SECURITY.md).
+
+Passkeys only work when the panel is opened over HTTPS by a domain name (or on localhost); they are not available on plain IP addresses.
 
 ## Environment variables
 

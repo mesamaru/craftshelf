@@ -55,8 +55,12 @@ def test_upgrade_from_v01_12_and_back_to_bridge(tmp_path, worktree):
 
     code, out = _run(HERE / "check_upgrade.py", ROOT, data)  # 今の版で開く
     assert code == 0 and "FAILS: 0" in out, out[-3000:]
+    code, out = _run(HERE / "use_v2.py", ROOT, data)  # 02 で足した表を使う
+    assert code == 0 and "FAILS: 0" in out, out[-3000:]
 
-    if _has_tag(BRIDGE):  # 今の版で使ったデータを、橋渡しの版で開き直す
+    if _has_tag(BRIDGE):  # 今の版で使ったデータを、橋渡しの版で開き直し、また今の版で開く
         bridge = worktree(BRIDGE)
         code, out = _run(HERE / "check_upgrade.py", bridge, data)
         assert code == 0 and "FAILS: 0" in out, "橋渡しの版で開けません\n" + out[-3000:]
+        code, out = _run(HERE / "check_v2_again.py", ROOT, data)
+        assert code == 0 and "FAILS: 0" in out, "橋渡しの版のあと、02 のデータが残っていません\n" + out[-3000:]

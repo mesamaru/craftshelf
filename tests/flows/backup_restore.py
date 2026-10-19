@@ -79,6 +79,18 @@ with sqlite3.connect(newer) as n:
     n.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)"); n.execute("INSERT INTO settings VALUES ('data_format', '99')")
 r = up(zbytes({"index.db": newer.read_bytes()}))
 check(r.status_code == 400 and "99" in r.get_json()["error"], f"backup from a newer data format refused ({r.get_json()})")
+good_db = Path(tmp) / "good.db"
+with sqlite3.connect(good_db) as n:
+    n.execute("CREATE TABLE users (id INTEGER PRIMARY KEY)"); n.execute("INSERT INTO users VALUES (1)")
+    n.execute("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)")
+from craftshelf import system as S  # noqa: E402
+bad_zip = Path(tmp) / "bad-bg.zip"
+bad_zip.write_bytes(zbytes({"index.db": good_db.read_bytes(), "backgrounds/..": b"x", "backgrounds/.hidden": b"x", "backgrounds/ok.png": b"png"}))
+name = S.stage_backup_restore(bad_zip, "bad-bg")
+staged = core.SNAPSHOT_DIR / name
+check(sorted(p.name for p in (staged / "backgrounds").iterdir()) == ["ok.png"], "background names like .. or .hidden are ignored")
+import shutil  # noqa: E402
+shutil.rmtree(staged); core.RESTORE_MARK.unlink(missing_ok=True)
 check(not core.RESTORE_MARK.exists() and not RESTARTS, "refused uploads change nothing")
 check(not any(d.name.endswith("-backup") for d in core.SNAPSHOT_DIR.glob("*")) if core.SNAPSHOT_DIR.exists() else True,
       "refused uploads leave no staged folder")

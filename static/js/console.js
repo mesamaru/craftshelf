@@ -23,6 +23,7 @@ function consolePane(s, pane) {
     </div>`;
   const log = $("#conLog", pane), filter = $("#conFilter", pane), follow = $("#conFollow", pane);
   let lines = [], timer = null, loading = false;
+  const every = s.kind === "ptero" ? 15000 : 4000;  // Pterodactyl はログ全体を取り寄せるので、間を空ける
   const draw = () => {
     const q = filter.value.trim().toLowerCase();
     const shown = q ? lines.filter((l) => l.toLowerCase().includes(q)) : lines;
@@ -49,11 +50,11 @@ function consolePane(s, pane) {
     clearTimeout(timer);
     if (!pane.isConnected || state.srvTab !== "console" || state.srvOpen !== s.id) return;
     if (follow.checked && !document.hidden) load();
-    timer = setTimeout(tick, 4000);
+    timer = setTimeout(tick, every);
   };
   filter.addEventListener("input", draw);
   $("#conReload", pane).addEventListener("click", load);
-  load().then(() => { timer = setTimeout(tick, 4000); });
+  load().then(() => { timer = setTimeout(tick, every); });
 
   const form = $("#conForm", pane);
   if (!form) return;

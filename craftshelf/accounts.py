@@ -151,6 +151,9 @@ def api_users_update(uid):
         conn.execute("UPDATE users SET role=? WHERE id=?", (data["role"], uid))
     if data.get("reset_totp"):
         conn.execute("UPDATE users SET totp_secret='', totp_enabled=0, recovery='[]' WHERE id=?", (uid,))
+    if data.get("reset_passkeys"):  # 端末を紛失した・乗っ取られたとき、そのユーザーのパスキーをすべて無効にする
+        n = conn.execute("DELETE FROM passkeys WHERE user_id=?", (uid,)).rowcount
+        audit("パスキーをすべて削除", u["username"], f"{n} 件")
     if data.get("password"):
         _check_new_credentials("", str(data["password"]), need_username=False)
         conn.execute("UPDATE users SET password_hash=? WHERE id=?",

@@ -320,7 +320,7 @@ def api_backup_download(name):
                      conditional=False)
 
 
-_BG_NAME = re.compile(r"^backgrounds/[\w.\-]{1,120}$")
+_BG_NAME = re.compile(r"^backgrounds/[\w\-][\w.\-]{0,119}$")  # 「.」で始まる名前(.. など)は受け付けない
 
 
 def stage_backup_restore(zpath, label):

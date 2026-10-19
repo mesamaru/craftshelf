@@ -445,7 +445,7 @@ function renderServerPage(s, el) {
         <div class="kv"><span>自動更新</span><span>${s.auto_update === "auto" ? "オン" : "オフ"}</span></div>
         <div class="kv"><span>予約同期</span><span>${esc(schedLabel(s))}</span></div>
         <div class="kv"><span>最後の同期</span><span>${s.last_sync ? esc(fmtDateTime(s.last_sync)) : "-"}</span></div>
-        <div class="kv"><span>フォルダ</span><span translate="no">${esc(dirsLabel(s))}</span></div>
+        <div class="kv"><span>フォルダ</span><span>${esc(dirsLabel(s))}</span></div>
         ${s.kind === "local" ? `<div class="kv"><span>場所</span><span translate="no" class="mono">${esc(s.root_dir || "")}</span></div>` : ""}</div>
       ${!ro && canPower(s) ? `<div class="pw-bar">
         <button class="btn" type="button" data-pw="start">${icon("play")}起動</button>

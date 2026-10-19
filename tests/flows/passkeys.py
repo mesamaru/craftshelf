@@ -120,5 +120,19 @@ tok = c.post("/api/me/tokens", json={"name": "t", "role": "viewer"}, headers=H).
 t = A.app.test_client()
 check(t.get("/api/me/passkeys", headers={"Authorization": f"Bearer {tok['token']}"}).status_code == 403, "API tokens cannot manage passkeys")
 
+# ---- 管理者がパスキーをすべて無効にする(端末の紛失) ----
+c.post("/api/users", json={"username": "lost", "password": "password123", "role": "viewer"}, headers=H)
+lo = A.app.test_client(); lo.post("/api/auth/login", json={"username": "lost", "password": "password123"}, headers=H)
+lk = Authenticator()
+o = lo.post("/api/me/passkeys/options", headers=H).get_json()
+lo.post("/api/me/passkeys", json={"credential": lk.create(o)}, headers=H)
+lost = next(u for u in c.get("/api/users", headers=H).get_json()["users"] if u["username"] == "lost")
+check(lost["passkeys"] == 1, "admin sees how many passkeys a user has")
+check(lo.patch(f"/api/users/{lost['id']}", json={"reset_passkeys": True}, headers=H).status_code == 403, "viewer cannot reset passkeys")
+check(c.patch(f"/api/users/{lost['id']}", json={"reset_passkeys": True}, headers=H).status_code == 200, "admin resets the passkeys")
+y = A.app.test_client()
+o = y.post("/api/auth/passkey/options", headers=H).get_json()
+check(y.post("/api/auth/passkey", json={"credential": lk.get(o)}, headers=H).status_code == 401, "reset passkey can no longer log in")
+
 print("FAILS:", len(fails))
 sys.exit(1 if fails else 0)

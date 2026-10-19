@@ -253,7 +253,7 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
         const groups = [...new Set(list.map((e) => e.group))];
         $("#adList", body).innerHTML = groups.map((g) => `<div class="group-title">${esc(g)}</div><div class="group">${list.filter((e) => e.group === g).map((e) =>
           `<div class="row noicon api-row"><span class="main"><span class="title" translate="no">${e.methods.map((m) => `<span class="api-m m-${m.toLowerCase()}">${m}</span>`).join("")} <span class="mono">${esc(e.path)}</span></span>
-            <span class="subtitle" style="white-space:normal">${esc(e.summary)} · ${esc(e.need)}${e.token ? "" : " · トークンでは使えません"}</span></span></div>`).join("")}</div>`).join("")
+            <span class="subtitle" style="white-space:normal"><span translate="no">${esc(e.summary)}</span> · ${esc(e.need)}${e.token ? "" : " · トークンでは使えません"}</span></span></div>`).join("")}</div>`).join("")
           || `<div class="empty">あてはまる API はありません</div>`;
       };
       $("#adQ", body).addEventListener("input", (e) => draw(e.target.value.trim()));
@@ -744,7 +744,12 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
           <div class="group" id="uPerms">${Object.entries(PERM_LABELS).map(([k, [t, d]]) => toggle(`perm_${k}`, t, d, !!u && (u.perms || []).includes(k))).join("")}</div>` : ""}
         <button class="btn filled block" type="button" id="uSave">${u ? "保存" : "追加"}</button>
         ${u && u.totp_enabled && u.id !== state.user.id ? `<button class="btn block" type="button" id="uTotp">二段階認証をリセット(スマホを紛失した場合)</button>` : ""}
+        ${u && u.passkeys && u.id !== state.user.id ? `<button class="btn block" type="button" id="uPk">パスキーをすべて削除(${u.passkeys} 件。端末を紛失した場合)</button>` : ""}
         ${u && u.id !== state.user.id ? `<button class="btn danger block" type="button" id="uDel">このユーザーを削除</button>` : ""}`;
+      $("#uPk", body)?.addEventListener("click", (e) => busy(e.currentTarget, async () => {
+        if (!cfm(`「${u.username}」のパスキーをすべて削除しますか?(このユーザーはパスワードでログインし、パスキーを登録し直します)`)) return;
+        try { await api(`/api/users/${u.id}`, { method: "PATCH", json: { reset_passkeys: true } }); toast("パスキーを削除しました"); popSettings(); } catch (ex) { toast(ex.message, true); }
+      }));
       $("#uTotp", body)?.addEventListener("click", (e) => busy(e.currentTarget, async () => {
         if (!cfm(`「${u.username}」の二段階認証をリセットしますか?`)) return;
         try { await api(`/api/users/${u.id}`, { method: "PATCH", json: { reset_totp: true } }); toast("リセットしました"); popSettings(); } catch (ex) { toast(ex.message, true); }

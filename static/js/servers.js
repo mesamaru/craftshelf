@@ -706,18 +706,49 @@ async function serverSettingsDialog(s, container = null) {
   }, { wide: true });
   if (r) { toast(r === "deleted" ? "一覧から外しました" : "保存しました"); if (r === "deleted") state.srvOpen = null; loadServers(); }
 }
+/* 履歴の 1 回分: ファイル名からアドオンの名前とバージョンを読み、入れ替え(更新)・追加・外したを 1 行ずつ */
+function splitJar(path) {
+  const file = String(path).split("/").pop();
+  const dir = String(path).includes("/") ? String(path).slice(0, String(path).lastIndexOf("/")) : "";
+  const m = file.replace(/\.disabled$/i, "").match(/^(.*?)[-_ ]v?(\d[\w.+\-]*?)(?:[-_](?:bukkit|paper|spigot|fabric|forge|neoforge|velocity))?\.(jar|zip)$/i);
+  const name = m ? m[1] : file.replace(/\.(jar|zip)(\.disabled)?$/i, "");
+  return { file, dir, name, ver: m ? m[2] : "", key: name.toLowerCase().replace(/[-_ ](bukkit|paper|spigot|fabric|forge|neoforge|velocity)$/i, "").replace(/[^a-z0-9]/g, "") };
+}
+function snapChanges(x) {
+  const added = x.added.map(splitJar), removed = x.removed.map((r) => splitJar(r.name));
+  const out = [];
+  for (const a of added) {
+    const i = removed.findIndex((r) => r.key && r.key === a.key);
+    if (i >= 0) { out.push({ kind: "upd", name: a.name, from: removed[i].ver, to: a.ver, dir: a.dir }); removed.splice(i, 1); }
+    else out.push({ kind: "add", name: a.name, to: a.ver, dir: a.dir });
+  }
+  for (const r of removed) out.push({ kind: "del", name: r.name, from: r.ver, dir: r.dir });
+  return out;
+}
+const SNAP_KIND = { upd: ["更新", "refresh"], add: ["追加", "plus"], del: ["外した", "minus"] };
+function snapCardHTML(x) {
+  const ch = snapChanges(x);
+  const n = (k) => ch.filter((c) => c.kind === k).length;
+  const sum = ["upd", "add", "del"].filter((k) => n(k)).map((k) => `<span class="snap-n ${k}">${SNAP_KIND[k][0]} ${n(k)}</span>`).join("");
+  const row = (c) => `<div class="snap-row ${c.kind}"><span class="snap-k">${icon(SNAP_KIND[c.kind][1])}</span>
+    <span class="snap-name" translate="no">${esc(c.name)}</span>
+    <span class="snap-ver mono" translate="no">${c.kind === "upd" ? `${esc(c.from || "?")} → <b>${esc(c.to || "?")}</b>` : c.kind === "add" ? esc(c.to || "") : `<s>${esc(c.from || "")}</s>`}</span>
+    ${c.dir ? `<span class="snap-dir" translate="no">${esc(c.dir)}</span>` : ""}</div>`;
+  const head = ch.slice(0, 8), rest = ch.slice(8);
+  return `<div class="card snap-card"><div class="snap-h">
+      <div class="snap-t"><h4>${esc(x.title || "同期")}</h4><span class="muted small">${esc(fmtDateTime(x.created_at))}</span></div>
+      ${x.rolled_back ? `<span class="badge">${esc(fmtDateTime(x.rolled_back))} に巻き戻し済み</span>`
+        : `<button class="btn small tinted need-editor" type="button" data-rb="${x.id}">${icon("back")}この前の状態に戻す</button>`}</div>
+    ${sum ? `<div class="snap-sum">${sum}</div>` : ""}
+    <div class="snap-list">${head.map(row).join("")}${rest.length ? `<details class="snap-more"><summary>ほか ${rest.length} 件</summary>${rest.map(row).join("")}</details>` : ""}
+      ${ch.length ? "" : `<div class="muted small" style="padding:6px 2px">入れ替えたファイルはありません</div>`}</div></div>`;
+}
 async function snapshotsDialog(s, container = null) {
   await host(container, `「${s.name}」の履歴`, `<div class="db" id="snBody"><div class="empty"><span class="spinner lg"></span></div></div>`, async (form, done) => {
     let d;
     try { d = await api(`/api/servers/${s.id}/snapshots`); } catch (ex) { $("#snBody", form).innerHTML = `<div class="result err">${esc(ex.message)}</div>`; return; }
     $("#snBody", form).innerHTML = `<p>同期・転送のたびに、置き換えたファイルを退避しています(直近 10 回分)。「この前の状態に戻す」で、その同期の前に戻せます。</p>
-      ${d.snapshots.length ? d.snapshots.map((x) => `<div class="card" style="margin-bottom:10px"><div class="card-h"><h4 style="font-size:15px">${esc(x.title || "同期")}</h4><span class="muted">${esc(fmtDateTime(x.created_at))}</span></div>
-        <div class="card-b">
-          ${x.added.length ? `<div class="kv"><span>入れたファイル</span><span>${esc(x.added.join(", "))}</span></div>` : ""}
-          ${x.removed.length ? `<div class="kv"><span>退避したファイル</span><span>${esc(x.removed.map((r) => r.name).join(", "))}</span></div>` : ""}
-          ${x.rolled_back ? `<div class="result">${esc(fmtDateTime(x.rolled_back))} に巻き戻しました</div>`
-            : `<div class="chips need-editor" style="margin-top:8px"><button class="btn small tinted" type="button" data-rb="${x.id}">${icon("arrows")}この前の状態に戻す</button></div>`}
-        </div></div>`).join("") : `<div class="empty">まだ履歴がありません</div>`}`;
+      ${d.snapshots.length ? d.snapshots.map(snapCardHTML).join("") : `<div class="empty">まだ履歴がありません</div>`}`;
     form.addEventListener("click", async (e) => {
       const b = e.target.closest("[data-rb]"); if (!b) return;
       const restart = cfm("巻き戻したあとにサーバーを再起動しますか?(キャンセルで再起動しない)");

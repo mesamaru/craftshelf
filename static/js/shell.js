@@ -100,3 +100,12 @@ document.addEventListener("keydown", (e) => {
     e.preventDefault(); toggleSide();
   }
 });
+
+/* 縦のスクロールバーの幅(100vw に含まれるので、本文の中央の計算から引く。横にはみ出さないように) */
+function measureScrollbar() {
+  const w = Math.max(0, window.innerWidth - document.documentElement.clientWidth);
+  document.documentElement.style.setProperty("--sbw", `${w}px`);
+}
+measureScrollbar();
+window.addEventListener("resize", measureScrollbar);
+new ResizeObserver(measureScrollbar).observe(document.body);

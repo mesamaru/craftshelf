@@ -1316,7 +1316,7 @@ body:not(.can-edit) .tabbar .tab-add { display: none; }
 }
 /* サイドバーの右側を本文の場所にして、その中央に、上のバーと本文を同じ幅でそろえる */
 @media (min-width: 1000px) {
-  body { --main-x: calc(var(--side-w) + 10px); --col: min(1180px, calc(100vw - var(--main-x) - 16px)); --col-x: calc(var(--main-x) + (100vw - var(--main-x) - var(--col)) / 2); }
+  body { --vw: calc(100vw - var(--sbw, 0px)); --main-x: calc(var(--side-w) + 10px); --col: min(1180px, calc(var(--vw) - var(--main-x) - 16px)); --col-x: calc(var(--main-x) + (var(--vw) - var(--main-x) - var(--col)) / 2); }
   .wrap { box-sizing: border-box; width: var(--col); max-width: none; margin: 0 0 0 var(--col-x); }
   .topbar { box-sizing: border-box; width: calc(var(--col) - 48px); margin: 10px 0 0 calc(var(--col-x) + 24px); }
 }
@@ -1372,3 +1372,31 @@ body:not(.can-edit) .tabbar .tab-add { display: none; }
 /* お知らせの枠(.result)の中のアイコンを、文字の高さの中央にそろえる */
 .result svg.i { width: 16px; height: 16px; vertical-align: -3px; margin-right: 2px; }
 .result.warn svg.i, .result.ok svg.i, .result.err svg.i { color: inherit; }
+
+/* サーバーの「履歴と巻き戻し」 */
+.snap-card { margin-bottom: 12px; padding: 14px 16px; }
+.snap-h { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.snap-t { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.snap-t h4 { margin: 0; font-size: 15px; }
+.snap-sum { display: flex; gap: 6px; margin: 10px 0 6px; flex-wrap: wrap; }
+.snap-n { font-size: 12px; font-weight: 700; padding: 2px 9px; border-radius: 999px; background: var(--fill); color: var(--label-2); }
+.snap-n.upd { background: var(--tint-soft); color: var(--tint); }
+.snap-n.add { background: color-mix(in srgb, var(--blue) 18%, transparent); color: var(--blue); }
+.snap-n.del { background: color-mix(in srgb, var(--red) 16%, transparent); color: var(--red); }
+.snap-list { border-radius: 12px; background: var(--fill); padding: 2px 10px; }
+.snap-row { display: grid; grid-template-columns: 22px minmax(0, 1fr) auto; grid-template-areas: "k n v" "k d v"; column-gap: 10px; align-items: center; padding: 7px 0; }
+.snap-row + .snap-row, .snap-more .snap-row { border-top: .5px solid var(--sep); }
+.snap-k { grid-area: k; width: 22px; height: 22px; border-radius: 7px; display: grid; place-items: center; }
+.snap-k svg.i { width: 14px; height: 14px; stroke-width: 2.4; }
+.snap-row.upd .snap-k { background: var(--tint-soft); color: var(--tint); }
+.snap-row.add .snap-k { background: color-mix(in srgb, var(--blue) 18%, transparent); color: var(--blue); }
+.snap-row.del .snap-k { background: color-mix(in srgb, var(--red) 16%, transparent); color: var(--red); }
+.snap-name { grid-area: n; font-weight: 600; font-size: 14px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.snap-dir { grid-area: d; font-size: 11.5px; color: var(--label-2); }
+.snap-ver { grid-area: v; font-size: 12.5px; color: var(--label-2); text-align: right; word-break: normal; white-space: nowrap; }
+.snap-ver b { color: var(--label); }
+.snap-more summary { cursor: pointer; padding: 7px 0; font-size: 13px; color: var(--tint); border-top: .5px solid var(--sep); list-style: none; }
+.snap-more summary::-webkit-details-marker { display: none; }
+@media (max-width: 560px) { .snap-ver { font-size: 11.5px; } }
+.snap-sum { margin: 12px 0 10px; }
+.snap-h + .snap-list { margin-top: 12px; }

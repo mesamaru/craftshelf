@@ -1544,6 +1544,8 @@ window.CS_EN = {
   "パスキーをすべて削除": "Delete all passkeys",
   "パスキーを削除しました": "Passkeys deleted",
   // ---- 設定を比べる ----
+  "サーバーどうしの設定ファイルを比べる": "Compare config files across servers",
+  "ファイル比較": "File compare",
   "左右(縦向きのスマホは上下)の行はそのまま書き換えられ、打つと差分を計算し直します。行の": "Lines can be edited in place (stacked on phones in portrait); differences are recalculated as you type. Use the",
   "から「基準に合わせる」「この行をほかのサーバーへ」を選べます。保存の前の内容は「ファイル」の履歴に残ります。": " button on a line to match it to the base or copy it to other servers. Previous content is kept in the Files history.",
   "Pterodactyl のサーバーは、ファイルの大きさで同じかどうかを見ています(開くと中身で比べます)。": "Pterodactyl servers are compared by file size here (contents are compared when you open a file).",

@@ -1423,7 +1423,6 @@ body:not(.can-edit) .tabbar .tab-add { display: none; }
 /* 設定を比べる */
 .cd-pick { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
 .cd-file .title { white-space: normal; overflow-wrap: anywhere; }
-.fe-cmp { display: flex; justify-content: flex-end; }
 .cd-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; }
 .cd-top .sp { flex: 1; }
 .cd-cols { display: flex; align-items: stretch; overflow-x: auto; border-radius: 16px; border: .5px solid var(--glass-edge); background: var(--glass); }
@@ -1463,3 +1462,7 @@ body:not(.can-edit) .tabbar .tab-add { display: none; }
   body.cd-on .cd-body { height: calc(100dvh - 190px); min-height: 120px; }
   body.cd-on .wrap > p.muted, body.cd-on .cd-wrap > p.muted { display: none; }
 }
+
+/* サーバーの「ファイル」: 見出しの右に「ファイル比較」 */
+.fe-sgrp { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.fe-sgrp .btn { text-transform: none; letter-spacing: 0; }

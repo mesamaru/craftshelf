@@ -1,5 +1,5 @@
 "use strict";
-/* ---------------- 設定を比べる(WinMerge のように、複数のサーバーの設定ファイルを並べて比べ、その場で編集する) ---------------- */
+/* ---------------- ファイル比較(WinMerge のように、複数のサーバーの設定ファイルを並べて比べ、その場で編集する) ---------------- */
 
 /* 行の差分(Myers の方法)。[{t:"eq",a,b} | {t:"del",a} | {t:"ins",b}] を返す */
 function diffLines(A, B) {
@@ -79,9 +79,9 @@ async function renderCfgDiff() {
   document.body.classList.remove("cd-on");
   const pick = `<div class="cd-pick">${servers.map((s) => `<button class="seg" type="button" data-cdsrv="${s.id}" aria-pressed="${cd.ids.includes(s.id)}" translate="no">${esc(s.name)}</button>`).join("")}</div>`;
   if (cd.ids.length < 2) {
-    body.innerHTML = `<div class="sw-head"><h3>設定を比べる</h3></div><p class="muted">比べるサーバーを 2 台以上選んでください(いくつでも選べます)。</p>${pick}`;
+    body.innerHTML = `<div class="sw-head"><h3>ファイル比較</h3></div><p class="muted">比べるサーバーを 2 台以上選んでください(いくつでも選べます)。</p>${pick}`;
   } else {
-    body.innerHTML = `<div class="sw-head"><h3>設定を比べる</h3><span class="sp"></span></div>${pick}<div class="card"><div class="empty"><span class="spinner lg"></span><p>設定ファイルを集めています…</p></div></div>`;
+    body.innerHTML = `<div class="sw-head"><h3>ファイル比較</h3><span class="sp"></span></div>${pick}<div class="card"><div class="empty"><span class="spinner lg"></span><p>設定ファイルを集めています…</p></div></div>`;
     let d;
     try { d = await api(`/api/servers/configs?ids=${cd.ids.join(",")}`); } catch (ex) { body.querySelector(".card").innerHTML = `<div class="result err">${esc(ex.message)}</div>`; return; }
     cd.list = d;

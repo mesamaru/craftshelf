@@ -272,7 +272,7 @@ class _LocalFiles:
         try:
             d = self._p(rel_dir)
             d.mkdir(parents=True, exist_ok=True)
-            dst = self._p(f"{rel_dir}/{name}")
+            dst = self._p(f"{rel_dir}/{name}" if rel_dir else name)  # rel_dir="" はサーバーのフォルダのいちばん上
             part = d / f".{name}.craftshelf-part"
             shutil.copyfile(src_path, part)
             os.replace(part, dst)  # 書き終わってから置き換える(途中のファイルをサーバーが読まないように)
@@ -600,8 +600,10 @@ def _soft_from_jar(name):
     """サーバーの jar の名前から、サーバーソフトを決める(例: paper-1.21.4-232.jar → paper)。"""
     n = str(name or "").lower()
     for key, soft in (("velocity", "velocity"), ("waterfall", "waterfall"), ("bungeecord", "bungeecord"), ("purpur", "purpur"),
-                      ("folia", "folia"), ("paper", "paper"), ("spigot", "spigot"), ("craftbukkit", "bukkit"), ("bukkit", "bukkit"),
-                      ("quilt", "quilt"), ("fabric", "fabric"), ("neoforge", "neoforge"), ("forge", "forge"), ("sponge", "sponge")):
+                      ("folia", "folia"), ("leaf", "leaf"), ("pufferfish", "pufferfish"), ("mohist", "mohist"), ("arclight", "arclight"),
+                      ("paper", "paper"), ("spigot", "spigot"), ("craftbukkit", "bukkit"), ("bukkit", "bukkit"),
+                      ("quilt", "quilt"), ("fabric", "fabric"), ("neoforge", "neoforge"), ("forge", "forge"), ("sponge", "sponge"),
+                      ("minecraft_server", "vanilla")):
         if key in n:
             return soft
     return ""
@@ -1811,18 +1813,29 @@ def server_software_info(row, force=False):
     except ApiError as e:
         return {**info, "error": e.message}
     mc = row["mc_version"] or mc
+    inst = info.get("installed") or {}
+    if inst.get("jar"):
+        try:
+            cur = next((e for e in (fs.list("") or []) if e["name"] == inst["jar"]), None)
+        except ApiError:
+            cur = None
+        if cur and cur.get("size") == inst.get("size"):
+            build = inst.get("build") or build
+        else:
+            inst = {}
+    if soft == "vanilla":
+        build = build or mc
     out = {"address": info.get("address", ""), "software": soft, "mc": mc, "build": build, "checked_at": utcnow(),
-           "notified": info.get("notified", "")}
+           "notified": info.get("notified", ""), "installed": inst, "jar": _server_jar(row, fs)}
     try:
-        if soft and (mc or soft in ("velocity", "waterfall", "fabric")):
-            ver = mc
-            if soft in ("velocity", "waterfall"):
-                ver = mc or ""
-            latest = mcnet.latest_build(soft, ver) if ver or soft == "fabric" else None
+        if soft and (mc or soft in NO_MC_SOFT):
+            latest = mcnet.latest_build(soft, mc)
             if latest:
                 out["latest"] = latest
                 out["update"] = bool(build and latest["build"] and str(latest["build"]) != str(build)
                                      and (not build.isdigit() or not str(latest["build"]).isdigit() or int(latest["build"]) > int(build)))
+                if soft == "vanilla":
+                    out["update"] = False  # バニラはビルドが無い(MC のバージョンそのもの)
             newest = mcnet.newest_mc(soft)
             if newest and mc and _cmp_nums(_ver_nums(newest), _ver_nums(mc)) > 0:
                 out["newer_mc"] = newest
@@ -1840,6 +1853,139 @@ def _due_iso(iso, hours):
     except (ValueError, TypeError):
         return True
     return datetime.now(timezone.utc) - t >= timedelta(hours=hours)
+
+
+NO_MC_SOFT = ("velocity", "waterfall", "bungeecord", "fabric", "quilt", "arclight")
+JAR_BACKUP_DIR = CONFIG_DIR / "server-jars"  # 入れ替える前の jar(サーバーごとに直近 3 つ)
+
+
+def _server_jar(row, fs):
+    """サーバー本体の jar の名前(設定で決めたもの → ソフトの名前が付いたもの → server.jar → 1 つだけの jar)。"""
+    if row["server_jar"]:
+        return row["server_jar"]
+    try:
+        jars = [e["name"] for e in (fs.list("") or []) if e["is_file"] and e["name"].lower().endswith(".jar")]
+    except ApiError:
+        return ""
+    soft = row["software"] or ""
+    hit = [n for n in jars if soft and _soft_from_jar(n) == soft]
+    if len(hit) == 1:
+        return hit[0]
+    for n in ("server.jar", "paper.jar", "purpur.jar", "velocity.jar", "fabric-server-launch.jar"):
+        if n in jars:
+            return n
+    return jars[0] if len(jars) == 1 else ""
+
+
+def _software_job(job, srv, restart, user):
+    conn = db()
+    row = conn.execute("SELECT * FROM servers WHERE id=?", (srv,)).fetchone()
+    fs = server_fs(row)
+    info = server_software_info(row, force=True)
+    latest = info.get("latest") or {}
+    if not latest.get("auto") or not latest.get("url"):
+        raise ApiError(f"{mcnet.SOFTWARE.get(row['software'], (row['software'] or '?',))[0]} は自動で入れ替えられません(配布元で確認してください)")
+    jar = info.get("jar") or _server_jar(row, fs)
+    if not jar:
+        raise ApiError("サーバー本体の jar が分かりません(サーバーの「設定」で jar を指定してください)")
+    tmp = TMP_DIR / f"server-{uuid.uuid4().hex}.jar"
+    stopped = False
+    try:
+        job.note(f"{latest.get('file') or jar} を取得しています…")
+        size = mcnet.download(latest["url"], tmp, latest.get("sha256") or "")
+        backup_dir = JAR_BACKUP_DIR / str(srv)
+        backup_dir.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+        try:
+            fs.download(jar, backup_dir / f"{stamp}__{info.get('build') or 'old'}__{jar}")
+            for old in sorted(backup_dir.iterdir())[:-3]:
+                old.unlink(missing_ok=True)
+            job.note(f"今の {jar} を退避しました")
+        except ApiError:
+            job.note(f"今の {jar} が見つからないため、退避せずに置きます")
+        live = server_live(row) if restart else {}
+        if restart and live.get("state") == "running" and live.get("controls"):
+            job.note("サーバーを止めています…")
+            server_power(row, "stop")
+            if row["kind"] == "ptero" or row["control"] == "docker":  # コマンドで止める場合は server_power の中で待つ
+                _wait_offline(row)
+            stopped = True
+        fs.upload("", tmp, jar)
+        job.note(f"{jar} を {latest.get('build')} に入れ替えました")
+        new = {**info, "installed": {"build": latest.get("build"), "jar": jar, "size": size, "at": utcnow()}, "build": latest.get("build"), "update": False}
+        with LOCK:
+            conn.execute("UPDATE servers SET soft_info=? WHERE id=?", (json.dumps(new), srv))
+            conn.commit()
+        audit("サーバー本体を更新", row["name"], f"{info.get('build') or '?'} → {latest.get('build')}", user=user)
+        notify_event("servers", f"{row['name']} のサーバー本体を更新しました", [f"{info.get('build') or '?'} → {latest.get('build')}"])
+    finally:
+        tmp.unlink(missing_ok=True)
+        if stopped:
+            job.note("サーバーを起動しています…")
+            try:
+                server_power(row, "start")
+            except ApiError as e:
+                job.note(f"起動できませんでした: {e.message}")
+    job.result = {"build": latest.get("build")}
+
+
+@app.get("/api/servers/software")
+def api_servers_software_all():
+    """見られるサーバーすべての、サーバー本体の今のビルドと最新(refresh=1 で確かめ直す)。"""
+    conn = db()
+    force = _truthy(request.args.get("refresh"))
+    out = []
+    for row in visible_servers(conn):
+        info = server_software_info(row, force=force)
+        soft = row["software"] or ""
+        out.append({"id": row["id"], "name": row["name"], "kind": row["kind"], "software": soft,
+                    "software_name": mcnet.SOFTWARE.get(soft, (soft,))[0] if soft else "", "info": info,
+                    "auto": bool((info.get("latest") or {}).get("auto")),
+                    "backups": len(list((JAR_BACKUP_DIR / str(row["id"])).glob("*"))) if (JAR_BACKUP_DIR / str(row["id"])).exists() else 0})
+    return jsonify(servers=out, supported={k: {"name": v[0], "auto": v[1]} for k, v in mcnet.SOFTWARE.items()})
+
+
+@app.post("/api/servers/software/update")
+@require("editor")
+def api_servers_software_update():
+    """選んだサーバーの本体を最新のビルドに入れ替える(サーバーごとの順番待ちの処理。restart で止めて入れ替えて起動)。"""
+    data = request.get_json(silent=True) or {}
+    try:
+        ids = [int(x) for x in data.get("server_ids") or []]
+    except (TypeError, ValueError):
+        raise ApiError("数値で指定してください")
+    if not ids:
+        raise ApiError("サーバーを選んでください")
+    jobs = []
+    for srv in ids:
+        row = _server_row(srv, "edit")
+        j = start_job(f"server-{srv}", f"「{row['name']}」のサーバー本体を更新", _software_job, srv, _truthy(data.get("restart")),
+                      current_user()["username"], user=current_user()["username"], queue=True)
+        jobs.append(j.public())
+    return jsonify(jobs=jobs)
+
+
+@app.post("/api/servers/<int:srv>/software/restore")
+@require("editor")
+def api_servers_software_restore(srv):
+    """サーバー本体を、入れ替える前の jar に戻す(いちばん新しい退避)。"""
+    row = _server_row(srv, "edit")
+    d = JAR_BACKUP_DIR / str(srv)
+    olds = sorted(d.glob("*")) if d.exists() else []
+    if not olds:
+        raise ApiError("戻せる jar がありません", 404)
+    last = olds[-1]
+    _stamp, build, jar = (last.name.split("__", 2) + ["", ""])[:3]
+    fs = server_fs(row)
+    fs.upload("", last, jar)
+    info = _jl(row["soft_info"], {})
+    info["installed"] = {"build": build if build != "old" else "", "jar": jar, "size": last.stat().st_size, "at": utcnow()}
+    with LOCK:
+        db().execute("UPDATE servers SET soft_info=? WHERE id=?", (json.dumps(info), srv))
+        db().commit()
+    last.unlink(missing_ok=True)
+    audit("サーバー本体を前の jar に戻す", row["name"], f"{jar}({build})")
+    return jsonify(ok=True, jar=jar, build=build)
 
 
 @app.get("/api/servers/<int:srv>/software")

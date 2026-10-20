@@ -1543,6 +1543,26 @@ window.CS_EN = {
   "端末を紛失した場合)": "if a device was lost)",
   "パスキーをすべて削除": "Delete all passkeys",
   "パスキーを削除しました": "Passkeys deleted",
+  // ---- サーバー本体のまとめて管理 ----
+  "Minecraft のバージョンは変えず、同じバージョンの中で最新のビルドにします。入れ替える前の jar はパネルに退避し(サーバーごとに 3 つまで)、戻すボタンで戻せます。": "The Minecraft version stays the same; the server is moved to the newest build of that version. The previous jar is kept in the panel (up to 3 per server) and can be restored with the back button.",
+  "止めて起動するには、サーバーの「設定」で起動・停止の方法(Pterodactyl・コマンド・Docker)を使えるようにしておいてください。": "To stop and start automatically, set up a start/stop method (Pterodactyl, command or Docker) in the server's Settings.",
+  "(新しいバージョンの確認だけ。インストーラーが要るため)": " (version check only, because they need an installer)",
+  "サーバー本体の新しいビルドを確かめています…": "Checking for new server builds…",
+  "更新するサーバーを選んでください": "Choose servers to update",
+  "更新できるものをすべて選ぶ": "Select all that can be updated",
+  "新しいバージョンあり(配布元で)": "New version (on the download site)",
+  "止める → 入れ替え → 起動": "Stop → replace → start",
+  "対応しているサーバーソフト": "Supported server software",
+  "(入れ替えまで)": " (full replacement)",
+  "前の jar に戻す": "Restore previous jar",
+  "まとめて更新": "Update selected",
+  "ソフト未設定": "Software not set",
+  "対応していません": "Not supported",
+  "更新できます": "Update available",
+  "確認し直す": "Check again",
+  "確認だけ": "Check only",
+  "すべて最新": "All up to date",
+  "Mod とプラグインの両方": "Mods and plugins",
   // ---- サーバーのアドオンのバージョンを変える ----
   "今のバージョンは退避され、「保存」→「履歴と巻き戻し」からいつでも戻せます。反映には再起動が要ります。": "The current version is backed up and can be restored any time from Save → History and rollback. A restart is needed to apply it.",
   "ライブラリに無いバージョンは見つかりませんでした": "No versions missing from the library were found",
@@ -1730,6 +1750,9 @@ window.CS_EN = {
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [
+  [/(\d+)\s*台を選択中/g, "$1 servers selected"],
+  [/(\d+)\s*台を更新しました/g, "Updated $1 servers"],
+  [/新しいビルド\s*(\d+)/g, "New builds $1"],
   [/ひとつ前のバージョン\(([^)]*)\)に戻す/g, "Go back to the previous version ($1)"],
   [/(\S+) を (\S+) に戻しますか[?？]/g, "Switch $1 back to $2?"],
   [/ほか\s*(\d+)\s*台/g, "$1 more servers"],

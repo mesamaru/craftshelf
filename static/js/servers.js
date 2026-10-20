@@ -148,15 +148,18 @@ const stateBadge = (s) => { const [cl, l] = STATE_LABEL[s] || STATE_LABEL.unknow
 
 /* ---------------- サーバーソフトと、種類ごとのフォルダ ---------------- */
 const SRV_CATS = ["plugin", "mod", "datapack"];
-const SRV_SOFT = { paper: "Paper", purpur: "Purpur", folia: "Folia", spigot: "Spigot", bukkit: "CraftBukkit", sponge: "Sponge",
-  velocity: "Velocity", bungeecord: "BungeeCord", waterfall: "Waterfall", fabric: "Fabric", quilt: "Quilt", forge: "Forge", neoforge: "NeoForge" };
-const SRV_SOFT_GROUPS = [["サーバー(プラグイン)", ["paper", "purpur", "folia", "spigot", "bukkit", "sponge"]],
-  ["プロキシ", ["velocity", "bungeecord", "waterfall"]], ["Mod ローダー", ["fabric", "quilt", "forge", "neoforge"]]];
+const SRV_SOFT = { paper: "Paper", purpur: "Purpur", folia: "Folia", leaf: "Leaf", pufferfish: "Pufferfish", spigot: "Spigot", bukkit: "CraftBukkit",
+  sponge: "Sponge", vanilla: "Vanilla", velocity: "Velocity", bungeecord: "BungeeCord", waterfall: "Waterfall", fabric: "Fabric", quilt: "Quilt",
+  forge: "Forge", neoforge: "NeoForge", mohist: "Mohist", arclight: "Arclight" };
+const SRV_SOFT_GROUPS = [["サーバー(プラグイン)", ["paper", "purpur", "folia", "leaf", "pufferfish", "spigot", "bukkit", "sponge"]],
+  ["プロキシ", ["velocity", "bungeecord", "waterfall"]], ["Mod ローダー", ["fabric", "quilt", "forge", "neoforge"]],
+  ["Mod とプラグインの両方", ["mohist", "arclight"]], ["そのほか", ["vanilla"]]];
 const SRV_DIR_HINT = { plugin: "plugins", mod: "mods", datapack: "world/datapacks" };
 function defaultSrvDirs(soft, world = "world") {
   if (["velocity", "bungeecord", "waterfall"].includes(soft)) return { plugin: "plugins" };
   if (["fabric", "quilt", "forge", "neoforge"].includes(soft)) return { mod: "mods", datapack: `${world}/datapacks` };
-  if (soft === "sponge") return { plugin: "plugins", mod: "mods", datapack: `${world}/datapacks` };
+  if (["sponge", "mohist", "arclight"].includes(soft)) return { plugin: "plugins", mod: "mods", datapack: `${world}/datapacks` };
+  if (soft === "vanilla") return { datapack: `${world}/datapacks` };
   return { plugin: "plugins", datapack: `${world}/datapacks` };
 }
 const softOptions = (sel) => `<option value="">わからない・指定しない</option>${SRV_SOFT_GROUPS.map(([g, ids]) =>
@@ -364,9 +367,11 @@ function renderServers() {
     return;
   }
   const head = `<div class="view-head srv-vh"><div class="chips">
-      <button class="btn small${state.srvMode === "compare" ? " tinted" : ""}" type="button" data-mode="${state.srvMode === "compare" ? "list" : "compare"}">${icon(state.srvMode === "compare" ? "back" : "arrows")}${state.srvMode === "compare" ? "一覧に戻る" : "比較"}</button></div>
+      ${state.srvMode && state.srvMode !== "list" ? `<button class="btn small tinted" type="button" data-mode="list">${icon("back")}一覧に戻る</button>`
+        : `<button class="btn small" type="button" data-mode="compare">${icon("arrows")}比較</button><button class="btn small" type="button" data-mode="software">${icon("server")}サーバー本体</button>`}</div>
       <button class="btn filled need-editor" type="button" data-va="add">${icon("plus")}追加</button></div>`;
   if (state.srvMode === "compare") { view.innerHTML = `${head}<div id="srvBody"></div>`; renderCompare(); return; }
+  if (state.srvMode === "software") { view.innerHTML = `${head}<div id="srvBody"></div>`; renderSoftware(); return; }
   if (!list.length) {
     view.innerHTML = `${head}<div class="card"><div class="empty"><div class="big">🖥️</div>まだサーバーがありません。「追加」から、Pterodactyl のサーバーか、このパネルから見えるフォルダのサーバーを追加できます</div></div>`;
     return;

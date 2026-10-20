@@ -222,7 +222,7 @@ def docker_power(name, signal):
 
 
 # --------------------------------------------------------------------------
-# サーバー本体(Paper / Purpur / Folia / Velocity / Fabric)の新しいビルド
+# サーバー本体(サーバーソフト)の新しいビルドと取得
 # --------------------------------------------------------------------------
 FILL = "https://fill.papermc.io/v3/projects"
 _FILL_PROJECTS = {"paper", "folia", "velocity", "waterfall"}
@@ -255,35 +255,143 @@ def parse_build(text):
     return mc, build
 
 
+# サーバーソフトごとの扱い: auto = jar を取得して入れ替えられる / False = 新しいバージョンの確認だけ(インストーラーが要るもの)
+SOFTWARE = {
+    "paper": ("Paper", True), "folia": ("Folia", True), "purpur": ("Purpur", True), "leaf": ("Leaf", True),
+    "pufferfish": ("Pufferfish", True), "velocity": ("Velocity", True), "waterfall": ("Waterfall", True),
+    "bungeecord": ("BungeeCord", True), "fabric": ("Fabric", True), "vanilla": ("Vanilla", True),
+    "mohist": ("Mohist", True), "sponge": ("SpongeVanilla", True),
+    "quilt": ("Quilt", False), "forge": ("Forge", False), "neoforge": ("NeoForge", False), "arclight": ("Arclight", False),
+    "spigot": ("Spigot", False), "bukkit": ("CraftBukkit", False),
+}
+_JENKINS = {"bungeecord": "https://ci.md-5.net/job/BungeeCord", "pufferfish": "https://ci.pufferfish.host/job/Pufferfish-{major}"}
+
+
+def _major(mc):
+    m = re.match(r"(\d+\.\d+)", mc or "")
+    return m.group(1) if m else ""
+
+
+def _res(build, url="", file="", channel="stable", sha256="", time="", auto=True):
+    return {"build": str(build or ""), "channel": channel, "url": url, "file": file, "sha256": sha256, "time": time, "auto": bool(auto and url)}
+
+
 def latest_build(software, mc):
-    """そのサーバーソフト・バージョンの最新ビルドと、ダウンロード先。"""
+    """そのサーバーソフト・Minecraft のバージョンの最新のビルドと、取得先(取得できないものは確認だけ)。"""
     try:
         if software in _FILL_PROJECTS:
             d = _get(f"{FILL}/{software}/versions/{mc}/builds/latest")
             if not d:
                 return None
             dl = ((d.get("downloads") or {}).get("server:default") or {})
-            return {"build": str(d.get("id") or ""), "channel": str(d.get("channel") or "").lower(),
-                    "url": dl.get("url") or "", "file": dl.get("name") or "", "time": d.get("time") or ""}
+            return _res(d.get("id"), dl.get("url") or "", dl.get("name") or "", str(d.get("channel") or "").lower(),
+                        ((dl.get("checksums") or {}).get("sha256") or ""), d.get("time") or "")
         if software == "purpur":
             d = _get(f"https://api.purpurmc.org/v2/purpur/{mc}")
             if not d:
                 return None
             b = str((d.get("builds") or {}).get("latest") or "")
-            return {"build": b, "channel": "stable", "url": f"https://api.purpurmc.org/v2/purpur/{mc}/{b}/download",
-                    "file": f"purpur-{mc}-{b}.jar", "time": ""}
-        if software in ("fabric", "quilt"):
-            if software == "fabric":
-                d = _get("https://meta.fabricmc.net/v2/versions/loader?limit=10") or []
-                stable = next((x for x in d if x.get("stable")), d[0] if d else None)
-                if not stable:
-                    return None
-                return {"build": stable.get("version", ""), "channel": "stable",
-                        "url": "https://fabricmc.net/use/server/", "file": "", "time": ""}
-            return None
-    except (requests.RequestException, ValueError) as e:
+            return _res(b, f"https://api.purpurmc.org/v2/purpur/{mc}/{b}/download", f"purpur-{mc}-{b}.jar")
+        if software == "leaf":
+            d = _get(f"https://api.leafmc.one/v2/projects/leaf/versions/{mc}/builds")
+            builds = (d or {}).get("builds") or []
+            if not builds:
+                return None
+            b = builds[-1]
+            dl = ((b.get("downloads") or {}).get("primary") or {})
+            name = dl.get("name") or f"leaf-{mc}-{b.get('build')}.jar"
+            return _res(b.get("build"), f"https://api.leafmc.one/v2/projects/leaf/versions/{mc}/builds/{b.get('build')}/downloads/{name}",
+                        name, str(b.get("channel") or "default"), dl.get("sha256") or "", b.get("time") or "")
+        if software in _JENKINS:
+            job = _JENKINS[software].format(major=_major(mc))
+            d = _get(f"{job}/lastSuccessfulBuild/api/json?tree=number,timestamp,artifacts%5BfileName,relativePath%5D")
+            if not d:
+                return None
+            arts = d.get("artifacts") or []
+            art = next((a for a in arts if a.get("fileName") == "BungeeCord.jar"), None) if software == "bungeecord" \
+                else next((a for a in arts if a.get("fileName", "").endswith(".jar")), None)
+            if not art:
+                return _res(d.get("number"))
+            return _res(d.get("number"), f"{job}/{d.get('number')}/artifact/{art['relativePath']}", art["fileName"])
+        if software == "fabric":
+            loaders = _get("https://meta.fabricmc.net/v2/versions/loader?limit=20") or []
+            loader = next((x for x in loaders if x.get("stable")), loaders[0] if loaders else None)
+            inst = next((x for x in (_get("https://meta.fabricmc.net/v2/versions/installer") or []) if x.get("stable")), None)
+            if not loader:
+                return None
+            lv = loader.get("version", "")
+            url = f"https://meta.fabricmc.net/v2/versions/loader/{mc}/{lv}/{inst['version']}/server/jar" if mc and inst else ""
+            return _res(lv, url, f"fabric-server-mc.{mc}-loader.{lv}-launcher.{inst['version'] if inst else ''}.jar")
+        if software == "quilt":
+            d = _get("https://meta.quiltmc.org/v3/versions/loader") or []
+            rel = next((x for x in d if "-" not in str(x.get("version", ""))), d[0] if d else None)
+            return _res(rel.get("version"), auto=False) if rel else None
+        if software == "vanilla":
+            man = _get("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json") or {}
+            v = next((x for x in man.get("versions") or [] if x.get("id") == mc), None)
+            if not v:
+                return None
+            srv = ((_get(v["url"]) or {}).get("downloads") or {}).get("server") or {}
+            return _res(mc, srv.get("url") or "", f"minecraft_server.{mc}.jar")
+        if software == "mohist":
+            d = _get(f"https://api.mohistmc.com/project/mohist/{mc}/builds") or []
+            if not d:
+                return None
+            b = max(d, key=lambda x: int(x.get("id") or 0))
+            return _res(b.get("id"), f"https://api.mohistmc.com/project/mohist/{mc}/builds/{b.get('id')}/download",
+                        f"mohist-{mc}-{b.get('id')}-server.jar", sha256=b.get("file_sha256") or "", time=b.get("build_date") or "")
+        if software == "sponge":
+            d = _get(f"https://dl-api.spongepowered.org/v2/groups/org.spongepowered/artifacts/spongevanilla/versions?tags=minecraft:{mc}&offset=0&limit=1") or {}
+            ver = next(iter((d.get("artifacts") or {}).keys()), "")
+            if not ver:
+                return None
+            info = _get(f"https://dl-api.spongepowered.org/v2/groups/org.spongepowered/artifacts/spongevanilla/versions/{ver}") or {}
+            a = next((x for x in info.get("assets") or [] if x.get("classifier") == "universal" and x.get("extension") == "jar"), None)
+            return _res(ver, (a or {}).get("downloadUrl", ""), f"spongevanilla-{ver}-universal.jar")
+        if software == "forge":
+            promos = (_get("https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json") or {}).get("promos") or {}
+            v = promos.get(f"{mc}-recommended") or promos.get(f"{mc}-latest")
+            return _res(v, auto=False) if v else None
+        if software == "neoforge":
+            parts = (mc or "").split(".")
+            if len(parts) < 2 or parts[0] != "1":
+                return None
+            flt = f"{parts[1]}.{parts[2] if len(parts) > 2 else 0}"
+            d = _get(f"https://maven.neoforged.net/api/maven/latest/version/releases/net/neoforged/neoforge?filter={flt}.") or {}
+            return _res(d.get("version"), auto=False) if d.get("version") else None
+        if software == "arclight":
+            d = _get("https://api.github.com/repos/IzzelAliz/Arclight/releases?per_page=1") or []
+            return _res(d[0].get("tag_name"), auto=False) if d else None
+    except (requests.RequestException, ValueError, KeyError, TypeError) as e:
         raise NetError(f"更新の確認に失敗しました({e.__class__.__name__})") from e
     return None
+
+
+def download(url, dest, sha256="", max_bytes=600 * 1024 * 1024):
+    """サーバー本体の jar を取得する(sha256 があれば中身を確かめる)。"""
+    import hashlib
+    h = hashlib.sha256()
+    total = 0
+    try:
+        with requests.get(url, stream=True, timeout=(15, 300), headers={"User-Agent": UA}) as r:
+            r.raise_for_status()
+            with open(dest, "wb") as f:
+                for chunk in r.iter_content(1024 * 1024):
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise NetError("ファイルが大きすぎます")
+                    h.update(chunk)
+                    f.write(chunk)
+    except requests.RequestException as e:
+        raise NetError(f"取得に失敗しました({e.__class__.__name__})") from e
+    if total < 1024:
+        raise NetError("取得したファイルが小さすぎます(jar ではないようです)")
+    if sha256 and h.hexdigest().lower() != sha256.lower():
+        raise NetError("取得したファイルの中身が配布元の記録と一致しません")
+    with open(dest, "rb") as f:
+        if f.read(2) != b"PK":
+            raise NetError("取得したファイルが jar ではありません")
+    return total
 
 
 def newest_mc(software):

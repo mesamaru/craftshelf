@@ -184,3 +184,89 @@ async function fileEditor(s, pane, path) {
 }
 
 window.addEventListener("beforeunload", (e) => { if (state.feDirty && state.feDirty()) { e.preventDefault(); e.returnValue = ""; } });
+
+/* ---------------- サーバー本体(サーバーソフト)のまとめて管理 ---------------- */
+const SOFT_COLORS = { paper: "#e2e8f0", folia: "#bbf7d0", purpur: "#c084fc", leaf: "#86efac", pufferfish: "#fcd34d", velocity: "#60a5fa", waterfall: "#93c5fd",
+  bungeecord: "#fde68a", fabric: "#dbb27a", quilt: "#c4b5fd", forge: "#fdba74", neoforge: "#f97316", vanilla: "#a3e635", mohist: "#f472b6", sponge: "#fde047", arclight: "#fca5a5" };
+async function renderSoftware(refresh = false) {
+  const body = $("#srvBody");
+  if (!body) return;
+  if (!state.swData || refresh) {
+    body.innerHTML = `<div class="card"><div class="empty"><span class="spinner lg"></span><p>サーバー本体の新しいビルドを確かめています…</p></div></div>`;
+    try { state.swData = await api(`/api/servers/software${refresh ? "?refresh=1" : ""}`); }
+    catch (ex) { body.innerHTML = `<div class="result err">${esc(ex.message)}</div>`; return; }
+  }
+  const d = state.swData;
+  state.swSel = state.swSel || new Set();
+  state.swFilter = state.swFilter || "";
+  const list = d.servers.filter((s) => !state.swFilter || s.software === state.swFilter);
+  const softs = [...new Set(d.servers.map((s) => s.software).filter(Boolean))];
+  const upd = (s) => s.info && s.info.update && s.auto;
+  const nUpd = d.servers.filter(upd).length;
+  const status = (s) => {
+    const i = s.info || {};
+    if (!s.software) return `<span class="badge">ソフト未設定</span>`;
+    if (i.error) return `<span class="badge err" title="${esc(i.error)}">確認できません</span>`;
+    if (!i.latest) return `<span class="badge">対応していません</span>`;
+    if (!s.auto) return i.update ? `<span class="badge upd">新しいバージョンあり(配布元で)</span>` : `<span class="badge">確認だけ</span>`;
+    return i.update ? `<span class="badge upd">更新できます</span>` : `<span class="badge ok">最新</span>`;
+  };
+  const row = (s) => {
+    const i = s.info || {}, l = i.latest || {};
+    const can = upd(s);
+    return `<div class="row sw-row">
+      <input type="checkbox" class="cbox" data-swpick="${s.id}"${state.swSel.has(s.id) ? " checked" : ""}${can ? "" : " disabled"} aria-label="選ぶ">
+      <span class="sw-ic" style="background:${SOFT_COLORS[s.software] || "var(--fill-2)"}">${esc((s.software_name || "?").slice(0, 2))}</span>
+      <span class="main"><span class="title" translate="no">${esc(s.name)}</span>
+        <span class="subtitle" translate="no">${esc(s.software_name || "ソフト未設定")}${i.mc ? ` ${esc(i.mc)}` : ""}${i.jar ? ` · ${esc(i.jar)}` : ""}</span></span>
+      <span class="sw-ver mono" translate="no">${esc(i.build || "?")}${l.build && l.build !== i.build ? ` → <b>${esc(l.build)}</b>` : ""}</span>
+      <span class="trail">${status(s)}${s.backups ? `<button class="icon-btn sm" type="button" data-swback="${s.id}" title="前の jar に戻す" aria-label="前の jar に戻す">${icon("back")}</button>` : ""}</span></div>`;
+  };
+  const sup = Object.values(d.supported);
+  body.innerHTML = `<div class="sw-head"><h3>サーバー本体</h3>${nUpd ? `<span class="badge upd">新しいビルド ${nUpd}</span>` : `<span class="badge ok">すべて最新</span>`}
+      <span class="sp"></span><button class="btn small" type="button" data-swrefresh>${icon("refresh")}確認し直す</button></div>
+    <div class="sw-filter">${["", ...softs].map((k) => `<button class="seg" type="button" data-swf="${k}" aria-pressed="${state.swFilter === k}">${k ? esc((d.supported[k] || {}).name || k) : "すべて"}<span class="n">${k ? d.servers.filter((s) => s.software === k).length : d.servers.length}</span></button>`).join("")}</div>
+    <div class="group sw-list">${list.map(row).join("") || `<div class="empty">サーバーがありません</div>`}</div>
+    <div class="sw-bar glass">
+      <span class="cnt">${state.swSel.size ? `${state.swSel.size} 台を選択中` : "更新するサーバーを選んでください"}</span>
+      <label class="sw-opt"><input type="checkbox" class="switch" id="swRestart"${state.swRestart !== false ? " checked" : ""}> 止める → 入れ替え → 起動</label>
+      <span class="sp"></span>
+      ${nUpd ? `<button class="btn small" type="button" data-swall>更新できるものをすべて選ぶ</button>` : ""}
+      <button class="btn filled" type="button" data-swgo${state.swSel.size ? "" : " disabled"}>${icon("download")}まとめて更新</button></div>
+    <p class="muted small">Minecraft のバージョンは変えず、同じバージョンの中で最新のビルドにします。入れ替える前の jar はパネルに退避し(サーバーごとに 3 つまで)、戻すボタンで戻せます。
+      止めて起動するには、サーバーの「設定」で起動・停止の方法(Pterodactyl・コマンド・Docker)を使えるようにしておいてください。</p>
+    <details class="sw-support"><summary>対応しているサーバーソフト</summary><p>${sup.filter((x) => x.auto).map((x) => esc(x.name)).join("・")}(入れ替えまで)<br>
+      ${sup.filter((x) => !x.auto).map((x) => esc(x.name)).join("・")}(新しいバージョンの確認だけ。インストーラーが要るため)</p></details>`;
+  body.onclick = async (e) => {
+    if (e.target.closest("[data-swrefresh]")) { renderSoftware(true); return; }
+    const f = e.target.closest("[data-swf]"); if (f) { state.swFilter = f.dataset.swf; renderSoftware(); return; }
+    if (e.target.closest("[data-swall]")) { d.servers.filter(upd).forEach((s) => state.swSel.add(s.id)); renderSoftware(); return; }
+    const bk = e.target.closest("[data-swback]");
+    if (bk) {
+      const s = d.servers.find((x) => x.id === Number(bk.dataset.swback));
+      if (!cfm(`「${s.name}」のサーバー本体を、入れ替える前の jar に戻しますか?(サーバーが動いているときは、再起動で反映されます)`)) return;
+      try { const r = await api(`/api/servers/${s.id}/software/restore`, { method: "POST" }); toast(`${r.jar} を戻しました`); renderSoftware(true); } catch (ex) { toast(ex.message, true); }
+      return;
+    }
+    const go = e.target.closest("[data-swgo]");
+    if (go && state.swSel.size) {
+      const restart = $("#swRestart").checked; state.swRestart = restart;
+      if (!cfm(`${state.swSel.size} 台のサーバー本体を最新のビルドにしますか?` + (restart ? "\n\n動いているサーバーは止めて入れ替え、起動し直します。" : "\n\n入れ替えたあと、サーバーを再起動すると反映されます。"))) return;
+      await busy(go, async () => {
+        try {
+          const r = await api("/api/servers/software/update", { json: { server_ids: [...state.swSel], restart } });
+          r.jobs.forEach((j) => jobStarted(j));
+          state.swSel.clear();
+          const done = await Promise.all(r.jobs.map((j) => waitJob(j.id)));
+          const ok = done.filter((x) => x && x.status === "done").length;
+          toast(ok === done.length ? `${ok} 台を更新しました` : `${ok} 台を更新しました(${done.length - ok} 台はできませんでした)`, ok !== done.length);
+        } catch (ex) { toast(ex.message, true); }
+        renderSoftware(true);
+      }, "更新中…");
+    }
+  };
+  body.onchange = (e) => {
+    const c = e.target.closest("[data-swpick]");
+    if (c) { const id = Number(c.dataset.swpick); if (c.checked) state.swSel.add(id); else state.swSel.delete(id); renderSoftware(); }
+  };
+}

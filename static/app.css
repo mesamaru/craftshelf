@@ -1479,3 +1479,26 @@ body:not(.can-edit) .tabbar .tab-add { display: none; }
 .cd-pick .seg { display: inline-flex; align-items: center; gap: 4px; }
 .cd-pick .seg[aria-pressed="true"] { background: var(--tint-soft); color: var(--tint); box-shadow: inset 0 0 0 1px var(--tint-fill); }
 .cd-pick .seg svg { width: 14px; height: 14px; }
+
+/* 選ぶ行(バージョンを変える) */
+.pick-row { cursor: pointer; gap: 12px; }
+.pick-row input { position: absolute; opacity: 0; pointer-events: none; }
+.pick-row .pk { flex: none; width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid var(--label-3); display: grid; place-items: center; color: transparent; }
+.pick-row .pk svg { width: 14px; height: 14px; }
+.pick-row:has(input:checked) { background: var(--tint-soft); }
+.pick-row:has(input:checked) .pk { background: var(--tint-fill); border-color: var(--tint-fill); color: var(--tint-ink, #fff); }
+.pick-row:has(input:focus-visible) { outline: 2px solid var(--tint-fill); outline-offset: -2px; }
+.pick-row.off { cursor: default; opacity: .55; }
+.pick-row .main small { display: block; }
+.vs-now { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 12px; }
+.vs-now > div { flex: 1 1 120px; padding: 10px 12px; border-radius: 14px; background: var(--fill); display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.vs-now small { color: var(--label-2); font-size: 12px; }
+.vs-now b { font-size: 15px; overflow-wrap: anywhere; }
+.sv-mc { display: flex; flex-direction: column; gap: 4px; margin: 0 0 10px; }
+.group.loading { opacity: .5; pointer-events: none; }
+.sw-row .trail { gap: 8px; }
+.cd-crumbs { display: flex; align-items: center; gap: 2px; flex-wrap: wrap; margin: 0 0 8px; }
+.cd-crumbs .btn svg { width: 15px; height: 15px; }
+.pick-row .main { display: block; min-width: 0; }
+.pick-row .main .badge { display: inline-flex; width: auto; margin-left: 4px; vertical-align: 1px; }
+.pick-row .main small { margin-top: 2px; color: var(--label-2); overflow-wrap: anywhere; }

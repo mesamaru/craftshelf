@@ -159,6 +159,17 @@ async function busy(btn, fn, label = "処理中…") {
 }
 
 /* ---------------- dialogs (sheet) ---------------- */
+// バージョンなどを 1 つ選ぶ行(name の radio を見えなくして、行ごと選ぶ)
+function pickRow(name, value, mainHTML, { disabled = false, note = "" } = {}) {
+  return `<label class="row pick-row${disabled ? " off" : ""}"><input type="radio" name="${name}" value="${esc(value)}"${disabled ? " disabled" : ""}>
+    <span class="pk">${icon("check")}</span><span class="main">${mainHTML}</span>${note ? `<span class="trail muted small">${note}</span>` : ""}</label>`;
+}
+// 今のバージョンと最新を上に並べる
+function verNowHTML(now, latest, link) {
+  return `<div class="vs-now"><div><small>今のバージョン</small><b translate="no">${esc(now || "?")}</b></div>
+    <div><small>最新</small><b translate="no">${esc(latest || "—")}</b></div>
+    ${link ? `<a class="btn small" href="${esc(link)}" target="_blank" rel="noopener noreferrer">${icon("external")}配布ページ</a>` : ""}</div>`;
+}
 function sheet(html, setup, { wide = false } = {}) {
   return new Promise((resolve) => {
     const dlg = $("#dlg");

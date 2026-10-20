@@ -1699,6 +1699,8 @@ def config_files(fs):
                         data = fs.read_bytes(path, EDIT_LIMIT)
                         h = hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest() if data is not None else None  # 改行の違いは見ない
                     out[path] = {"size": e["size"] or 0, "hash": h}
+                    if fs.kind == "local" and data is not None:
+                        out[path]["_data"] = data
             elif depth > 0 and e["name"] not in CONFIG_SKIP and not e["name"].startswith("."):
                 walk(path, depth - 1)
             if len(out) >= CONFIG_MAX:
@@ -1710,6 +1712,15 @@ def config_files(fs):
         except ApiError:
             continue
     return out
+
+
+def _diff_hunks(texts):
+    """最初のものと比べて、違う箇所(続いた行はまとめて 1 か所)がいちばん多いものの数。"""
+    import difflib
+    lines = [t.decode("utf-8", "replace").replace("\r\n", "\n").split("\n") for t in texts]
+    base = lines[0]
+    return max((sum(1 for op in difflib.SequenceMatcher(None, base, other, autojunk=False).get_opcodes() if op[0] != "equal")
+                for other in lines[1:]), default=0)
 
 
 @app.get("/api/servers/configs")
@@ -1737,7 +1748,11 @@ def api_servers_configs():
         have = [s for s in servers if path in s["files"]]
         marks = {(s["files"][path]["hash"] or f"size:{s['files'][path]['size']}") for s in have}
         status = "partial" if len(have) < len(servers) else "same" if len(marks) == 1 else "diff"
-        rows.append({"path": path, "status": status, "on": [s["id"] for s in have], "differ": len(marks) > 1})
+        row = {"path": path, "status": status, "on": [s["id"] for s in have], "differ": len(marks) > 1}
+        texts = [s["files"][path].get("_data") for s in have]
+        if row["differ"] and all(t is not None for t in texts):
+            row["changes"] = _diff_hunks(texts)
+        rows.append(row)
     return jsonify(servers=[{k: v for k, v in s.items() if k != "files"} | {"count": len(s["files"])} for s in servers], files=rows)
 
 
@@ -1881,6 +1896,8 @@ def server_software_info(row, force=False):
         return {**info, "error": e.message}
     mc = row["mc_version"] or mc
     inst = info.get("installed") or {}
+    if soft in NO_MC_SOFT and not row["mc_version"]:
+        mc = mc or (info.get("mc") or "")
     if inst.get("jar"):
         try:
             cur = next((e for e in (fs.list("") or []) if e["name"] == inst["jar"]), None)
@@ -1888,6 +1905,7 @@ def server_software_info(row, force=False):
             cur = None
         if cur and cur.get("size") == inst.get("size"):
             build = inst.get("build") or build
+            mc = inst.get("mc") or mc
         else:
             inst = {}
     if soft == "vanilla":
@@ -1923,7 +1941,8 @@ def _due_iso(iso, hours):
 
 
 NO_MC_SOFT = ("velocity", "waterfall", "bungeecord", "fabric", "quilt", "arclight")
-JAR_BACKUP_DIR = CONFIG_DIR / "server-jars"  # 入れ替える前の jar(サーバーごとに直近 3 つ)
+JAR_BACKUP_DIR = CONFIG_DIR / "server-jars"  # 入れ替える前の jar(サーバーごとに直近 JAR_BACKUP_KEEP 個)
+JAR_BACKUP_KEEP = 5
 
 
 def _server_jar(row, fs):
@@ -1944,13 +1963,14 @@ def _server_jar(row, fs):
     return jars[0] if len(jars) == 1 else ""
 
 
-def _software_job(job, srv, restart, user):
+def _software_job(job, srv, restart, user, target=None):
+    """サーバー本体の jar を入れ替える。target が無ければ最新のビルド、{mc, build, url…} なら選んだビルド、{backup} なら退避した jar。"""
     conn = db()
     row = conn.execute("SELECT * FROM servers WHERE id=?", (srv,)).fetchone()
     fs = server_fs(row)
     info = server_software_info(row, force=True)
-    latest = info.get("latest") or {}
-    if not latest.get("auto") or not latest.get("url"):
+    latest = target or info.get("latest") or {}
+    if not latest.get("backup") and (not latest.get("auto") or not latest.get("url")):
         raise ApiError(f"{mcnet.SOFTWARE.get(row['software'], (row['software'] or '?',))[0]} は自動で入れ替えられません(配布元で確認してください)")
     jar = info.get("jar") or _server_jar(row, fs)
     if not jar:
@@ -1958,14 +1978,19 @@ def _software_job(job, srv, restart, user):
     tmp = TMP_DIR / f"server-{uuid.uuid4().hex}.jar"
     stopped = False
     try:
-        job.note(f"{latest.get('file') or jar} を取得しています…")
-        size = mcnet.download(latest["url"], tmp, latest.get("sha256") or "")
+        if latest.get("backup"):
+            shutil.copyfile(latest["backup"], tmp)
+            size = tmp.stat().st_size
+            job.note(f"退避していた {latest.get('build') or 'jar'} を使います")
+        else:
+            job.note(f"{latest.get('file') or jar} を取得しています…")
+            size = mcnet.download(latest["url"], tmp, latest.get("sha256") or "")
         backup_dir = JAR_BACKUP_DIR / str(srv)
         backup_dir.mkdir(parents=True, exist_ok=True)
         stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
         try:
             fs.download(jar, backup_dir / f"{stamp}__{info.get('build') or 'old'}__{jar}")
-            for old in sorted(backup_dir.iterdir())[:-3]:
+            for old in sorted(backup_dir.iterdir())[:-JAR_BACKUP_KEEP]:
                 old.unlink(missing_ok=True)
             job.note(f"今の {jar} を退避しました")
         except ApiError:
@@ -1979,9 +2004,13 @@ def _software_job(job, srv, restart, user):
             stopped = True
         fs.upload("", tmp, jar)
         job.note(f"{jar} を {latest.get('build')} に入れ替えました")
-        new = {**info, "installed": {"build": latest.get("build"), "jar": jar, "size": size, "at": utcnow()}, "build": latest.get("build"), "update": False}
+        mc_new = latest.get("mc") or info.get("mc") or ""
+        new = {**info, "installed": {"build": latest.get("build"), "mc": mc_new, "jar": jar, "size": size, "at": utcnow()}, "build": latest.get("build"),
+               "mc": mc_new, "update": False, "checked_at": ""}
         with LOCK:
             conn.execute("UPDATE servers SET soft_info=? WHERE id=?", (json.dumps(new), srv))
+            if latest.get("mc") and row["software"] not in NO_MC_SOFT and latest["mc"] != (row["mc_version"] or ""):
+                conn.execute("UPDATE servers SET mc_version=? WHERE id=?", (latest["mc"], srv))  # MC のバージョンも変えたとき
             conn.commit()
         audit("サーバー本体を更新", row["name"], f"{info.get('build') or '?'} → {latest.get('build')}", user=user)
         notify_event("servers", f"{row['name']} のサーバー本体を更新しました", [f"{info.get('build') or '?'} → {latest.get('build')}"])
@@ -1993,6 +2022,8 @@ def _software_job(job, srv, restart, user):
                 server_power(row, "start")
             except ApiError as e:
                 job.note(f"起動できませんでした: {e.message}")
+    if latest.get("backup"):
+        Path(latest["backup"]).unlink(missing_ok=True)  # 使った退避は消す(今の jar は新しく退避してある)
     job.result = {"build": latest.get("build")}
 
 
@@ -2053,6 +2084,68 @@ def api_servers_software_restore(srv):
     last.unlink(missing_ok=True)
     audit("サーバー本体を前の jar に戻す", row["name"], f"{jar}({build})")
     return jsonify(ok=True, jar=jar, build=build)
+
+
+def _jar_backups(srv):
+    d = JAR_BACKUP_DIR / str(srv)
+    out = []
+    for p in sorted(d.glob("*"), reverse=True) if d.exists() else []:
+        stamp, build, jar = (p.name.split("__", 2) + ["", ""])[:3]
+        try:
+            at = datetime.strptime(stamp, "%Y%m%d-%H%M%S").replace(tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            at = ""
+        out.append({"name": p.name, "build": "" if build == "old" else build, "jar": jar, "size": p.stat().st_size, "saved_at": at})
+    return out
+
+
+@app.get("/api/servers/<int:srv>/software/versions")
+def api_servers_software_versions(srv):
+    """サーバー本体の選べるバージョン: 今・最新・配布元のビルド(mc= で Minecraft のバージョンを選ぶ)・退避した jar・配布ページ。"""
+    row = _server_row(srv, "view")
+    info = server_software_info(row)
+    soft = row["software"] or ""
+    if not soft:
+        raise ApiError("サーバーソフトが設定されていません(サーバーの「設定」で選んでください)")
+    mc = str(request.args.get("mc") or info.get("mc") or "")
+    try:
+        builds = mcnet.list_builds(soft, mc) if (mc or soft in NO_MC_SOFT) else []
+        err = ""
+    except mcnet.NetError as e:
+        builds, err = [], e.message
+    name, auto = mcnet.SOFTWARE.get(soft, (soft, False))
+    return jsonify(software=soft, software_name=name, auto=auto, mc=info.get("mc") or "", build=info.get("build") or "", jar=info.get("jar") or "",
+                   latest=info.get("latest"), mc_selected=mc, mc_versions=mcnet.mc_versions(soft), no_mc=soft in NO_MC_SOFT,
+                   builds=builds, error=err, backups=_jar_backups(srv), page_url=mcnet.PAGES.get(soft, ""))
+
+
+@app.post("/api/servers/<int:srv>/software/install")
+@require("editor")
+def api_servers_software_install(srv):
+    """サーバー本体を選んだバージョンにする({mc, build} で配布元のビルド、{backup} で退避した jar。restart で止めて入れ替えて起動)。"""
+    row = _server_row(srv, "edit")
+    data = request.get_json(silent=True) or {}
+    if data.get("backup"):
+        hit = next((b for b in _jar_backups(srv) if b["name"] == str(data["backup"])), None)
+        if not hit:
+            raise ApiError("その jar は退避されていません", 404)
+        target = {"backup": str(JAR_BACKUP_DIR / str(srv) / hit["name"]), "build": hit["build"], "auto": True}
+        label = hit["build"] or hit["jar"]
+    else:
+        mc, build = str(data.get("mc") or ""), str(data.get("build") or "")
+        if not build:
+            raise ApiError("ビルドを選んでください")
+        try:
+            hit = mcnet.resolve_build(row["software"] or "", mc, build)
+        except mcnet.NetError as e:
+            raise ApiError(e.message, 502)
+        if not hit or not hit.get("url") or not hit.get("auto"):
+            raise ApiError("このビルドは自動で取得できません(配布ページから取得してください)")
+        target = {**hit, "mc": mc if row["software"] not in NO_MC_SOFT else ""}
+        label = f"{mc} {build}".strip()
+    j = start_job(f"server-{srv}", f"「{row['name']}」のサーバー本体を {label} にする", _software_job, srv, _truthy(data.get("restart")),
+                  current_user()["username"], target, user=current_user()["username"], queue=True)
+    return jsonify(job=j.public())
 
 
 @app.get("/api/servers/<int:srv>/software")

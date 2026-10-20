@@ -92,6 +92,7 @@ async function renderCfgDiff() {
     const b = e.target.closest("[data-cdsrv]");
     if (b) { const id = Number(b.dataset.cdsrv); cd.ids = cd.ids.includes(id) ? cd.ids.filter((x) => x !== id) : [...cd.ids, id]; cd.list = null; renderCfgDiff(); return; }
     const f = e.target.closest("[data-cdf]"); if (f) { cd.filter = f.dataset.cdf; drawCdList(body); return; }
+    const dd = e.target.closest("[data-cddir]"); if (dd) { cd.dir = dd.dataset.cddir; drawCdList(body); return; }
     const o = e.target.closest("[data-cdopen]"); if (o) { cd.path = o.dataset.cdopen; cd.files = null; renderCfgDiff(); }
   };
 }
@@ -99,46 +100,54 @@ async function renderCfgDiff() {
 function cdBadges(f, total) {
   if (f.status === "same") return `<span class="badge ok">同じ</span>`;
   const miss = total - f.on.length;
-  return (f.status === "diff" || f.differ ? `<span class="badge upd">差分あり</span>` : "") + (miss ? `<span class="badge">${miss} 台にない</span>` : "");
+  return (f.status === "diff" || f.differ ? `<span class="badge upd">${f.changes ? `差分 ${f.changes} か所` : "差分あり"}</span>` : "") + (miss ? `<span class="badge">${miss} 台にない</span>` : "");
 }
-// パスの一覧を、ディレクトリの木にする
-function cdTree(files) {
-  const top = { dirs: new Map(), files: [] };
+// いまのフォルダ(cd.dir)の中の、フォルダとファイル
+function cdDirView(files, dir) {
+  const dirs = new Map(), here = [];
   for (const f of files) {
-    const parts = f.path.split("/");
-    let node = top;
-    for (const p of parts.slice(0, -1)) { if (!node.dirs.has(p)) node.dirs.set(p, { dirs: new Map(), files: [] }); node = node.dirs.get(p); }
-    node.files.push(f);
+    if (dir && !f.path.startsWith(dir)) continue;
+    const rest = f.path.slice(dir.length), i = rest.indexOf("/");
+    if (i < 0) { here.push(f); continue; }
+    const name = rest.slice(0, i);
+    const d = dirs.get(name) || { name, files: 0, diff: 0 };
+    d.files++; if (f.status !== "same") d.diff++;
+    dirs.set(name, d);
   }
-  return top;
-}
-function cdTreeHTML(node, prefix, total, open) {
-  const dirs = [...node.dirs.entries()].sort((a, b) => a[0].toLowerCase().localeCompare(b[0].toLowerCase()));
-  const files = node.files.slice().sort((a, b) => a.path.toLowerCase().localeCompare(b.path.toLowerCase()));
-  const count = (n) => n.files.length + [...n.dirs.values()].reduce((a, c) => a + count(c), 0);
-  return dirs.map(([name, sub]) => {
-    const p = prefix + name + "/";
-    return `<details class="cd-dir" data-cddir="${esc(p)}"${open(p) ? " open" : ""}><summary><span class="cicon sm c-datapack">${icon("folder")}</span><span class="title mono" translate="no">${esc(name)}</span><span class="muted small">${count(sub)}</span>${icon("chev", "i chev")}</summary>
-      <div class="cd-sub">${cdTreeHTML(sub, p, total, open)}</div></details>`;
-  }).join("") + files.map((f) => `<button class="row cd-file" type="button" data-cdopen="${esc(f.path)}"><span class="cicon sm c-teal">${icon("doc")}</span>
-      <span class="main"><span class="title mono" translate="no">${esc(f.path.split("/").pop())}</span></span>
-      <span class="trail">${cdBadges(f, total)}${icon("chev", "i chev")}</span></button>`).join("");
+  return { dirs: [...dirs.values()].sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase())),
+    files: here.sort((a, b) => a.path.toLowerCase().localeCompare(b.path.toLowerCase())) };
 }
 function drawCdList(body) {
   const cd = state.cd, d = cd.list;
   const rows = d.files.filter((f) => cd.filter === "all" || (cd.filter === "diff" ? f.status !== "same" : f.status === cd.filter));
-  cd.dirs = cd.dirs || {};
-  const open = (p) => p in cd.dirs ? cd.dirs[p] : cd.filter === "diff";
+  cd.dir = cd.dir || "";
+  if (cd.dir && !rows.some((f) => f.path.startsWith(cd.dir))) cd.dir = "";
   const n = (st) => d.files.filter((f) => f.status === st).length;
   const listHTML = `<div class="sw-filter">${[["diff", `差分のあるもの ${n("diff") + n("partial")}`], ["same", `同じ ${n("same")}`], ["all", `すべて ${d.files.length}`]].map(([k, l]) =>
       `<button class="seg" type="button" data-cdf="${k}" aria-pressed="${cd.filter === k}">${l}</button>`).join("")}</div>
     ${d.servers.some((s) => s.error) ? `<div class="result warn">${d.servers.filter((s) => s.error).map((s) => `${esc(s.name)}: ${esc(s.error)}`).join("<br>")}</div>` : ""}
     ${d.servers.some((s) => s.kind === "ptero") ? `<p class="muted small">Pterodactyl のサーバーは、ファイルの大きさで同じかどうかを見ています(開くと中身で比べます)。</p>` : ""}
-    <div class="group cd-tree">${rows.length ? cdTreeHTML(cdTree(rows), "", d.servers.length, open) : `<div class="empty">あてはまるファイルはありません</div>`}</div>`;
+    ${cdCrumbs(cd.dir)}
+    <div class="group cd-tree">${(() => {
+      const v = cdDirView(rows, cd.dir);
+      return (cd.dir ? `<button class="row" type="button" data-cddir="${esc(cd.dir.replace(/[^/]+\/$/, ""))}"><span class="cicon sm c-other">${icon("back")}</span><span class="main"><span class="title">ひとつ上へ</span></span></button>` : "")
+        + v.dirs.map((x) => `<button class="row cd-file" type="button" data-cddir="${esc(cd.dir + x.name + "/")}"><span class="cicon sm c-datapack">${icon("folder")}</span>
+          <span class="main"><span class="title mono" translate="no">${esc(x.name)}</span></span>
+          <span class="trail">${x.diff ? `<span class="badge upd">差分のあるファイル ${x.diff}</span>` : `<span class="badge ok">同じ</span>`}${icon("chev", "i chev")}</span></button>`).join("")
+        + v.files.map((f) => `<button class="row cd-file" type="button" data-cdopen="${esc(f.path)}"><span class="cicon sm c-teal">${icon("doc")}</span>
+          <span class="main"><span class="title mono" translate="no">${esc(f.path.slice(cd.dir.length))}</span></span>
+          <span class="trail">${cdBadges(f, d.servers.length)}${icon("chev", "i chev")}</span></button>`).join("")
+        || `<div class="empty">あてはまるファイルはありません</div>`;
+    })()}</div>`;
   body.querySelector(".card")?.remove();
   body.querySelector(".cd-listwrap")?.remove();
   body.insertAdjacentHTML("beforeend", `<div class="cd-listwrap">${listHTML}</div>`);
-  body.querySelectorAll("details.cd-dir").forEach((el) => el.addEventListener("toggle", () => { cd.dirs[el.dataset.cddir] = el.open; }));
+}
+function cdCrumbs(dir) {
+  if (!dir) return "";
+  const parts = dir.replace(/\/$/, "").split("/");
+  return `<div class="fe-crumbs cd-crumbs"><button class="btn plain small" type="button" data-cddir="">${icon("folder")}最上位</button>${parts.map((p, i) =>
+    `<span class="muted">/</span><button class="btn plain small" type="button" data-cddir="${esc(parts.slice(0, i + 1).join("/") + "/")}" translate="no">${esc(p)}</button>`).join("")}</div>`;
 }
 
 async function renderCdCompare(body) {

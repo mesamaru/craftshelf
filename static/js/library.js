@@ -253,7 +253,7 @@ $("#list").addEventListener("keydown", (e) => {
 const mcOf = (it) => it.mc_versions || it.mc_auto || "";
 
 /* ---------------- 表示の切り替え(下のタブバー) ---------------- */
-const VIEWS = { library: "ライブラリ", dash: "ダッシュボード", sets: "セット", servers: "サーバー" };
+const VIEWS = { library: "ライブラリ", dash: "ホーム", sets: "セット", servers: "サーバー" };
 function setView(view) {
   if (!VIEWS[view]) view = "library";
   state.view = view;

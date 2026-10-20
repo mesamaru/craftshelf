@@ -59,7 +59,7 @@ function paletteEntries(servers, sets) {
   for (const s of sets || []) out.push({ kind: "セット", title: s.name, sub: `${s.count ?? (s.items || []).length ?? ""} 件`, ic: "stack", run: go("sets") });
   out.push(
     { kind: "画面", title: "ライブラリ", ic: "box", run: go("library") },
-    { kind: "画面", title: "ダッシュボード", ic: "grid", run: go("dash") },
+    { kind: "画面", title: "ホーム", ic: "grid", run: go("dash") },
     { kind: "画面", title: "セット", ic: "stack", run: go("sets") },
     { kind: "画面", title: "サーバー", ic: "server", run: go("servers") },
     { kind: "画面", title: "お知らせ", ic: "bell", run: openNotices },

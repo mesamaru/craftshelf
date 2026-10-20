@@ -196,6 +196,69 @@ window.addEventListener("beforeunload", (e) => { if (state.feDirty && state.feDi
 /* ---------------- サーバー本体(サーバーソフト)のまとめて管理 ---------------- */
 const SOFT_COLORS = { paper: "#e2e8f0", folia: "#bbf7d0", purpur: "#c084fc", leaf: "#86efac", pufferfish: "#fcd34d", velocity: "#60a5fa", waterfall: "#93c5fd",
   bungeecord: "#fde68a", fabric: "#dbb27a", quilt: "#c4b5fd", forge: "#fdba74", neoforge: "#f97316", vanilla: "#a3e635", mohist: "#f472b6", sponge: "#fde047", arclight: "#fca5a5" };
+// サーバー本体のバージョンを選んで入れ替える(配布元のビルド・Minecraft のバージョン・退避した jar)
+async function softwareVersionSheet(s) {
+  if (!s) return;
+  let d;
+  const t = toastProgress("選べるバージョンを確かめています…");
+  try { d = await api(`/api/servers/${s.id}/software/versions`); } catch (ex) { toast(ex.message, true); return; } finally { t.remove(); }
+  const ro = s.access === "view";
+  const choice = await sheet(`${sheetHead(`「${s.name}」のサーバー本体のバージョンを変える`)}<div class="db" id="svBody"></div>
+    <div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok disabled>バージョンを選んでください</button></div>`, (form, done) => {
+    const box = $("#svBody", form), ok = $("[data-ok]", form);
+    const curMc = d.mc, curBuild = d.build;
+    const nowLabel = `${d.no_mc ? "" : curMc ? `${curMc} ` : ""}${curBuild ? `#${curBuild}` : ""}`.trim() || "?";
+    const latest = d.latest && d.latest.build ? `${d.no_mc ? "" : curMc ? `${curMc} ` : ""}#${d.latest.build}` : "";
+    const draw = () => {
+      const isCur = (b) => String(b.build) === String(curBuild) && (d.no_mc || d.mc_selected === curMc);
+      box.innerHTML = `<p class="muted small" style="margin-top:0" translate="no">${esc(d.software_name)}${d.jar ? ` · ${esc(d.jar)}` : ""}</p>
+        ${verNowHTML(nowLabel, latest, d.page_url)}
+        ${!d.no_mc && d.mc_versions.length ? `<label class="field sv-mc"><span>Minecraft のバージョン</span><select id="svMc">${(d.mc_versions.includes(d.mc_selected) ? d.mc_versions : [d.mc_selected, ...d.mc_versions]).filter(Boolean).map((v) => `<option value="${esc(v)}"${v === d.mc_selected ? " selected" : ""}>${esc(v)}${v === curMc ? "(今)" : ""}</option>`).join("")}</select></label>
+          ${d.mc_selected !== curMc ? `<div class="result warn">${icon("shield")} Minecraft のバージョンを変えます。新しいバージョンで開いたワールドは古いバージョンに戻せないため、先に「保存」でワールドを保存してください。アドオンも、そのバージョンに対応したものが要ります。</div>` : ""}` : ""}
+        ${d.backups.length ? `<div class="group-title">退避している jar <small>入れ替える前のもの</small></div>
+          <div class="group">${d.backups.map((b) => pickRow("sv", `k:${b.name}`, `<b translate="no">${esc(b.build ? `#${b.build}` : b.jar)}</b><small translate="no">${esc(fmtDate(b.saved_at))} · ${esc(b.jar)} · ${esc(fmtSize(b.size))}</small>`, { disabled: ro })).join("")}</div>` : ""}
+        <div class="group-title">配布元のビルド${d.no_mc || !d.mc_selected ? "" : ` <small translate="no">${esc(d.mc_selected)}</small>`}</div>
+        <div class="group">${d.error ? `<div class="empty">${esc(d.error)}</div>` : d.builds.length ? d.builds.map((b, i) => pickRow("sv", `b:${b.build}`, `<b translate="no">#${esc(b.build)}</b>
+            ${i === 0 ? ' <span class="badge ok">最新</span>' : ""}${isCur(b) ? ' <span class="badge">今のバージョン</span>' : ""}${b.channel && !["stable", "default", "release", ""].includes(b.channel) ? ` <span class="badge upd">${esc(b.channel)}</span>` : ""}
+            <small translate="no">${b.time ? esc(fmtDate(b.time)) : ""}${b.file ? `${b.time ? " · " : ""}${esc(b.file)}` : ""}</small>`,
+            { disabled: ro || isCur(b) || !b.auto, note: b.auto ? "" : "配布ページから" })).join("") : `<div class="empty">ビルドが見つかりませんでした</div>`}</div>
+        ${d.auto ? "" : `<p class="muted small">${esc(d.software_name)} はインストーラーが要るため、ここでは入れ替えられません。配布ページから取得してください。</p>`}
+        <label class="sw-opt"><input type="checkbox" class="switch" id="svRestart"${state.swRestart !== false ? " checked" : ""}> 止める → 入れ替え → 起動</label>
+        <p class="muted small">${icon("shield")} 今の jar はパネルに退避し、この画面からいつでも戻せます。</p>`;
+      label();
+    };
+    const label = () => {
+      const c = form.querySelector("[name=sv]:checked");
+      ok.disabled = !c;
+      ok.textContent = !c ? "バージョンを選んでください" : c.value.startsWith("k:") ? "退避した jar に戻す" : `#${c.value.slice(2)} にする`;
+    };
+    draw();
+    form.addEventListener("change", async (e) => {
+      if (e.target.name === "sv") { label(); return; }
+      if (e.target.id === "svMc") {
+        const mc = e.target.value;
+        box.querySelectorAll(".group").forEach((g) => g.classList.add("loading"));
+        try { d = { ...d, ...(await api(`/api/servers/${s.id}/software/versions?mc=${encodeURIComponent(mc)}`)), mc_selected: mc }; } catch (ex) { toast(ex.message, true); }
+        draw();
+      }
+    });
+    ok.onclick = () => {
+      const c = form.querySelector("[name=sv]:checked");
+      if (!c) return;
+      const restart = $("#svRestart", form).checked; state.swRestart = restart;
+      done(c.value.startsWith("k:") ? { backup: c.value.slice(2), restart } : { mc: d.mc_selected, build: c.value.slice(2), restart });
+    };
+  });
+  if (!choice) return;
+  try {
+    const r = await api(`/api/servers/${s.id}/software/install`, { json: choice });
+    jobStarted(r.job);
+    const j = await waitJob(r.job.id);
+    if (j && j.status === "done") toast(`サーバー本体を ${choice.backup ? "退避した jar" : `#${choice.build}`} にしました`);
+    else toast((j && j.error) || "入れ替えられませんでした", true);
+  } catch (ex) { toast(ex.message, true); }
+  if ($("#srvBody") && state.srvMode === "software") renderSoftware(true);
+}
 async function renderSoftware(refresh = false) {
   const body = $("#srvBody");
   if (!body) return;
@@ -221,14 +284,14 @@ async function renderSoftware(refresh = false) {
   };
   const row = (s) => {
     const i = s.info || {}, l = i.latest || {};
-    const can = upd(s);
+    const can = s.software && (d.supported[s.software] || {}).auto && s.access !== "view";
     return `<div class="row sw-row">
       <input type="checkbox" class="cbox" data-swpick="${s.id}"${state.swSel.has(s.id) ? " checked" : ""}${can ? "" : " disabled"} aria-label="選ぶ">
       <span class="sw-ic" style="background:${SOFT_COLORS[s.software] || "var(--fill-2)"}">${esc((s.software_name || "?").slice(0, 2))}</span>
       <span class="main"><span class="title" translate="no">${esc(s.name)}</span>
         <span class="subtitle" translate="no">${esc(s.software_name || "ソフト未設定")}${i.mc ? ` ${esc(i.mc)}` : ""}${i.jar ? ` · ${esc(i.jar)}` : ""}</span></span>
       <span class="sw-ver mono" translate="no">${esc(i.build || "?")}${l.build && l.build !== i.build ? ` → <b>${esc(l.build)}</b>` : ""}</span>
-      <span class="trail">${status(s)}${s.backups ? `<button class="icon-btn sm" type="button" data-swback="${s.id}" title="前の jar に戻す" aria-label="前の jar に戻す">${icon("back")}</button>` : ""}</span></div>`;
+      <span class="trail">${status(s)}${s.software ? `<button class="btn small" type="button" data-swver="${s.id}">${icon("arrows")}バージョンを変える</button>` : ""}</span></div>`;
   };
   const sup = Object.values(d.supported);
   body.innerHTML = `<div class="sw-head"><h3>サーバー本体</h3>${nUpd ? `<span class="badge upd">新しいビルド ${nUpd}</span>` : `<span class="badge ok">すべて最新</span>`}
@@ -240,8 +303,8 @@ async function renderSoftware(refresh = false) {
       <label class="sw-opt"><input type="checkbox" class="switch" id="swRestart"${state.swRestart !== false ? " checked" : ""}> 止める → 入れ替え → 起動</label>
       <span class="sp"></span>
       ${nUpd ? `<button class="btn small" type="button" data-swall>更新できるものをすべて選ぶ</button>` : ""}
-      <button class="btn filled" type="button" data-swgo${state.swSel.size ? "" : " disabled"}>${icon("download")}まとめて更新</button></div>
-    <p class="muted small">Minecraft のバージョンは変えず、同じバージョンの中で最新のビルドにします。入れ替える前の jar はパネルに退避し(サーバーごとに 3 つまで)、戻すボタンで戻せます。
+      <button class="btn filled" type="button" data-swgo${state.swSel.size ? "" : " disabled"}>${icon("download")}まとめて最新にする</button></div>
+    <p class="muted small">「まとめて最新にする」は、Minecraft のバージョンは変えず、同じバージョンの中で最新のビルドにします(最新のものは飛ばします)。「バージョンを変える」では、ビルドや Minecraft のバージョンを選べます。入れ替える前の jar はパネルに退避し(サーバーごとに 5 つまで)、そこから戻せます。
       止めて起動するには、サーバーの「設定」で起動・停止の方法(Pterodactyl・コマンド・Docker)を使えるようにしておいてください。</p>
     <details class="sw-support"><summary>対応しているサーバーソフト</summary><p>${sup.filter((x) => x.auto).map((x) => esc(x.name)).join("・")}(入れ替えまで)<br>
       ${sup.filter((x) => !x.auto).map((x) => esc(x.name)).join("・")}(新しいバージョンの確認だけ。インストーラーが要るため)</p></details>`;
@@ -249,20 +312,18 @@ async function renderSoftware(refresh = false) {
     if (e.target.closest("[data-swrefresh]")) { renderSoftware(true); return; }
     const f = e.target.closest("[data-swf]"); if (f) { state.swFilter = f.dataset.swf; renderSoftware(); return; }
     if (e.target.closest("[data-swall]")) { d.servers.filter(upd).forEach((s) => state.swSel.add(s.id)); renderSoftware(); return; }
-    const bk = e.target.closest("[data-swback]");
-    if (bk) {
-      const s = d.servers.find((x) => x.id === Number(bk.dataset.swback));
-      if (!cfm(`「${s.name}」のサーバー本体を、入れ替える前の jar に戻しますか?(サーバーが動いているときは、再起動で反映されます)`)) return;
-      try { const r = await api(`/api/servers/${s.id}/software/restore`, { method: "POST" }); toast(`${r.jar} を戻しました`); renderSoftware(true); } catch (ex) { toast(ex.message, true); }
-      return;
-    }
+    const vb = e.target.closest("[data-swver]");
+    if (vb) { softwareVersionSheet(d.servers.find((x) => x.id === Number(vb.dataset.swver))); return; }
     const go = e.target.closest("[data-swgo]");
     if (go && state.swSel.size) {
       const restart = $("#swRestart").checked; state.swRestart = restart;
-      if (!cfm(`${state.swSel.size} 台のサーバー本体を最新のビルドにしますか?` + (restart ? "\n\n動いているサーバーは止めて入れ替え、起動し直します。" : "\n\n入れ替えたあと、サーバーを再起動すると反映されます。"))) return;
+      const ids = [...state.swSel].filter((id) => upd(d.servers.find((x) => x.id === id) || {}));
+      if (!ids.length) { toast("選んだサーバーは、すべて最新です"); state.swSel.clear(); renderSoftware(); return; }
+      const skip = state.swSel.size - ids.length;
+      if (!cfm(`${ids.length} 台のサーバー本体を最新のビルドにしますか?` + (skip ? `(最新の ${skip} 台は飛ばします)` : "") + (restart ? "\n\n動いているサーバーは止めて入れ替え、起動し直します。" : "\n\n入れ替えたあと、サーバーを再起動すると反映されます。"))) return;
       await busy(go, async () => {
         try {
-          const r = await api("/api/servers/software/update", { json: { server_ids: [...state.swSel], restart } });
+          const r = await api("/api/servers/software/update", { json: { server_ids: ids, restart } });
           r.jobs.forEach((j) => jobStarted(j));
           state.swSel.clear();
           const done = await Promise.all(r.jobs.map((j) => waitJob(j.id)));

@@ -430,9 +430,9 @@ function todoList(s) {
 }
 function renderServerPage(s, el) {
   const ro = s.access === "view", owner = !s.access || s.access === "owner";
-  const tab = state.srvTab || "overview";
   const tabs = [["overview", "概要"], ...(ro ? [] : [["console", "コンソール"]]), ["addons", `アドオン${srvFiles(s) ? ` ${srvFiles(s)}` : ""}`],
     ...(ro ? [] : [["files", "ファイル"]]), ["backup", "保存"], ...(ro ? [] : [["settings", "設定"]])];
+  const tab = tabs.some(([k]) => k === state.srvTab) ? state.srvTab : "overview";
   el.innerHTML = `<div class="srv-page" data-srv="${s.id}">
     ${wideSrv() ? "" : `<button class="btn plain small srv-back" type="button" data-va="back">${icon("back")}サーバー</button>`}
     <div class="srv-hero"><div class="m"><h3 translate="no">${esc(s.name)}</h3><small>${[srvSoftLabel(s), s.kind === "local" ? "フォルダ" : "Pterodactyl", !owner ? `${esc(s.owner_name)} さんが共有` : ""].filter(Boolean).join(" · ")}</small></div>
@@ -525,7 +525,11 @@ $("#serversView").addEventListener("click", async (e) => {
     state.srvMode = md.dataset.mode; document.body.classList.remove("cd-on"); renderServers(); if (state.srvMode === "list") loadServers(); return;
   }
   const op = e.target.closest("[data-srvopen]");
-  if (op) { state.srvOpen = Number(op.dataset.srvopen); state.srvTab = "overview"; renderServers(); if (!wideSrv()) window.scrollTo({ top: 0 }); loadLive(state.srvOpen); return; }
+  if (op) {
+    if (state.feDirty && state.feDirty() && !cfm("保存していない変更があります。破棄して移動しますか?")) return;
+    state.feDirty = null;
+    if (!state.srvOpen) state.srvTab = "overview";  // 別のサーバーを見ていたときは、そのタブのまま
+    state.srvOpen = Number(op.dataset.srvopen); renderServers(); if (!wideSrv()) window.scrollTo({ top: 0 }); loadLive(state.srvOpen); return; }
   const sid = Number(e.target.closest("[data-srv]")?.dataset.srv);
   const s = (state.servers || []).find((x) => x.id === sid);
   const tb = e.target.closest("[data-tab2]");
@@ -873,13 +877,14 @@ async function changeVersionSheet(s, f, run) {
   const haveVer = new Set(local.map((v) => normVer(v.version)));
   const cur = local.findIndex((v) => isCurVer(v, f));
   let remote = null, picked = null;  // picked = { local: version_id } か { remote: index }
+  const latestLocal = local[0] ? verLabel(local[0].version) : "";
   const choice = await sheet(`${sheetHead(`「${it.name}」のバージョンを変える`)}<div class="db">
-      <p class="muted small" style="margin-top:0" translate="no">${esc(s.name)}${s.mc_version ? ` · MC ${esc(s.mc_version)}` : ""} · 今は ${esc(f.version || "?")}</p>
+      <p class="muted small" style="margin-top:0" translate="no">${esc(s.name)}${s.mc_version ? ` · MC ${esc(s.mc_version)}` : ""}</p>
+      <div id="cvNow">${verNowHTML(f.version, latestLocal, so && so.page_url)}</div>
       <div class="group-title">ライブラリに保存しているバージョン</div>
-      <div class="group">${local.map((v, i) => `<label class="toggle-row"><span class="main"><b translate="no">${esc(verLabel(v.version))}</b>
-          ${i === 0 ? ' <span class="badge ok">最新</span>' : ""}${isCurVer(v, f) ? ' <span class="badge">今のバージョン</span>' : ""}${cur >= 0 && i === cur + 1 ? ' <span class="badge">ひとつ前</span>' : ""}
-          <small translate="no">${esc(fmtDate(v.added_at || v.created_at || ""))}${v.filename ? ` · ${esc(v.filename)}` : ""}</small></span>
-          <input type="radio" class="switch" name="cv" value="l${v.id}"${isCurVer(v, f) ? " disabled" : ""}></label>`).join("")}</div>
+      <div class="group">${local.map((v, i) => pickRow("cv", `l${v.id}`, `<b translate="no">${esc(verLabel(v.version))}</b>
+          ${i === 0 ? ' <span class="badge ok">最新</span>' : ""}${isCurVer(v, f) ? ' <span class="badge">今のバージョン</span>' : ""}
+          <small translate="no">${esc(fmtDate(v.added_at || v.created_at || ""))}${v.filename ? ` · ${esc(v.filename)}` : ""}</small>`, { disabled: isCurVer(v, f) })).join("")}</div>
       ${so ? `<div class="group-title">配布元(${esc(PROVIDERS[so.provider] || so.provider)})のバージョン <small>ライブラリに無いもの</small></div>
         <div class="group" id="cvRemote"><div class="empty"><span class="spinner"></span></div></div>` : ""}
       <p class="muted small">${icon("shield")} 今のバージョンは退避され、「保存」→「履歴と巻き戻し」からいつでも戻せます。反映には再起動が要ります。</p>
@@ -887,14 +892,12 @@ async function changeVersionSheet(s, f, run) {
     const ok = form.querySelector("[data-ok]");
     const label = () => {
       const c = form.querySelector("[name=cv]:checked");
-      if (!c) { ok.textContent = "このバージョンにする"; return; }
+      ok.disabled = !c;
+      if (!c) { ok.textContent = "バージョンを選んでください"; return; }
       const v = c.value.startsWith("l") ? local.find((x) => x.id === Number(c.value.slice(1))).version : remote[Number(c.value.slice(1))].version;
       ok.textContent = c.value.startsWith("r") ? `${v} を取得して入れる` : `${v} にする`;
     };
-    const prev = cur >= 0 ? local[cur + 1] : null;
-    const first = form.querySelector(prev ? `[value="l${prev.id}"]` : "[name=cv]:not([disabled])");
-    if (first) first.checked = true;
-    label();
+    label();  // 最初は何も選ばない
     form.addEventListener("change", (e) => { if (e.target.name === "cv") label(); });
     ok.onclick = () => {
       const c = form.querySelector("[name=cv]:checked");
@@ -907,10 +910,12 @@ async function changeVersionSheet(s, f, run) {
         remote = d.versions.filter((v) => !haveVer.has(normVer(v.version)));
         const box = $("#cvRemote", form);
         if (!box) return;
-        box.innerHTML = remote.length ? remote.slice(0, 30).map((v, i) => `<label class="toggle-row"><span class="main"><b translate="no">${esc(v.version)}</b>
-            ${v.type && v.type !== "release" ? ` <span class="badge upd">${esc(v.type === "beta" ? "ベータ" : v.type === "alpha" ? "アルファ" : v.type)}</span>` : ""}
-            <small>${v.date ? esc(fmtDate(v.date)) : ""}${(v.game_versions || []).length ? ` · MC ${esc(summarizeMc(v.game_versions))}` : ""}${v.downloadable ? "" : " · 自動では取得できません"}</small></span>
-            <input type="radio" class="switch" name="cv" value="r${i}"${v.downloadable ? "" : " disabled"}></label>`).join("")
+        const top = d.versions[0];
+        if (top && !haveVer.has(normVer(top.version))) $("#cvNow", form).innerHTML = verNowHTML(f.version, top.version, so.page_url);
+        box.innerHTML = remote.length ? remote.slice(0, 30).map((v, i) => pickRow("cv", `r${i}`, `<b translate="no">${esc(v.version)}</b>
+            ${v === top ? ' <span class="badge ok">最新</span>' : ""}${v.type && v.type !== "release" ? ` <span class="badge upd">${esc(v.type === "beta" ? "ベータ" : v.type === "alpha" ? "アルファ" : v.type)}</span>` : ""}
+            <small>${v.date ? esc(fmtDate(v.date)) : ""}${(v.game_versions || []).length ? ` · MC ${esc(summarizeMc(v.game_versions))}` : ""}</small>`,
+            { disabled: !v.downloadable, note: v.downloadable ? "" : "配布ページから" })).join("")
           : `<div class="empty">ライブラリに無いバージョンは見つかりませんでした${s.mc_version ? `(MC ${esc(s.mc_version)} に対応するもの)` : ""}</div>`;
       }).catch((ex) => { const box = $("#cvRemote", form); if (box) box.innerHTML = `<div class="empty">${esc(ex.message)}</div>`; });
     }
@@ -1212,16 +1217,9 @@ async function inventoryDialog(s, startCat = "all", container = null) {
         const f = d.files.find((x) => x.path === rm.dataset.rowmenu); if (!f) return;
         const it = itemOf(f);
         const page = it && it.source && it.source.page_url;
-        const prev = it ? prevVersionOf(it, f) : null;
         const verRun = (p, label) => runJob([`up:${f.item_id}`], p, label);
         openMenu(rm, [
           ...(it ? [{ label: "バージョンを変える…", icon: "arrows", run: () => changeVersionSheet({ ...s, ...d, id: s.id }, f, verRun) }] : []),
-          ...(prev ? [{ label: `ひとつ前のバージョン(${prev.version || "?"})に戻す`, icon: "back", run: () => {
-            if (!cfm(`${it.name} を ${prev.version || "?"} に戻しますか?
-
-今のバージョンは退避され、「保存」→「履歴と巻き戻し」から戻せます。`)) return;
-            verRun(() => api(`/api/servers/${s.id}/push`, { json: { item_ids: [it.id], version_ids: { [it.id]: prev.id }, force: true } }), `${prev.version || ""} に戻しました`);
-          } }] : []),
           ...(it ? ["-"] : []),
           ...(it ? [{ label: "アドオンのページを開く", icon: "box", run: () => openItem(it.id) }] : []),
           ...(page ? [{ label: "配布ページを開く", icon: "external", run: () => window.open(safeUrl(page), "_blank", "noopener") }] : []),

@@ -367,6 +367,112 @@ def latest_build(software, mc):
     return None
 
 
+# 配布ページ(手で取得するとき・確かめるとき)
+PAGES = {
+    "paper": "https://papermc.io/downloads/paper", "folia": "https://papermc.io/downloads/folia",
+    "velocity": "https://papermc.io/downloads/velocity", "waterfall": "https://papermc.io/downloads/all",
+    "purpur": "https://purpurmc.org/downloads", "leaf": "https://www.leafmc.one/download",
+    "pufferfish": "https://ci.pufferfish.host/", "bungeecord": "https://ci.md-5.net/job/BungeeCord/",
+    "fabric": "https://fabricmc.net/use/server/", "quilt": "https://quiltmc.org/en/install/server/",
+    "vanilla": "https://www.minecraft.net/en-us/download/server", "mohist": "https://mohistmc.com/download",
+    "sponge": "https://spongepowered.org/downloads/spongevanilla", "forge": "https://files.minecraftforge.net/",
+    "neoforge": "https://neoforged.net/", "arclight": "https://github.com/IzzelAliz/Arclight/releases",
+    "spigot": "https://www.spigotmc.org/wiki/buildtools/", "bukkit": "https://www.spigotmc.org/wiki/buildtools/",
+}
+
+
+def _vkey(v):
+    return tuple(int(x) for x in re.findall(r"\d+", str(v))[:4])
+
+
+def mc_versions(software):
+    """そのサーバーソフトで選べる Minecraft(プロキシは本体)のバージョン。新しい順。"""
+    try:
+        if software in _FILL_PROJECTS:
+            d = _get(f"{FILL}/{software}") or {}
+            vs = [v for group in (d.get("versions") or {}).values() for v in group]
+        elif software == "purpur":
+            vs = (_get("https://api.purpurmc.org/v2/purpur") or {}).get("versions") or []
+        elif software == "leaf":
+            vs = (_get("https://api.leafmc.one/v2/projects/leaf") or {}).get("versions") or []
+        elif software in ("vanilla", "fabric"):
+            man = _get("https://piston-meta.mojang.com/mc/game/version_manifest_v2.json") or {}
+            vs = [x["id"] for x in man.get("versions") or [] if x.get("type") == "release"]
+        elif software == "mohist":
+            vs = [x.get("name") or x.get("version") or "" for x in (_get("https://api.mohistmc.com/project/mohist/versions") or [])]
+        else:
+            return []
+    except (requests.RequestException, ValueError, KeyError, TypeError):
+        return []
+    vs = [v for v in vs if v and re.fullmatch(r"[\d.]+(-SNAPSHOT)?", v)]
+    return sorted(set(vs), key=_vkey, reverse=True)[:60]
+
+
+def list_builds(software, mc, limit=25):
+    """そのサーバーソフト・バージョンのビルドの一覧(新しい順)。取得先が分からないものは url が空。"""
+    out = []
+    try:
+        if software in _FILL_PROJECTS:
+            d = _get(f"{FILL}/{software}/versions/{mc}/builds") or []
+            for b in sorted(d, key=lambda x: int(x.get("id") or 0), reverse=True)[:limit]:
+                dl = ((b.get("downloads") or {}).get("server:default") or {})
+                out.append(_res(b.get("id"), dl.get("url") or "", dl.get("name") or "", str(b.get("channel") or "").lower(),
+                                ((dl.get("checksums") or {}).get("sha256") or ""), b.get("time") or ""))
+        elif software == "purpur":
+            d = _get(f"https://api.purpurmc.org/v2/purpur/{mc}") or {}
+            for b in sorted((d.get("builds") or {}).get("all") or [], key=lambda x: int(x) if str(x).isdigit() else 0, reverse=True)[:limit]:
+                out.append(_res(b, f"https://api.purpurmc.org/v2/purpur/{mc}/{b}/download", f"purpur-{mc}-{b}.jar"))
+        elif software == "leaf":
+            d = _get(f"https://api.leafmc.one/v2/projects/leaf/versions/{mc}/builds") or {}
+            for b in list(reversed(d.get("builds") or []))[:limit]:
+                dl = ((b.get("downloads") or {}).get("primary") or {})
+                name = dl.get("name") or f"leaf-{mc}-{b.get('build')}.jar"
+                out.append(_res(b.get("build"), f"https://api.leafmc.one/v2/projects/leaf/versions/{mc}/builds/{b.get('build')}/downloads/{name}",
+                                name, str(b.get("channel") or "default"), dl.get("sha256") or "", b.get("time") or ""))
+        elif software == "mohist":
+            d = _get(f"https://api.mohistmc.com/project/mohist/{mc}/builds") or []
+            for b in sorted(d, key=lambda x: int(x.get("id") or 0), reverse=True)[:limit]:
+                out.append(_res(b.get("id"), f"https://api.mohistmc.com/project/mohist/{mc}/builds/{b.get('id')}/download",
+                                f"mohist-{mc}-{b.get('id')}-server.jar", sha256=b.get("file_sha256") or "", time=b.get("build_date") or ""))
+        elif software == "fabric":
+            loaders = _get("https://meta.fabricmc.net/v2/versions/loader?limit=40") or []
+            inst = next((x for x in (_get("https://meta.fabricmc.net/v2/versions/installer") or []) if x.get("stable")), None)
+            for x in loaders[:limit]:
+                lv = x.get("version", "")
+                url = f"https://meta.fabricmc.net/v2/versions/loader/{mc}/{lv}/{inst['version']}/server/jar" if mc and inst else ""
+                out.append(_res(lv, url, f"fabric-server-mc.{mc}-loader.{lv}-launcher.{inst['version'] if inst else ''}.jar"))
+        elif software == "sponge":
+            d = _get(f"https://dl-api.spongepowered.org/v2/groups/org.spongepowered/artifacts/spongevanilla/versions?tags=minecraft:{mc}&offset=0&limit={min(limit, 10)}") or {}
+            for ver in (d.get("artifacts") or {}).keys():
+                out.append(_res(ver, f"sponge:{ver}", f"spongevanilla-{ver}-universal.jar"))  # 取得先は入れる時に確かめる
+        elif software in _JENKINS:
+            job = _JENKINS[software].format(major=_major(mc))
+            d = _get(f"{job}/api/json?tree=builds%5Bnumber,result,artifacts%5BfileName,relativePath%5D%5D%7B0,{limit}%7D") or {}
+            for b in d.get("builds") or []:
+                if b.get("result") not in (None, "SUCCESS"):
+                    continue
+                arts = b.get("artifacts") or []
+                art = next((a for a in arts if a.get("fileName") == "BungeeCord.jar"), None) if software == "bungeecord" \
+                    else next((a for a in arts if a.get("fileName", "").endswith(".jar")), None)
+                out.append(_res(b.get("number"), f"{job}/{b.get('number')}/artifact/{art['relativePath']}" if art else "", art["fileName"] if art else ""))
+        else:
+            one = latest_build(software, mc)
+            out = [one] if one else []
+    except (requests.RequestException, ValueError, KeyError, TypeError) as e:
+        raise NetError(f"ビルドの一覧を取得できませんでした({e.__class__.__name__})") from e
+    return out
+
+
+def resolve_build(software, mc, build):
+    """選ばれたビルドの取得先(一覧から探し直す。ブラウザから来た URL は使わない)。"""
+    hit = next((b for b in list_builds(software, mc, 60) if str(b["build"]) == str(build)), None)
+    if hit and hit["url"].startswith("sponge:"):
+        info = _get(f"https://dl-api.spongepowered.org/v2/groups/org.spongepowered/artifacts/spongevanilla/versions/{hit['build']}") or {}
+        a = next((x for x in info.get("assets") or [] if x.get("classifier") == "universal" and x.get("extension") == "jar"), None)
+        hit = {**hit, "url": (a or {}).get("downloadUrl", ""), "auto": bool(a)}
+    return hit
+
+
 def download(url, dest, sha256="", max_bytes=600 * 1024 * 1024):
     """サーバー本体の jar を取得する(sha256 があれば中身を確かめる)。"""
     import hashlib

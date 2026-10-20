@@ -93,9 +93,41 @@ info = c.get(f"/api/servers/{sv['PaperSrv']}/software?refresh=1", headers=H).get
 check(info["build"] == "212", f"build back to 212 ({info.get('build')})")
 check(c.post(f"/api/servers/{sv['PaperSrv']}/software/restore", headers=H).status_code == 404, "nothing left to restore → 404")
 
+# ---- バージョンを選んで入れ替える ----
+OLDER = jar_bytes("paper-220")
+BUILDS = {"1.21.4": [{**LATEST["paper"]}, {"build": "220", "url": "https://example.invalid/paper-220.jar", "file": "paper-1.21.4-220.jar", "sha256": "", "auto": True, "channel": "stable", "time": ""}],
+          "1.21.5": [{"build": "10", "url": "https://example.invalid/paper-1215-10.jar", "file": "paper-1.21.5-10.jar", "sha256": "", "auto": True, "channel": "beta", "time": ""}]}
+mcnet.list_builds = lambda soft, mc, limit=25: BUILDS.get(mc, []) if soft == "paper" else []
+mcnet.mc_versions = lambda soft: ["1.21.5", "1.21.4"]
+v = c.get(f"/api/servers/{sv['PaperSrv']}/software/versions", headers=H).get_json()
+check(v["mc"] == "1.21.4" and v["build"] == "212" and [b["build"] for b in v["builds"]] == ["232", "220"], f"builds for the current MC ({v.get('builds')})")
+check(v["mc_versions"][0] == "1.21.5" and v["page_url"].startswith("https://") and v["backups"] == [], "MC versions, download page, no backups yet")
+v2 = c.get(f"/api/servers/{sv['PaperSrv']}/software/versions?mc=1.21.5", headers=H).get_json()
+check([b["build"] for b in v2["builds"]] == ["10"] and v2["mc_selected"] == "1.21.5", "builds for another MC version")
+DL.clear()
+r = c.post(f"/api/servers/{sv['PaperSrv']}/software/install", json={"mc": "1.21.4", "build": "220"}, headers=H).get_json()
+js = wait_jobs([r["job"]["id"]])
+check(js[0]["status"] == "done" and DL == ["https://example.invalid/paper-220.jar"], f"chosen build is downloaded from the listed URL ({DL})")
+info = c.get(f"/api/servers/{sv['PaperSrv']}/software", headers=H).get_json()
+check(info["build"] == "220", f"chosen build is shown ({info.get('build')})")
+check(c.post(f"/api/servers/{sv['PaperSrv']}/software/install", json={"mc": "1.21.4", "build": "999"}, headers=H).status_code == 400, "unknown build refused")
+v = c.get(f"/api/servers/{sv['PaperSrv']}/software/versions", headers=H).get_json()
+check(len(v["backups"]) == 1 and v["backups"][0]["build"] == "212", f"previous jar listed as a backup ({v['backups']})")
+r = c.post(f"/api/servers/{sv['PaperSrv']}/software/install", json={"backup": v["backups"][0]["name"]}, headers=H).get_json()
+js = wait_jobs([r["job"]["id"]])
+check(js[0]["status"] == "done" and (r1 / "paper-1.21.4-212.jar").read_bytes() == OLD, "backup jar put back")
+v = c.get(f"/api/servers/{sv['PaperSrv']}/software/versions", headers=H).get_json()
+check([b["build"] for b in v["backups"]] == ["220"] and v["build"] == "212", f"used backup removed, replaced jar backed up ({v['backups']}, {v['build']})")
+check(c.post(f"/api/servers/{sv['PaperSrv']}/software/install", json={"backup": "../x"}, headers=H).status_code == 404, "unknown backup name refused")
+r = c.post(f"/api/servers/{sv['PaperSrv']}/software/install", json={"mc": "1.21.5", "build": "10"}, headers=H).get_json()
+js = wait_jobs([r["job"]["id"]])
+srv = next(x for x in c.get("/api/servers", headers=H).get_json()["servers"] if x["id"] == sv["PaperSrv"])
+check(js[0]["status"] == "done" and srv["mc_version"] == "1.21.5", f"MC version changed with the jar ({srv.get('mc_version')})")
+
 # ---- 権限 ----
 c.post("/api/users", json={"username": "ed", "password": "password123", "role": "editor"}, headers=H)
 e = A.app.test_client(); e.post("/api/auth/login", json={"username": "ed", "password": "password123"}, headers=H)
+check(e.post(f"/api/servers/{sv['PaperSrv']}/software/install", json={"mc": "1.21.4", "build": "220"}, headers=H).status_code in (403, 404), "other editor cannot pick a version")
 check(e.post("/api/servers/software/update", json={"server_ids": [sv["PaperSrv"]]}, headers=H).status_code in (403, 404), "other editor cannot update")
 check(e.get("/api/servers/software", headers=H).get_json()["servers"] == [], "other editor sees no servers")
 check(c.post("/api/servers/software/update", json={"server_ids": []}, headers=H).status_code == 400, "empty selection refused")

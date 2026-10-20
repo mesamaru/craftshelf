@@ -1,6 +1,6 @@
 "use strict";
 /* ---------------- v02 の画面の枠: 左のサイドバー(PC)・検索欄・下のタブ(スマホ)・ライブラリの要約 ---------------- */
-const SIDE_VIEWS = [["library", "box", "ライブラリ"], ["dash", "grid", "ダッシュボード"], ["sets", "stack", "セット"], ["servers", "server", "サーバー"]];
+const SIDE_VIEWS = [["library", "box", "ライブラリ"], ["dash", "grid", "ホーム"], ["sets", "stack", "セット"], ["servers", "server", "サーバー"]];
 const SIDE_MAX_SERVERS = 8;
 
 $("#gsIcon").innerHTML = icon("search");
@@ -61,7 +61,12 @@ $("#sidenav").addEventListener("click", (e) => {
   const v = e.target.closest("[data-view]");
   if (v) { setView(v.dataset.view); return; }
   const g = e.target.closest("[data-srvgo]");
-  if (g) { state.srvOpen = Number(g.dataset.srvgo); state.srvTab = "overview"; setView("servers"); renderSideServers(); return; }
+  if (g) {
+    if (state.feDirty && state.feDirty() && !cfm("保存していない変更があります。破棄して移動しますか?")) return;
+    state.feDirty = null;
+    if (!state.srvOpen || state.view !== "servers") state.srvTab = "overview";  // 別のサーバーを見ていたときは、そのタブのまま
+    state.srvOpen = Number(g.dataset.srvgo); setView("servers"); renderSideServers(); return;
+  }
   const a = e.target.closest("[data-sn]");
   if (!a) return;
   if (a.dataset.sn === "fold") toggleSide();

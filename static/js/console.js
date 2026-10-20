@@ -100,6 +100,7 @@ function filesPane(s, pane, dir) {
     <div class="slist pad fe-top">
       <nav class="fe-crumbs" translate="no"><button class="btn plain small" type="button" data-fdir="">${icon("server")}${esc(s.name)}</button>${parts.map((p, i) =>
         `<span class="sep">/</span><button class="btn plain small" type="button" data-fdir="${esc(parts.slice(0, i + 1).join("/"))}">${esc(p)}</button>`).join("")}</nav>
+      <div class="fe-cmp"><button class="btn small" type="button" data-fcmp>${icon("doc")}ほかのサーバーと比べる</button></div>
       ${dir ? "" : `<div class="fe-quick">${QUICK_FILES.map(([p, n]) => `<button class="btn small" type="button" data-fquick="${esc(p)}" translate="no">${esc(n)}</button>`).join("")}</div>`}
     </div>
     <div class="slist fe-list" id="feList"><div class="live-wait"><span class="spinner"></span> 読み込んでいます…</div></div>
@@ -115,6 +116,7 @@ function filesPane(s, pane, dir) {
     }).join("") : `<p class="muted" style="padding:16px">空のフォルダです</p>`;
   }).catch((e) => { list.innerHTML = `<p class="err" style="padding:16px">${esc(e.message)}</p>`; });
   pane.onclick = (e) => {
+    if (e.target.closest("[data-fcmp]")) { state.cd = { ids: [s.id], sync: true, onlyDiff: false, widths: {}, filter: "diff" }; state.srvMode = "cfgdiff"; renderServers(); return; }
     const d = e.target.closest("[data-fdir]"); if (d) { filesPane(s, pane, d.dataset.fdir); return; }
     const o = e.target.closest("[data-fopen]"); if (o) { fileEditor(s, pane, o.dataset.fopen); return; }
     const q = e.target.closest("[data-fquick]");
@@ -134,6 +136,7 @@ async function fileEditor(s, pane, path) {
       <button class="btn plain small" type="button" data-fback>${icon("back")}ファイル</button>
       <span class="fe-path mono" translate="no" title="${esc(path)}">${esc(path)}</span>
       <span class="fe-state muted small" id="feState"></span>
+      <button class="btn small" type="button" data-fcmpfile>${icon("doc")}比べる</button>
       <button class="btn small" type="button" data-fhist${f.history ? "" : " disabled"}>${icon("clock")}履歴${f.history ? ` ${f.history}` : ""}</button>
       <button class="btn filled small" type="button" data-fsave disabled>保存</button></div>
     <textarea class="fe-text" id="feText" spellcheck="false" autocapitalize="off" autocomplete="off" translate="no" wrap="off" aria-label="${esc(path)}"></textarea>
@@ -166,6 +169,12 @@ async function fileEditor(s, pane, path) {
   }
   saveBtn.addEventListener("click", () => save(false));
   $("[data-fback]", pane).addEventListener("click", leave);
+  $("[data-fcmpfile]", pane).addEventListener("click", () => {
+    if (dirty() && !cfm("保存していない変更があります。破棄して比べますか?")) return;
+    state.feDirty = null;
+    state.cd = { ids: [s.id], sync: true, onlyDiff: false, widths: {}, filter: "diff", wantPath: path };
+    state.srvMode = "cfgdiff"; renderServers();
+  });
   $("[data-fhist]", pane).addEventListener("click", async (e) => {
     const btn = e.currentTarget;
     let h;

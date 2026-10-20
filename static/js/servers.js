@@ -368,10 +368,11 @@ function renderServers() {
   }
   const head = `<div class="view-head srv-vh"><div class="chips">
       ${state.srvMode && state.srvMode !== "list" ? `<button class="btn small tinted" type="button" data-mode="list">${icon("back")}一覧に戻る</button>`
-        : `<button class="btn small" type="button" data-mode="compare">${icon("arrows")}比較</button><button class="btn small" type="button" data-mode="software">${icon("server")}サーバー本体</button>`}</div>
+        : `<button class="btn small" type="button" data-mode="compare">${icon("arrows")}比較</button><button class="btn small" type="button" data-mode="software">${icon("server")}サーバー本体</button><button class="btn small" type="button" data-mode="cfgdiff">${icon("doc")}設定を比べる</button>`}</div>
       <button class="btn filled need-editor" type="button" data-va="add">${icon("plus")}追加</button></div>`;
   if (state.srvMode === "compare") { view.innerHTML = `${head}<div id="srvBody"></div>`; renderCompare(); return; }
   if (state.srvMode === "software") { view.innerHTML = `${head}<div id="srvBody"></div>`; renderSoftware(); return; }
+  if (state.srvMode === "cfgdiff") { view.innerHTML = `${head}<div id="srvBody" class="cd-wrap"></div>`; renderCfgDiff(); return; }
   if (!list.length) {
     view.innerHTML = `${head}<div class="card"><div class="empty"><div class="big">🖥️</div>まだサーバーがありません。「追加」から、Pterodactyl のサーバーか、このパネルから見えるフォルダのサーバーを追加できます</div></div>`;
     return;
@@ -519,7 +520,10 @@ async function syncDialog(s) {
 matchMedia("(min-width: 900px)").addEventListener("change", () => { if (state.view === "servers" && state.servers) renderServers(); });
 $("#serversView").addEventListener("click", async (e) => {
   const md = e.target.closest("[data-mode]");
-  if (md) { state.srvMode = md.dataset.mode; renderServers(); if (state.srvMode === "list") loadServers(); return; }
+  if (md) {
+    if (state.srvMode === "cfgdiff" && state.cd && state.cd.files && Object.values(state.cd.files).some((f) => f.dirty) && !cfm("保存していない変更があります。破棄して移動しますか?")) return;
+    state.srvMode = md.dataset.mode; document.body.classList.remove("cd-on"); renderServers(); if (state.srvMode === "list") loadServers(); return;
+  }
   const op = e.target.closest("[data-srvopen]");
   if (op) { state.srvOpen = Number(op.dataset.srvopen); state.srvTab = "overview"; renderServers(); if (!wideSrv()) window.scrollTo({ top: 0 }); loadLive(state.srvOpen); return; }
   const sid = Number(e.target.closest("[data-srv]")?.dataset.srv);

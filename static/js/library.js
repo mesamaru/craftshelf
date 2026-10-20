@@ -258,6 +258,7 @@ function setView(view) {
   if (!VIEWS[view]) view = "library";
   state.view = view;
   document.body.classList.remove("srv-detail");
+  if (view !== "servers" || state.srvMode !== "cfgdiff") document.body.classList.remove("cd-on");
   if (state.jobs) renderJobs();
   document.querySelectorAll("#tabbar [data-view]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.view === view)));
   document.querySelectorAll("#sidenav [data-view]").forEach((b) => b.setAttribute("aria-current", b.dataset.view === view ? "page" : "false"));

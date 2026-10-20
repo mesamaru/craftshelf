@@ -1674,6 +1674,73 @@ def api_servers_file_history(srv):
     return jsonify(entries=[dict(r) for r in rows])
 
 
+CONFIG_SCAN = (("", 0), ("plugins", 3), ("config", 4), ("mods/config", 3))  # 探す場所と深さ
+CONFIG_SKIP = {"logs", "cache", "libraries", "crash-reports", "versions", "world", "world_nether", "world_the_end", ".craftshelf-backup"}
+CONFIG_MAX = 400
+
+
+def config_files(fs):
+    """サーバーの設定ファイルの一覧 {相対パス: {size, hash}}(hash はフォルダのサーバーだけ。Pterodactyl は大きさで見る)。"""
+    import hashlib
+    out = {}
+
+    def walk(rel, depth):
+        if len(out) >= CONFIG_MAX:
+            return
+        entries = fs.list(rel)
+        if entries is None:
+            return
+        for e in sorted(entries, key=lambda x: x["name"].lower()):
+            path = f"{rel}/{e['name']}" if rel else e["name"]
+            if e["is_file"]:
+                if Path(e["name"]).suffix.lower() in EDIT_EXTS and (e["size"] or 0) <= EDIT_LIMIT and not e["name"].endswith(".craftshelf-part"):
+                    h = None
+                    if fs.kind == "local":
+                        data = fs.read_bytes(path, EDIT_LIMIT)
+                        h = hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest() if data is not None else None  # 改行の違いは見ない
+                    out[path] = {"size": e["size"] or 0, "hash": h}
+            elif depth > 0 and e["name"] not in CONFIG_SKIP and not e["name"].startswith("."):
+                walk(path, depth - 1)
+            if len(out) >= CONFIG_MAX:
+                return
+
+    for rel, depth in CONFIG_SCAN:
+        try:
+            walk(rel, depth)
+        except ApiError:
+            continue
+    return out
+
+
+@app.get("/api/servers/configs")
+@require("editor")
+def api_servers_configs():
+    """選んだサーバーの設定ファイルの一覧と、サーバーどうしで同じか(ids=1,2,3)。"""
+    try:
+        ids = [int(x) for x in str(request.args.get("ids") or "").split(",") if x.strip()]
+    except ValueError:
+        raise ApiError("数値で指定してください")
+    if len(ids) < 2:
+        raise ApiError("比べるサーバーを 2 台以上選んでください")
+    servers = []
+    for srv in ids[:8]:
+        row = _server_row(srv, "edit")
+        try:
+            files = config_files(server_fs(row))
+            err = ""
+        except ApiError as e:
+            files, err = {}, e.message
+        servers.append({"id": row["id"], "name": row["name"], "kind": row["kind"], "files": files, "error": err})
+    paths = sorted({p for s in servers for p in s["files"]}, key=lambda x: (x.count("/"), x.lower()))
+    rows = []
+    for path in paths:
+        have = [s for s in servers if path in s["files"]]
+        marks = {(s["files"][path]["hash"] or f"size:{s['files'][path]['size']}") for s in have}
+        status = "partial" if len(have) < len(servers) else "same" if len(marks) == 1 else "diff"
+        rows.append({"path": path, "status": status, "on": [s["id"] for s in have]})
+    return jsonify(servers=[{k: v for k, v in s.items() if k != "files"} | {"count": len(s["files"])} for s in servers], files=rows)
+
+
 @app.get("/api/servers/<int:srv>/file/history/<int:hid>")
 @require("editor")
 def api_servers_file_history_get(srv, hid):

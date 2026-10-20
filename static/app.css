@@ -1417,3 +1417,49 @@ body:not(.can-edit) .tabbar .tab-add { display: none; }
 .sw-support summary { cursor: pointer; color: var(--tint); font-size: 13px; }
 .sw-support p { font-size: 13px; color: var(--label-2); line-height: 1.7; }
 @media (max-width: 700px) { .sw-ver { display: none; } .sw-bar { bottom: 90px; } }
+
+.notes-more summary { cursor: pointer; margin: 10px 0 4px; color: var(--tint); font-weight: 600; font-size: 13.5px; }
+
+/* 設定を比べる */
+.cd-pick { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 12px; }
+.cd-file .title { white-space: normal; overflow-wrap: anywhere; }
+.fe-cmp { display: flex; justify-content: flex-end; }
+.cd-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 0 0 10px; }
+.cd-top .sp { flex: 1; }
+.cd-cols { display: flex; align-items: stretch; overflow-x: auto; border-radius: 16px; border: .5px solid var(--glass-edge); background: var(--glass); }
+.cd-col { flex: 1 0 320px; min-width: 220px; display: flex; flex-direction: column; }
+.cd-grip { flex: none; width: 6px; cursor: col-resize; background: var(--sep); touch-action: none; }
+.cd-grip:hover { background: var(--tint-fill); }
+.cd-h { display: flex; align-items: center; gap: 6px; padding: 8px 10px; border-bottom: .5px solid var(--sep); font-size: 13px; min-height: 44px; }
+.cd-h .sp { flex: 1; }
+.cd-body { height: min(68vh, 760px); overflow: auto; font: 12.5px/22px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overscroll-behavior: contain; }
+.cd-ln { position: relative; display: flex; min-height: 22px; white-space: pre; }
+.cd-no { flex: none; width: 40px; padding-right: 8px; text-align: right; color: var(--label-3); user-select: none; }
+.cd-tx { flex: 1; padding: 0 30px 0 4px; outline: none; min-width: 0; }
+.cd-tx:focus { background: var(--tint-soft); }
+.cd-void { background: repeating-linear-gradient(135deg, var(--fill) 0 4px, transparent 4px 8px); }
+.cd-ln.d-chg, .cd-ln.d-base { background: color-mix(in srgb, var(--orange) 16%, transparent); }
+.cd-ln.d-extra { background: color-mix(in srgb, var(--tint-fill) 16%, transparent); }
+.cd-ln.d-miss, .cd-ln.d-gap { background: color-mix(in srgb, var(--red) 10%, transparent); }
+.cd-act { position: absolute; right: 2px; top: 1px; width: 22px; height: 20px; border: 0; border-radius: 6px; background: transparent; color: var(--label-2); display: grid; place-items: center; opacity: .55; }
+.cd-act:hover { opacity: 1; background: var(--fill-2); }
+.cd-act svg { width: 14px; height: 14px; }
+.cd-none { padding: 16px; display: flex; flex-direction: column; gap: 8px; align-items: flex-start; font-family: var(--font); color: var(--label-2); }
+/* 縦向きのスマホは上下に分ける(横向きは横に並べる) */
+@media (max-width: 760px) and (orientation: portrait) {
+  .cd-cols { flex-direction: column; overflow-x: visible; }
+  .cd-col { flex: none !important; min-width: 0; }
+  .cd-grip { display: none; }
+  .cd-body { height: calc((100dvh - 260px) / 2); min-height: 180px; }
+  .cd-top .btn span, .cd-top .sw-opt { font-size: 12px; }
+}
+@media (orientation: landscape) and (max-height: 500px) { .cd-body { height: calc(100dvh - 150px); } .cd-col { flex-basis: 50%; } }
+
+/* 横向きのスマホで比べている間は、見出し・検索・下のタブを隠して、比べる場所を広く */
+@media (orientation: landscape) and (max-height: 500px) {
+  body.cd-on :is(.large-title, .gsearch-m, .srv-vh, .tabbar, #jobs) { display: none !important; }
+  body.cd-on .wrap { padding-top: 6px; padding-bottom: 12px; }
+  body.cd-on .cd-top { margin-bottom: 6px; }
+  body.cd-on .cd-body { height: calc(100dvh - 190px); min-height: 120px; }
+  body.cd-on .wrap > p.muted, body.cd-on .cd-wrap > p.muted { display: none; }
+}

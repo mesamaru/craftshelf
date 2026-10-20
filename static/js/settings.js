@@ -971,7 +971,11 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
         ${d.blocked ? `<div class="result warn">${esc(d.blocked)}</div>` : ""}
         ${d.major_up && d.update_available && !d.blocked ? `<div class="result">${icon("shield")} v${esc(d.current)} → v${esc(d.latest)} は大きなアップデートです。インストールの前に、いまのデータを自動で退避します(下の「アップデートの前の状態」からいつでも戻せます)。</div>` : ""}
         ${d.downgrade && !d.blocked ? `<button class="btn tinted block" type="button" id="suDown">${icon("download")}${CH[ch][0]} v${esc(d.latest)} に戻す</button>` : ""}
-        ${d.notes && d.notes.length ? `<div class="notes">${d.notes.map((n) => `<h4>v${esc(n.version)} ${esc(n.title)}</h4><div class="body">${esc(n.body)}</div>`).join("")}</div>` : ""}
+        ${d.notes && d.notes.length ? (() => {  // 最新の更新内容だけを開いて出し、それより前のものはたたむ
+          const note = (n) => `<h4>v${esc(n.version)} ${esc(n.title)}</h4><div class="body">${esc(n.body)}</div>`;
+          const [head, ...rest] = d.notes;
+          return `<div class="notes">${note(head)}${rest.length ? `<details class="notes-more"><summary>それより前の更新(${rest.length} 件)</summary>${rest.map(note).join("")}</details>` : ""}</div>`;
+        })() : ""}
         ${d.blocked ? "" : d.update_available && d.mode === "installer" && !d.can_apply ? `<a class="btn filled block" href="${esc(safeUrl(d.download_url))}" target="_blank" rel="noopener noreferrer">${icon("download")}新しいインストーラーをダウンロード</a>
           <div class="group-foot" style="text-align:center">ダウンロードしたインストーラーを実行すると、上書きでアップデートされます。保存したファイルや登録情報はそのまま残ります。</div>`
           : d.update_available ? `<button class="btn filled block" type="button" id="suGo">ダウンロードしてインストール</button>

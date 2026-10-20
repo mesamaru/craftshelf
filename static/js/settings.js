@@ -63,7 +63,7 @@ const SETTINGS_PAGES = {
           ${can("system") ? rowBtn("telemetry", "chart", "c-gray", "利用状況の送信", `<span class="val">${state.tele.enabled ? "送信する" : "送信しない"}</span>`) : ""}
         </div>` : ""}
         <div class="group-title">表示</div><div class="group">
-          ${rowBtn("appearance", "sparkle", "c-resourcepack", "テーマと背景", `<span class="val">${esc(themeName(state.prefs))}</span>`)}
+          ${rowBtn("appearance", "sparkle", "c-resourcepack", "見た目とテーマ", `<span class="val">${esc((state.prefs && state.prefs.skin && state.prefs.skin !== "glass") ? (SKINS.find((k) => k.id === state.prefs.skin) || {}).name || "" : themeName(state.prefs))}</span>`)}
           ${rowBtn("lang", "globe", "c-plugin", "言語 / Language", `<span class="val" translate="no">${I18N.lang === "en" ? "English" : "日本語"}</span>`)}
           ${isAdmin() && state.guide && state.guide.hidden ? `<button class="row" type="button" data-guide><span class="cicon sm c-teal">${icon("sparkle")}</span><span class="main"><span class="title">はじめの設定ガイド</span><span class="subtitle">ライブラリの上にまた出します</span></span></button>` : ""}
           ${pwa.available() ? `<button class="row" type="button" data-pwa><span class="cicon sm c-mod">${icon("download")}</span><span class="main"><span class="title">ホーム画面に追加</span><span class="subtitle">アプリのように全画面で開けます</span></span></button>` : ""}
@@ -288,7 +288,7 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
     },
   },
   appearance: {
-    title: () => "テーマと背景",
+    title: () => "見た目とテーマ",
     async render(body) {
       const p = state.prefs || {};
       const cur = p.theme || DEFAULT_THEME;
@@ -296,8 +296,15 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
         <span class="sw" style="background:${esc(bgCss)}">${cur === id ? `<span class="ck">${icon("check")}</span>` : ""}</span>${esc(name)}</button>`;
       const mintBg = "radial-gradient(120% 80% at 10% 0%, rgba(52,199,89,.35), transparent 60%), radial-gradient(90% 70% at 100% 0%, rgba(0,122,255,.25), transparent 60%), #f2f2f7";
       const dim = p.bg_dim ?? (cur === "custom" ? 20 : 0);
-      body.innerHTML = `<p>パネルの背景を選べます。設定はアカウントごとに保存されます。</p>
-        <div class="themes">
+      const skin = p.skin || "glass";
+      body.innerHTML = `<div class="group-title" style="margin-top:0">見た目の種類</div>
+        <div class="skins">${SKINS.map((k) => `<button class="skin-tile" type="button" data-skin="${k.id}" aria-pressed="${skin === k.id}">
+          <span class="sk-prev" style="background:${k.prev[0]}"><i style="background:${k.prev[2]}"></i><b style="background:${k.prev[1]}"></b>${skin === k.id ? `<span class="ck">${icon("check")}</span>` : ""}</span>
+          <span class="sk-n">${esc(k.name)}</span><span class="sk-d">${esc(k.note)}</span></button>`).join("")}</div>
+        <div class="group-title">テーマ(背景と色)</div>
+        ${skin !== "glass" ? `<div class="result">${icon("sparkle")} テーマは「ガラス」のときに使われます。いまの見た目の種類では、その種類の背景と色で表示します。</div>` : ""}
+        <p>パネルの背景を選べます。設定はアカウントごとに保存されます。</p>
+        <div class="themes${skin !== "glass" ? " off" : ""}">
           ${THEMES.map((t) => tile(t.id, t.name, t.bg || mintBg)).join("")}
           ${p.bg_file ? tile("custom", "マイ画像", `url("${bgUrl(p.bg_file)}") center / cover no-repeat`)
             : `<button class="theme-tile" type="button" data-upload><span class="sw"><span class="add">${icon("plus")}</span></span>画像を追加</button>`}
@@ -329,6 +336,11 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
         timer = setTimeout(() => savePrefs({ [el.name]: Number(el.value) }).catch((ex) => toast(ex.message, true)), 400);
       };
       body.onclick = async (e) => {
+        const sk = e.target.closest("[data-skin]");
+        if (sk) {
+          try { await savePrefs({ skin: sk.dataset.skin }); renderSettings(); } catch (ex) { toast(ex.message, true); }
+          return;
+        }
         const tb = e.target.closest("[data-theme]");
         if (tb) {
           try {

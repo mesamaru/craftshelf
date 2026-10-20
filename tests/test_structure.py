@@ -102,3 +102,16 @@ def test_english_translation_samples():
     out = [json.loads(line) for line in r.stdout.splitlines()]
     left = [f"{s} → {o}" for s, o in zip(samples, out) if re.search(r"[぀-ヿ一-鿿]", o)]
     assert not left, "日本語が残っています:\n" + "\n".join(left)
+
+
+def test_skins_match():
+    """画面の見た目の種類(base.js の SKINS)と、保存できる値(accounts.SKINS)・CSS(skins.css)がそろっていること。"""
+    import re as _re
+    js = (ROOT / "static" / "js" / "base.js").read_text(encoding="utf-8")
+    ids = _re.findall(r'\{ id: "([a-z0-9]+)", name: "[^"]+", note:', js)
+    py = (ROOT / "craftshelf" / "accounts.py").read_text(encoding="utf-8")
+    allowed = set(_re.findall(r"'([a-z0-9]+)'", _re.search(r"^SKINS = \((.*?)\)", py, _re.M).group(1)))
+    css = (ROOT / "static" / "skins.css").read_text(encoding="utf-8")
+    assert ids and set(ids) == allowed, (ids, allowed)
+    missing = [i for i in ids if i != "glass" and f'body[data-skin="{i}"] {{' not in css]
+    assert not missing, f"skins.css に無い見た目: {missing}"

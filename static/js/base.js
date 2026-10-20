@@ -245,7 +245,21 @@ const STARS = [
   "radial-gradient(1px 1px at 90px 70px, rgba(255,255,255,.7), transparent) 0 0 / 190px 190px",
   "radial-gradient(1.8px 1.8px at 50px 160px, rgba(220,200,255,.8), transparent) 0 0 / 230px 230px",
 ].join(", ");
-const DEFAULT_THEME = "aurora";  // 02 から、はじめはオーロラ(ミントはいつでも選べる)
+const DEFAULT_THEME = "aurora";
+/* 見た目の種類(スキン)。ガラス以外は、背景と色もその種類で決まる(テーマは使わない)。tone = 大見出しの文字色 */
+const SKINS = [
+  { id: "glass", name: "ガラス", note: "半透明のガラス(今までの見た目)", prev: ["#0b1a33", "#30d18a", "rgba(255,255,255,.18)"] },
+  { id: "material", name: "マテリアル", note: "Android 風・色の面と浮いたボタン", tone: "dark", prev: ["#141218", "#d0bcff", "#2b2930"] },
+  { id: "fluent", name: "Fluent", note: "Windows 11 風・角が小さく細い線", tone: "dark", prev: ["#202020", "#60cdff", "#2d2d2d"] },
+  { id: "terminal", name: "ターミナル", note: "等幅文字・黒と緑", tone: "dark", prev: ["#0b0f0c", "#39ff88", "#123b22"] },
+  { id: "swiss", name: "スイス", note: "白黒・大きな文字・格子", tone: "light", prev: ["#ffffff", "#e30613", "#000000"] },
+  { id: "mono", name: "モノクロ", note: "細い線で密度高め", tone: "dark", prev: ["#000000", "#ededed", "#1f1f1f"] },
+  { id: "paper", name: "ペーパー", note: "紙の色・明朝の見出し", tone: "light", prev: ["#f5f0e6", "#b5651d", "#fffaf0"] },
+  { id: "wa", name: "和モダン", note: "和紙・墨・朱色", tone: "light", prev: ["#f7f3ea", "#d0352b", "#1c1c1c"] },
+  { id: "win95", name: "Windows 95", note: "灰色の窓・立体のボタン", tone: "light", prev: ["#008080", "#000080", "#c0c0c0"] },
+  { id: "notion", name: "ドキュメント", note: "白・ブロック・やわらかい線", tone: "light", prev: ["#ffffff", "#2383e2", "#f7f7f5"] },
+  { id: "ide", name: "IDE", note: "VS Code 風・タブと左の列", tone: "dark", prev: ["#1e1e1e", "#3794ff", "#252526"] },
+];  // 02 から、はじめはオーロラ(ミントはいつでも選べる)
 const THEMES = [
   { id: "mint", name: "ミント", tone: null, bg: null },
   { id: "aurora", name: "オーロラ", tone: "dark", bg: "radial-gradient(60% 50% at 20% 15%, rgba(61,255,170,.55), transparent 70%), radial-gradient(50% 45% at 85% 25%, rgba(138,92,255,.6), transparent 70%), radial-gradient(60% 50% at 55% 95%, rgba(0,180,255,.4), transparent 70%), linear-gradient(160deg, #050b1f, #0b1a33 50%, #06201f)" },
@@ -291,15 +305,18 @@ function applyTheme(prefs, { loggedIn = true } = {}) {
     const t = THEMES.find((x) => x.id === id) || THEMES.find((x) => x.id === DEFAULT_THEME);
     id = t.id; bg = t.bg; tone = t.tone;
   }
+  const skin = SKINS.find((x) => x.id === prefs.skin) || SKINS[0];
+  body.dataset.skin = skin.id;
+  if (skin.id !== "glass") { bg = null; tone = skin.tone || null; }  // ガラス以外は、その種類の背景と色
   if (bg) st.setProperty("--app-bg", bg); else st.removeProperty("--app-bg");
-  applyAccent(id === "custom" ? null : id);
+  applyAccent(id === "custom" || skin.id !== "glass" ? null : id);
   const custom = id === "custom";
   st.setProperty("--bg-dim", String((bg ? (prefs.bg_dim ?? (custom ? 20 : 0)) : 0) / 100));
   st.setProperty("--bg-blur", `${bg ? (prefs.bg_blur ?? 0) : 0}px`);
   body.classList.toggle("has-bg", !!bg);
   body.classList.toggle("tone-dark", tone === "dark");
   body.classList.toggle("tone-light", tone === "light");
-  writeCachedTheme({ theme: prefs.theme, bg_dim: prefs.bg_dim, bg_blur: prefs.bg_blur });
+  writeCachedTheme({ theme: prefs.theme, skin: prefs.skin, bg_dim: prefs.bg_dim, bg_blur: prefs.bg_blur });
 }
 /* アップロードした画像の明るさを調べ、上の方が暗ければ白文字にする */
 function detectTone(file) {

@@ -253,6 +253,7 @@ BG_DIR = CONFIG_DIR / "backgrounds"
 MAX_BG = 15 * 1024 * 1024
 _BG_NAME = re.compile(r"^u\d+-[0-9a-f]{16}\.(png|jpg|webp|gif)$")
 _THEME_ID = re.compile(r"^[a-z0-9-]{1,32}$")
+SKINS = ('glass', 'material', 'fluent', 'terminal', 'swiss', 'mono', 'paper', 'wa', 'win95', 'notion', 'ide')  # 見た目の種類(画面の static/js/base.js の SKINS と同じ)
 
 
 def _image_ext(head):
@@ -307,6 +308,10 @@ def api_me_prefs():
         if theme == "custom" and not prefs.get("bg_file"):
             raise ApiError("先に背景画像をアップロードしてください")
         prefs["theme"] = theme
+    if "skin" in data:
+        if data["skin"] not in SKINS:
+            raise ApiError("見た目の種類の指定が不正です")
+        prefs["skin"] = data["skin"]
     for key, lo, hi in (("bg_dim", 0, 80), ("bg_blur", 0, 40)):
         if key in data:
             try:

@@ -64,7 +64,7 @@ function paletteEntries(servers, sets) {
     { kind: "画面", title: "サーバー", ic: "server", run: go("servers") },
     { kind: "画面", title: "お知らせ", ic: "bell", run: openNotices },
     { kind: "設定", title: "設定", ic: "gear", run: () => openSettings() },
-    { kind: "設定", title: "テーマと背景", ic: "sparkle", run: () => openSettings("appearance") },
+    { kind: "設定", title: "見た目とテーマ", sub: "見た目の種類・テーマ・背景", ic: "sparkle", run: () => openSettings("appearance") },
     { kind: "設定", title: "アカウント・パスワード・二段階認証", ic: "person", run: () => openSettings("account") },
     { kind: "設定", title: "共有リンク", ic: "share", run: () => openSettings("shares") },
     { kind: "設定", title: "API の説明", sub: "使える API の一覧", ic: "braces", run: () => openSettings("apidocs") },

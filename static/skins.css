@@ -1,0 +1,153 @@
+/* =====================================================================
+   見た目の種類(スキン)。body[data-skin] で切り替える。「ガラス」(glass)は app.css のまま。
+   ガラス以外は: すりガラス(backdrop-filter)を使わない・その種類の色と角の丸み・枠の線
+   ===================================================================== */
+body[data-skin]:not([data-skin="glass"]) *,
+body[data-skin]:not([data-skin="glass"]) *::before { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+body[data-skin]:not([data-skin="glass"]) { --blur: none; }
+
+/* 角の丸みを、種類ごとの --skin-r にそろえる(状態の点・アバターなど丸いものは除く) */
+body[data-skin]:not([data-skin="glass"]) :is(.btn, .icon-btn, .seg, .segmented, .group, .card, .glass, .badge, .spill, input:not([type=checkbox]):not([type=radio]):not([type=range]),
+  select, textarea, dialog.sheet, .tile, .ls-tile, .snap-list, .sn-item, .sn-sub, .toggle-row, .tagchip, .result, .menu, .toast, .tabbar, .topbar, .sidenav,
+  .dropcard, .job, .banner, .pill, .gsearch, .gsearch-m, .cicon, .logo, .srv-qacts button, .sw-bar, .inv-selhead, .con-log, .con-entry, .fe-text, .api-ex,
+  .pal-row, .setup-card, .sw-ic, .search, .tabbar button, .tab-add .ti, .seg-wide, .srow, .theme-tile .sw, .skin-tile, .sk-prev, .add-btn, .v02, .snap-n, .snap-k) {
+  border-radius: var(--skin-r) !important;
+}
+
+/* ---------- A. マテリアル(Android 風) ---------- */
+body[data-skin="material"] {
+  --skin-r: 16px; --bg: #141218; --card: #1d1b20; --card-2: #2b2930; --fill: rgba(230, 224, 233, .08); --fill-2: rgba(230, 224, 233, .14);
+  --label: #e6e0e9; --label-2: #cac4d0; --label-3: #938f99; --sep: #49454f; --tint: #d0bcff; --tint-fill: #d0bcff; --tint-ink: #381e72;
+  --tint-soft: rgba(208, 188, 255, .16); --glass: #211f26; --glass-strong: #211f26; --glass-edge: transparent; --red: #f2b8b5; --orange: #ffb871; --blue: #a8c7fa;
+  --glass-shadow: 0 1px 3px rgba(0, 0, 0, .3), 0 4px 8px rgba(0, 0, 0, .15); --font: "Roboto", "Noto Sans JP", system-ui, sans-serif; color-scheme: dark;
+}
+body[data-skin="material"] :is(.btn, .seg, .badge, .spill, .sn-item, .sn-sub, .tab-add .ti, .gsearch, .gsearch-m, .add-btn) { border-radius: 999px !important; }
+body[data-skin="material"] .tabbar .tab-add .ti { border-radius: 16px !important; box-shadow: 0 4px 12px rgba(0, 0, 0, .4); }
+body[data-skin="material"] .group, body[data-skin="material"] .card { background: var(--card); box-shadow: none; }
+
+/* ---------- B. Fluent(Windows 11 風) ---------- */
+body[data-skin="fluent"] {
+  --skin-r: 6px; --bg: #1c1c1c; --card: #2b2b2b; --card-2: #323232; --fill: rgba(255, 255, 255, .06); --fill-2: rgba(255, 255, 255, .1);
+  --label: #ffffff; --label-2: #c5c5c5; --label-3: #8a8a8a; --sep: #3a3a3a; --tint: #60cdff; --tint-fill: #60cdff; --tint-ink: #000000;
+  --tint-soft: rgba(96, 205, 255, .12); --glass: #272727; --glass-strong: #272727; --glass-edge: rgba(255, 255, 255, .08); --red: #ff99a4; --orange: #fce100; --blue: #60cdff;
+  --glass-shadow: 0 2px 4px rgba(0, 0, 0, .25); --font: "Segoe UI Variable Text", "Segoe UI", "Yu Gothic UI", "Noto Sans JP", system-ui, sans-serif; color-scheme: dark;
+}
+body[data-skin="fluent"] :is(.group, .card, .glass, .tile, .ls-tile) { border: 1px solid var(--glass-edge); }
+body[data-skin="fluent"] :is(.sn-item[aria-current="page"], .sn-sub.on) { position: relative; background: rgba(255, 255, 255, .08); color: var(--label); }
+body[data-skin="fluent"] .sn-item[aria-current="page"]::before { content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: 3px; border-radius: 2px; background: var(--tint); }
+body[data-skin="fluent"] :is(input:not([type=checkbox]):not([type=radio]):not([type=range]), select, .gsearch) { border-bottom: 1px solid var(--label-3); }
+
+/* ---------- C. ターミナル ---------- */
+body[data-skin="terminal"] {
+  --skin-r: 0px; --bg: #0b0f0c; --card: #0e1410; --card-2: #121a14; --fill: rgba(57, 255, 136, .06); --fill-2: rgba(57, 255, 136, .12);
+  --label: #b6f5c3; --label-2: #5f8f6c; --label-3: #3c5c45; --sep: #1f3a28; --tint: #39ff88; --tint-fill: #39ff88; --tint-ink: #04140a;
+  --tint-soft: rgba(57, 255, 136, .12); --glass: #0e1410; --glass-strong: #0e1410; --glass-edge: #1f3a28; --red: #ff6b6b; --orange: #ffcc66; --blue: #66d9ff;
+  --glass-shadow: none; --sheet-shadow: 0 0 0 1px #1f3a28; --font: ui-monospace, "Cascadia Mono", Menlo, Consolas, "BIZ UDGothic", monospace; color-scheme: dark;
+}
+body[data-skin="terminal"] :is(.group, .card, .glass, .tile, .ls-tile, .btn, .seg, .badge, .spill, dialog.sheet) { border: 1px solid var(--sep); box-shadow: none; }
+body[data-skin="terminal"] .large-title h2::before { content: "> "; color: var(--tint); }
+body[data-skin="terminal"] .large-title h2 { font-weight: 700; letter-spacing: 0; }
+
+/* ---------- F. スイス ---------- */
+body[data-skin="swiss"] {
+  --skin-r: 0px; --bg: #ffffff; --card: #ffffff; --card-2: #f2f2f2; --fill: rgba(0, 0, 0, .05); --fill-2: rgba(0, 0, 0, .09);
+  --label: #000000; --label-2: #555555; --label-3: #999999; --sep: #000000; --tint: #e30613; --tint-fill: #e30613; --tint-ink: #ffffff;
+  --tint-soft: rgba(227, 6, 19, .08); --glass: #ffffff; --glass-strong: #ffffff; --glass-edge: #000000; --red: #e30613; --orange: #e36a00; --blue: #0047ab;
+  --glass-shadow: none; --sheet-shadow: 0 0 0 1px #000; --font: "Helvetica Neue", Helvetica, Arial, "Noto Sans JP", sans-serif; color-scheme: light;
+}
+body[data-skin="swiss"] :is(.group, .card, .glass, .tile, .ls-tile, dialog.sheet) { border: 1px solid #000; box-shadow: none; }
+body[data-skin="swiss"] .large-title h2 { font-size: 46px; font-weight: 800; letter-spacing: -.05em; }
+body[data-skin="swiss"] .large-title h2::after { content: "."; color: var(--tint); }
+body[data-skin="swiss"] .sn-item[aria-current="page"] { background: #000; color: #fff; }
+
+/* ---------- G. モノクロ(Linear / Vercel 風) ---------- */
+body[data-skin="mono"] {
+  --skin-r: 8px; --bg: #000000; --card: #0a0a0a; --card-2: #111111; --fill: rgba(255, 255, 255, .06); --fill-2: rgba(255, 255, 255, .1);
+  --label: #ededed; --label-2: #a1a1a1; --label-3: #6b6b6b; --sep: #262626; --tint: #ffffff; --tint-fill: #ededed; --tint-ink: #000000;
+  --tint-soft: rgba(255, 255, 255, .08); --glass: #0a0a0a; --glass-strong: #0a0a0a; --glass-edge: #262626; --red: #f31260; --orange: #f5a524; --blue: #52a8ff;
+  --glass-shadow: none; --font: "Inter", "Geist", "Segoe UI", "Noto Sans JP", system-ui, sans-serif; color-scheme: dark;
+}
+body[data-skin="mono"] :is(.group, .card, .glass, .tile, .ls-tile, dialog.sheet) { border: 1px solid var(--sep); box-shadow: none; }
+body[data-skin="mono"] body, body[data-skin="mono"] { font-size: 14px; }
+
+/* ---------- I. ペーパー ---------- */
+body[data-skin="paper"] {
+  --skin-r: 8px; --bg: #f5f0e6; --card: #fffaf0; --card-2: #ece4d4; --fill: rgba(59, 49, 39, .06); --fill-2: rgba(59, 49, 39, .1);
+  --label: #3b3127; --label-2: #7a6a58; --label-3: #a89a87; --sep: #d9cfbd; --tint: #a65a17; --tint-fill: #b5651d; --tint-ink: #ffffff;
+  --tint-soft: rgba(181, 101, 29, .12); --glass: #fbf6ec; --glass-strong: #fbf6ec; --glass-edge: #d9cfbd; --red: #a33a2a; --orange: #b5651d; --blue: #3c6e8f;
+  --glass-shadow: 0 1px 2px rgba(59, 49, 39, .08); color-scheme: light;
+}
+body[data-skin="paper"] :is(.large-title h2, .sn-brand b, h3, h4) { font-family: "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", serif; font-weight: 600; }
+body[data-skin="paper"] :is(.group, .card, .glass, dialog.sheet) { border: 1px solid var(--sep); }
+
+/* ---------- J. 和モダン ---------- */
+body[data-skin="wa"] {
+  --skin-r: 2px; --bg: #f7f3ea; --card: #fbf8f1; --card-2: #efe9dc; --fill: rgba(28, 28, 28, .05); --fill-2: rgba(28, 28, 28, .09);
+  --label: #1c1c1c; --label-2: #5c5650; --label-3: #9a928a; --sep: rgba(28, 28, 28, .2); --tint: #c22d22; --tint-fill: #d0352b; --tint-ink: #ffffff;
+  --tint-soft: rgba(208, 53, 43, .1); --glass: #fbf8f1; --glass-strong: #fbf8f1; --glass-edge: rgba(28, 28, 28, .25); --red: #c22d22; --orange: #b8742a; --blue: #2e4a6b;
+  --glass-shadow: none; color-scheme: light;
+}
+body[data-skin="wa"] :is(.large-title h2, .sn-brand b, h3, h4) { font-family: "Noto Serif JP", "Yu Mincho", "Hiragino Mincho ProN", serif; }
+body[data-skin="wa"] .sidenav { background: #1c1c1c; color: #f7f3ea; border-color: #1c1c1c; }
+body[data-skin="wa"] .sidenav :is(.sn-item, .sn-sub) { color: rgba(247, 243, 234, .75); }
+body[data-skin="wa"] .sidenav :is(.sn-item[aria-current="page"], .sn-sub.on) { background: rgba(247, 243, 234, .1); color: #fff; box-shadow: inset 3px 0 0 var(--tint-fill); }
+body[data-skin="wa"] .sidenav .sn-foot { border-color: rgba(247, 243, 234, .2); }
+body[data-skin="wa"] :is(.group, .card, .glass, dialog.sheet) { border: 1px solid var(--glass-edge); }
+
+/* ---------- M. Windows 95 ---------- */
+body[data-skin="win95"] {
+  --skin-r: 0px; --bg: #008080; --card: #c0c0c0; --card-2: #dfdfdf; --fill: #dfdfdf; --fill-2: #d0d0d0;
+  --label: #000000; --label-2: #3c3c3c; --label-3: #6c6c6c; --sep: #808080; --tint: #000080; --tint-fill: #000080; --tint-ink: #ffffff;
+  --tint-soft: rgba(0, 0, 128, .15); --glass: #c0c0c0; --glass-strong: #c0c0c0; --glass-edge: #808080; --red: #a00000; --orange: #806000; --blue: #000080;
+  --glass-shadow: none; --sheet-shadow: none; --font: Tahoma, "MS UI Gothic", "MS PGothic", "Noto Sans JP", sans-serif; color-scheme: light;
+}
+body[data-skin="win95"] :is(.btn, .icon-btn, .seg, .glass, .group, .card, .tile, .ls-tile, .sw-bar, .tabbar, .topbar, .sidenav, dialog.sheet, .srv-qacts button, .gsearch-m) {
+  border: 2px solid; border-color: #ffffff #404040 #404040 #ffffff; box-shadow: inset -1px -1px 0 #808080, inset 1px 1px 0 #dfdfdf; background-color: #c0c0c0;
+}
+body[data-skin="win95"] :is(input:not([type=checkbox]):not([type=radio]):not([type=range]), select, textarea, .gsearch, .con-log, .fe-text) {
+  border: 2px solid; border-color: #808080 #ffffff #ffffff #808080; background: #ffffff; color: #000;
+}
+body[data-skin="win95"] :is(.btn.filled, .add-btn, .sn-item[aria-current="page"], .seg[aria-pressed="true"]) { background: #000080 !important; color: #fff !important; }
+body[data-skin="win95"] .large-title h2 { color: #fff; text-shadow: 1px 1px 0 #000; }
+body[data-skin="win95"] .row + .row::before { background: #808080; }
+
+/* ---------- N. ドキュメント(Notion 風) ---------- */
+body[data-skin="notion"] {
+  --skin-r: 6px; --bg: #ffffff; --card: #ffffff; --card-2: #f7f7f5; --fill: rgba(55, 53, 47, .06); --fill-2: rgba(55, 53, 47, .1);
+  --label: #37352f; --label-2: #787774; --label-3: #a5a49f; --sep: #e9e9e7; --tint: #2383e2; --tint-fill: #2383e2; --tint-ink: #ffffff;
+  --tint-soft: rgba(35, 131, 226, .1); --glass: #ffffff; --glass-strong: #ffffff; --glass-edge: #e9e9e7; --red: #e03e3e; --orange: #d9730d; --blue: #2383e2;
+  --glass-shadow: 0 1px 2px rgba(15, 15, 15, .06); --font: ui-sans-serif, -apple-system, "Segoe UI", "Noto Sans JP", sans-serif; color-scheme: light;
+}
+body[data-skin="notion"] .sidenav { background: #f7f7f5; border-color: #ececeb; box-shadow: none; }
+body[data-skin="notion"] :is(.group, .card, dialog.sheet) { border: 1px solid var(--sep); }
+body[data-skin="notion"] .large-title h2 { font-weight: 700; letter-spacing: -.02em; }
+
+/* ---------- O. IDE(VS Code 風) ---------- */
+body[data-skin="ide"] {
+  --skin-r: 3px; --bg: #1e1e1e; --card: #252526; --card-2: #2d2d30; --fill: rgba(255, 255, 255, .05); --fill-2: rgba(255, 255, 255, .09);
+  --label: #d4d4d4; --label-2: #9d9d9d; --label-3: #6a6a6a; --sep: #3c3c3c; --tint: #3794ff; --tint-fill: #0e639c; --tint-ink: #ffffff;
+  --tint-soft: rgba(55, 148, 255, .15); --glass: #252526; --glass-strong: #252526; --glass-edge: #3c3c3c; --red: #f14c4c; --orange: #cca700; --blue: #3794ff;
+  --glass-shadow: none; --font: "Segoe UI", "Noto Sans JP", system-ui, sans-serif; color-scheme: dark;
+}
+body[data-skin="ide"] .sidenav { background: #252526; border: 0; border-right: 1px solid #3c3c3c; top: 0; bottom: 0; left: 0; border-radius: 0 !important; }
+body[data-skin="ide"] .topbar { background: #2d2d30; border: 1px solid #3c3c3c; }
+body[data-skin="ide"] .sn-item[aria-current="page"] { background: #37373d; color: #fff; box-shadow: inset 2px 0 0 var(--tint); }
+body[data-skin="ide"] :is(.group, .card, dialog.sheet) { border: 1px solid var(--sep); }
+body[data-skin="ide"] :is(.mono, .sw-ver, .snap-ver) { color: #ce9178; }
+
+/* 設定: 見た目の種類の選択肢 */
+.skins { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 8px; }
+.skin-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; padding: 8px; border: 0; border-radius: 16px; background: var(--fill); color: var(--label); font: inherit; text-align: left; }
+.skin-tile[aria-pressed="true"] { box-shadow: inset 0 0 0 2px var(--tint-fill); }
+.sk-prev { position: relative; width: 100%; height: 54px; border-radius: 10px; overflow: hidden; margin-bottom: 4px; }
+.sk-prev i { position: absolute; left: 8px; top: 8px; bottom: 8px; width: 26%; border-radius: 4px; }
+.sk-prev b { position: absolute; right: 10px; bottom: 10px; width: 34%; height: 10px; border-radius: 3px; }
+.sk-prev .ck { position: absolute; right: 6px; top: 6px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; background: var(--tint-fill); color: var(--tint-ink); }
+.sk-prev .ck svg { width: 12px; height: 12px; stroke-width: 3; }
+.sk-n { font-weight: 700; font-size: 13.5px; }
+.sk-d { font-size: 11.5px; color: var(--label-2); line-height: 1.4; }
+.themes.off { opacity: .45; }
+
+/* ガラス以外は、背景を平らに(テーマのグラデーションを使わない) */
+body[data-skin]:not([data-skin="glass"])::before { background: var(--bg); filter: none; }
+body[data-skin]:not([data-skin="glass"])::after { background: transparent; }

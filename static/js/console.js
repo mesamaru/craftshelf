@@ -133,7 +133,7 @@ async function fileEditor(s, pane, path) {
   let base = f.text, hash = f.hash;
   pane.innerHTML = `<div class="fe-head">
       <button class="btn plain small" type="button" data-fback>${icon("back")}ファイル</button>
-      <span class="fe-path mono" translate="no" title="${esc(path)}">${esc(path)}</span>
+      <span class="fe-sp"></span>
       <span class="fe-state muted small" id="feState"></span>
       <button class="btn small" type="button" data-fcmpfile>${icon("doc")}ファイル比較</button>
       <button class="btn small" type="button" data-fhist${f.history ? "" : " disabled"}>${icon("clock")}履歴${f.history ? ` ${f.history}` : ""}</button>

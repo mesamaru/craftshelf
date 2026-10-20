@@ -1466,3 +1466,4 @@ body:not(.can-edit) .tabbar .tab-add { display: none; }
 /* サーバーの「ファイル」: 見出しの右に「ファイル比較」 */
 .fe-sgrp { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .fe-sgrp .btn { text-transform: none; letter-spacing: 0; }
+.fe-head .fe-sp { flex: 1; }

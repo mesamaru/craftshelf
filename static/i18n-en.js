@@ -1578,6 +1578,11 @@ window.CS_EN = {
   "比べる": "Compare",
   "基準": "Base",
   // ---- 見た目の種類 ----
+  "テーマ(背景と色)は、ガラス・フロスト・ネオンのときに選べます。": "Themes (background and colors) can be chosen with Glass, Frost and Neon.",
+  "白いすりガラスのカード・テーマが透ける": "White frosted cards over the theme",
+  "暗いカードにテーマの色で光る縁": "Dark cards with glowing theme-colored edges",
+  "フロスト": "Frost",
+  "ネオン": "Neon",
   "テーマは「ガラス」のときに使われます。いまの見た目の種類では、その種類の背景と色で表示します。": "Themes are used with the Glass look. The current look uses its own background and colors.",
   "見た目の種類の指定が不正です": "Invalid look",
   "見た目の種類・テーマ・背景": "Look, theme and background",
@@ -1810,6 +1815,7 @@ window.CS_EN = {
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [
+  [/(\d+)\s*台にない/g, "missing on $1"],
   [/差分\s*(\d+)\s*か所/g, "$1 differences"],
   [/(\d+)\s*台を選択中/g, "$1 servers selected"],
   [/(\d+)\s*台を更新しました/g, "Updated $1 servers"],

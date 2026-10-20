@@ -22,11 +22,17 @@ async function renderSettings() {
   const page = SETTINGS_PAGES[cur.page];
   const back = prev ? `<button class="btn plain small" type="button" data-sback>${icon("back")}${esc(SETTINGS_PAGES[prev.page].title(prev.arg))}</button>` : "";
   const root = $("#setRoot", form);
+  // 同じページを描き直すときは、スクロールの位置を残す(テーマを選んで上に飛ばないように)
+  const same = settingsNav.lastPage === cur.page;
+  settingsNav.lastPage = cur.page;
+  const scrollers = [form.closest("dialog"), form, $("#setBody", root)].filter(Boolean);
+  const keep = same ? scrollers.map((el) => el.scrollTop) : null;
   root.innerHTML = `${sheetHead(page.title(cur.arg), back)}<div class="db" id="setBody"><div style="text-align:center;padding:30px"><span class="spinner lg"></span></div></div>`;
   $("[data-sback]", root)?.addEventListener("click", popSettings);
   const body = $("#setBody", root);
   try { await page.render(body, cur.arg); }
   catch (e) { body.innerHTML = `<div class="result err">${esc(e.message)}</div>`; }
+  if (keep) [form.closest("dialog"), form, $("#setBody", root)].filter(Boolean).forEach((el, i) => { if (keep[i] !== undefined) el.scrollTop = keep[i]; });
 }
 const themeName = (p) => (p && p.theme === "custom" ? "マイ画像" : (THEMES.find((t) => t.id === ((p && p.theme) || DEFAULT_THEME)) || THEMES[0]).name);
 const rowBtn = (key, ic, color, title, val = "", extra = "") =>
@@ -297,14 +303,16 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
       const mintBg = "radial-gradient(120% 80% at 10% 0%, rgba(52,199,89,.35), transparent 60%), radial-gradient(90% 70% at 100% 0%, rgba(0,122,255,.25), transparent 60%), #f2f2f7";
       const dim = p.bg_dim ?? (cur === "custom" ? 20 : 0);
       const skin = p.skin || "glass";
+      const themed = !!(SKINS.find((k) => k.id === skin) || SKINS[0]).themes;
       body.innerHTML = `<div class="group-title" style="margin-top:0">見た目の種類</div>
         <div class="skins">${SKINS.map((k) => `<button class="skin-tile" type="button" data-skin="${k.id}" aria-pressed="${skin === k.id}">
           <span class="sk-prev" style="background:${k.prev[0]}"><i style="background:${k.prev[2]}"></i><b style="background:${k.prev[1]}"></b>${skin === k.id ? `<span class="ck">${icon("check")}</span>` : ""}</span>
           <span class="sk-n">${esc(k.name)}</span><span class="sk-d">${esc(k.note)}</span></button>`).join("")}</div>
+        ${themed ? "" : `<p class="muted small">${icon("sparkle")} テーマ(背景と色)は、ガラス・フロスト・ネオンのときに選べます。</p>`}
+        <div class="themed-only"${themed ? "" : " hidden"}>
         <div class="group-title">テーマ(背景と色)</div>
-        ${skin !== "glass" ? `<div class="result">${icon("sparkle")} テーマは「ガラス」のときに使われます。いまの見た目の種類では、その種類の背景と色で表示します。</div>` : ""}
         <p>パネルの背景を選べます。設定はアカウントごとに保存されます。</p>
-        <div class="themes${skin !== "glass" ? " off" : ""}">
+        <div class="themes">
           ${THEMES.map((t) => tile(t.id, t.name, t.bg || mintBg)).join("")}
           ${p.bg_file ? tile("custom", "マイ画像", `url("${bgUrl(p.bg_file)}") center / cover no-repeat`)
             : `<button class="theme-tile" type="button" data-upload><span class="sw"><span class="add">${icon("plus")}</span></span>画像を追加</button>`}
@@ -322,6 +330,7 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
             <input type="range" name="bg_blur" min="0" max="40" value="${p.bg_blur ?? 0}"></label>
         </div>
         <div class="group-foot">「ミント」以外では、カードが半透明のガラスになり背景が透けて見えます。「ミント」では暗さ・ぼかしは使われません。</div>
+        </div>
         <input type="file" id="bgFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden>`;
       const paint = (el) => el.style.setProperty("--p", `${(el.value - el.min) / (el.max - el.min) * 100}%`);
       body.querySelectorAll("input[type=range]").forEach(paint);
@@ -336,7 +345,7 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
         timer = setTimeout(() => savePrefs({ [el.name]: Number(el.value) }).catch((ex) => toast(ex.message, true)), 400);
       };
       body.onclick = async (e) => {
-        const sk = e.target.closest("[data-skin]");
+        const sk = e.target.closest("button[data-skin]");
         if (sk) {
           try { await savePrefs({ skin: sk.dataset.skin }); renderSettings(); } catch (ex) { toast(ex.message, true); }
           return;

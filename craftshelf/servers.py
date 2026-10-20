@@ -1737,7 +1737,7 @@ def api_servers_configs():
         have = [s for s in servers if path in s["files"]]
         marks = {(s["files"][path]["hash"] or f"size:{s['files'][path]['size']}") for s in have}
         status = "partial" if len(have) < len(servers) else "same" if len(marks) == 1 else "diff"
-        rows.append({"path": path, "status": status, "on": [s["id"] for s in have]})
+        rows.append({"path": path, "status": status, "on": [s["id"] for s in have], "differ": len(marks) > 1})
     return jsonify(servers=[{k: v for k, v in s.items() if k != "files"} | {"count": len(s["files"])} for s in servers], files=rows)
 
 

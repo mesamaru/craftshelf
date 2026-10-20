@@ -36,6 +36,7 @@ st = {f["path"]: f["status"] for f in d["files"]}
 check(st.get("server.properties") == "diff", f"server.properties differs ({st})")
 check(st.get("plugins/Ess/config.yml") == "same", "plugin config is the same")
 check(st.get("bukkit.yml") == "partial" and next(f for f in d["files"] if f["path"] == "bukkit.yml")["on"] == [sv["A"]], "file only on one server")
+check(next(f for f in d["files"] if f["path"] == "bukkit.yml")["differ"] is False and next(f for f in d["files"] if f["path"] == "server.properties")["differ"] is True, "differ flag among servers that have the file")
 check("plugins/Ess.jar" not in st and "logs/latest.log" not in st, "jars and logs are not listed")
 check([s["name"] for s in d["servers"]] == ["A", "B"] and all(s["count"] >= 2 for s in d["servers"]), "servers returned in order with counts")
 check(c.get(f"/api/servers/configs?ids={sv['A']}", headers=H).status_code == 400, "one server is not enough")

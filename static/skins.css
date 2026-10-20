@@ -1,10 +1,10 @@
 /* =====================================================================
    見た目の種類(スキン)。body[data-skin] で切り替える。「ガラス」(glass)は app.css のまま。
-   ガラス以外は: すりガラス(backdrop-filter)を使わない・その種類の色と角の丸み・枠の線
+   テーマを使わない見た目(data-flat)は: すりガラスを使わない・その種類の背景と色。どの見た目も角の丸みは --skin-r
    ===================================================================== */
-body[data-skin]:not([data-skin="glass"]) *,
-body[data-skin]:not([data-skin="glass"]) *::before { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
-body[data-skin]:not([data-skin="glass"]) { --blur: none; }
+body[data-flat] *,
+body[data-flat] *::before { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+body[data-flat] { --blur: none; }
 
 /* 角の丸みを、種類ごとの --skin-r にそろえる(状態の点・アバターなど丸いものは除く) */
 body[data-skin]:not([data-skin="glass"]) :is(.btn, .icon-btn, .seg, .segmented, .group, .card, .glass, .badge, .spill, input:not([type=checkbox]):not([type=radio]):not([type=range]),
@@ -149,5 +149,30 @@ body[data-skin="ide"] :is(.mono, .sw-ver, .snap-ver) { color: #ce9178; }
 .themes.off { opacity: .45; }
 
 /* ガラス以外は、背景を平らに(テーマのグラデーションを使わない) */
-body[data-skin]:not([data-skin="glass"])::before { background: var(--bg); filter: none; }
-body[data-skin]:not([data-skin="glass"])::after { background: transparent; }
+body[data-flat]::before { background: var(--bg); filter: none; }
+body[data-flat]::after { background: transparent; }
+
+/* ---------- フロスト(テーマを使う・白いすりガラスのカード) ---------- */
+body[data-skin="frost"] {
+  --skin-r: 14px; --card: rgba(255, 255, 255, .78); --card-2: rgba(255, 255, 255, .6); --fill: rgba(15, 23, 42, .06); --fill-2: rgba(15, 23, 42, .1);
+  --label: #0f172a; --label-2: #475569; --label-3: #94a3b8; --sep: rgba(15, 23, 42, .1);
+  --glass: rgba(255, 255, 255, .72); --glass-strong: rgba(255, 255, 255, .82); --glass-edge: rgba(255, 255, 255, .9);
+  --glass-shadow: 0 10px 30px rgba(2, 6, 23, .18); --blur: saturate(160%) blur(22px); color-scheme: light;
+}
+body[data-skin="frost"].has-bg :is(.group, .dropcard, .job, .banner) { background: var(--card); box-shadow: 0 6px 20px rgba(2, 6, 23, .12), inset 0 0 0 1px rgba(255, 255, 255, .7); }
+body[data-skin="frost"] .large-title h2 { text-shadow: 0 2px 16px rgba(0, 0, 0, .35); }
+
+/* ---------- ネオン(テーマを使う・暗いカードに光る縁) ---------- */
+body[data-skin="neon"] {
+  --skin-r: 10px; --card: rgba(8, 10, 24, .72); --card-2: rgba(16, 18, 40, .7); --fill: rgba(255, 255, 255, .06); --fill-2: rgba(255, 255, 255, .1);
+  --label: #eef2ff; --label-2: rgba(226, 232, 255, .68); --label-3: rgba(226, 232, 255, .38); --sep: rgba(255, 255, 255, .1);
+  --glass: rgba(8, 10, 24, .66); --glass-strong: rgba(8, 10, 24, .8); --glass-edge: color-mix(in srgb, var(--tint-fill) 55%, transparent);
+  --glass-shadow: 0 0 0 1px color-mix(in srgb, var(--tint-fill) 40%, transparent), 0 0 18px color-mix(in srgb, var(--tint-fill) 22%, transparent);
+  --blur: saturate(140%) blur(14px); color-scheme: dark;
+}
+body[data-skin="neon"] :is(.group, .card, .dropcard, .tile, .ls-tile) { border: 1px solid color-mix(in srgb, var(--tint-fill) 45%, transparent); box-shadow: 0 0 16px color-mix(in srgb, var(--tint-fill) 16%, transparent); }
+body[data-skin="neon"].has-bg :is(.group, .dropcard, .job, .banner) { background: var(--card); }
+body[data-skin="neon"] :is(.btn.filled, .add-btn, .tab-add .ti) { box-shadow: 0 0 14px color-mix(in srgb, var(--tint-fill) 60%, transparent); }
+body[data-skin="neon"] .large-title h2 { text-shadow: 0 0 18px color-mix(in srgb, var(--tint-fill) 60%, transparent); }
+/* 明るいカードなので、テーマの色の文字は濃くして読みやすく */
+body[data-skin="frost"] { --tint: color-mix(in srgb, var(--tint-fill) 62%, #0f172a); --tint-soft: color-mix(in srgb, var(--tint-fill) 20%, transparent); }

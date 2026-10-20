@@ -1467,3 +1467,15 @@ body:not(.can-edit) .tabbar .tab-add { display: none; }
 .fe-sgrp { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .fe-sgrp .btn { text-transform: none; letter-spacing: 0; }
 .fe-head .fe-sp { flex: 1; }
+
+/* ファイル比較の一覧: ディレクトリの木 */
+.cd-tree .trail { gap: 6px; }
+.cd-dir > summary { list-style: none; display: flex; align-items: center; gap: 10px; padding: 10px 14px; min-height: 44px; cursor: pointer; border-bottom: .5px solid var(--sep); }
+.cd-dir > summary::-webkit-details-marker { display: none; }
+.cd-dir > summary .title { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.cd-dir > summary .chev { transition: transform .15s; }
+.cd-dir[open] > summary .chev { transform: rotate(90deg); }
+.cd-sub { padding-left: 18px; border-left: 2px solid var(--sep); margin-left: 24px; }
+.cd-pick .seg { display: inline-flex; align-items: center; gap: 4px; }
+.cd-pick .seg[aria-pressed="true"] { background: var(--tint-soft); color: var(--tint); box-shadow: inset 0 0 0 1px var(--tint-fill); }
+.cd-pick .seg svg { width: 14px; height: 14px; }

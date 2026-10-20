@@ -248,7 +248,9 @@ const STARS = [
 const DEFAULT_THEME = "aurora";
 /* 見た目の種類(スキン)。ガラス以外は、背景と色もその種類で決まる(テーマは使わない)。tone = 大見出しの文字色 */
 const SKINS = [
-  { id: "glass", name: "ガラス", note: "半透明のガラス(今までの見た目)", prev: ["#0b1a33", "#30d18a", "rgba(255,255,255,.18)"] },
+  { id: "glass", name: "ガラス", note: "半透明のガラス(今までの見た目)", themes: true, prev: ["#0b1a33", "#30d18a", "rgba(255,255,255,.18)"] },
+  { id: "frost", name: "フロスト", note: "白いすりガラスのカード・テーマが透ける", themes: true, prev: ["#063d5c", "#22d3ee", "rgba(255,255,255,.85)"] },
+  { id: "neon", name: "ネオン", note: "暗いカードにテーマの色で光る縁", themes: true, prev: ["#0d0221", "#ff2a6d", "rgba(10,12,28,.8)"] },
   { id: "material", name: "マテリアル", note: "Android 風・色の面と浮いたボタン", tone: "dark", prev: ["#141218", "#d0bcff", "#2b2930"] },
   { id: "fluent", name: "Fluent", note: "Windows 11 風・角が小さく細い線", tone: "dark", prev: ["#202020", "#60cdff", "#2d2d2d"] },
   { id: "terminal", name: "ターミナル", note: "等幅文字・黒と緑", tone: "dark", prev: ["#0b0f0c", "#39ff88", "#123b22"] },
@@ -307,9 +309,10 @@ function applyTheme(prefs, { loggedIn = true } = {}) {
   }
   const skin = SKINS.find((x) => x.id === prefs.skin) || SKINS[0];
   body.dataset.skin = skin.id;
-  if (skin.id !== "glass") { bg = null; tone = skin.tone || null; }  // ガラス以外は、その種類の背景と色
+  if (!skin.themes) { bg = null; tone = skin.tone || null; }  // テーマを使わない見た目は、その種類の背景と色
+  if (skin.themes) delete body.dataset.flat; else body.dataset.flat = "1";
   if (bg) st.setProperty("--app-bg", bg); else st.removeProperty("--app-bg");
-  applyAccent(id === "custom" || skin.id !== "glass" ? null : id);
+  applyAccent(id === "custom" || !skin.themes ? null : id);
   const custom = id === "custom";
   st.setProperty("--bg-dim", String((bg ? (prefs.bg_dim ?? (custom ? 20 : 0)) : 0) / 100));
   st.setProperty("--bg-blur", `${bg ? (prefs.bg_blur ?? 0) : 0}px`);

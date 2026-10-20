@@ -253,7 +253,7 @@ BG_DIR = CONFIG_DIR / "backgrounds"
 MAX_BG = 15 * 1024 * 1024
 _BG_NAME = re.compile(r"^u\d+-[0-9a-f]{16}\.(png|jpg|webp|gif)$")
 _THEME_ID = re.compile(r"^[a-z0-9-]{1,32}$")
-SKINS = ('glass', 'material', 'fluent', 'terminal', 'swiss', 'mono', 'paper', 'wa', 'win95', 'notion', 'ide')  # 見た目の種類(画面の static/js/base.js の SKINS と同じ)
+SKINS = ('glass', 'frost', 'neon', 'material', 'fluent', 'terminal', 'swiss', 'mono', 'paper', 'wa', 'win95', 'notion', 'ide')  # 見た目の種類(画面の static/js/base.js の SKINS と同じ)
 
 
 def _image_ext(head):

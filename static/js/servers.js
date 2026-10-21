@@ -972,11 +972,17 @@ async function cmpClick(e) {
 
 const INV_STATUS = { latest: ["ok", "最新"], outdated: ["upd", "更新あり"], different: ["", "ライブラリと別のファイル"], unregistered: ["err", "未登録"] };
 /* ライブラリから選んでサーバーへ入れる(バージョンも選べる) */
-async function libraryToServer(s, cats, onServer, kind = "") {
+async function libraryToServer(s, cats, onServer, kind = "", { fromSet = false } = {}) {
   const have = new Map(onServer.filter((f) => f.item_id).map((f) => [f.item_id, f.version]));
   const pool = state.items.filter((it) => cats.includes(it.category) && it.access !== undefined).sort((a, b) => a.name.localeCompare(b.name, "ja", { numeric: true }));
-  let cat = kind, q = "";
+  let cat = fromSet ? "" : kind, q = "";
+  let sets = [];
+  try { sets = state.sets = (await api("/api/sets")).sets; } catch { /* セットが読めなくてもライブラリからは選べる */ }
+  if (fromSet && !sets.length) { toast("セットがありません。「セット」で作ってください", true); return false; }
+  let curSet = fromSet ? sets[0] : null;  // 選んでいるセット(その中のアドオンだけを出す)
   return sheet(`${sheetHead(`「${s.name}」に入れる`)}<div class="db">
+      ${sets.length ? `<div class="lt-set"><label class="field"><span>${icon("stack")} セット</span><select id="ltSet"><option value="">セットを使わない(ライブラリから選ぶ)</option>${sets.map((x) => `<option value="${x.id}"${curSet && curSet.id === x.id ? " selected" : ""}>${esc(x.name)}(${x.items.length} 件)</option>`).join("")}</select></label>
+        <div class="lt-setbar" id="ltSetBar" hidden></div></div>` : ""}
       <label class="search"><span>${icon("search")}</span><input type="search" id="ltQ" placeholder="名前・タグで絞り込み"></label>
       ${cats.length > 1 ? `<div class="segmented seg-wide" id="ltCat">${["", ...cats].map((c) => `<button class="seg" type="button" data-c="${c}" aria-pressed="${c === cat}">${c ? CATS[c] : "すべて"}</button>`).join("")}</div>` : ""}
       <div class="group scroll" id="ltList"></div>
@@ -1004,9 +1010,25 @@ async function libraryToServer(s, cats, onServer, kind = "") {
         catch { /* 前提の確認ができなくても入れられる */ }
       }, 250);
     };
+    // セットを選んだら、その中のアドオンをセットのバージョンで選ぶ(外せる)
+    const setVer = (it) => { const x = curSet && curSet.items.find((y) => y.item_id === it.id); return x && x.version_id && it.versions[0] && x.version_id !== it.versions[0].id ? x.version_id : 0; };
+    const applySet = () => {
+      const bar = $("#ltSetBar", form);
+      if (!curSet) { if (bar) { bar.hidden = true; bar.innerHTML = ""; } return; }
+      const ids = new Set(curSet.items.map((x) => x.item_id));
+      const usable = pool.filter((it) => ids.has(it.id));
+      usable.forEach((it) => picked.set(it.id, setVer(it)));
+      const skipped = curSet.items.length - usable.length;
+      bar.hidden = false;
+      bar.innerHTML = `<span>「${esc(curSet.name)}」の ${usable.length} 件を選びました。外したいものはチェックを外してください。</span>
+        ${skipped ? `<span class="muted small">このサーバーに入れる場所が無いもの・見られないもの ${skipped} 件は除きます。</span>` : ""}
+        <span class="lt-setacts"><button class="btn small" type="button" data-ltsetall>セットをすべて選ぶ</button><button class="btn small" type="button" data-ltsetnone>セットの選択を外す</button></span>`;
+      refreshPlan();
+    };
     const draw = () => {
       const ql = q.toLowerCase();
-      const list = pool.filter((it) => (!cat || it.category === cat) && (!ql || it.name.toLowerCase().includes(ql) || (it.tags || []).some((t) => t.toLowerCase().includes(ql))));
+      const inSet = curSet ? new Set(curSet.items.map((x) => x.item_id)) : null;
+      const list = pool.filter((it) => (!inSet || inSet.has(it.id)) && (!cat || it.category === cat) && (!ql || it.name.toLowerCase().includes(ql) || (it.tags || []).some((t) => t.toLowerCase().includes(ql))));
       $("#ltList", form).innerHTML = list.map((it) => `<div class="row lt-row${picked.has(it.id) ? " picked" : ""}">
         <input type="checkbox" class="cbox" data-lt="${it.id}"${picked.has(it.id) ? " checked" : ""} aria-label="選ぶ">${itemIcon(it, true)}
         <span class="main"><span class="title" translate="no">${esc(it.name)}${have.has(it.id) ? ` <span class="badge">サーバーに ${esc(have.get(it.id) || "")}</span>` : ""}</span>
@@ -1017,12 +1039,19 @@ async function libraryToServer(s, cats, onServer, kind = "") {
     };
     $("#ltQ", form).addEventListener("input", (e) => { q = e.target.value.trim(); draw(); });
     form.addEventListener("click", (e) => {
+      if (e.target.closest("[data-ltsetall]")) { applySet(); draw(); return; }
+      if (e.target.closest("[data-ltsetnone]")) { curSet.items.forEach((x) => picked.delete(x.item_id)); draw(); refreshPlan(); return; }
       const c = e.target.closest("[data-c]");
       if (c) { cat = c.dataset.c; form.querySelectorAll("[data-c]").forEach((b) => b.setAttribute("aria-pressed", String(b === c))); draw(); return; }
       const row = e.target.closest(".lt-row");
       if (row && !e.target.closest("select") && !e.target.closest("[data-lt]")) { const cb = row.querySelector("[data-lt]"); cb.checked = !cb.checked; cb.dispatchEvent(new Event("change", { bubbles: true })); }
     });
     form.addEventListener("change", (e) => {
+      if (e.target.id === "ltSet") {
+        curSet = sets.find((x) => x.id === Number(e.target.value)) || null;
+        if (curSet) { picked.clear(); cat = ""; form.querySelectorAll("[data-c]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.c === ""))); }
+        applySet(); draw(); return;
+      }
       const cb = e.target.closest("[data-lt]");
       if (cb) { const id = Number(cb.dataset.lt); if (cb.checked) picked.set(id, Number(form.querySelector(`[data-ltv="${id}"]`).value)); else picked.delete(id); draw(); refreshPlan(); }
       const vs = e.target.closest("[data-ltv]");
@@ -1039,6 +1068,7 @@ async function libraryToServer(s, cats, onServer, kind = "") {
         else if (r) toast((r.log || []).slice(-1)[0] || "入れられませんでした", true);
       } catch (ex) { toast(ex.message, true); }
     }, "送信中…");
+    applySet();
     draw();
   }, { wide: true });
 }
@@ -1176,6 +1206,7 @@ async function inventoryDialog(s, startCat = "all", container = null) {
         const kind = tab !== "all" ? tab : cats.length === 1 ? cats[0] : "";
         openMenu(at, [
           { label: "ライブラリから選ぶ", icon: "box", run: async () => { if (await libraryToServer(s, cats, d.files, kind)) await load(); } },
+          { label: "セットから選ぶ", icon: "stack", run: async () => { if (await libraryToServer(s, cats, d.files, kind, { fromSet: true })) await load(); } },
           { label: "配布サイトから探す", icon: "search", run: () => openSearch({ kind, toServer: s }) },
         ]);
         return;

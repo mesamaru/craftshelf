@@ -1601,6 +1601,11 @@ window.CS_EN = {
   "やり直す(Ctrl+Y)": "Redo (Ctrl+Y)",
   "元に戻す": "Undo",
   "やり直す": "Redo",
+  "セットを使わない(ライブラリから選ぶ)": "No set (choose from the library)",
+  "セットがありません。「セット」で作ってください": "No sets yet. Create one under Sets",
+  "セットをすべて選ぶ": "Select the whole set",
+  "セットの選択を外す": "Clear the set selection",
+  "セットから選ぶ": "Choose from a set",
   // ---- 見た目の種類 ----
   "テーマ(背景と色)は、ガラス・フロスト・ネオンのときに選べます。": "Themes (background and colors) can be chosen with Glass, Frost and Neon.",
   "白いすりガラスのカード・テーマが透ける": "White frosted cards over the theme",
@@ -1839,6 +1844,8 @@ window.CS_EN = {
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [
+  [/「(.+?)」の\s*(\d+)\s*件を選びました。外したいものはチェックを外してください。/g, "Selected $2 from \"$1\". Uncheck any you don't want."],
+  [/このサーバーに入れる場所が無いもの・見られないもの\s*(\d+)\s*件は除きます。/g, "$1 that this server has no folder for (or you can't see) are left out."],
   [/差分のあるファイル\s*(\d+)/g, "$1 files differ"],
   [/(\d+)\s*台にない/g, "missing on $1"],
   [/差分\s*(\d+)\s*か所/g, "$1 differences"],

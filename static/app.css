@@ -1503,3 +1503,18 @@ body:not(.can-edit) .tabbar .tab-add { display: none; }
 .pick-row .main .badge { display: inline-flex; width: auto; margin-left: 4px; vertical-align: 1px; }
 .pick-row .main small { margin-top: 2px; color: var(--label-2); overflow-wrap: anywhere; }
 .cd-redo svg { transform: scaleX(-1); }
+/* サーバーに入れる: セットから選ぶ */
+.lt-set { display: flex; flex-direction: column; gap: 8px; margin: 0 0 10px; }
+.lt-set .field { display: flex; flex-direction: column; gap: 4px; }
+.lt-set .field > span { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; color: var(--label-2); }
+.lt-set .field > span svg { width: 15px; height: 15px; }
+.lt-setbar { display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 14px; background: var(--tint-soft); font-size: 13px; }
+.lt-setacts { display: flex; gap: 6px; flex-wrap: wrap; }
+/* 稼働状況のドット: テーマの色に頼らず、どの背景でも見分けやすい決まった色 + 縁取り
+   動いている = 緑(光る)・止まっている = 中が空の丸・起動/停止中 = 橙・確認中 = 薄い丸 */
+:root { --run: #22c55e; --run-glow: rgba(34, 197, 94, .45); }
+.sdot, .live-chip .dot { box-sizing: border-box; background: transparent; border: 2px solid color-mix(in srgb, var(--label) 45%, transparent); box-shadow: none; }
+.sdot.ok, .live-chip.ok .dot { background: var(--run); border: 1.5px solid color-mix(in srgb, var(--label) 70%, transparent); box-shadow: 0 0 0 3px var(--run-glow), 0 0 8px var(--run-glow); }
+.sdot.upd, .live-chip.upd .dot { background: #f59e0b; border: 1.5px solid color-mix(in srgb, var(--label) 70%, transparent); box-shadow: 0 0 0 3px rgba(245, 158, 11, .35); }
+.sdot.wait { border-style: dashed; opacity: .6; }
+.live-chip .dot { width: 9px; height: 9px; }

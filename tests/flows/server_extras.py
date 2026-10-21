@@ -20,6 +20,24 @@ def wait(c):
         time.sleep(0.05)
     return js
 
+def run(c, url, body):
+    """処理を始めて、その処理が終わるまで待つ(始められなかったときは中身を出す)"""
+    r = c.post(url, json=body)
+    d = r.get_json() or {}
+    jid = d.get("id")
+    if r.status_code != 200 or not jid:
+        print("  ..  start failed", url, r.status_code, d)
+        return d
+    for _ in range(600):
+        j = c.get(f"/api/jobs/{jid}").get_json()
+        if j["status"] not in ("running", "queued"):
+            if j["status"] != "done":
+                print("  ..  job", j["status"], j.get("log", [])[-3:])
+            return j
+        time.sleep(0.05)
+    print("  ..  job timeout", url)
+    return j
+
 def vi(n):
     o = b""
     while True:
@@ -157,26 +175,26 @@ c.post(f"/api/servers/{s1}/toggle", json={"path": "plugins/Gamma-1.0.jar.disable
 check((r1 / "plugins" / "Gamma-1.0.jar").exists(), "enable renames back")
 
 # コピー(update → add → mirror)
-c.post(f"/api/servers/{s1}/copy", json={"targets": [s2], "mode": "update"}); wait(c)
+run(c, f"/api/servers/{s1}/copy", {"targets": [s2], "mode": "update"})
 names2 = sorted(p.name for p in (r2 / "plugins").glob("*.jar"))
 check("Gamma-1.0.jar" not in names2 and "Alpha-1.1.jar" in names2, f"update mode only updates existing ({names2})")
-c.post(f"/api/servers/{s1}/copy", json={"targets": [s2], "mode": "add"}); wait(c)
+run(c, f"/api/servers/{s1}/copy", {"targets": [s2], "mode": "add"})
 names2 = sorted(p.name for p in (r2 / "plugins").glob("*.jar"))
 check("Gamma-1.0.jar" in names2, f"add mode adds missing ({names2})")
 (r1 / "plugins" / "Beta-2.0.jar").unlink()
-c.post(f"/api/servers/{s1}/copy", json={"targets": [s2], "mode": "mirror"}); wait(c)
+run(c, f"/api/servers/{s1}/copy", {"targets": [s2], "mode": "mirror"})
 names2 = sorted(p.name for p in (r2 / "plugins").glob("*.jar"))
 check(not any(n.startswith("Beta") for n in names2), f"mirror removes extras ({names2})")
 # 設定の「同期」: このサーバーを、ほかのサーバー・セットにそろえる
 st = c.post("/api/sets", json={"name": "BetaOnly", "items": [{"item_id": lib["Beta"]["id"]}]}).get_json()
 set_id = st.get("id") or (st.get("set") or {}).get("id")
-c.post(f"/api/servers/{s2}/sync-from", json={"set_id": set_id, "mode": "add"}); wait(c)
+run(c, f"/api/servers/{s2}/sync-from", {"set_id": set_id, "mode": "add"})
 names2 = sorted(p.name for p in (r2 / "plugins").glob("*.jar"))
 check(any(n.startswith("Beta") for n in names2) and "Alpha-1.1.jar" in names2, f"sync-from set (add) adds Beta and keeps others ({names2})")
-c.post(f"/api/servers/{s2}/sync-from", json={"set_id": set_id, "mode": "mirror"}); wait(c)
+run(c, f"/api/servers/{s2}/sync-from", {"set_id": set_id, "mode": "mirror"})
 names2 = sorted(p.name for p in (r2 / "plugins").glob("*.jar"))
 check(any(n.startswith("Beta") for n in names2) and not any(n.startswith(("Alpha", "Gamma")) for n in names2), f"sync-from set (mirror) leaves only the set ({names2})")
-c.post(f"/api/servers/{s2}/sync-from", json={"server_id": s1, "mode": "mirror"}); wait(c)
+run(c, f"/api/servers/{s2}/sync-from", {"server_id": s1, "mode": "mirror"})
 names1 = sorted(p.name for p in (r1 / "plugins").glob("*.jar")); names2 = sorted(p.name for p in (r2 / "plugins").glob("*.jar"))
 check(names2 == names1, f"sync-from server (mirror) matches the other server ({names1} / {names2})")
 check(c.post(f"/api/servers/{s2}/sync-from", json={"server_id": s2}).status_code == 400, "cannot sync from itself")

@@ -1595,6 +1595,12 @@ window.CS_EN = {
   "選んだサーバーは、すべて最新です": "The selected servers are all up to date",
   "今の jar はパネルに退避し、この画面からいつでも戻せます。": "The current jar is saved in the panel and can be restored from this screen.",
   "Minecraft のバージョンを変えます。新しいバージョンで開いたワールドは古いバージョンに戻せないため、先に「保存」でワールドを保存してください。アドオンも、そのバージョンに対応したものが要ります。": "This changes the Minecraft version. Worlds opened in a newer version can't go back, so back up the world first. Add-ons must also support that version.",
+  "元に戻せる変更はありません": "Nothing to undo",
+  "やり直せる変更はありません": "Nothing to redo",
+  "元に戻す(Ctrl+Z)": "Undo (Ctrl+Z)",
+  "やり直す(Ctrl+Y)": "Redo (Ctrl+Y)",
+  "元に戻す": "Undo",
+  "やり直す": "Redo",
   // ---- 見た目の種類 ----
   "テーマ(背景と色)は、ガラス・フロスト・ネオンのときに選べます。": "Themes (background and colors) can be chosen with Glass, Frost and Neon.",
   "白いすりガラスのカード・テーマが透ける": "White frosted cards over the theme",

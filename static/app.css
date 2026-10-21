@@ -1502,3 +1502,4 @@ body:not(.can-edit) .tabbar .tab-add { display: none; }
 .pick-row .main { display: block; min-width: 0; }
 .pick-row .main .badge { display: inline-flex; width: auto; margin-left: 4px; vertical-align: 1px; }
 .pick-row .main small { margin-top: 2px; color: var(--label-2); overflow-wrap: anywhere; }
+.cd-redo svg { transform: scaleX(-1); }

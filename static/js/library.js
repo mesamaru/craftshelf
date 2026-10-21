@@ -273,6 +273,7 @@ function setView(view) {
   if (view === "dash") renderDash();
   if (view === "sets") loadSets();
   if (view === "servers") loadServers();
+  if (typeof navSync === "function") setTimeout(navSync, 0);  // 戻るボタンの履歴(nav.js)
 }
 $("#tabbar").addEventListener("click", (e) => { const b = e.target.closest("[data-view]"); if (b) setView(b.dataset.view); });
 

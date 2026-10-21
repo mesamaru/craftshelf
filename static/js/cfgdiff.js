@@ -162,6 +162,7 @@ async function renderCdCompare(body) {
       } catch { cd.files[id] = { lines: [], eol: true, crlf: false, hash: "", saved: "", exists: false, dirty: false }; }
     }));
     if (!cd.base || !cd.ids.includes(cd.base) || !cd.files[cd.base].exists) cd.base = cd.ids.find((id) => cd.files[id].exists) || cd.ids[0];
+    cd.hist = { undo: [], redo: [] };
   }
   drawCdCompare(body);
 }
@@ -204,6 +205,8 @@ function drawCdCompare(body, keepFocus = null) {
       <b class="mono" translate="no">${esc(cd.path)}</b>
       <span class="badge ${blocks ? "upd" : "ok"}">${blocks ? `差分 ${blocks} か所` : "差分はありません"}</span>
       <span class="sp"></span>
+      <button class="icon-btn sm" type="button" data-cdundo="0" title="元に戻す(Ctrl+Z)" aria-label="元に戻す"${(cd.hist && cd.hist.undo.length) ? "" : " disabled"}>${icon("back")}</button>
+      <button class="icon-btn sm cd-redo" type="button" data-cdundo="1" title="やり直す(Ctrl+Y)" aria-label="やり直す"${(cd.hist && cd.hist.redo.length) ? "" : " disabled"}>${icon("back")}</button>
       <button class="btn small" type="button" data-cdnav="-1"${blocks ? "" : " disabled"}>${icon("up")}前の差分</button>
       <button class="btn small" type="button" data-cdnav="1"${blocks ? "" : " disabled"}>${icon("down")}次の差分</button>
       <label class="sw-opt"><input type="checkbox" class="switch" data-cdopt="onlyDiff"${cd.onlyDiff ? " checked" : ""}> 差分のある行だけ</label>
@@ -228,41 +231,90 @@ function caretOffset(el) {
   const r = sel.getRangeAt(0).cloneRange(); r.selectNodeContents(el); r.setEnd(sel.getRangeAt(0).endContainer, sel.getRangeAt(0).endOffset);
   return r.toString().length;
 }
+function selRange(el) {
+  const sel = getSelection();
+  if (!sel.rangeCount || !el.contains(sel.anchorNode)) { const o = caretOffset(el); return [o, o]; }
+  const rg = sel.getRangeAt(0);
+  const at = (node, off) => { const r = document.createRange(); r.selectNodeContents(el); r.setEnd(node, off); return r.toString().length; };
+  const a = at(rg.startContainer, rg.startOffset), b = at(rg.endContainer, rg.endOffset);
+  return [Math.min(a, b), Math.max(a, b)];
+}
+// 元に戻す・やり直す: 変える前の全サーバーの行を覚えておく
+function cdSnap(focus) {
+  const cd = state.cd;
+  return { files: Object.fromEntries(Object.entries(cd.files).map(([id, f]) => [id, { lines: f.lines.slice(), eol: f.eol }])), focus };
+}
+function cdPushUndo(focus) {
+  const cd = state.cd;
+  cd.hist = cd.hist || { undo: [], redo: [] };
+  cd.hist.undo.push(cdSnap(focus));
+  if (cd.hist.undo.length > 200) cd.hist.undo.shift();
+  cd.hist.redo = [];
+}
+function cdUndoRedo(body, redo) {
+  const cd = state.cd, h = cd.hist || { undo: [], redo: [] };
+  const from = redo ? h.redo : h.undo, to = redo ? h.undo : h.redo;
+  if (!from.length) { toast(redo ? "やり直せる変更はありません" : "元に戻せる変更はありません"); return; }
+  const snap = from.pop();
+  to.push(cdSnap(snap.focus));
+  for (const [id, x] of Object.entries(snap.files)) {
+    const f = cd.files[id]; if (!f) continue;
+    f.lines = x.lines.slice(); f.eol = x.eol; f.dirty = joinText(f) !== f.saved || !f.exists;
+  }
+  drawCdCompare(body, snap.focus);
+}
 function bindCdCompare(body) {
   const cd = state.cd;
   let timer = null, syncing = false;
-  const redraw = (focus) => drawCdCompare(body, focus);
+  let typing = false;  // 打ち続けている間は、まとめて 1 回の「元に戻す」にする
+  const redraw = (focus) => { typing = false; drawCdCompare(body, focus); };
   const touch = (id) => { const f = cd.files[id]; f.dirty = joinText(f) !== f.saved || !f.exists; };
+  const save = (focus) => { clearTimeout(timer); typing = false; cdPushUndo(focus); };
   body.oninput = (e) => {
     const el = e.target.closest(".cd-tx[data-id]"); if (!el) return;
     const id = Number(el.dataset.id), li = Number(el.dataset.li);
+    if (!typing) { cdPushUndo({ id, li, off: caretOffset(el) }); typing = true; }
     cd.files[id].lines[li] = el.textContent.replace(/\n/g, "");
     touch(id);
     clearTimeout(timer);
     timer = setTimeout(() => redraw({ id, li, off: caretOffset(el) }), 450);  // 打ち終わったら差分を計算し直す
   };
+  const undoKey = (e) => (e.ctrlKey || e.metaKey) && !e.altKey && (e.key.toLowerCase() === "z" || e.key.toLowerCase() === "y");
   body.onkeydown = (e) => {
+    if (undoKey(e)) {  // 元に戻す(Ctrl+Z)・やり直す(Ctrl+Y / Ctrl+Shift+Z)
+      e.preventDefault();
+      if (typing) { clearTimeout(timer); typing = false; }
+      cdUndoRedo(body, e.key.toLowerCase() === "y" || e.shiftKey);
+      return;
+    }
     const el = e.target.closest(".cd-tx[data-id]"); if (!el) return;
-    const id = Number(el.dataset.id), li = Number(el.dataset.li), f = cd.files[id], off = caretOffset(el), t = el.textContent;
+    const id = Number(el.dataset.id), li = Number(el.dataset.li), f = cd.files[id], t = el.textContent;
+    const [s0, s1] = selRange(el), off = s0;
     if (e.key === "Enter") {
-      e.preventDefault(); clearTimeout(timer);
-      f.lines[li] = t.slice(0, off); f.lines.splice(li + 1, 0, t.slice(off)); touch(id); redraw({ id, li: li + 1, off: 0 });
-    } else if (e.key === "Backspace" && off === 0 && li > 0 && !getSelection().toString()) {
-      e.preventDefault(); clearTimeout(timer);
+      e.preventDefault(); save({ id, li, off: s1 });
+      f.lines[li] = t.slice(0, s0); f.lines.splice(li + 1, 0, t.slice(s1)); touch(id); redraw({ id, li: li + 1, off: 0 });
+    } else if (e.key === "Backspace" && s1 === 0 && li > 0) {
+      e.preventDefault(); save({ id, li, off: 0 });
       const prevLen = f.lines[li - 1].length; f.lines[li - 1] += t; f.lines.splice(li, 1); touch(id); redraw({ id, li: li - 1, off: prevLen });
-    } else if (e.key === "Delete" && off === t.length && li + 1 < f.lines.length && !getSelection().toString()) {
-      e.preventDefault(); clearTimeout(timer);
+    } else if (e.key === "Delete" && s0 === t.length && li + 1 < f.lines.length) {
+      e.preventDefault(); save({ id, li, off: s0 });
       f.lines[li] = t + f.lines[li + 1]; f.lines.splice(li + 1, 1); touch(id); redraw({ id, li, off });
     } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "s") {
       e.preventDefault(); saveCd(body, id);
     }
   };
+  // 編集メニュー・スマホの「取り消す」も、こちらで扱う(行ごとに描き直しているため、ブラウザの取り消しは使えない)
+  body.addEventListener("beforeinput", (e) => {
+    if (e.inputType === "historyUndo" || e.inputType === "historyRedo") { e.preventDefault(); clearTimeout(timer); typing = false; cdUndoRedo(body, e.inputType === "historyRedo"); }
+  });
   body.onpaste = (e) => {
     const el = e.target.closest(".cd-tx[data-id]"); if (!el) return;
     e.preventDefault();
-    const id = Number(el.dataset.id), li = Number(el.dataset.li), f = cd.files[id], off = caretOffset(el), t = el.textContent;
+    const id = Number(el.dataset.id), li = Number(el.dataset.li), f = cd.files[id], t = el.textContent;
+    const [s0, s1] = selRange(el);  // 選んでいる文字は、貼り付けたもので置き換える
+    save({ id, li, off: s1 });
     const parts = (e.clipboardData.getData("text/plain") || "").replace(/\r\n/g, "\n").split("\n");
-    const head = t.slice(0, off), tail = t.slice(off);
+    const head = t.slice(0, s0), tail = t.slice(s1);
     parts[0] = head + parts[0];
     const lastOff = parts[parts.length - 1].length;
     parts[parts.length - 1] += tail;
@@ -287,10 +339,11 @@ function bindCdCompare(body) {
       if (Object.values(cd.files).some((f) => f.dirty) && !cfm("保存していない変更があります。破棄して一覧に戻りますか?")) return;
       cd.path = null; cd.files = null; renderCfgDiff(); return;
     }
+    const ud = e.target.closest("[data-cdundo]"); if (ud) { clearTimeout(timer); typing = false; cdUndoRedo(body, ud.dataset.cdundo === "1"); return; }
     const bs = e.target.closest("[data-cdbase]"); if (bs) { cd.base = Number(bs.dataset.cdbase); redraw(); return; }
     const sv = e.target.closest("[data-cdsave]"); if (sv) { saveCd(body, Number(sv.dataset.cdsave)); return; }
     const cr = e.target.closest("[data-cdcreate]");
-    if (cr) { const f = cd.files[Number(cr.dataset.cdcreate)]; f.lines = cd.files[cd.base].lines.slice(); f.eol = cd.files[cd.base].eol; f.dirty = true; redraw(); return; }
+    if (cr) { cdPushUndo(null); const f = cd.files[Number(cr.dataset.cdcreate)]; f.lines = cd.files[cd.base].lines.slice(); f.eol = cd.files[cd.base].eol; f.dirty = true; redraw(); return; }
     const nv = e.target.closest("[data-cdnav]");
     if (nv) {
       const dir = Number(nv.dataset.cdnav), b = body.querySelector(".cd-body");
@@ -312,9 +365,10 @@ function bindCdCompare(body) {
         touch(oid);
       };
       const items = id === cd.base
-        ? [{ label: "この行をほかのサーバーすべてへ", icon: "send", run: () => { cd.others.forEach(setLike); redraw(); } }]
-        : [{ label: "この行を基準に合わせる", icon: "arrows", run: () => { setLike(id); redraw(); } },
+        ? [{ label: "この行をほかのサーバーすべてへ", icon: "send", run: () => { cdPushUndo(null); cd.others.forEach(setLike); redraw(); } }]
+        : [{ label: "この行を基準に合わせる", icon: "arrows", run: () => { cdPushUndo(null); setLike(id); redraw(); } },
           ...(row.cells[cd.others.indexOf(id)].i !== null ? [{ label: "この行を基準へ写す", icon: "back", run: () => {
+            cdPushUndo(null);
             const f = cd.files[id], li = row.cells[cd.others.indexOf(id)].i;
             if (row.base !== null) base.lines[row.base] = f.lines[li];
             else { const at = cd.rows.slice(0, ri).reduce((n, r) => (r.base !== null ? r.base + 1 : n), 0); base.lines.splice(at, 0, f.lines[li]); }

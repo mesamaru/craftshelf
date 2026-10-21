@@ -107,7 +107,8 @@ def _job_visible(job):
 @app.get("/api/jobs")
 def api_jobs():
     with _JOBS_LOCK:
-        jobs = sorted((j for j in _JOBS.values() if _job_visible(j)), key=lambda j: j.started, reverse=True)
+        # 同じ秒に始まったものは、あとから足したもの(新しいもの)を先に
+        jobs = sorted((j for j in reversed(list(_JOBS.values())) if _job_visible(j)), key=lambda j: j.started, reverse=True)
     return jsonify(jobs=[j.public() for j in jobs[:10]])
 
 

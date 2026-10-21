@@ -16,7 +16,7 @@ def wait(c):
     js = []
     for _ in range(400):
         js = c.get("/api/jobs").get_json()["jobs"]
-        if js and all(j["status"] != "running" for j in js): return js
+        if js and all(j["status"] not in ("running", "queued") for j in js): return js
         time.sleep(0.05)
     return js
 

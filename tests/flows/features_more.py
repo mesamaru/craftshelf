@@ -49,7 +49,7 @@ c.post("/api/auth/setup", json={"username": "admin", "password": "password123"})
 def wait(j):
     for _ in range(300):
         j = c.get(f"/api/jobs/{j['id']}").get_json()
-        if j["status"] != "running": return j
+        if j["status"] not in ("running", "queued"): return j
         time.sleep(0.1)
     return j
 

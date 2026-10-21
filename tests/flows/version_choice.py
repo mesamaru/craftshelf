@@ -14,7 +14,7 @@ def jar(n, v):
 def wait(c, jid):
     for _ in range(300):
         j = c.get(f"/api/jobs/{jid}").get_json()
-        if j["status"] != "running": return j
+        if j["status"] not in ("running", "queued"): return j
         time.sleep(0.05)
 c = A.app.test_client(); c.environ_base["HTTP_X_REQUESTED_WITH"] = "mcpl"
 c.post("/api/auth/setup", json={"username": "owner", "password": "password123"})

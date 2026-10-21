@@ -177,7 +177,7 @@ def check(force=False):
     except UpdateError as e:
         data["error"] = e.message
         if CHANNEL == "preview" and ("見つかりません" in e.message or "まだありません" in e.message):
-            data["error"] = "プレビュー(02)はまだ公開されていません。公開されると、ここから受け取れます"
+            data["error"] = "プレビュー(03)はまだ公開されていません。公開されると、ここから受け取れます"
     with _cache_lock:
         _cache.update(at=time.monotonic(), data=data)
     return data

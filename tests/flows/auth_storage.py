@@ -36,7 +36,7 @@ def wait_job(c, jid, limit=300):
     t = time.time()
     while time.time() - t < limit:
         j = c.get(f"/api/jobs/{jid}").get_json()
-        if j["status"] != "running":
+        if j["status"] not in ("running", "queued"):
             return j
         time.sleep(0.5)
     return j

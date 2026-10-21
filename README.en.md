@@ -85,7 +85,7 @@ The panel checks GitHub for new versions. Docker and script installs can update 
 
 Under ⚙ → "Panel update" you can choose the update channel: **Stable** (the `main` branch / official releases, recommended) or **Development build** (the `dev` branch / pre-releases, may contain bugs). You can switch back to stable at any time.
 
-The **Preview (02, testing)** channel receives the next major version. Before switching, your data is backed up automatically, and you can always switch back to Stable or Development build: 02 only adds to the database, and builds that can't read the data are blocked from being installed.
+The **Preview (03, testing)** channel receives the next major version. Before switching, your data is backed up automatically, and you can always switch back to Stable or Development build: new major versions only add to the database, and builds that can't read the data are blocked from being installed.
 
 ## Security
 

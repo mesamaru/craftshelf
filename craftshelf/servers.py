@@ -1814,7 +1814,7 @@ def api_servers_toggle(srv):
     return jsonify(ok=True, name=to)
 
 
-def _copy_job(job, src_id, dst_ids, target_id, mode, user, uid=0):
+def _copy_job(job, src_id, dst_ids, target_id, mode, user, uid=0, set_id=None):
     """src のサーバーの中身(ライブラリにあるもの)を、dst のサーバーにそろえる。
 
     mode: update = dst にあるものだけ src のバージョンに / add = src にあるものを入れる /
@@ -1823,11 +1823,19 @@ def _copy_job(job, src_id, dst_ids, target_id, mode, user, uid=0):
     conn = db()
     target = conn.execute("SELECT * FROM storage_targets WHERE id=?", (target_id,)).fetchone()
     store = open_store(target)
-    src_row = conn.execute("SELECT * FROM servers WHERE id=?", (src_id,)).fetchone()
-    job.note(f"「{src_row['name']}」の中身を確認しています…")
-    src_inv, _m, _a = server_inventory(conn, src_row, target, note=job.note)
     want = {}
     vis = visible_item_ids(conn, {"id": uid}) if uid else None  # 操作した人に見えるアドオンだけ
+    if set_id:  # セットにそろえる(バージョンの指定が無いものは最新)
+        srow = conn.execute("SELECT * FROM sets WHERE id=?", (set_id,)).fetchone()
+        src_row = {"name": f"セット「{srow['name']}」"}
+        for item, v in resolve_set_versions(conn, set_id):
+            if vis is None or item["id"] in vis:
+                want[item["id"]] = v["id"]
+        src_inv = []
+    else:
+        src_row = conn.execute("SELECT * FROM servers WHERE id=?", (src_id,)).fetchone()
+        job.note(f"「{src_row['name']}」の中身を確認しています…")
+        src_inv, _m, _a = server_inventory(conn, src_row, target, note=job.note)
     for e in src_inv:
         if not e["item_id"] or e["status"] == "disabled" or (vis is not None and e["item_id"] not in vis):
             continue
@@ -1862,6 +1870,33 @@ def _copy_job(job, src_id, dst_ids, target_id, mode, user, uid=0):
             notify_event("servers", f"{dst['name']} を {src_row['name']} にそろえました", [f"{sent} 件"])
     job.result = {"sent": total}
     audit("サーバーの中身をそろえた", src_row["name"], f"{len(dst_ids)} 台・{total} 件", user=user)
+
+
+@app.post("/api/servers/<int:srv>/sync-from")
+@require("editor")
+def api_servers_sync_from(srv):
+    """このサーバーを、ほかのサーバー(server_id)かセット(set_id)の中身にそろえる(mode: update / add / mirror)。"""
+    row = _server_row(srv, "edit")
+    data = request.get_json(silent=True) or {}
+    mode = data.get("mode") if data.get("mode") in ("update", "add", "mirror") else "add"
+    _store, target = active_store()
+    src, set_id, label = None, None, ""
+    if data.get("set_id"):
+        s = db().execute("SELECT * FROM sets WHERE id=? AND target_id=? AND owner_id=?",
+                         (int(data["set_id"]), target["id"], current_user()["id"])).fetchone()
+        if not s:
+            raise ApiError("セットが見つかりません", 404)
+        set_id, label = s["id"], f"セット「{s['name']}」"
+    elif data.get("server_id"):
+        src = int(data["server_id"])
+        if src == srv:
+            raise ApiError("同じサーバーにはそろえられません")
+        label = f"「{_server_row(src, 'view')['name']}」"
+    else:
+        raise ApiError("そろえる元(サーバーかセット)を選んでください")
+    job = start_job(f"server-{srv}", f"「{row['name']}」を{label}にそろえる", _copy_job, src, [srv], target["id"], mode,
+                    current_user()["username"], current_user()["id"], set_id, user=current_user()["username"], queue=True)
+    return jsonify(job.public())
 
 
 @app.post("/api/servers/<int:srv>/copy")

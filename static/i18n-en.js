@@ -1606,6 +1606,18 @@ window.CS_EN = {
   "セットをすべて選ぶ": "Select the whole set",
   "セットの選択を外す": "Clear the set selection",
   "セットから選ぶ": "Choose from a set",
+  "同期(ほかのサーバー・セットにそろえる)": "Sync (match another server or a set)",
+  "このサーバーのアドオンを、ほかのサーバーかセットと同じにします。入れ替えたもの・外したものは退避され、「保存」→「履歴と巻き戻し」から戻せます。": "Makes this server's add-ons the same as another server or a set. Replaced or removed files are kept and can be restored from Backups → History.",
+  "そろえる元": "Match to",
+  "入っているものだけ合わせる": "Only update what's installed",
+  "このサーバーにあるアドオンだけ、そろえる元のバージョンにします": "Only add-ons already on this server are changed to the source's version",
+  "このサーバーから外します": "removes them from this server",
+  "そろえる元を選んでください": "Choose what to match",
+  "そろえています…": "Matching…",
+  "そろえられませんでした": "Couldn't match",
+  "表示中をすべて選ぶ": "Select all shown",
+  "すべて外す": "Clear all",
+  "セットの選び方に戻す": "Reset to the set's selection",
   // ---- 見た目の種類 ----
   "テーマ(背景と色)は、ガラス・フロスト・ネオンのときに選べます。": "Themes (background and colors) can be chosen with Glass, Frost and Neon.",
   "白いすりガラスのカード・テーマが透ける": "White frosted cards over the theme",
@@ -1844,6 +1856,7 @@ window.CS_EN = {
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [
+  [/(\d+)\s*\/\s*(\d+)\s*件を選択中/g, "$1 of $2 selected"],
   [/「(.+?)」の\s*(\d+)\s*件を選びました。外したいものはチェックを外してください。/g, "Selected $2 from \"$1\". Uncheck any you don't want."],
   [/このサーバーに入れる場所が無いもの・見られないもの\s*(\d+)\s*件は除きます。/g, "$1 that this server has no folder for (or you can't see) are left out."],
   [/差分のあるファイル\s*(\d+)/g, "$1 files differ"],

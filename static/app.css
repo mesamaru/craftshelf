@@ -1518,3 +1518,10 @@ body:not(.can-edit) .tabbar .tab-add { display: none; }
 .sdot.upd, .live-chip.upd .dot { background: #f59e0b; border: 1.5px solid color-mix(in srgb, var(--label) 70%, transparent); box-shadow: 0 0 0 3px rgba(245, 158, 11, .35); }
 .sdot.wait { border-style: dashed; opacity: .6; }
 .live-chip .dot { width: 9px; height: 9px; }
+/* 概要の 起動・再起動・停止 */
+.srv-qacts.pw3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.srv-qacts button:disabled { opacity: .45; }
+.srv-pwnote { margin: -4px 0 12px; }
+/* サーバーに入れる: 全選択・解除 */
+.lt-allbar { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin: 8px 0 6px; }
+.lt-allbar .sp { flex: 1; }

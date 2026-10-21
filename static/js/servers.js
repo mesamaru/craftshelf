@@ -441,12 +441,12 @@ function renderServerPage(s, el) {
     <div class="srv-pane" id="srvPane"></div></div>`;
   const pane = $("#srvPane", el);
   if (tab === "overview") {
-    pane.innerHTML = `${!ro ? `<div class="srv-qacts">
-        <button type="button" data-va="push">${icon("send")}<span>同期</span></button>
-        <button type="button" data-tab2="console">${icon("chat")}<span>コマンド</span></button>
-        <button type="button" data-tab2="backup">${icon("download")}<span>保存</span></button>
-        ${canPower(s) ? `<button type="button" data-pw="restart">${icon("refresh")}<span>再起動</span></button>` : `<button type="button" data-tab2="files">${icon("doc")}<span>ファイル</span></button>`}
-      </div>` : ""}<div id="srvLivePanel">${livePanel(s)}</div>
+    const pwOff = canPower(s) ? "" : " disabled";
+    pane.innerHTML = `${!ro ? `<div class="srv-qacts pw3">
+        <button type="button" data-pw="start"${pwOff}>${icon("play")}<span>起動</span></button>
+        <button type="button" data-pw="restart"${pwOff}>${icon("refresh")}<span>再起動</span></button>
+        <button type="button" data-pw="stop"${pwOff}>${icon("stop")}<span>停止</span></button>
+      </div>${canPower(s) ? "" : `<p class="muted small srv-pwnote">起動・停止を使うには、「設定」→「起動・停止」で方法(${s.kind === "local" ? "コマンド・Docker" : "Pterodactyl"})を設定してください。</p>`}` : ""}<div id="srvLivePanel">${livePanel(s)}</div>
       <div class="sgrp">やること</div><div class="slist stodo-list">${todoList(s)}</div>
       ${!ro ? `<div class="srv-quick">
         <button class="btn small" type="button" data-va="copy">${icon("arrows")}${(s.stage_targets || []).length ? "本番へ反映" : "構成をコピー"}</button>
@@ -459,10 +459,7 @@ function renderServerPage(s, el) {
         <div class="kv"><span>最後の同期</span><span>${s.last_sync ? esc(fmtDateTime(s.last_sync)) : "-"}</span></div>
         <div class="kv"><span>フォルダ</span><span>${esc(dirsLabel(s))}</span></div>
         ${s.kind === "local" ? `<div class="kv"><span>場所</span><span translate="no" class="mono">${esc(s.root_dir || "")}</span></div>` : ""}</div>
-      ${!ro && canPower(s) ? `<div class="pw-bar">
-        <button class="btn" type="button" data-pw="start">${icon("play")}起動</button>
-        <button class="btn" type="button" data-pw="stop">${icon("stop")}停止</button>
-        <button class="btn" type="button" data-pw="restart">${icon("refresh")}再起動</button></div>` : ""}`;
+`;
     if (!(s.soft_info || {}).checked_at && s.software) refreshSoft(s, false);
   } else if (tab === "addons") {
     inventoryDialog(s, state.srvCat || "all", pane);
@@ -636,6 +633,15 @@ async function serverSettingsDialog(s, container = null) {
         ${field("MC のバージョン(対応していないバージョンを入れないために使います)", `<input type="text" name="mc_version" value="${esc(s.mc_version || "")}" placeholder="例: 1.21.4" inputmode="decimal">`)}
         ${srvFields(s)}
         ${field("セット(同期のときに、セットの中身もサーバーに入れる)", `<select name="set_id">${setOpts}</select>`)}`, true)}
+      ${sec("sync", "同期(ほかのサーバー・セットにそろえる)", `
+        <p class="muted">このサーバーのアドオンを、ほかのサーバーかセットと同じにします。入れ替えたもの・外したものは退避され、「保存」→「履歴と巻き戻し」から戻せます。</p>
+        ${field("そろえる元", `<select name="sync_src"><option value="">選んでください</option>
+          ${(state.servers || []).filter((x) => x.id !== s.id).length ? `<optgroup label="サーバー">${(state.servers || []).filter((x) => x.id !== s.id).map((x) => `<option value="s${x.id}">${esc(x.name)}</option>`).join("")}</optgroup>` : ""}
+          ${state.sets.length ? `<optgroup label="セット">${state.sets.map((x) => `<option value="t${x.id}">${esc(x.name)}(${x.items.length} 件)</option>`).join("")}</optgroup>` : ""}</select>`)}
+        <div class="group">${[["update", "入っているものだけ合わせる", "このサーバーにあるアドオンだけ、そろえる元のバージョンにします"],
+          ["add", "足りないものも入れる", "そろえる元にあって、このサーバーに無いものも入れます"],
+          ["mirror", "まったく同じにする", "さらに、そろえる元に無い登録済みのアドオンを、このサーバーから外します"]].map(([k, t, d], i) => pickRow("sync_mode", k, `<b>${t}</b><small>${d}</small>`)).join("")}</div>
+        <button class="btn filled block" type="button" data-syncgo>${icon("arrows")}そろえる</button>`)}
       ${sec("update", "更新の受け取り方", `
         <div class="group">
           ${toggle("auto_update", "自動で最新にする", "ライブラリに新しいバージョンが入ったら、このサーバーへ自動で同期します(6 時間ごとに確認。見送り中・対応していないバージョンは入れません)", s.auto_update === "auto")}
@@ -682,6 +688,21 @@ async function serverSettingsDialog(s, container = null) {
       if (ctl && ctl.value === "command" && s.server_jar && !q("start_cmd").value) q("start_cmd").value = `java -Xms1G -Xmx4G -jar ${s.server_jar} nogui`;
     };
     form.addEventListener("change", syncRows); syncRows();
+    const sm = form.querySelector('[name=sync_mode][value="add"]'); if (sm) sm.checked = true;
+    form.querySelector("[data-syncgo]").onclick = (ev) => busy(ev.currentTarget, async () => {
+      const src = q("sync_src").value, mode = (form.querySelector("[name=sync_mode]:checked") || {}).value || "add";
+      if (!src) { toast("そろえる元を選んでください", true); return; }
+      const label = q("sync_src").selectedOptions[0].textContent;
+      const what = { update: "入っているものだけ合わせます", add: "足りないものも入れます", mirror: "そろえる元に無いものは外します(退避されます)" }[mode];
+      if (!await confirmSheet(`「${s.name}」を「${label}」にそろえますか?`, what, "そろえる", mode === "mirror")) return;
+      try {
+        const j = await api(`/api/servers/${s.id}/sync-from`, { json: src[0] === "s" ? { server_id: Number(src.slice(1)), mode } : { set_id: Number(src.slice(1)), mode } });
+        jobStarted(j);
+        const r = await waitJob(j.id);
+        if (r && r.status === "done") toast(`${(r.result || {}).sent || 0} 件を変更しました`);
+        else if (r) toast((r.log || []).slice(-1)[0] || "そろえられませんでした", true);
+      } catch (ex) { toast(ex.message, true); }
+    }, "そろえています…");
     wireSrvFields(form, () => (local ? { kind: "local", root_dir: q("root_dir").value.trim() } : { server_id: s.id }), (r) => { if (r.mc && !q("mc_version").value) q("mc_version").value = r.mc; });
     form.querySelector("[data-rcontest]").onclick = (ev) => busy(ev.currentTarget, async () => {
       try {
@@ -985,6 +1006,8 @@ async function libraryToServer(s, cats, onServer, kind = "", { fromSet = false }
         <div class="lt-setbar" id="ltSetBar" hidden></div></div>` : ""}
       <label class="search"><span>${icon("search")}</span><input type="search" id="ltQ" placeholder="名前・タグで絞り込み"></label>
       ${cats.length > 1 ? `<div class="segmented seg-wide" id="ltCat">${["", ...cats].map((c) => `<button class="seg" type="button" data-c="${c}" aria-pressed="${c === cat}">${c ? CATS[c] : "すべて"}</button>`).join("")}</div>` : ""}
+      <div class="lt-allbar"><span class="muted small" id="ltCount"></span><span class="sp"></span>
+        <button class="btn small" type="button" data-ltall>表示中をすべて選ぶ</button><button class="btn small" type="button" data-ltnone>すべて外す</button></div>
       <div class="group scroll" id="ltList"></div>
       <div class="lt-deps" id="ltDeps" hidden></div>
       <p class="group-foot">バージョンを選ばなければ、ライブラリの最新を入れます。同じアドオンの別のバージョンがサーバーにあれば置き換えます(退避されるので巻き戻せます)。</p>
@@ -1022,9 +1045,10 @@ async function libraryToServer(s, cats, onServer, kind = "", { fromSet = false }
       bar.hidden = false;
       bar.innerHTML = `<span>「${esc(curSet.name)}」の ${usable.length} 件を選びました。外したいものはチェックを外してください。</span>
         ${skipped ? `<span class="muted small">このサーバーに入れる場所が無いもの・見られないもの ${skipped} 件は除きます。</span>` : ""}
-        <span class="lt-setacts"><button class="btn small" type="button" data-ltsetall>セットをすべて選ぶ</button><button class="btn small" type="button" data-ltsetnone>セットの選択を外す</button></span>`;
+        <span class="lt-setacts"><button class="btn small" type="button" data-ltsetall>セットの選び方に戻す</button></span>`;
       refreshPlan();
     };
+    let lastList = [];
     const draw = () => {
       const ql = q.toLowerCase();
       const inSet = curSet ? new Set(curSet.items.map((x) => x.item_id)) : null;
@@ -1036,10 +1060,14 @@ async function libraryToServer(s, cats, onServer, kind = "", { fromSet = false }
         <select class="compact" data-ltv="${it.id}" aria-label="入れるバージョン">${it.versions.map((v, i) => `<option value="${i ? v.id : 0}"${(picked.get(it.id) || 0) === (i ? v.id : 0) ? " selected" : ""}>${esc(verLabel(v.version))}${i ? "" : "(最新)"}</option>`).join("")}</select></div>`).join("")
         || `<div class="empty">あてはまるアドオンがありません</div>`;
       form.querySelector("[data-ok]").textContent = picked.size ? `${picked.size} 件をサーバーに入れる` : "サーバーに入れる";
+      $("#ltCount", form).textContent = `${list.filter((it) => picked.has(it.id)).length} / ${list.length} 件を選択中`;
+      lastList = list;
     };
     $("#ltQ", form).addEventListener("input", (e) => { q = e.target.value.trim(); draw(); });
     form.addEventListener("click", (e) => {
       if (e.target.closest("[data-ltsetall]")) { applySet(); draw(); return; }
+      if (e.target.closest("[data-ltall]")) { lastList.forEach((it) => { if (!picked.has(it.id)) picked.set(it.id, setVer(it)); }); draw(); refreshPlan(); return; }
+      if (e.target.closest("[data-ltnone]")) { picked.clear(); draw(); refreshPlan(); return; }
       if (e.target.closest("[data-ltsetnone]")) { curSet.items.forEach((x) => picked.delete(x.item_id)); draw(); refreshPlan(); return; }
       const c = e.target.closest("[data-c]");
       if (c) { cat = c.dataset.c; form.querySelectorAll("[data-c]").forEach((b) => b.setAttribute("aria-pressed", String(b === c))); draw(); return; }
@@ -1083,7 +1111,7 @@ async function waitJob(id) {
 }
 /* サーバーの中身(種類ごとのタブ・1 件ずつの更新・見送り・無効化・対応バージョンの確認) */
 async function inventoryDialog(s, startCat = "all", container = null) {
-  let tab = startCat, filter = "all", tagF = "", sort = state.invSort || "status", d = null, selecting = false;
+  let tab = startCat, filter = "all", tagF = "", sort = state.invSort || (() => { try { return localStorage.getItem("craftshelf.invSort"); } catch { return null; } })() || "name", d = null, selecting = false;
   const sel = new Set();
   const pending = new Map();  // "up:<item_id>" / "imp:<path>" → "queued" | "running"(押したものは順番に処理される)
   const ro = s.access === "view";
@@ -1191,7 +1219,7 @@ async function inventoryDialog(s, startCat = "all", container = null) {
       openPanel(it.id);
     };
     body.addEventListener("change", (e) => {
-      if (e.target.matches("[data-sort]")) { sort = state.invSort = e.target.value; draw(); return; }
+      if (e.target.matches("[data-sort]")) { sort = state.invSort = e.target.value; try { localStorage.setItem("craftshelf.invSort", sort); } catch { /* 保存できない環境 */ } draw(); return; }
       const pk = e.target.closest("[data-pick]");
       if (pk) { if (pk.checked) sel.add(pk.dataset.pick); else sel.delete(pk.dataset.pick); draw(); }
     });

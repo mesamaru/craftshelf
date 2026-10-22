@@ -2,16 +2,19 @@ import { useState } from "react";
 import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { authClient } from "~/lib/auth-client";
 import { errorText } from "~/lib/errors";
+import { safeNext } from "~/lib/next";
 
 export const Route = createFileRoute("/login")({
-  beforeLoad: ({ context }) => {
-    if (context.user) throw redirect({ to: "/" });
+  validateSearch: (s: Record<string, unknown>): { next?: string } => (s.next ? { next: safeNext(s.next) } : {}),
+  beforeLoad: ({ context, search }) => {
+    if (context.user) throw redirect({ href: safeNext(search.next) });
   },
   component: Login,
 });
 
 function Login() {
   const router = useRouter();
+  const { next } = Route.useSearch();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
@@ -21,7 +24,7 @@ function Login() {
 
   const done = async () => {
     await router.invalidate();
-    await router.navigate({ to: "/" });
+    await router.navigate({ href: safeNext(next) });
   };
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -75,7 +78,7 @@ function Login() {
             <button className="capsule primary" disabled={busy}>ログイン</button>
           </form>
           <button className="capsule" type="button" onClick={withPasskey} disabled={busy}>パスキーでログイン</button>
-          <p className="foot">アカウントが無い場合は <Link to="/signup">新しく作る</Link></p>
+          <p className="foot">アカウントが無い場合は <Link to="/signup" search={{ next }}>新しく作る</Link></p>
         </>
       )}
     </main>

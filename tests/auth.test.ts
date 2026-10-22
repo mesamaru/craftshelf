@@ -1,26 +1,16 @@
 // 認証の通しテスト: 組み込みの PGlite に移行を流し、登録・ログイン・二段階認証・ログアウトまで確かめる
 import { createHmac } from "node:crypto";
 import { beforeAll, describe, expect, it } from "vitest";
-import { createAuth } from "~/server/auth";
-import { createDb } from "~/server/db";
+import { APP_URL, setup } from "./helpers";
 
-const APP_URL = "http://localhost:3000";
-let auth: ReturnType<typeof createAuth>;
+let auth: Awaited<ReturnType<typeof setup>>["auth"];
+let headers: Awaited<ReturnType<typeof setup>>["headers"];
+let cookieOf: Awaited<ReturnType<typeof setup>>["cookieOf"];
+let call: Awaited<ReturnType<typeof setup>>["call"];
 
 beforeAll(async () => {
-  const db = await createDb("pglite:", "drizzle");
-  auth = createAuth(db, { appUrl: APP_URL, secret: "test-secret-0123456789-0123456789-abcd" });
+  ({ auth, headers, cookieOf, call } = await setup());
 });
-
-const headers = (cookie = "") => new Headers({ origin: APP_URL, cookie });
-const cookieOf = (res: Response) =>
-  res.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
-
-async function call(path: string, body: unknown, cookie = "") {
-  const h = headers(cookie);
-  h.set("content-type", "application/json");
-  return auth.handler(new Request(APP_URL + "/api/auth" + path, { method: "POST", headers: h, body: JSON.stringify(body) }));
-}
 
 // RFC 6238 の TOTP(認証アプリと同じ計算)
 function totp(base32: string, t = Date.now()) {
@@ -80,5 +70,11 @@ describe("認証", () => {
     const cookie = cookieOf(res);
     expect((await call("/sign-out", {}, cookie)).status).toBe(200);
     expect(await auth.api.getSession({ headers: headers(cookie) })).toBeNull();
+  });
+
+  it("ログインを続けて失敗すると、回数制限で止まる", async () => {
+    const codes: number[] = [];
+    for (let i = 0; i < 6; i++) codes.push((await call("/sign-in/email", { email: "nobody@example.com", password: "wrong password!!" })).status);
+    expect(codes).toContain(429);
   });
 });

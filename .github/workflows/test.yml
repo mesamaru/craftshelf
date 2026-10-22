@@ -4,12 +4,38 @@ jobs:
   test:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with: { node-version: 24, cache: npm }
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
       - run: npm run build
-      - run: docker build -t craftshelf-next .
-      - run: docker build -t craftshelf-next-backup docker/backup
+
+  # docker-compose.yml を実際に起動して、app・PostgreSQL・バックアップのコンテナが動くか確かめる
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: .env を作る
+        run: |
+          {
+            echo "APP_URL=http://localhost:3000"
+            echo "BETTER_AUTH_SECRET=$(openssl rand -base64 32)"
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 16)"
+            echo "TUNNEL_TOKEN=unused-in-ci"
+          } > .env
+      - run: docker compose up -d --build --wait app postgres
+      - name: 死活確認と登録
+        run: |
+          docker compose exec -T app wget -qO- http://127.0.0.1:3000/api/auth/ok
+          docker compose exec -T app wget -qO- --header "origin: http://localhost:3000" --header "content-type: application/json" \
+            --post-data '{"name":"ci","email":"ci@example.com","password":"ci-password-0123"}' \
+            http://127.0.0.1:3000/api/auth/sign-up/email | grep -q '"token"'
+      - name: バックアップのコンテナからデータベースが読める
+        run: docker compose run --rm -T --entrypoint pg_dump backup --schema-only | grep -q 'CREATE TABLE public.organization'
+      - name: NAS がつながっていないときは失敗する
+        run: |
+          if docker compose run --rm -T -e BACKUP_TARGETS=nas backup now; then echo "失敗するはずが成功した"; exit 1; fi
+      - if: failure()
+        run: docker compose logs

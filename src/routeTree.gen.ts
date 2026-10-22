@@ -13,6 +13,8 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SignupRouteImport } from './routes/signup'
+import { Route as TeamRouteImport } from './routes/team'
+import { Route as InviteIdRouteImport } from './routes/invite.$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const IndexRoute = IndexRouteImport.update({
@@ -35,6 +37,16 @@ const SignupRoute = SignupRouteImport.update({
   path: '/signup',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TeamRoute = TeamRouteImport.update({
+  id: '/team',
+  path: '/team',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const InviteIdRoute = InviteIdRouteImport.update({
+  id: '/invite/$id',
+  path: '/invite/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -46,6 +58,8 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
+  '/team': typeof TeamRoute
+  '/invite/$id': typeof InviteIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
@@ -53,6 +67,8 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
+  '/team': typeof TeamRoute
+  '/invite/$id': typeof InviteIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesById {
@@ -61,14 +77,38 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
+  '/team': typeof TeamRoute
+  '/invite/$id': typeof InviteIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/login' | '/settings' | '/signup' | '/api/auth/$'
+  fullPaths:
+    | '/'
+    | '/login'
+    | '/settings'
+    | '/signup'
+    | '/team'
+    | '/invite/$id'
+    | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/settings' | '/signup' | '/api/auth/$'
-  id: '__root__' | '/' | '/login' | '/settings' | '/signup' | '/api/auth/$'
+  to:
+    | '/'
+    | '/login'
+    | '/settings'
+    | '/signup'
+    | '/team'
+    | '/invite/$id'
+    | '/api/auth/$'
+  id:
+    | '__root__'
+    | '/'
+    | '/login'
+    | '/settings'
+    | '/signup'
+    | '/team'
+    | '/invite/$id'
+    | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -76,6 +116,8 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   SettingsRoute: typeof SettingsRoute
   SignupRoute: typeof SignupRoute
+  TeamRoute: typeof TeamRoute
+  InviteIdRoute: typeof InviteIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -109,6 +151,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SignupRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/team': {
+      id: '/team'
+      path: '/team'
+      fullPath: '/team'
+      preLoaderRoute: typeof TeamRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/invite/$id': {
+      id: '/invite/$id'
+      path: '/invite/$id'
+      fullPath: '/invite/$id'
+      preLoaderRoute: typeof InviteIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -124,6 +180,8 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   SettingsRoute: SettingsRoute,
   SignupRoute: SignupRoute,
+  TeamRoute: TeamRoute,
+  InviteIdRoute: InviteIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport

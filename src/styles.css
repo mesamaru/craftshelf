@@ -65,3 +65,6 @@ button.row { cursor: pointer; width: 100%; }
 .capsule:disabled { opacity: 0.5; cursor: default; }
 .foot { text-align: center; color: var(--muted); font-size: 14px; }
 .foot a { color: var(--accent); }
+.main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.member .main span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+select.trail { font: inherit; color: var(--text); background: transparent; border: 1px solid var(--line); border-radius: 10px; padding: 4px 8px; }

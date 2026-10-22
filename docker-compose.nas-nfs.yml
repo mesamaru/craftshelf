@@ -1,0 +1,8 @@
+# バックアップ先の NAS を NFS でつなぐ。.env の COMPOSE_FILE に足して使う
+volumes:
+  backup-nas:
+    driver: local
+    driver_opts:
+      type: nfs
+      device: ":${BACKUP_NAS_EXPORT:?BACKUP_NAS_EXPORT を設定してください(例 /volume1/backup)}"
+      o: "addr=${BACKUP_NAS_HOST:?BACKUP_NAS_HOST を設定してください},nfsvers=4,rw"

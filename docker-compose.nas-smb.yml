@@ -1,0 +1,8 @@
+# バックアップ先の NAS を SMB(CIFS)でつなぐ。.env の COMPOSE_FILE に足して使う
+volumes:
+  backup-nas:
+    driver: local
+    driver_opts:
+      type: cifs
+      device: ${BACKUP_NAS_SHARE:?BACKUP_NAS_SHARE を設定してください(例 //nas.local/backup)}
+      o: "username=${BACKUP_NAS_USER},password=${BACKUP_NAS_PASSWORD},vers=3.0,uid=70,gid=70,file_mode=0600,dir_mode=0700"

@@ -1,0 +1,67 @@
+/* Liquid Glass を参考にした最小限の見た目(半透明のガラス・グループリスト・カプセル型ボタン) */
+:root {
+  color-scheme: light dark;
+  --bg: radial-gradient(120% 80% at 10% 0%, #c9e4ff 0%, #eef1f7 55%, #f6efe6 100%);
+  --glass: rgba(255, 255, 255, 0.62);
+  --line: rgba(60, 60, 67, 0.14);
+  --text: #1c1c1e;
+  --muted: #6c6c70;
+  --accent: #0a84ff;
+  --danger: #ff3b30;
+  font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: radial-gradient(120% 80% at 10% 0%, #1b2a44 0%, #111214 60%, #1a1612 100%);
+    --glass: rgba(44, 44, 46, 0.6);
+    --line: rgba(235, 235, 245, 0.12);
+    --text: #f2f2f7;
+    --muted: #98989d;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: var(--bg) fixed; color: var(--text); }
+.page { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; display: flex; flex-direction: column; gap: 12px; }
+.page.narrow { max-width: 480px; }
+.title { text-align: center; font-size: 28px; margin: 32px 0 12px; }
+.bar { display: flex; align-items: center; gap: 12px; }
+.bar h1 { flex: 1; font-size: 24px; margin: 0; }
+.group-title { font-size: 13px; color: var(--muted); margin: 12px 16px 0; }
+.group {
+  background: var(--glass);
+  backdrop-filter: blur(24px) saturate(1.6);
+  -webkit-backdrop-filter: blur(24px) saturate(1.6);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.group.spaced { margin-top: 16px; }
+.group.form { padding-bottom: 12px; }
+.group.form .capsule { margin: 12px 16px 0; }
+.row {
+  display: flex; align-items: center; gap: 8px; min-height: 48px; padding: 12px 16px; margin: 0;
+  border: 0; border-bottom: 1px solid var(--line); background: none; color: inherit; font: inherit; text-align: left;
+}
+.row:last-child { border-bottom: 0; }
+input.row { outline: none; width: 100%; }
+button.row { cursor: pointer; width: 100%; }
+.trail { margin-left: auto; color: var(--muted); }
+.muted { color: var(--muted); font-size: 14px; }
+.error { color: var(--danger); font-size: 14px; }
+.danger { color: var(--danger) !important; }
+.link { color: var(--accent); background: none; border: 0; font: inherit; cursor: pointer; }
+.qr { justify-content: center; }
+.qr svg { width: 180px; height: 180px; background: #fff; padding: 8px; border-radius: 12px; }
+.codes { font-family: ui-monospace, monospace; white-space: pre; }
+.capsule {
+  display: inline-flex; justify-content: center; align-items: center; padding: 10px 18px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--glass); color: var(--text); font: inherit; text-decoration: none; cursor: pointer;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+}
+.capsule.primary { background: var(--accent); color: #fff; border-color: transparent; }
+.capsule:disabled { opacity: 0.5; cursor: default; }
+.foot { text-align: center; color: var(--muted); font-size: 14px; }
+.foot a { color: var(--accent); }

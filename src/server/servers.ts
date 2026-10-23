@@ -15,7 +15,7 @@ export const SERVER_LIMITS = { connectionsPerTeam: 5, serversPerTeam: 20 };
 export type Deps = { db: Db; auth: Auth; secret: string; fetch: FetchLike };
 
 // Pterodactyl からのエラーは、画面に出せる言葉にして返す
-async function remote<T>(fn: () => Promise<T>): Promise<T> {
+export async function remote<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (e) {
@@ -24,22 +24,25 @@ async function remote<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-export function serverService({ db, auth, secret, fetch }: Deps) {
-  const sealContext = (teamId: string, id: string) => `ptero:${teamId}:${id}`;
+const sealContext = (teamId: string, id: string) => `ptero:${teamId}:${id}`;
 
-  async function connectionOf(teamId: string, id: string) {
-    const [c] = await db.select().from(pteroConnection).where(and(eq(pteroConnection.id, id), eq(pteroConnection.teamId, teamId)));
-    if (!c) throw new HttpError(404, "接続が見つかりません");
-    return { row: c, client: pteroClient(c.url, open(secret, c.apiKeySealed, sealContext(teamId, c.id)), fetch) };
-  }
+async function connectionOf({ db, secret, fetch }: Deps, teamId: string, id: string) {
+  const [c] = await db.select().from(pteroConnection).where(and(eq(pteroConnection.id, id), eq(pteroConnection.teamId, teamId)));
+  if (!c) throw new HttpError(404, "接続が見つかりません");
+  return { row: c, client: pteroClient(c.url, open(secret, c.apiKeySealed, sealContext(teamId, c.id)), fetch) };
+}
 
-  async function serverOf(teamId: string, id: string) {
-    const [s] = await db.select().from(server).where(and(eq(server.id, id), eq(server.teamId, teamId)));
-    if (!s) throw new HttpError(404, "サーバーが見つかりません");
-    if (s.kind !== "ptero" || !s.pteroConnectionId || !s.remoteId) throw new HttpError(400, "このサーバーはまだ操作できません");
-    const { client } = await connectionOf(teamId, s.pteroConnectionId);
-    return { row: s, client, remoteId: s.remoteId };
-  }
+// チームのサーバーと、それを操作する Pterodactyl のクライアント(ほかのチームのものは 404)
+export async function serverOf(deps: Deps, teamId: string, id: string) {
+  const [s] = await deps.db.select().from(server).where(and(eq(server.id, id), eq(server.teamId, teamId)));
+  if (!s) throw new HttpError(404, "サーバーが見つかりません");
+  if (s.kind !== "ptero" || !s.pteroConnectionId || !s.remoteId) throw new HttpError(400, "このサーバーはまだ操作できません");
+  const { client } = await connectionOf(deps, teamId, s.pteroConnectionId);
+  return { row: s, client, remoteId: s.remoteId };
+}
+
+export function serverService(deps: Deps) {
+  const { db, auth, secret, fetch } = deps;
 
   return {
     /** Pterodactyl パネルを登録する。キーで一覧が取れることを確かめてから保存する */
@@ -74,7 +77,7 @@ export function serverService({ db, auth, secret, fetch }: Deps) {
     /** 登録したパネルで操作できるサーバーの一覧(まだ追加していないものを選ぶため) */
     async remoteServers(headers: Headers, connectionId: string) {
       const { teamId } = await requireTeam(auth, headers, { server: ["create"] });
-      const { client } = await connectionOf(teamId, connectionId);
+      const { client } = await connectionOf(deps, teamId, connectionId);
       const list = await remote(() => client.servers());
       const added = new Set((await db.select({ r: server.remoteId }).from(server)
         .where(and(eq(server.teamId, teamId), eq(server.pteroConnectionId, connectionId)))).map((x) => x.r));
@@ -84,7 +87,7 @@ export function serverService({ db, auth, secret, fetch }: Deps) {
     /** パネルのサーバーを、チームのサーバーとして追加する */
     async addServers(headers: Headers, connectionId: string, remoteIds: string[]) {
       const { teamId } = await requireTeam(auth, headers, { server: ["create"] });
-      const { client } = await connectionOf(teamId, connectionId);
+      const { client } = await connectionOf(deps, teamId, connectionId);
       const available = new Map((await remote(() => client.servers())).map((s) => [s.identifier, s]));
       const picked = [...new Set(remoteIds)].map((r) => available.get(r)).filter((s) => !!s);
       if (picked.length === 0) return { added: 0 };
@@ -112,14 +115,14 @@ export function serverService({ db, auth, secret, fetch }: Deps) {
 
     async status(headers: Headers, id: string) {
       const { teamId } = await requireTeam(auth, headers);
-      const { client, remoteId } = await serverOf(teamId, id);
+      const { client, remoteId } = await serverOf(deps, teamId, id);
       return remote(() => client.resources(remoteId));
     },
 
     async power(headers: Headers, id: string, signal: PowerSignal) {
       if (!POWER_SIGNALS.includes(signal)) throw new HttpError(400, "不正な操作です");
       const { teamId } = await requireTeam(auth, headers, { server: ["control"] });
-      const { client, remoteId } = await serverOf(teamId, id);
+      const { client, remoteId } = await serverOf(deps, teamId, id);
       await remote(() => client.power(remoteId, signal));
     },
 

@@ -94,7 +94,7 @@ function ServerRow({ id, name, source, control, removable, onDone }:
     <div className="row server">
       <span className={`dot ${state}`} aria-hidden="true" />
       <span className="main">
-        <span translate="no">{name}</span>
+        <Link to="/servers/$id" params={{ id }} className="name" translate="no">{name}</Link>
         <span className="muted">
           {st ? STATE_LABELS[state] ?? state : "確認中…"}
           {st?.memory != null && ` · メモリ ${(st.memory / 1024 ** 3).toFixed(1)} GB`}

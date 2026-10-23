@@ -5,6 +5,7 @@ import type { FetchLike } from "./net";
 export class PteroError extends Error {}
 
 export type RemoteServer = { identifier: string; name: string; node: string; description: string };
+export type RemoteFile = { name: string; size: number; isFile: boolean; modifiedAt: string };
 export type Resources = { state: string; cpu: number | null; memory: number | null; disk: number | null; uptime: number | null };
 export const POWER_SIGNALS = ["start", "stop", "restart", "kill"] as const;
 export type PowerSignal = (typeof POWER_SIGNALS)[number];
@@ -71,6 +72,29 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
     async power(ident: string, signal: PowerSignal) {
       if (!POWER_SIGNALS.includes(signal)) throw new PteroError("不正な操作です");
       await req("POST", srv(ident) + "/power", { signal });
+    },
+    // フォルダーの中のファイル(フォルダーが無ければ空)
+    async listFiles(ident: string, directory: string): Promise<RemoteFile[]> {
+      const res = await req("GET", srv(ident) + `/files/list?directory=${encodeURIComponent(directory)}`, undefined, [200, 404]);
+      if (res.status === 404) return [];
+      const d = await res.json();
+      return (d?.data ?? []).map((x: { attributes?: Record<string, unknown> }) => x.attributes ?? {}).map((a: Record<string, unknown>) => ({
+        name: String(a.name ?? ""), size: Number(a.size ?? 0), isFile: !!a.is_file, modifiedAt: String(a.modified_at ?? ""),
+      }));
+    },
+    // URL のファイルを、Pterodactyl(Wings)に直接取り込ませる。このアプリはファイルを持たない
+    async pull(ident: string, url: string, directory: string, filename: string) {
+      try {
+        await req("POST", srv(ident) + "/files/pull", { url, directory, filename, use_header: false, foreground: true });
+      } catch (e) {
+        if (e instanceof PteroError && /HTTP 4\d\d/.test(e.message)) {
+          throw new PteroError("パネルが URL からの取り込みを受け付けませんでした(パネルの設定で止められている可能性があります)");
+        }
+        throw e;
+      }
+    },
+    async deleteFiles(ident: string, root: string, files: string[]) {
+      if (files.length) await req("POST", srv(ident) + "/files/delete", { root, files });
     },
   };
 }

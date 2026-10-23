@@ -23,8 +23,7 @@ function Home() {
         </Link>
       </header>
       <section className="group">
-        <Link to="/servers" className="row link">サーバー(起動・停止・Pterodactyl パネルの登録)</Link>
-        <div className="row muted">Mod・プラグインの一覧は準備中です。</div>
+        <Link to="/servers" className="row link">サーバー(起動・停止・Mod とプラグイン・Pterodactyl パネルの登録)</Link>
       </section>
     </main>
   );

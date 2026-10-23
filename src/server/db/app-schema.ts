@@ -35,3 +35,29 @@ export const server = pgTable(
     uniqueIndex("server_ptero_remote_uq").on(t.pteroConnectionId, t.remoteId),
   ],
 );
+
+// サーバーの種類(paper・fabric など)と Minecraft のバージョン。Mod・プラグインを探すときの絞り込みに使う
+export const serverProfile = pgTable("server_profile", {
+  serverId: text("server_id").primaryKey().references(() => server.id, { onDelete: "cascade" }),
+  platform: text("platform").notNull(),
+  mcVersion: text("mc_version"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// このアプリから入れた Mod・プラグイン(どの配布元のどの版か。更新の確認に使う)
+export const installedMod = pgTable(
+  "installed_mod",
+  {
+    id: text("id").primaryKey(),
+    serverId: text("server_id").notNull().references(() => server.id, { onDelete: "cascade" }),
+    source: text("source").notNull(),
+    projectId: text("project_id").notNull(),
+    versionId: text("version_id").notNull(),
+    versionNumber: text("version_number").notNull(),
+    title: text("title").notNull(),
+    filename: text("filename").notNull(),
+    installedBy: text("installed_by").references(() => user.id, { onDelete: "set null" }),
+    installedAt: timestamp("installed_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("installed_mod_server_file_uq").on(t.serverId, t.filename), index("installed_mod_server_idx").on(t.serverId)],
+);

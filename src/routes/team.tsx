@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { authClient } from "~/lib/auth-client";
 import { errorText } from "~/lib/errors";
+import { useCan } from "~/lib/use-can";
 import { ASSIGNABLE_ROLES, type RoleName, roleLabel } from "~/lib/permissions";
 
 export const Route = createFileRoute("/team")({
@@ -15,10 +16,7 @@ export const Route = createFileRoute("/team")({
 // チーム(メンバー・招待・役割・チームの切り替え)
 function Team() {
   const { user } = Route.useRouteContext();
-  const { data: team, refetch } = authClient.useActiveOrganization();
-  const me = team?.members.find((m) => m.userId === user.id);
-  const can = (permissions: Parameters<typeof authClient.organization.checkRolePermission>[0]["permissions"]) =>
-    !!me && authClient.organization.checkRolePermission({ permissions, role: me.role as RoleName });
+  const { team, me, can, refetch } = useCan(user.id);
 
   return (
     <main className="page narrow">

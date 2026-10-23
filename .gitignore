@@ -6,3 +6,4 @@ dist/
 .data/
 .env
 *.log
+.e2e/

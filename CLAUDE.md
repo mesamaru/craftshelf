@@ -6,7 +6,9 @@
 - 構成: TanStack Start(`src/routes/` がページとサーバーのルート)・Drizzle + PostgreSQL(`src/server/db/`)・Better Auth(`src/server/auth.ts`)。サーバーだけで動く処理は `src/server/` に置き、画面側のファイルから直接 import しない(`createServerFn` の中で動的に import する)。
 - **データベースの変更は「足すだけ」**(表・項目を消したり、名前や意味を変えたりしない)。スキーマを変えたら `npm run db:generate` で `drizzle/` に移行の SQL を足す。認証の表は `npm run auth:schema` で作る(`auth-schema.ts` を手で書き換えない)。
 - **テスト**: コミットの前に `npm run typecheck`・`npm test`・`npm run build` を通す。テストは `tests/*.test.ts`(PGlite を使うので PostgreSQL は要らない)。
-- 認証の確認は、画面の `beforeLoad` だけでなく、サーバー側の処理ごとに必ず行う(`src/server/guard.ts` の `requireUser`・`requireTeam`)。権限は `src/lib/permissions.ts` に足す。
+- 認証の確認は、画面の `beforeLoad` だけでなく、サーバー側の処理ごとに必ず行う(`src/server/guard.ts` の `requireUser`・`requireTeam`)。権限は `src/lib/permissions.ts` に足す。データベースの読み書きは、選んでいるチームの ID で必ず絞る。
+- **利用者が入力した URL へサーバーからつなぐときは、必ず `src/server/net.ts` の `safeFetch` を使う**(LAN の中へつながせない)。利用者から預かるキーは `src/server/secrets.ts` の `seal` で暗号化して保存する。
+- 画面を変えたら、ビルドしたサーバーを `PORT=3123` で動かして `npm run e2e` も通す(Edge で操作する。画面の写しは `.e2e/`)。
 - コミットの作成者は `mesamaru <74803890+mesamaru@users.noreply.github.com>`。コード・例・コミットメッセージに、実際の IP アドレス・共有名・ドメインなど個人の環境の情報を書かない。
 - **開発が終わったら、版と変更内容を利用者に報告し、公開(push・タグ)してよいか確認してから公開する。**
 - デザインは Apple の Liquid Glass を参考にする(半透明のガラス素材・グループリスト・カプセル型ボタン)。

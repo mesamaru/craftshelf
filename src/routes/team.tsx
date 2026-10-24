@@ -15,7 +15,7 @@ export const Route = createFileRoute("/team")({
 
 // チーム(メンバー・招待・役割・チームの切り替え)
 function Team() {
-  const { user } = Route.useRouteContext();
+  const { user, app } = Route.useRouteContext();
   const { team, me, can, refetch } = useCan(user.id);
 
   return (
@@ -24,7 +24,7 @@ function Team() {
         <Link to="/" className="capsule">‹ 戻る</Link>
         <h1>チーム</h1>
       </header>
-      <Switcher activeId={team?.id} />
+      {app.mode === "service" && <Switcher activeId={team?.id} />}
       {team && (
         <>
           <TeamName key={team.id} id={team.id} name={team.name} editable={can({ organization: ["update"] })} onDone={refetch} />

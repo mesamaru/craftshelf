@@ -13,6 +13,7 @@ export const Route = createFileRoute("/login")({
 });
 
 function Login() {
+  const { app } = Route.useRouteContext();
   const router = useRouter();
   const { next } = Route.useSearch();
   const [email, setEmail] = useState("");
@@ -78,7 +79,11 @@ function Login() {
             <button className="capsule primary" disabled={busy}>ログイン</button>
           </form>
           <button className="capsule" type="button" onClick={withPasskey} disabled={busy}>パスキーでログイン</button>
-          <p className="foot">アカウントが無い場合は <Link to="/signup" search={{ next }}>新しく作る</Link></p>
+          {app.mode === "self" && app.signupOpen ? (
+            <p className="foot">はじめて使うときは <Link to="/signup" search={{ next }}>最初の管理者を作る</Link></p>
+          ) : (
+            <p className="foot">{app.mode === "self" ? "招待された人は " : "アカウントが無い場合は "}<Link to="/signup" search={{ next }}>新しく作る</Link></p>
+          )}
         </>
       )}
     </main>

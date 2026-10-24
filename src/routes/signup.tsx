@@ -13,6 +13,7 @@ export const Route = createFileRoute("/signup")({
 });
 
 function Signup() {
+  const { app } = Route.useRouteContext();
   const router = useRouter();
   const { next } = Route.useSearch();
   const [name, setName] = useState("");
@@ -33,7 +34,8 @@ function Signup() {
 
   return (
     <main className="page narrow">
-      <h1 className="title">アカウントを作る</h1>
+      <h1 className="title">{app.mode === "self" && app.signupOpen ? "最初の管理者を作る" : "アカウントを作る"}</h1>
+      {app.mode === "self" && !app.signupOpen && <p className="foot">招待されたメールアドレスで登録してください。</p>}
       <form className="group form" onSubmit={(e) => (e.preventDefault(), submit())}>
         <input className="row" autoComplete="nickname" placeholder="表示名" translate="no"
           value={name} onChange={(e) => setName(e.target.value)} required />

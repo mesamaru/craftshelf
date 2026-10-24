@@ -1,0 +1,80 @@
+# サービス版(多くの人が使う版)の構成。docker compose -f docker-compose.service.yml で使う。設定は .env に書く(.env.example を参照)
+# 公開の入口は Cloudflare Tunnel だけにして、app のポートは外に出さない
+# それぞれのコンテナには、要る設定だけを渡す(app が乗っ取られても、バックアップの鍵は渡らないように)
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    user: "1000:1000"
+    environment:
+      CRAFTSHELF_MODE: service
+      PORT: "3000"
+      APP_URL: ${APP_URL:?APP_URL を設定してください}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET を設定してください}
+      DATABASE_URL: postgres://craftshelf:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD を設定してください}@postgres:5432/craftshelf
+      CLIENT_IP_HEADER: cf-connecting-ip
+    depends_on:
+      postgres: { condition: service_healthy }
+    read_only: true
+    tmpfs: [/tmp]
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    networks: [front, back]
+    # 手元で試すときだけ開ける: ports: ["127.0.0.1:3000:3000"]
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: craftshelf
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: craftshelf
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U craftshelf"]
+      interval: 10s
+      retries: 5
+    networks: [back]
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:?TUNNEL_TOKEN を設定してください}
+    depends_on: [app]
+    security_opt: ["no-new-privileges:true"]
+    networks: [front]
+
+  backup:
+    build: ./docker/backup
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Tokyo}
+      PGHOST: postgres
+      PGUSER: craftshelf
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: craftshelf
+      BACKUP_TARGETS: ${BACKUP_TARGETS:-nas,r2}
+      BACKUP_TIME: ${BACKUP_TIME:-04:00}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+      BACKUP_AGE_RECIPIENT: ${BACKUP_AGE_RECIPIENT:-}
+      BACKUP_R2_ACCOUNT_ID: ${BACKUP_R2_ACCOUNT_ID:-}
+      BACKUP_R2_ACCESS_KEY_ID: ${BACKUP_R2_ACCESS_KEY_ID:-}
+      BACKUP_R2_SECRET_ACCESS_KEY: ${BACKUP_R2_SECRET_ACCESS_KEY:-}
+      BACKUP_R2_BUCKET: ${BACKUP_R2_BUCKET:-craftshelf-backup}
+    volumes:
+      - backup-nas:/backup/nas
+    depends_on:
+      postgres: { condition: service_healthy }
+    networks: [back, egress]
+
+volumes:
+  pgdata:
+  # NAS を使うときは docker-compose.nas-smb.yml か docker-compose.nas-nfs.yml を重ねる(README を参照)
+  backup-nas:
+
+networks:
+  front: {}
+  back: { internal: true }
+  egress: {}

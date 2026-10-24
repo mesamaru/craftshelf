@@ -1,10 +1,10 @@
 import type { ReactNode } from "react";
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
-import { getSessionUser } from "~/lib/session";
+import { getAppState } from "~/lib/session";
 import appCss from "~/styles.css?url";
 
 export const Route = createRootRoute({
-  beforeLoad: async () => ({ user: await getSessionUser() }),
+  beforeLoad: async () => getAppState(),
   head: () => ({
     meta: [
       { charSet: "utf-8" },

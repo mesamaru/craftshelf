@@ -1,0 +1,37 @@
+# dev に push したら、自分用の版の Docker のイメージを作って GitHub Container Registry に置く
+# (ghcr.io/mesamaru/craftshelf:dev と :dev-03.xx.xx)。テストが通ったものだけを置く
+name: image
+on:
+  push:
+    branches: [dev]
+permissions:
+  contents: read
+  packages: write
+jobs:
+  test:
+    uses: ./.github/workflows/test.yml
+  image:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: v
+        run: echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ghcr.io/mesamaru/craftshelf:dev
+            ghcr.io/mesamaru/craftshelf:dev-${{ steps.v.outputs.version }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/mesamaru/craftshelf
+            org.opencontainers.image.description=CraftShelf v03 (development)

@@ -1,5 +1,5 @@
 name: test
-on: [push, pull_request]
+on: [push, pull_request, workflow_call]
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -12,9 +12,35 @@ jobs:
       - run: npm test
       - run: npm run build
 
-  # docker-compose.yml を実際に起動して、app・PostgreSQL・バックアップのコンテナが動くか確かめる
+  # 自分用の版: 1 つのコンテナで、設定なしで動くか(最初の 1 人は登録でき、2 人目は招待が要る)
+  self:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -t craftshelf-self .
+      - run: docker run -d --name cs -p 8765:8080 -v "$PWD/data:/data" craftshelf-self
+      - name: 起動を待つ
+        run: |
+          for i in $(seq 60); do curl -fs http://127.0.0.1:8765/api/auth/ok && exit 0; sleep 2; done
+          exit 1
+      - name: 最初の 1 人は登録でき、2 人目は断られる
+        run: |
+          signup() {
+            curl -s -o /tmp/out -w '%{http_code}' -H "origin: http://127.0.0.1:8765" -H "content-type: application/json" \
+              -d "{\"name\":\"$1\",\"email\":\"$1@example.com\",\"password\":\"ci-password-0123\"}" http://127.0.0.1:8765/api/auth/sign-up/email
+          }
+          test "$(signup first)" = 200 && grep -q '"token"' /tmp/out
+          test "$(signup second)" = 403
+      - name: データは /data/v03 にできる
+        run: sudo test -s data/v03/secret && sudo test -d data/v03/pg
+      - if: failure()
+        run: docker logs cs
+
+  # サービス版の構成(docker-compose.service.yml)を実際に起動して、app・PostgreSQL・バックアップのコンテナが動くか確かめる
   compose:
     runs-on: ubuntu-latest
+    env:
+      COMPOSE_FILE: docker-compose.service.yml
     steps:
       - uses: actions/checkout@v7
       - name: .env を作る

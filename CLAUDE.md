@@ -4,6 +4,7 @@
 - **v03 は `dev` で作る**: 利用者が `dev` を見て意見を出す → `dev` に作る → 同じ機能をサービス版にも入れる。**`main` に出す前に、v02 → v03 のデータの移し方と、Docker の入れ替え方を用意する**(v02 のパネルは、それまで v03 に自動更新しない)。
 - **`DATA_FORMAT`(read=0)は消さない**: v02 の Docker のパネルは、起動のたびに受け取り先のブランチを取り込む。この目印があると、v02 のパネルは v03 を「読めない版」とみなして取り込まない(無いと、開発ビルドを選んだ v02 のパネルが v03 で上書きされて起動しなくなる)。
 - **サービス版へ入れる手順**: 手元の作業フォルダーには `origin`(craftshelf)と `server`(craftshelf-server)の 2 つのリモートをつないでおく。`git switch server` → `git cherry-pick <dev のコミット>` で取り込み、`VERSION`・`CHANGELOG.md` はサービス版の番号で書き直してからコミットする。サービス版にだけ要るもの(チームの上限・公開の入口など)は、サービス版だけで作る。
+- **動き方は 2 つ**(`CRAFTSHELF_MODE`、`src/server/env.ts`): `self` = 自分用(既定。設定なしで動き、データは `/data/v03`。最初の 1 人が管理者、あとは招待された人だけ、チームは 1 つ)/ `service` = サービス版(`APP_URL`・`BETTER_AUTH_SECRET`・`DATABASE_URL` が必須)。どちらでも動くように作る。Docker は自分用が `docker-compose.yml`(イメージ `ghcr.io/mesamaru/craftshelf:dev`。`dev` に push すると `.github/workflows/image.yml` が作る)、サービス版が `docker-compose.service.yml`。
 - 版は `03.xx.xx`。タグは `dev-v03.01.02`(リリースの仕組みはまだ無い)。
 
 - 利用者への説明・UI の文言は日本語。利用者が入力した名前・メモなどには `translate="no"` を付ける。

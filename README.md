@@ -23,25 +23,40 @@ npm run typecheck  # 型のチェック
 npm run e2e        # ブラウザでの通しの確認(ビルドしたサーバーを PORT=3123 で動かしておく。Edge を使う)
 ```
 
-## サーバー機で動かす(Docker)
+## サーバー機で動かす(Docker・自分用)
+
+v02 と同じく、1 つのコンテナで動きます。設定は要りません(データベースも `./data/v03` の中に作ります)。
+
+```sh
+docker compose up -d     # docker-compose.yml(イメージ ghcr.io/mesamaru/craftshelf:dev)を使う
+```
+
+`http://サーバー機のアドレス:8765` を開き、最初の管理者を作ります。そのあとは、管理者が招待した人だけが登録できます。
+
+- パスキーを使うときや、リバースプロキシの後ろに置くときは、開く URL を `APP_URL` に書きます
+- **v02 から切り替える**: v02 の `docker-compose.yml` の `build: .` を `image: ghcr.io/mesamaru/craftshelf:dev` に変え、`docker compose up -d` します。同じ `/data` を使いますが、v03 のデータは `/data/v03` に作るので、v02 のデータはそのまま残ります(`build: .` に戻せば v02 に戻れます)。v02 のデータの取り込みは準備中です
+
+## サーバー機で動かす(Docker・サービス版)
+
+多くの人が使うサービスとして動かすときの構成です(PostgreSQL・Cloudflare Tunnel・バックアップ)。普段の作業は [mesamaru/craftshelf-server](https://github.com/mesamaru/craftshelf-server) で行います。
 
 1. `.env.example` を `.env` にコピーして、値を入れます。
    - `APP_URL`: 公開する URL(例 `https://craftshelf.example.com`)
    - `BETTER_AUTH_SECRET`: `openssl rand -base64 32` で作った文字列
    - `POSTGRES_PASSWORD`: データベースのパスワード
    - `TUNNEL_TOKEN`: Cloudflare Zero Trust →「Networks」→「Tunnels」で作ったトンネルのトークン。トンネルの公開先は `http://app:3000` にします
-2. `docker compose up -d --build`
+2. `docker compose -f docker-compose.service.yml up -d --build`
 
 app のポートは外に出しません。入口は Cloudflare Tunnel だけです(家のポートを開けず、IP も知られません)。
 
-## バックアップ
+## バックアップ(サービス版)
 
 backup のコンテナが毎日 `BACKUP_TIME` にデータベースを取り、`BACKUP_TARGETS` の保存先に送ります。古いものは `BACKUP_KEEP_DAYS` 日で消します。
 
 | 保存先 | 設定 |
 |---|---|
-| NAS(SMB) | `BACKUP_NAS_SHARE`(例 `//nas.local/backup`)・`BACKUP_NAS_USER`・`BACKUP_NAS_PASSWORD` を入れ、`.env` に `COMPOSE_FILE=docker-compose.yml:docker-compose.nas-smb.yml` |
-| NAS(NFS) | `BACKUP_NAS_HOST`・`BACKUP_NAS_EXPORT`(例 `/volume1/backup`)を入れ、`COMPOSE_FILE=docker-compose.yml:docker-compose.nas-nfs.yml` |
+| NAS(SMB) | `BACKUP_NAS_SHARE`(例 `//nas.local/backup`)・`BACKUP_NAS_USER`・`BACKUP_NAS_PASSWORD` を入れ、`.env` に `COMPOSE_FILE=docker-compose.service.yml:docker-compose.nas-smb.yml` |
+| NAS(NFS) | `BACKUP_NAS_HOST`・`BACKUP_NAS_EXPORT`(例 `/volume1/backup`)を入れ、`COMPOSE_FILE=docker-compose.service.yml:docker-compose.nas-nfs.yml` |
 | Cloudflare R2 | `BACKUP_R2_ACCOUNT_ID`・`BACKUP_R2_ACCESS_KEY_ID`・`BACKUP_R2_SECRET_ACCESS_KEY`・`BACKUP_R2_BUCKET` |
 
 - NAS はサーバー機と同じ家の中にあるので、火事・落雷・盗難・ランサムウェアでは一緒に失われることがあります。**NAS と R2 の両方(`nas,r2`)を勧めます。**

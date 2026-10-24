@@ -7,3 +7,4 @@ dist/
 .env
 *.log
 .e2e/
+.data-self/

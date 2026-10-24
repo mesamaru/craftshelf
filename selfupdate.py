@@ -21,8 +21,9 @@ REPO = (os.environ.get("GITHUB_REPO") or "").strip() or "mesamaru/craftshelf"
 BRANCH = (os.environ.get("GITHUB_BRANCH") or "").strip() or "main"
 DEV_BRANCH = (os.environ.get("GITHUB_DEV_BRANCH") or "").strip() or "dev"
 PREVIEW_BRANCH = (os.environ.get("GITHUB_PREVIEW_BRANCH") or "").strip() or "next"
-# 受け取るバージョン: "stable"(main・正式リリース)/ "dev"(dev・開発ビルド)/ "preview"(next・次のメジャーバージョンの試験版)
-CHANNELS = ("stable", "dev", "preview")
+# 受け取るバージョン: v02 は "stable"(main)だけ。02.21.00 までの "dev"(dev)・"preview"(next)は、dev が v03 になり
+# next が無くなったので使わない(選んでいたパネルは、起動したときに安定版に戻す)
+CHANNELS = ("stable",)
 CHANNEL = "stable"
 # いま使っているデータの保存方法の番号(app.py が起動時に入れる)。これより古い番号しか読めないバージョンには切り替えない
 DATA_IN_USE = 1
@@ -141,8 +142,11 @@ def is_rebuilt(version):
 
 
 def rebuilt_note(version):
-    return (f"v{version} は作りが新しくなったため、このパネルの自動更新では切り替えられません。"
+    note = (f"v{version} は作りが新しくなったため、このパネルの自動更新では切り替えられません。"
             "いまのパネルはそのまま使えます(移る方法は、v03 の公開に合わせて案内します)")
+    if CHANNEL != "stable":
+        note += "。v02 の更新は、「受け取るアップデート」を「安定版」にすると受け取れます"
+    return note
 
 
 def check(force=False):
@@ -181,8 +185,12 @@ def check(force=False):
         if (data["update_available"] or data["downgrade"]) and tr < DATA_IN_USE:
             data["blocked"] = (f"v{latest} は、いまのデータ(保存方法 {DATA_IN_USE})を読めないため切り替えられません。"
                                "そのバージョンが新しい保存方法に対応するまで待つか、「アップデートの前の状態」から戻してください")
-        if data["update_available"] and is_rebuilt(latest):
-            data["blocked"] = rebuilt_note(latest)
+        if is_rebuilt(latest) and not is_rebuilt(cur):
+            # 入れられない版は「更新あり」として扱わない(印・お知らせ・更新内容を出さず、案内だけを出す)
+            data.update(update_available=False, downgrade=False, major_up=False, rebuilt=True, blocked=rebuilt_note(latest))
+            with _cache_lock:
+                _cache.update(at=time.monotonic(), data=data)
+            return data
         try:
             notes = parse_changelog(_github_file("CHANGELOG.md"))
         except UpdateError:

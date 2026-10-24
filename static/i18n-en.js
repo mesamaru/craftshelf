@@ -1413,6 +1413,8 @@ window.CS_EN = {
   // 01.24: 受け取り先プレビュー・アップデートの前の状態
   "プレビュー": "Preview",
   "v03・開発中": "v03 · in development",
+  "v02 としては最新です": "Up to date for v02",
+  "開発ビルドとプレビューは終わりました(開発ビルドは v03 の開発に使っています)。v03 へは、公開に合わせてこの画面から移れるようにします。": "Development builds and previews have ended (development builds are now used for v03). When v03 is released, you will be able to move to it from this screen.",
   "おすすめ": "Recommended",
   "新しい機能をいち早く試せる代わりに、不具合が含まれることがあります。いつでも安定版に戻せます。": "Try new features early; they may contain bugs. You can go back to stable at any time.",
   "次の大きなバージョン(v03)の開発の様子を確かめられます。v03 は作りが新しくなるため、このパネルからは切り替えられません(移る方法は、v03 の公開に合わせて案内します)。": "See how the next major version (v03) is coming along. v03 is rebuilt from scratch, so this panel cannot switch to it (we will explain how to move when v03 is released).",
@@ -1861,6 +1863,7 @@ window.CS_EN = {
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [
   [/v([\d.]+) は作りが新しくなったため、このパネルの自動更新では切り替えられません。いまのパネルはそのまま使えます\(移る方法は、v03 の公開に合わせて案内します\)/g, "v$1 is rebuilt from scratch, so this panel cannot update to it automatically. You can keep using this panel (we will explain how to move when v03 is released)"],
+  [/。v02 の更新は、「受け取るアップデート」を「安定版」にすると受け取れます/g, ". To get v02 updates, set “Update channel” to Stable"],
   [/(\S+) のファイルが混ざっています/g, "Contains $1 files"],
   [/このファイルは (\S+) です\((\S+?)に混ざっています\)/g, "This file is a $1 (mixed into $2)"],
   [/(\S+) を(\S+?)として分けますか[?？]/g, "Move $1 to $2?"],

@@ -9,15 +9,8 @@ VERSION_FILE="/app/.version"
 
 if [ "${AUTO_UPDATE:-true}" = "true" ] && [ -n "${GITHUB_REPO:-}" ]; then
     BRANCH="${GITHUB_BRANCH:-main}"
-    # パネルの設定で選んだ受け取り先(開発ビルド = dev / プレビュー = next)から取得する
+    # v02 は main だけを取得する(02.21.00 までの開発ビルド = dev は v03 になり、プレビュー = next は無くなった)
     CFG_DIR="${CONFIG_DIR:-${DB_DIR:-${DATA_DIR:-/data}}}"
-    CH_FILE="$CFG_DIR/update-channel"
-    CH="$( [ -f "$CH_FILE" ] && tr -d '[:space:]' < "$CH_FILE" )"
-    if [ "$CH" = "dev" ]; then
-        BRANCH="${GITHUB_DEV_BRANCH:-dev}"
-    elif [ "$CH" = "preview" ]; then
-        BRANCH="${GITHUB_PREVIEW_BRANCH:-next}"
-    fi
     # いまのデータの保存方法の番号(パネルが書く)。取得したコードが読めない番号なら入れ替えない
     IN_USE="$( [ -f "$CFG_DIR/data-format" ] && tr -cd '0-9' < "$CFG_DIR/data-format" )"
     IN_USE="${IN_USE:-1}"

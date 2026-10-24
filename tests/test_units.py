@@ -101,3 +101,20 @@ def test_canonical_dep(name, expected):
 def test_rebuilt_versions_are_not_applied(version, rebuilt):
     """v03 からは作りが新しい(Python のパネルではない)ので、02 のパネルの自動更新では切り替えない。"""
     assert selfupdate.is_rebuilt(version) is rebuilt
+
+
+def test_rebuilt_version_is_not_offered(monkeypatch):
+    """取得先が v03(入れられない版)なら「更新あり」にせず、更新内容も出さない(案内だけを出す)。"""
+    files = {"VERSION": "03.01.00\n", "CHANGELOG.md": "## 03.01.00 - 2026-10-24 v03\n\n- x\n"}
+
+    def fake(path, ref=None):
+        if path not in files:
+            raise selfupdate.UpdateError("GitHub に見つかりません")
+        return files[path]
+    monkeypatch.setattr(selfupdate, "_github_file", fake)
+    monkeypatch.setattr(selfupdate, "FROZEN", False)
+    monkeypatch.setattr(selfupdate, "CHANNEL", "dev")
+    monkeypatch.setattr(selfupdate, "current_version", lambda: "02.21.00")
+    d = selfupdate.check(force=True)
+    assert d["update_available"] is False and d["rebuilt"] is True and d["notes"] == []
+    assert "安定版" in d["blocked"]

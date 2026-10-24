@@ -24,7 +24,12 @@ def start():
     _started = True
     init_storage()
     with app.app_context():
-        selfupdate.set_channel(get_setting("update_channel", "stable"))
+        ch = get_setting("update_channel", "stable")
+        if ch in selfupdate.CHANNELS:
+            selfupdate.set_channel(ch)
+        else:  # 開発ビルド(dev)は v03 に、プレビュー(next)は無くなったので、安定版にする(Docker の起動スクリプトが読むファイルも直す)
+            from .system import _set_channel  # 上の層(循環を避けるため、ここで読み込む)
+            _set_channel("stable")
         try:
             _migrate_mod_filters()
         except Exception:  # noqa: BLE001

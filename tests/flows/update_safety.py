@@ -16,8 +16,9 @@ check(S.DATA_IN_USE == W and (A.CONFIG_DIR / "data-format").read_text().strip() 
 
 c = A.app.test_client(); c.environ_base["HTTP_X_REQUESTED_WITH"] = "mcpl"
 c.post("/api/auth/setup", json={"username": "owner", "password": "password123"})
-check(c.patch("/api/settings", json={"update_channel": "preview"}).status_code == 200 and S.CHANNEL == "preview" and S.branch() == "next", "preview channel → branch next")
-check((A.CONFIG_DIR / "update-channel").read_text().strip() == "preview", "channel file for Docker")
+for old in ("dev", "preview"):  # 02.21.00 までの受け取り先(dev は v03 になり、next は無くなった)
+    check(c.patch("/api/settings", json={"update_channel": old}).status_code == 200 and S.CHANNEL == "stable" and S.branch() == "main", f"the retired {old} channel becomes stable")
+    check((A.CONFIG_DIR / "update-channel").read_text().strip() == "stable", f"channel file for Docker is stable ({old})")
 c.patch("/api/settings", json={"update_channel": "bogus"}); check(S.CHANNEL == "stable", "unknown channel falls back to stable")
 
 # 取得先の版と保存方法(GitHub の代わり)
@@ -25,7 +26,7 @@ files = {}
 S._github_file = lambda path, ref=None: files[path] if path in files else (_ for _ in ()).throw(S.UpdateError("404"))
 files.update({"VERSION": "02.00.00\n", "CHANGELOG.md": "", "DATA_FORMAT": "write=2\nread=2\n"})
 _cv0 = S.current_version; S.current_version = lambda: "01.24.00"
-S.set_channel("preview"); d = S.check(force=True)
+S.set_channel("stable"); d = S.check(force=True)
 S.current_version = _cv0
 check(d["update_available"] and d["major_up"] and not d.get("blocked"), f"1 → 2 allowed ({d.get('blocked')})")
 S.DATA_IN_USE = 2  # v2 で使ったあと

@@ -81,11 +81,13 @@ Edit `docker-compose.yml` first if needed: the left side of `volumes` is where f
 
 The panel checks GitHub for new versions. Docker and script installs can update from ⚙ → "Panel update" with one click (auto-update is off by default); Docker containers also pull the latest code on start unless `AUTO_UPDATE=false`. Installer builds update the same way (the build for your OS is downloaded from GitHub Releases and verified).
 
-### Stable and development builds
+### Updates
 
-Under ⚙ → "Panel update" you can choose the update channel: **Stable** (the `main` branch / official releases, recommended) or **Development build** (the `dev` branch / pre-releases, may contain bugs). You can switch back to stable at any time.
+v02 receives only Stable releases (the `main` branch / official releases).
 
-The **Preview (03, testing)** channel receives the next major version. Before switching, your data is backed up automatically, and you can always switch back to Stable or Development build: new major versions only add to the database, and builds that can't read the data are blocked from being installed.
+- The **Development build** (`dev`) and **Preview** (`next`) channels that existed up to 02.21.00 have ended. The `dev` branch is now used to develop the next major version (v03). Panels that had chosen either one switch back to Stable automatically from 02.21.01.
+- If your panel is on 02.21.00 or older and set to Development build or Preview, set the update channel to Stable (otherwise it cannot receive v02 updates).
+- v03 is rebuilt from scratch, so v02 panels never switch to it through automatic updates. When v03 is released, you will be able to move to it from the panel.
 
 ## Security
 

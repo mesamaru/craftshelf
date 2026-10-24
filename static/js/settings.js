@@ -964,19 +964,18 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
       if (!d) throw new Error("確認できませんでした");
       const CH = {
         stable: ["安定版", "おすすめ", "動作を確認した正式なバージョンだけを受け取ります。"],
-        dev: ["開発ビルド", "", "新しい機能をいち早く試せる代わりに、不具合が含まれることがあります。いつでも安定版に戻せます。"],
-        preview: ["プレビュー", "v03・開発中", "次の大きなバージョン(v03)の開発の様子を確かめられます。v03 は作りが新しくなるため、このパネルからは切り替えられません(移る方法は、v03 の公開に合わせて案内します)。"],
       };
       const ch = CH[d.channel] ? d.channel : "stable";
       const back = d.downgrade ? (d.major_down ? `プレビュー v${esc(d.current)} から` : `いまは v${esc(d.current)} です。`) : "";
       body.innerHTML = `<div class="big-version"><img class="logo" src="/static/icon.svg" alt="" aria-hidden="true">
           <div class="v">${d.update_available ? `v${esc(d.latest)}` : `v${esc(d.current)}`}${ch !== "stable" ? ` <span class="badge upd">${CH[ch][0]}</span>` : ""}</div>
           <p>${d.error ? esc(d.error) : d.update_available ? `現在 v${esc(d.current)} · 新しいバージョンがあります`
-            : d.downgrade ? `${back}${CH[ch][0]}の最新は v${esc(d.latest)} です` : "CraftShelf は最新です"}</p></div>
+            : d.downgrade ? `${back}${CH[ch][0]}の最新は v${esc(d.latest)} です` : d.rebuilt ? "v02 としては最新です" : "CraftShelf は最新です"}</p></div>
         ${d.data_too_new ? `<div class="result err">このデータは、このバージョンより新しいバージョンで作られています。表示や操作がおかしい場合は、下の「アップデートの前の状態」から戻すか、元の受け取り先に戻してください。</div>` : ""}
         <div class="group-title">受け取るアップデート</div>
         <div class="group">${Object.entries(CH).map(([k, [n, tag, desc]]) => `<label class="toggle-row ch-row"><span class="main">${n}${tag ? ` <span class="badge${k === "preview" ? " upd" : " ok"}">${tag}</span>` : ""}<small>${desc}</small></span>
           <input type="radio" class="switch" name="update_channel" value="${k}"${k === ch ? " checked" : ""}></label>`).join("")}</div>
+        <div class="group-foot">開発ビルドとプレビューは終わりました(開発ビルドは v03 の開発に使っています)。v03 へは、公開に合わせてこの画面から移れるようにします。</div>
         ${d.blocked ? `<div class="result warn">${esc(d.blocked)}</div>` : ""}
         ${d.major_up && d.update_available && !d.blocked ? `<div class="result">${icon("shield")} v${esc(d.current)} → v${esc(d.latest)} は大きなアップデートです。インストールの前に、いまのデータを自動で退避します(下の「アップデートの前の状態」からいつでも戻せます)。</div>` : ""}
         ${d.downgrade && !d.blocked ? `<button class="btn tinted block" type="button" id="suDown">${icon("download")}${CH[ch][0]} v${esc(d.latest)} に戻す</button>` : ""}

@@ -4,7 +4,7 @@ import { PLATFORMS, type Platform } from "~/lib/platforms";
 import type { FetchLike } from "./net";
 
 const API = "https://api.modrinth.com/v2";
-const UA = "mesamaru/craftshelf-next (https://github.com/mesamaru/craftshelf-next)";
+const UA = "mesamaru/craftshelf (https://github.com/mesamaru/craftshelf)";
 
 export class ModrinthError extends Error {}
 

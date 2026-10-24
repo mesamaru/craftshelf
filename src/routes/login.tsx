@@ -58,7 +58,7 @@ function Login() {
 
   return (
     <main className="page narrow">
-      <h1 className="title">Craftshelf Next</h1>
+      <h1 className="title">CraftShelf</h1>
       {needCode ? (
         <form className="group form" onSubmit={(e) => (e.preventDefault(), verify())}>
           <p className="row muted">認証アプリに表示されている 6 桁のコードを入力してください。</p>

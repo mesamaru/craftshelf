@@ -21,7 +21,7 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
         headers: {
           Authorization: `Bearer ${apiKey}`,
           Accept: "application/json",
-          "User-Agent": "Craftshelf-Next",
+          "User-Agent": "CraftShelf",
           ...(body ? { "Content-Type": "application/json" } : {}),
         },
         body: body ? JSON.stringify(body) : undefined,

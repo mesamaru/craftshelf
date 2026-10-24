@@ -2,6 +2,12 @@
 
 バージョンは `00.00.00`(メジャー.マイナー.修正)の形式です。
 
+## 03.00.00 - 2026-10-24 v03 として craftshelf のリポジトリへ
+
+- 「Craftshelf Next」として作っていたものを、CraftShelf v03 として `mesamaru/craftshelf` の `next`(自分で入れて使う版)に移しました。多くの人が使うサービス版は `mesamaru/craftshelf-server` で続けます
+- 名前を CraftShelf にそろえました(画面・二段階認証のアプリに出る名前・配布元へ名乗る名前)
+- これより前の 00.01.00〜00.04.00 は、Craftshelf Next としての番号です
+
 ## 00.04.00 - 2026-10-23 Mod・プラグイン(Modrinth)
 
 - サーバーごとに種類(Paper・Fabric など 10 種類)と Minecraft のバージョンを決めると、合う Mod・プラグインを Modrinth で探せる

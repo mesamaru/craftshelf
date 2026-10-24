@@ -10,7 +10,7 @@ import { ac, roles } from "~/lib/permissions";
 import type { Db } from "./db";
 import * as schema from "./db/schema";
 
-export const APP_NAME = "Craftshelf Next";
+export const APP_NAME = "CraftShelf";
 
 // 無料で使える範囲
 export const LIMITS = { teamsPerUser: 5, membersPerTeam: 20 };

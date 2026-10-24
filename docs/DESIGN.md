@@ -1,6 +1,11 @@
-# Craftshelf Next 設計メモ
+# CraftShelf v03 設計メモ
 
-多くの人が使えるサービスとして公開する、CraftShelf の次の形。自分で入れて使う CraftShelf(02)は、別のリポジトリでこれまでどおり続ける。
+CraftShelf の次の版。作りを新しくし(TypeScript)、2 つの形で使えるようにする。
+
+- **`next`(自分で入れて使う版、`mesamaru/craftshelf`)**: v02 と同じく、自分のサーバー機に入れて使う。
+- **サービス版(`mesamaru/craftshelf-server`)**: 多くの人が使えるサービスとして公開する。チームごとに分かれる。中身の多くは `next` と同じ。違い(登録を閉じる・チームを 1 つにする・手元の保存先を使うなど)はこれから決める。
+
+v02(Python、`main`・`dev`)は、v03 が `main` で公開されるまでこれまでどおり続ける。
 
 ## 方針
 
@@ -12,7 +17,7 @@
 ## 全体の形
 
 ```
-[Craftshelf Next(このアプリ)]  TypeScript / TanStack Start / PostgreSQL + Drizzle / Better Auth
+[CraftShelf v03(このアプリ)]  TypeScript / TanStack Start / PostgreSQL + Drizzle / Better Auth
    ├─ 画面・アカウント・チーム・権限・ライブラリの目録・配布元の検索
    │
    ├─(接続 1)エージェント経由 …… 自宅や VPS で動かしている Minecraft サーバー

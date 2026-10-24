@@ -5,7 +5,7 @@ import { createCipheriv, createDecipheriv, hkdfSync, randomBytes } from "node:cr
 const VERSION = "v1";
 
 function keyFor(secret: string) {
-  return Buffer.from(hkdfSync("sha256", secret, "craftshelf-next", "stored-credentials-v1", 32));
+  return Buffer.from(hkdfSync("sha256", secret, "craftshelf-v03", "stored-credentials-v1", 32));
 }
 
 // context(保存する行の ID など)を一緒に渡す。別の行へ写し替えられても読めないようにするため

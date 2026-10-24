@@ -66,6 +66,7 @@ function renderPanel() {
   const tags = (v) => [v.meta.loader, v.meta.mc && "MC " + v.meta.mc, v.meta.pack_format && "pack_format " + v.meta.pack_format]
     .filter(Boolean).map((t) => `<span class="badge">${esc(t)}</span>`).join("");
   const nDeps = (it.dep_status || []).length, nMissing = (it.missing_deps || []).length;
+  const stray = new Set(strayVersions(it).map((v) => v.id));
   $("#panel").innerHTML = `
     <div class="side-head">
       <div class="nav"><span class="badge cat c-${it.category}">${CATS[it.category]}</span>
@@ -105,6 +106,8 @@ function renderPanel() {
                 <div class="vh"><span class="vnum">${esc(verLabel(v.version))}</span>
                   ${v.id === it.latest_id ? '<span class="badge ok">最新</span>' : ""}
                   ${v.missing ? '<span class="badge err">ファイルが見つかりません</span>' : ""}${tags(v)}</div>
+                ${stray.has(v.id) ? `<div class="stray"><span>このファイルは ${esc(CATS[kindOfVersion(v)])} です(${esc(CATS[it.category])}に混ざっています)</span>
+                  <button class="btn small tinted need-editor" type="button" data-act="split-ver">${esc(CATS[kindOfVersion(v)])} として分ける</button></div>` : ""}
                 <div class="file">${esc(v.filename)} · ${fmtSize(v.size)} · ${fmtDateTime(v.added_at)}</div>
               </div>
               <div class="vacts">
@@ -159,6 +162,13 @@ $("#panel").addEventListener("click", async (e) => {
     ]);
   } else if (act === "edit-item") editItem(it);
   else if (act === "edit-ver") editVersion(v);
+  else if (act === "split-ver") {
+    const cat = kindOfVersion(v);
+    if (await confirmSheet(`${verLabel(v.version)} を${CATS[cat]}として分けますか?`, `${v.filename}
+同じ名前の${CATS[cat]}のアイテムへ移します(無ければ作ります)。ファイルは消えません。`, "分ける")) {
+      await run(() => api(`/api/versions/${v.id}/move`, { json: { category: cat } }), `${CATS[cat]}として分けました`);
+    }
+  }
   else if (act === "del-ver") {
     if (await confirmSheet(`${verLabel(v.version)} を削除しますか?`, `${v.filename}\n保存先のファイルも削除され、元に戻せません。`, "削除")) {
       await run(() => api(`/api/versions/${v.id}`, { method: "DELETE" }), "削除しました");

@@ -1,11 +1,24 @@
 "use strict";
 /* ---------------- セット ---------------- */
+/* セットに足りない前提。前提ごとにまとめて、どれが使うのかを添える([{ name, users: [名前] }]) */
 function missingInSet(set) {
   const inSet = state.items.filter((i) => set.items.some((x) => x.item_id === i.id));
   const have = new Set(inSet.flatMap((i) => i.dep_key || []));
-  const out = [];
-  for (const it of inSet) for (const d of it.depends || []) if (!have.has(d.toLowerCase().replace(/[\W_]+/g, ""))) out.push(`${it.name} → ${d}`);
-  return out;
+  const out = new Map();
+  for (const it of inSet) {
+    for (const d of it.depends || []) {
+      if (have.has(nameKey(d))) continue;
+      const m = out.get(nameKey(d)) || { name: d, users: [] };
+      if (!m.users.includes(it.name)) m.users.push(it.name);
+      out.set(nameKey(d), m);
+    }
+  }
+  return [...out.values()].sort((a, b) => a.name.localeCompare(b.name));
+}
+function missingHTML(miss) {
+  if (!miss.length) return "";
+  return `<div class="setwarn"><div class="setwarn-h">${icon("puzzle")}前提が足りません(${miss.length})</div>
+    <ul>${miss.map((m) => `<li><b translate="no">${esc(m.name)}</b><span><span translate="no">${esc(m.users.join("・"))}</span> が使います</span></li>`).join("")}</ul></div>`;
 }
 async function loadSets() {
   try { state.sets = (await api("/api/sets")).sets; } catch (e) { $("#setsView").innerHTML = `<div class="result err">${esc(e.message)}</div>`; return; }
@@ -24,10 +37,10 @@ function renderSets() {
         <div class="card-h"><h4>${esc(s.name)}</h4><span class="badge">${s.items.length} 件 · ${esc(fmtSize(size))}</span></div>
         <div class="card-b">
           ${s.description ? `<p class="muted" style="margin:0 0 8px">${esc(s.description)}</p>` : ""}
-          ${miss.length ? `<div class="result err" style="margin-bottom:8px">前提が足りません: ${esc(miss.join(" / "))}</div>` : ""}
+          ${missingHTML(miss)}
           ${s.items.map((x) => { const it = byId[x.item_id]; if (!it) return ""; const v = it.versions.find((vv) => vv.id === (x.version_id || it.latest_id)) || {};
             return `<div class="row" role="button" tabindex="0" data-open="${it.id}">${itemIcon(it, true)}
-              <span class="main"><span class="title">${esc(it.name)}</span><span class="subtitle">${esc(verLabel(v.version))}${x.version_id ? "(固定)" : "(常に最新)"}</span></span>${icon("chev", "i chev")}</div>`; }).join("")}
+              <span class="main"><span class="title"><span translate="no">${esc(it.name)}</span>${kindTag(it)}</span><span class="subtitle">${esc(verLabel(v.version))}${x.version_id ? "(固定)" : "(常に最新)"}</span></span>${icon("chev", "i chev")}</div>`; }).join("")}
           <div class="chips" style="margin-top:10px">
             <a class="btn small tinted" href="/api/sets/${s.id}/download">${icon("download")}zip でダウンロード</a>
             <button class="btn small need-editor" type="button" data-sa="push">${icon("server")}サーバーへ転送</button>
@@ -53,36 +66,54 @@ $("#setsView").addEventListener("click", async (e) => {
 async function editSet(set, draft = null) {
   const chosen = draft ? draft.chosen : new Map((set ? set.items : []).map((x) => [x.item_id, x.version_id || ""]));
   const items = [...state.items].sort((a, b) => a.name.localeCompare(b.name, "ja", { numeric: true }));
+  const cats = Object.keys(CATS).filter((c) => items.some((it) => it.category === c));
   const r = await sheet(`${sheetHead(set ? "セットを編集" : "セットを作成")}
     <div class="db">
       ${field("名前", `<input type="text" name="name" value="${esc(draft ? draft.name : set?.name || "")}" placeholder="例: サバイバル鯖一式">`)}
       ${field("メモ(任意)", `<input type="text" name="description" value="${esc(draft ? draft.description : set?.description || "")}">`)}
       <label class="search"><span>${icon("search")}</span><input type="search" id="setQ" placeholder="絞り込み"></label>
+      <div class="segmented seg-wide setcats" id="setCat" role="group" aria-label="種類で絞り込む">${[["", "すべて"], ...(cats.length > 1 ? cats.map((c) => [c, CATS[c]]) : []), ["__sel", "選んだもの"]]
+        .map(([c, n]) => `<button class="seg" type="button" data-c="${c}" aria-pressed="${c === ""}">${esc(n)}<span class="n" data-n="${c}"></span></button>`).join("")}</div>
       <p style="font-size:12.5px;margin:4px 2px 8px">セットには、それぞれの<b>最新のバージョン</b>が入ります。</p>
       <div class="group scroll" id="setItems">${items.map((it) => {
         const pinned = chosen.get(it.id) ? it.versions.find((v) => String(v.id) === String(chosen.get(it.id))) : null;
         const page = it.source && safeUrl(it.source.page_url) !== "#" ? safeUrl(it.source.page_url) : "";
-        return `<div class="setpick" data-name="${esc(it.name.toLowerCase())}" data-row="${it.id}">
+        return `<div class="setpick" data-name="${esc(it.name.toLowerCase())}" data-cat="${it.category}" data-row="${it.id}">
           <input type="checkbox" class="cbox" id="si-${it.id}" data-item="${it.id}"${chosen.has(it.id) ? " checked" : ""}>
           ${itemIcon(it, true)}
-          <div class="main"><label for="si-${it.id}" translate="no">${esc(it.name)}</label>
+          <div class="main"><label for="si-${it.id}"><span translate="no">${esc(it.name)}</span>${kindTag(it)}</label>
             <span class="sub">${esc(verLabel((it.versions.find((v) => v.id === it.latest_id) || it.versions[0]).version))}${platformOf(it) ? ` · ${esc(platShort(platformOf(it)))}` : ""}
               ${pinned ? `<span class="pinb" data-pin="${it.id}" title="押すと固定を外して最新にします">${esc(verLabel(pinned.version))} に固定中 ✕</span>` : ""}</span></div>
           ${page ? `<a class="icon-btn sm" href="${esc(page)}" target="_blank" rel="noopener noreferrer" title="配布ページで情報を見る" aria-label="配布ページで情報を見る">${icon("external")}</a>`
             : it.access !== "view" ? `<button class="btn plain small" type="button" data-assign="${it.id}" title="配布元(Modrinth / SpigotMC / CurseForge)を割り当てる">${icon("link")}割り当て</button>` : ""}
         </div>`;
       }).join("")}</div>
-      <div class="result err" id="setWarn" hidden></div>
+      <div id="setWarn"></div>
     </div>
     <div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok>保存</button></div>`, (form, done) => {
     const warn = () => {
       const tmp = { items: [...form.querySelectorAll("[data-item]:checked")].map((c) => ({ item_id: Number(c.dataset.item) })) };
-      const miss = missingInSet(tmp);
-      $("#setWarn", form).hidden = !miss.length;
-      $("#setWarn", form).textContent = miss.length ? `前提が足りません: ${miss.join(" / ")}` : "";
+      $("#setWarn", form).innerHTML = missingHTML(missingInSet(tmp));
     };
-    form.addEventListener("change", warn); warn();
-    $("#setQ", form).oninput = (ev) => { const q = ev.target.value.toLowerCase(); form.querySelectorAll(".setpick").forEach((l) => { l.hidden = q && !l.dataset.name.includes(q); }); };
+    /* 名前と種類(と「選んだもの」)で絞り込む。種類ごとの件数も出す */
+    let cat = "";
+    const filter = (keepRows = false) => {
+      const q = $("#setQ", form).value.toLowerCase();
+      const rows = [...form.querySelectorAll(".setpick")];
+      const picked = (l) => l.querySelector("[data-item]").checked;
+      const hit = (l, c) => (!q || l.dataset.name.includes(q)) && (!c || (c === "__sel" ? picked(l) : l.dataset.cat === c));
+      if (!keepRows) rows.forEach((l) => { l.hidden = !hit(l, cat); });
+      form.querySelectorAll("[data-n]").forEach((n) => { n.textContent = rows.filter((l) => hit(l, n.dataset.n)).length; });
+    };
+    $("#setCat", form).onclick = (ev) => {
+      const b = ev.target.closest("[data-c]"); if (!b) return;
+      cat = b.dataset.c;
+      form.querySelectorAll("#setCat .seg").forEach((x) => x.setAttribute("aria-pressed", String(x === b)));
+      filter();
+    };
+    // 「選んだもの」を見ているときに外しても、その場では消さない(押し間違えを戻せるように)
+    form.addEventListener("change", () => { warn(); filter(true); }); warn(); filter();
+    $("#setQ", form).oninput = () => filter();
     form.addEventListener("click", (ev) => {
       const pin = ev.target.closest("[data-pin]");
       if (pin) { ev.preventDefault(); chosen.set(Number(pin.dataset.pin), ""); pin.remove(); return; }

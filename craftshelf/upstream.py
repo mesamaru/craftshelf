@@ -462,7 +462,9 @@ def _import_version(info, ver, loaders, game_versions, force_cat=None):
             src.download(ver["url"], tmp, ver.get("sha1") or "")
         except src.SourceError as e:
             raise ApiError(e.message, 502)
-        result = ingest(tmp, ver.get("file_name") or f"{safe_name(info['title'])}.jar", force_cat)
+        # 種類はファイルの中身(plugin.yml・fabric.mod.json など)を優先する。画面で選んでいた種類は、中身から
+        # 判定できないときだけ使う(プラグインのタブから Fabric 版を入れても、プラグインのアイテムに混ざらないように)
+        result = ingest(tmp, ver.get("file_name") or f"{safe_name(info['title'])}.jar", default_cat=force_cat)
     finally:
         tmp.unlink(missing_ok=True)
     conn = db()
@@ -478,17 +480,32 @@ def _import_version(info, ver, loaders, game_versions, force_cat=None):
     return result
 
 
-def _in_library(conn, target_id, provider, project_id, title=""):
-    """このユーザーのライブラリ(自分の + 共有されたもの)に、もうあるか。"""
+_MOD_LOADERS = {"fabric", "quilt", "forge", "neoforge"}
+_PLUGIN_LOADERS = {"paper", "spigot", "bukkit", "purpur", "folia", "velocity", "bungeecord", "waterfall", "sponge"}
+
+
+def category_for_loaders(loaders):
+    """検索で選んだローダーから、入れるものの種類(mod / plugin)。決められなければ None。"""
+    ls = {str(x).lower() for x in loaders or []}
+    if ls & _MOD_LOADERS and not ls & _PLUGIN_LOADERS:
+        return "mod"
+    if ls & _PLUGIN_LOADERS and not ls & _MOD_LOADERS:
+        return "plugin"
+    return None
+
+
+def _in_library(conn, target_id, provider, project_id, title="", category=None):
+    """このユーザーのライブラリ(自分の + 共有されたもの)に、もうあるか。
+    category を渡すと、その種類のものだけを探す(同じ配布元・同じ名前でも、Mod 版とプラグイン版は別のもの)。"""
     vis = visible_item_ids(conn)
-    for r in conn.execute("SELECT s.item_id FROM item_sources s JOIN items i ON i.id=s.item_id "
+    for r in conn.execute("SELECT s.item_id, i.category FROM item_sources s JOIN items i ON i.id=s.item_id "
                           "WHERE i.target_id=? AND s.provider=? AND s.project_id=?", (target_id, provider, str(project_id))):
-        if r[0] in vis:
+        if r[0] in vis and (not category or r[1] == category):
             return r[0]
     if title:
         key = norm_key(title)
-        for row in conn.execute("SELECT id, name FROM items WHERE target_id=?", (target_id,)):
-            if row["id"] in vis and norm_key(row["name"]) == key:
+        for row in conn.execute("SELECT id, name, category FROM items WHERE target_id=?", (target_id,)):
+            if row["id"] in vis and norm_key(row["name"]) == key and (not category or row["category"] == category):
                 return row["id"]
     return None
 
@@ -520,7 +537,7 @@ def api_import():
     for pid in [str(x) for x in data.get("with_deps") or []][:30]:
         try:
             dinfo = src.project_info(info["provider"], pid, cf_api_key())
-            if _in_library(conn, target["id"], info["provider"], pid, dinfo["title"]):
+            if _in_library(conn, target["id"], info["provider"], pid, dinfo["title"], category_for_loaders(loaders)):
                 deps_out.append({"title": dinfo["title"], "status": "exists"})
                 continue
             dver = src.latest(info["provider"], pid, loaders=loaders, game_versions=game_versions,
@@ -570,7 +587,7 @@ def api_search_versions():
             t = titles.get(d["project_id"], {})
             d["title"] = t.get("title") or d["project_id"]
             d["page_url"] = t.get("page_url") or ""
-            d["item_id"] = _in_library(conn, target["id"], provider, d["project_id"], d["title"])
+            d["item_id"] = _in_library(conn, target["id"], provider, d["project_id"], d["title"], category_for_loaders(loaders))
     return jsonify(versions=vers)
 
 

@@ -6,6 +6,11 @@ async function refresh() {
   try {
     const d = await api("/api/library");
     state.items = d.items; state.storage = d.storage; state.version = d.version; state.build = d.build;
+    state.nameCats = new Map();
+    for (const it of state.items) {
+      const k = nameKey(it.name);
+      state.nameCats.set(k, (state.nameCats.get(k) || new Set()).add(it.category));
+    }
     await loadPresence();
     if (!state.mcLoaded) { state.mcLoaded = true; loadMcVersions(); }
     if (state.selected && !state.items.some((i) => i.id === state.selected)) closePanel();
@@ -13,6 +18,22 @@ async function refresh() {
     if (isAdmin()) loadGuide();
   } catch (e) { if (state.user) toast("読み込みに失敗しました: " + e.message, true); }
 }
+
+/* ---------------- 同じ名前の Mod とプラグインの見分け ---------------- */
+const nameKey = (s) => String(s || "").toLowerCase().replace(/[\W_]+/g, "");
+/* 同じ名前で種類の違うものがライブラリにあるときだけ、種類の印を付ける(WorldEdit のプラグイン版と Mod 版など) */
+function kindTag(it) {
+  const cats = state.nameCats && state.nameCats.get(nameKey(it.name));
+  return cats && cats.size > 1 ? `<span class="kindtag c-${it.category}">${esc(CATS[it.category] || it.category)}</span>` : "";
+}
+/* ファイルの中身(ローダー)から見た種類。決められないときは "" */
+function kindOfVersion(v) {
+  const l = String((v.meta || {}).loader || "").toLowerCase();
+  const mod = /fabric|quilt|forge/.test(l), plugin = /paper|spigot|bukkit|folia|purpur|velocity|bungee|waterfall|sponge/.test(l);
+  return mod && !plugin ? "mod" : plugin && !mod ? "plugin" : "";
+}
+/* アイテムの種類と中身が合わないバージョン(プラグインのアイテムに混ざった Mod のファイルなど) */
+const strayVersions = (it) => ["plugin", "mod"].includes(it.category) ? it.versions.filter((v) => { const k = kindOfVersion(v); return k && k !== it.category; }) : [];
 
 /* ---------------- 種類・配布元のアイコン ---------------- */
 const CAT_ICON = { plugin: "puzzle", mod: "cube", datapack: "braces", resourcepack: "image", shader: "sun", modpack: "stack", other: "doc" };
@@ -125,11 +146,12 @@ function render() {
       const page = it.source && it.source.page_url ? safeUrl(it.source.page_url) : "";
       const plat = platformOf(it);
       const picked = state.selMode && state.sel.has(it.id);
+      const stray = strayVersions(it);
       return `<div class="row${state.selected === it.id ? " sel" : ""}${picked ? " picked" : ""}" role="button" tabindex="0" data-id="${it.id}">
         ${state.selMode ? `<span class="pick${picked ? " on" : ""}" aria-hidden="true">${picked ? icon("check") : ""}</span>` : ""}
         ${itemIcon(it)}
-        <span class="main"><span class="title"><span translate="no">${esc(it.name)}</span>${favBtn(it)}</span>
-          <span class="subtitle">${it.access && it.access !== "owner" ? `<span class="ownerb" translate="no">${icon("users")}${esc(it.owner_name)}</span>` : ""}${(it.shared_with || []).length ? `<span class="ownerb out" title="${esc(it.shared_with.map((x) => x.username).join(", "))} に共有中">${icon("share")}${it.shared_with.length}</span>` : ""}${plat ? `<span class="plat" translate="no">${esc(platShort(plat))}</span>` : ""}${esc(verLabel(latest.version))}${mc ? ` · MC ${esc(mc)}` : ""} · ${it.versions.length} バージョン<span class="hide-s"> · ${fmtSize(it.total_size)} · ${fmtDate(it.last_added)}</span></span>
+        <span class="main"><span class="title"><span translate="no">${esc(it.name)}</span>${kindTag(it)}${favBtn(it)}</span>
+          <span class="subtitle">${stray.length ? `<span class="badge err">${esc(CATS[kindOfVersion(stray[0])])} のファイルが混ざっています</span> ` : ""}${it.access && it.access !== "owner" ? `<span class="ownerb" translate="no">${icon("users")}${esc(it.owner_name)}</span>` : ""}${(it.shared_with || []).length ? `<span class="ownerb out" title="${esc(it.shared_with.map((x) => x.username).join(", "))} に共有中">${icon("share")}${it.shared_with.length}</span>` : ""}${plat ? `<span class="plat" translate="no">${esc(platShort(plat))}</span>` : ""}${esc(verLabel(latest.version))}${mc ? ` · MC ${esc(mc)}` : ""} · ${it.versions.length} バージョン<span class="hide-s"> · ${fmtSize(it.total_size)} · ${fmtDate(it.last_added)}</span></span>
           ${(it.tags || []).length ? `<span class="rtags">${it.tags.slice(0, 4).map((t) => `<span class="tagchip mini" translate="no">#${esc(t)}</span>`).join("")}</span>` : ""}</span>
         ${trailOf(it, upd, missing, page)}
         ${icon("chev", "i chev rowchev")}

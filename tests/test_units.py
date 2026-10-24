@@ -86,3 +86,18 @@ def test_analyze_datapack(tmp_path):
     p = tmp_path / "d.zip"
     p.write_bytes(_jar({"pack.mcmeta": '{"pack": {"pack_format": 48, "description": "Terrain"}}', "data/x/a.json": "{}"}))
     assert analysis.analyze(p, "d.zip")["category"] == "datapack"
+
+
+@pytest.mark.parametrize("name, expected", [
+    ("fabric-api-base", "fabric-api"), ("fabric-networking-api-v1", "fabric-api"), ("fabric-command-api-v2", "fabric-api"),
+    ("fabric", "fabric-api"), ("fabric-api", "fabric-api"), ("fabric-language-kotlin", "fabric-language-kotlin"),
+    ("fabricloader", "fabricloader"), ("worldedit", "worldedit"),
+])
+def test_canonical_dep(name, expected):
+    assert analysis.canonical_dep(name) == expected
+
+
+@pytest.mark.parametrize("version, rebuilt", [("02.21.00", False), ("02.99.99", False), ("03.00.00", True), ("04.01.00", True), ("", False)])
+def test_rebuilt_versions_are_not_applied(version, rebuilt):
+    """v03 からは作りが新しい(Python のパネルではない)ので、02 のパネルの自動更新では切り替えない。"""
+    assert selfupdate.is_rebuilt(version) is rebuilt

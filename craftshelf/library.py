@@ -18,7 +18,7 @@ import selfupdate
 import sources as src
 
 from .core import APP_NAME, ApiError, CATEGORIES, LOCAL_DIR, LOCK, MAX_UPLOAD, PROTOCOLS, REMOTE_PROTOCOLS, TMP_DIR, _jl, _truthy, app, db, get_setting, norm_key, running_version, safe_name, utcnow
-from .analysis import PLATFORM_IDS, analyze, auto_mc_versions, mc_max, version_key
+from .analysis import PLATFORM_IDS, analyze, auto_mc_versions, canonical_dep, mc_max, version_key
 from .auth import ACL_LEVELS, current_user, decrypt_secret, encrypt_secret, get_item_checked, get_server_checked, require, require_perm, visible_item_ids
 from .events import audit
 from .jobs import start_job
@@ -244,8 +244,8 @@ def remove_file(store, relpath):
     store.rmdir_if_empty(parent_rel(rel))  # 空のときだけ消える
 
 
-META_KEYS = ("loader", "mc", "description", "pack_format", "depends", "softdepends", "mod_id")
-DEPS_VERSION = 1  # 依存関係の読み取り方式を変えたら上げる(古いものは読み取り直す)
+META_KEYS = ("loader", "mc", "description", "pack_format", "depends", "softdepends", "mod_id", "provides")
+DEPS_VERSION = 2  # 依存関係の読み取り方式を変えたら上げる(古いものは読み取り直す)。2: 同梱している jar(provides)も読む
 
 
 def meta_from_info(info):
@@ -623,6 +623,58 @@ def api_patch_version(vid):
                      (version, note, json.dumps(meta, ensure_ascii=False), vid))
         conn.commit()
     return jsonify(ok=True)
+
+
+@app.post("/api/versions/<int:vid>/move")
+@require("editor")
+def api_move_version(vid):
+    """バージョンを、同じ名前の別の種類のアイテムへ分ける(Mod のファイルがプラグインに混ざったときなど)。
+
+    行き先のアイテムが無ければ作る。元のアイテムが空になったら消す。
+    """
+    data = request.get_json(silent=True) or {}
+    new_cat = data.get("category")
+    if new_cat not in CATEGORIES:
+        raise ApiError("category が不正です")
+    conn = db()
+    row = conn.execute("SELECT * FROM versions WHERE id=?", (vid,)).fetchone()
+    if not row:
+        raise ApiError("見つかりません", 404)
+    item = get_item_checked(row["item_id"], "edit")
+    if new_cat == item["category"]:
+        raise ApiError("いまと同じ種類です")
+    store, _target = require_same_target(row)
+    with LOCK:
+        dest_item, _created = get_or_create_item(conn, item["target_id"], new_cat, item["name"], item["owner_id"])
+        dest_dir = join_rel("library", CATEGORIES[new_cat][0], dest_item["folder"])
+        src_rel = lib_rel(row["relpath"])
+        dest = store.unique_rel(dest_dir, row["filename"])
+        moved = False
+        try:
+            store.ensure_dir(dest_dir)
+            if store.exists(src_rel):
+                store.move(src_rel, dest)
+                moved = True
+            conn.execute("UPDATE versions SET item_id=?, relpath=?, filename=? WHERE id=?",
+                         (dest_item["id"], dest[len("library/"):], dest.rsplit("/", 1)[-1], vid))
+            # 配布元の紐付けは引き継がない(Mod 版とプラグイン版では、配布元での絞り込みの条件が違うため)
+            left =conn.execute("SELECT COUNT(*) FROM versions WHERE item_id=?", (item["id"],)).fetchone()[0]
+            if left == 0:
+                conn.execute("DELETE FROM items WHERE id=?", (item["id"],))
+                conn.execute("DELETE FROM item_acl WHERE item_id=?", (item["id"],))
+                conn.execute("DELETE FROM favorites WHERE item_id=?", (item["id"],))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            if moved:
+                try:
+                    store.move(dest, src_rel)
+                except (OSError, StorageError):
+                    pass
+            raise
+        store.rmdir_if_empty(join_rel("library", CATEGORIES[item["category"]][0], item["folder"]))
+    audit("バージョンを別の種類に分けました", item["name"], f"{row['version'] or row['filename']} → {CATEGORIES[new_cat][1]}")
+    return jsonify(ok=True, item_id=dest_item["id"], removed_item=left == 0)
 
 
 @app.delete("/api/versions/<int:vid>")
@@ -1134,26 +1186,49 @@ def prune_versions(conn, store, item_id, user="(自動)"):
 def dependency_report(items, aliases=None):
     """build_library の結果に、前提プラグインの状況(ライブラリにあるか・どれか)を書き足す。"""
     aliases = aliases or {}
-    by_key = {}
+    by_key, by_cat_key = {}, {}  # 同じ名前の Mod とプラグインがあるときは、同じ種類のほうを前提として選ぶ
     ids = {it["id"] for it in items}
     for it in items:
         latest = next((v for v in it["versions"] if v["id"] == it["latest_id"]), it["versions"][0])
         keys = {norm_key(it["name"])}
         if latest["meta"].get("mod_id"):
             keys.add(norm_key(latest["meta"]["mod_id"]))
+        keys |= {norm_key(p) for p in latest["meta"].get("provides") or []}  # 同梱している部品(Fabric API の中身など)
         it["dep_key"] = sorted(keys)
         for k in keys:
             by_key.setdefault(k, it["id"])
+            by_cat_key.setdefault((it["category"], k), it["id"])
     for k, iid in aliases.items():
         if iid in ids:
             by_key[k] = iid
-            next(it for it in items if it["id"] == iid)["dep_key"].append(k)
+            target = next(it for it in items if it["id"] == iid)
+            by_cat_key[(target["category"], k)] = iid
+            target["dep_key"].append(k)
+
+    def resolve(it, raw):
+        """(表示する名前, 見つかったアイテム, 手動で紐付けたか)。手動の紐付けは元の名前のまま使う。"""
+        if norm_key(raw) in aliases:
+            k = norm_key(raw)
+            return raw, by_key.get(k), True
+        name = canonical_dep(raw)
+        k = norm_key(name)
+        if k in aliases:
+            return name, by_key.get(k), True
+        return name, by_cat_key.get((it["category"], k)) or by_key.get(k), False
+
     for it in items:
         latest = next((v for v in it["versions"] if v["id"] == it["latest_id"]), it["versions"][0])
-        it["depends"] = latest["meta"].get("depends") or []
-        it["softdepends"] = latest["meta"].get("softdepends") or []
-        it["dep_status"] = [{"name": d, "required": req, "item_id": by_key.get(norm_key(d)), "manual": norm_key(d) in aliases}
-                            for req, lst in ((True, it["depends"]), (False, it["softdepends"])) for d in lst]
+        status, seen = [], set()
+        for req, lst in ((True, latest["meta"].get("depends") or []), (False, latest["meta"].get("softdepends") or [])):
+            for raw in lst:
+                name, iid, manual = resolve(it, raw)
+                if norm_key(name) in seen:  # Fabric API の部品が何個あっても、Fabric API は 1 つ
+                    continue
+                seen.add(norm_key(name))
+                status.append({"name": name, "required": req, "item_id": iid, "manual": manual})
+        it["dep_status"] = status
+        it["depends"] = [d["name"] for d in status if d["required"]]
+        it["softdepends"] = [d["name"] for d in status if not d["required"]]
         it["missing_deps"] = [d["name"] for d in it["dep_status"] if d["required"] and not d["item_id"]]
         it["deps_scanned"] = bool(latest["meta"].get("deps_v"))
 

@@ -1,6 +1,7 @@
 """CraftShelf: ファイルの中身(plugin.yml / fabric.mod.json など)からの名前・バージョン・前提の読み取り。"""
 
 from pathlib import Path
+import io
 import json
 import re
 import zipfile
@@ -343,9 +344,47 @@ def _paper_deps(text):
     return req, soft
 
 
+_NESTED_DIRS = ("META-INF/jars/", "META-INF/jarjar/")  # Fabric / Quilt と Forge / NeoForge の jar-in-jar
+
+
+def _mod_ids(z):
+    """jar の中の Mod の ID と、その Mod が「代わりになる」と宣言している ID(provides)。"""
+    names = set(z.namelist())
+    ids = []
+    if "fabric.mod.json" in names:
+        d = _json(z, "fabric.mod.json") or {}
+        ids += [d.get("id")] + [p for p in d.get("provides") or [] if isinstance(p, str)]
+    if "quilt.mod.json" in names:
+        ql = (_json(z, "quilt.mod.json") or {}).get("quilt_loader") or {}
+        ids += [ql.get("id")] + [p if isinstance(p, str) else (p or {}).get("id") for p in ql.get("provides") or []]
+    for path in ("META-INF/neoforge.mods.toml", "META-INF/mods.toml"):
+        if path in names:
+            ids += [m.get("modId") for m in (_toml(_read(z, path)) or {}).get("mods") or [] if isinstance(m, dict)]
+    return [str(x) for x in ids if isinstance(x, str) and x]
+
+
+def _provided_ids(z, depth=0):
+    """同梱している jar(jar-in-jar)の Mod の ID。Fabric API なら fabric-api-base など、中の部品がすべて入る。"""
+    out = []
+    for n in z.namelist():
+        if not (n.startswith(_NESTED_DIRS) and n.endswith(".jar")):
+            continue
+        try:
+            if z.getinfo(n).file_size > 32 * 1024 * 1024:
+                continue
+            with zipfile.ZipFile(io.BytesIO(z.read(n))) as inner:
+                out += _mod_ids(inner)
+                if depth < 1:
+                    out += _provided_ids(inner, depth + 1)
+        except Exception:  # noqa: BLE001  壊れた中身は無視する
+            continue
+    return out
+
+
 def _analyze_deps(z, info):
     names = set(z.namelist())
     deps, soft, mod_id = [], [], None
+    provides = []
     if "paper-plugin.yml" in names:
         deps, soft = _paper_deps(_read(z, "paper-plugin.yml"))
     elif "plugin.yml" in names or "bungee.yml" in names:
@@ -383,10 +422,33 @@ def _analyze_deps(z, info):
                         required = dep.get("mandatory") is True or str(dep.get("type", "")).lower() == "required"
                         (deps if required else soft).append(dep["modId"])
                 break
-    clean = lambda xs: sorted({x.strip() for x in xs if x and x.strip().lower() not in _IGNORE_DEPS})[:50]  # noqa: E731
+    # この jar 自身が同梱しているもの(・代わりになると宣言しているもの)は、前提として数えない
+    own = [x for x in _mod_ids(z) if x != mod_id] + _provided_ids(z)
+    provides = sorted({str(x).strip() for x in own if str(x).strip()})[:300]
+    have = {_norm(x) for x in provides}
+    clean = lambda xs: sorted({x.strip() for x in xs  # noqa: E731
+                               if x and x.strip().lower() not in _IGNORE_DEPS and _norm(x) not in have})[:50]
     info["depends"], info["softdepends"] = clean(deps), clean(soft)
+    if provides:
+        info["provides"] = provides
     if mod_id:
         info["mod_id"] = str(mod_id)[:80]
+
+
+def _norm(name):
+    return re.sub(r"[\W_]+", "", (name or "").lower())
+
+
+# Fabric API の部品(fabric-api-base・fabric-networking-api-v1 など)。単体では配られず、Fabric API に入っている
+_FABRIC_API_PART = re.compile(r"^fabric(-api-base|-[a-z0-9]+(-[a-z0-9]+)*-v\d+)$")
+
+
+def canonical_dep(name):
+    """前提の名前を、ライブラリで探す名前にそろえる(Fabric API の部品・古い ID「fabric」は Fabric API)。"""
+    n = (name or "").strip()
+    if n.lower() == "fabric" or _FABRIC_API_PART.match(n.lower()):
+        return "fabric-api"
+    return n
 
 
 def analyze(path, filename):

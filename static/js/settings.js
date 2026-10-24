@@ -965,7 +965,7 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
       const CH = {
         stable: ["安定版", "おすすめ", "動作を確認した正式なバージョンだけを受け取ります。"],
         dev: ["開発ビルド", "", "新しい機能をいち早く試せる代わりに、不具合が含まれることがあります。いつでも安定版に戻せます。"],
-        preview: ["プレビュー", "v03・試験中", "次の大きなバージョン(v03)の試験版です。不具合があるかもしれません。切り替える前にデータを自動で退避し、いつでも安定版・開発ビルドに戻せます。"],
+        preview: ["プレビュー", "v03・開発中", "次の大きなバージョン(v03)の開発の様子を確かめられます。v03 は作りが新しくなるため、このパネルからは切り替えられません(移る方法は、v03 の公開に合わせて案内します)。"],
       };
       const ch = CH[d.channel] ? d.channel : "stable";
       const back = d.downgrade ? (d.major_down ? `プレビュー v${esc(d.current)} から` : `いまは v${esc(d.current)} です。`) : "";
@@ -1024,7 +1024,7 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
         if (e.target.name === "update_channel") {
           const k = e.target.value;
           if (k === "dev" && !(cfm(["開発ビルドを受け取りますか?", CH.dev[2]].join("\n\n")))) { renderSettings(); return; }
-          if (k === "preview" && !(cfm(["プレビュー(v03・試験中)を受け取りますか?", CH.preview[2]].join("\n\n")))) { renderSettings(); return; }
+          if (k === "preview" && !(cfm(["プレビュー(v03・開発中)を受け取りますか?", CH.preview[2]].join("\n\n")))) { renderSettings(); return; }
           try { await api("/api/settings", { method: "PATCH", json: { update_channel: k } }); toast(`${CH[k][0]}を受け取ります`); renderSettings(); }
           catch (ex) { toast(ex.message, true); }
           return;

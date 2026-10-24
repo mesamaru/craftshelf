@@ -132,6 +132,19 @@ def parse_changelog(text):
 
 
 
+REBUILT_MAJOR = 3  # v03 から作りが新しくなった(Python のパネルではない)ので、このパネルの自動更新では切り替えない
+
+
+def is_rebuilt(version):
+    v = parse_version(version)
+    return bool(v) and v[0] >= REBUILT_MAJOR
+
+
+def rebuilt_note(version):
+    return (f"v{version} は作りが新しくなったため、このパネルの自動更新では切り替えられません。"
+            "いまのパネルはそのまま使えます(移る方法は、v03 の公開に合わせて案内します)")
+
+
 def check(force=False):
     with _cache_lock:
         if not force and _cache["data"] and time.monotonic() - _cache["at"] < CHECK_TTL:
@@ -168,6 +181,8 @@ def check(force=False):
         if (data["update_available"] or data["downgrade"]) and tr < DATA_IN_USE:
             data["blocked"] = (f"v{latest} は、いまのデータ(保存方法 {DATA_IN_USE})を読めないため切り替えられません。"
                                "そのバージョンが新しい保存方法に対応するまで待つか、「アップデートの前の状態」から戻してください")
+        if data["update_available"] and is_rebuilt(latest):
+            data["blocked"] = rebuilt_note(latest)
         try:
             notes = parse_changelog(_github_file("CHANGELOG.md"))
         except UpdateError:
@@ -260,6 +275,8 @@ def apply(note=print):
             raise UpdateError("取得したコードに正しい VERSION がありません")
         if parse_version(new) == parse_version(old) or (parse_version(new) < parse_version(old) and CHANNEL == "preview"):
             raise UpdateError(f"すでに最新です(現在 {old} / GitHub {new})")
+        if is_rebuilt(new):
+            raise UpdateError(rebuilt_note(new))
         tw, tr = parse_data_format((src / "DATA_FORMAT").read_text(encoding="utf-8")) if (src / "DATA_FORMAT").exists() else (1, 1)
         if tr < DATA_IN_USE:
             raise UpdateError(f"v{new} は、いまのデータ(保存方法 {DATA_IN_USE})を読めないため切り替えられません")

@@ -1,7 +1,7 @@
 # CraftShelf v03 開発メモ
 
-- **ここは `mesamaru/craftshelf` の `next` ブランチ(v03 の開発・自分で入れて使う版)**。`main` = v02(安定版)/ `dev` = v02 の開発ビルド。v02(Python)とは履歴もコードも別。多くの人が使うサービス版は別のリポジトリ `mesamaru/craftshelf-server`(`main`)。
-- **v03 は `next` を中心に作る**: 利用者が `next` を見て意見を出す → `next` に作る → 同じ機能をサービス版にも入れる。`next` がまとまったら `dev` へ持っていき、`dev` で試験できたら `main` で公開する。その前に、v02 → v03 のデータの移し方と、Docker の入れ替え方を用意する(v02 のパネルは、それまで v03 に自動更新しない)。
+- **ここは `mesamaru/craftshelf` の `next` ブランチ(v03 の開発・自分で入れて使う版)**。`main` = v02(安定版)/ `dev` = v03 の開発ビルド(2026-10-24 に v02 から切り替えた。v02 の開発ビルドは 02.21.00 が最後)。v02(Python)とは履歴もコードも別。多くの人が使うサービス版は別のリポジトリ `mesamaru/craftshelf-server`(`main`)。
+- **v03 は `next` を中心に作る**: 利用者が `next` を見て意見を出す → `next` に作る → 同じ機能をサービス版にも入れる。`next` の変更は `dev` へ持っていき(`dev` は `next` を早送りで追う)、`dev` で試験できたら `main` で公開する。**`main` に出す前に、v02 → v03 のデータの移し方と、Docker の入れ替え方を用意する**(v02 のパネルは、それまで v03 に自動更新しない)。
 - **サービス版へ入れる手順**: 手元の作業フォルダーには `origin`(craftshelf)と `server`(craftshelf-server)の 2 つのリモートをつないでおく。`git switch server` → `git cherry-pick <next のコミット>` で取り込み、`VERSION`・`CHANGELOG.md` はサービス版の番号で書き直してからコミットする。サービス版にだけ要るもの(チームの上限・公開の入口など)は、サービス版だけで作る。
 - 版は `03.xx.xx`。タグは `next-v03.01.02`(リリースの仕組みはまだ無い)。
 

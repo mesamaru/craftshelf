@@ -1091,8 +1091,10 @@ button.srv-open:hover h4 { color: var(--tint); }
 .pw-bar { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 16px; }
 .pw-bar .btn { justify-content: center; }
 #srvLivePanel { margin-bottom: 4px; }
-.srv-split { display: grid; grid-template-columns: 290px minmax(0, 1fr); gap: 18px; align-items: start; }
-.srv-side { position: sticky; top: 84px; max-height: calc(100vh - 110px); overflow: auto; padding-bottom: 8px; }
+.srv-split { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 18px; align-items: start; }
+/* スクロールバーの分の場所を先に取っておき、中身(数字の枠・サーバーの一覧)に重ならないようにする */
+.srv-side { position: sticky; top: 84px; max-height: calc(100vh - 110px); overflow: auto; padding-bottom: 8px;
+  scrollbar-gutter: stable; scrollbar-width: thin; padding-right: 4px; }
 .srv-side .sstats b { font-size: 18px; }
 .srv-main { min-width: 0; }
 .srv-main .srv-tabs { top: 84px; }
@@ -1189,7 +1191,8 @@ button.fb-row > svg { width: 15px; height: 15px; color: var(--label-3); flex: no
 .con-entry .e { color: var(--red); }
 
 /* ---------------- 設定ファイルの編集 ---------------- */
-.fe-top { display: flex; flex-direction: column; gap: 8px; }
+.fe-top { display: flex; flex-direction: column; gap: 8px; padding: 8px 14px; border-bottom: .5px solid var(--sep); }
+.fe-box .live-wait { padding: 14px 16px; }
 .fe-crumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; }
 .fe-crumbs .sep { color: var(--label-3); }
 .fe-quick { display: flex; flex-wrap: wrap; gap: 6px; }

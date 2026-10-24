@@ -97,13 +97,15 @@ function filesPane(s, pane, dir) {
   (state.srvFilesDir ||= {})[s.id] = dir;
   const parts = dir ? dir.split("/") : [];
   pane.innerHTML = `<div class="sgrp fe-sgrp"><span>ファイル</span><button class="btn small" type="button" data-fcmp>${icon("doc")}ファイル比較</button></div>
-    <div class="slist pad fe-top">
+    <div class="slist fe-box">
+    <div class="fe-top">
       <nav class="fe-crumbs" translate="no"><button class="btn plain small" type="button" data-fdir="">${icon("server")}${esc(s.name)}</button>${parts.map((p, i) =>
         `<span class="sep">/</span><button class="btn plain small" type="button" data-fdir="${esc(parts.slice(0, i + 1).join("/"))}">${esc(p)}</button>`).join("")}</nav>
       ${dir ? "" : `<div class="fe-quick">${QUICK_FILES.map(([p, n]) => `<button class="btn small" type="button" data-fquick="${esc(p)}" translate="no">${esc(n)}</button>`).join("")}</div>`}
     </div>
-    <div class="slist fe-list" id="feList"><div class="live-wait"><span class="spinner"></span> 読み込んでいます…</div></div>
-    <p class="muted small">編集できるのは、設定ファイル(.properties・.yml・.json・.toml など、512 KB まで)です。保存の前の内容はファイルごとに 20 回分残り、いつでも戻せます。</p>`;
+    <div class="fe-list" id="feList"><div class="live-wait"><span class="spinner"></span> 読み込んでいます…</div></div>
+    </div>
+    <p class="group-foot">編集できるのは、設定ファイル(.properties・.yml・.json・.toml など、512 KB まで)です。保存の前の内容はファイルごとに 20 回分残り、いつでも戻せます。</p>`;
   const list = $("#feList", pane);
   api(`/api/servers/${s.id}/files?dir=${encodeURIComponent(dir)}`).then((d) => {
     list.innerHTML = d.entries.length ? d.entries.map((e) => {

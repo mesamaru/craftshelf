@@ -400,7 +400,7 @@ function renderServers() {
   const head = `<div class="view-head srv-vh"><div class="chips">
       ${state.srvMode && state.srvMode !== "list" ? `<button class="btn small tinted" type="button" data-mode="list">${icon("back")}一覧に戻る</button>`
         : `<button class="btn small" type="button" data-mode="compare">${icon("arrows")}比較</button><button class="btn small" type="button" data-mode="software">${icon("server")}サーバー本体</button><button class="btn small" type="button" data-mode="cfgdiff">${icon("doc")}ファイル比較</button>`}</div>
-      <button class="btn filled need-editor" type="button" data-va="add">${icon("plus")}追加</button></div>`;
+      <button class="btn filled need-editor" type="button" data-va="add">${icon("plus")}サーバーを追加</button></div>`;
   if (state.srvMode === "compare") { view.innerHTML = `${head}<div id="srvBody"></div>`; renderCompare(); return; }
   if (state.srvMode === "software") { view.innerHTML = `${head}<div id="srvBody"></div>`; renderSoftware(); return; }
   if (state.srvMode === "cfgdiff") { view.innerHTML = `${head}<div id="srvBody" class="cd-wrap"></div>`; renderCfgDiff(); return; }

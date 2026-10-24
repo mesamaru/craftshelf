@@ -16,5 +16,5 @@ export type Platform = keyof typeof PLATFORMS;
 export const PLATFORM_IDS = Object.keys(PLATFORMS) as Platform[];
 export const isPlatform = (v: unknown): v is Platform => typeof v === "string" && v in PLATFORMS;
 
-// 例 1.21.1・1.20・1.8.9
-export const MC_VERSION = /^1\.\d{1,2}(\.\d{1,2})?$/;
+// 例 1.21.1・1.20・1.8.9、年ごとの新しい番号の 26.3・26.3.1
+export const MC_VERSION = /^(1\.\d{1,2}|\d{2}\.\d{1,2})(\.\d{1,2})?$/;

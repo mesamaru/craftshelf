@@ -45,7 +45,7 @@ export function libraryService(deps: Deps) {
       const { row } = await serverOf(deps, teamId, id);
       if (!isPlatform(input.platform)) throw new HttpError(400, "サーバーの種類を選んでください");
       const mcVersion = input.mcVersion.trim() || null;
-      if (mcVersion && !MC_VERSION.test(mcVersion)) throw new HttpError(400, "バージョンは 1.21.1 のように入力してください");
+      if (mcVersion && !MC_VERSION.test(mcVersion)) throw new HttpError(400, "バージョンは 1.21.1 や 26.3 のように入力してください");
       const values = { serverId: row.id, platform: input.platform, mcVersion, updatedAt: new Date() };
       await db.insert(serverProfile).values(values).onConflictDoUpdate({ target: serverProfile.serverId, set: values });
     },

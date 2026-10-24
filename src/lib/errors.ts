@@ -6,6 +6,8 @@ const MESSAGES: Record<string, string> = {
   PASSWORD_TOO_SHORT: "パスワードは 10 文字以上にしてください",
   INVALID_CODE: "コードが違います",
   INVALID_PASSWORD: "パスワードが違います",
+  V02_TOTP_INVALID: "コードが違います",
+  INVALID_USERNAME_OR_PASSWORD: "ユーザー名かパスワードが違います",
   TOO_MANY_REQUESTS: "試行が多すぎます。しばらく待ってからやり直してください",
   YOU_HAVE_REACHED_THE_MAXIMUM_NUMBER_OF_ORGANIZATIONS: "作れるチームの数の上限に達しました",
   ORGANIZATION_MEMBERSHIP_LIMIT_REACHED: "このチームの人数の上限に達しました",

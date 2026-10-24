@@ -16,10 +16,11 @@ function Login() {
   const { app } = Route.useRouteContext();
   const router = useRouter();
   const { next } = Route.useSearch();
-  const [email, setEmail] = useState("");
+  const [id, setId] = useState(""); // メールアドレスかユーザー名(v02 から取り込んだ人はユーザー名)
   const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
   const [needCode, setNeedCode] = useState(false);
+  const [needV02Code, setNeedV02Code] = useState(false);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -37,9 +38,13 @@ function Login() {
     }
   };
 
-  const signIn = () =>
+  const signIn = (v02Code?: string) =>
     run(async () => {
-      const { data, error } = await authClient.signIn.email({ email, password });
+      const opts = v02Code ? { headers: { "x-v02-totp": v02Code } } : undefined;
+      const { data, error } = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(id)
+        ? await authClient.signIn.email({ email: id, password }, opts)
+        : await authClient.signIn.username({ username: id, password }, opts);
+      if (error?.code === "V02_TOTP_REQUIRED") return setNeedV02Code(true);
       if (error) return setError(errorText(error));
       if (data && "twoFactorRedirect" in data && data.twoFactorRedirect) return setNeedCode(true);
       await done();
@@ -60,7 +65,15 @@ function Login() {
   return (
     <main className="page narrow">
       <h1 className="title">CraftShelf</h1>
-      {needCode ? (
+      {needV02Code ? (
+        <form className="group form" onSubmit={(e) => (e.preventDefault(), signIn(code))}>
+          <p className="row muted">v02 で使っていた認証アプリに表示されている 6 桁のコードを入力してください。</p>
+          <input className="row" inputMode="numeric" autoComplete="one-time-code" placeholder="123456"
+            value={code} onChange={(e) => setCode(e.target.value)} autoFocus />
+          {error && <p className="row error" role="alert">{error}</p>}
+          <button className="capsule primary" disabled={busy}>確認</button>
+        </form>
+      ) : needCode ? (
         <form className="group form" onSubmit={(e) => (e.preventDefault(), verify())}>
           <p className="row muted">認証アプリに表示されている 6 桁のコードを入力してください。</p>
           <input className="row" inputMode="numeric" autoComplete="one-time-code" placeholder="123456"
@@ -71,8 +84,8 @@ function Login() {
       ) : (
         <>
           <form className="group form" onSubmit={(e) => (e.preventDefault(), signIn())}>
-            <input className="row" type="email" autoComplete="username webauthn" placeholder="メールアドレス"
-              value={email} onChange={(e) => setEmail(e.target.value)} required />
+            <input className="row" autoComplete="username webauthn" placeholder={app.mode === "self" ? "ユーザー名かメールアドレス" : "メールアドレス"}
+              value={id} onChange={(e) => setId(e.target.value)} required autoCapitalize="none" />
             <input className="row" type="password" autoComplete="current-password" placeholder="パスワード"
               value={password} onChange={(e) => setPassword(e.target.value)} required />
             {error && <p className="row error" role="alert">{error}</p>}

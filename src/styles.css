@@ -85,3 +85,5 @@ input.version { width: 96px; text-align: right; }
 .main { flex: 1; }
 html { background: #eef1f7; }
 @media (prefers-color-scheme: dark) { html { background: #111214; } }
+.notice { margin: 0 4px; padding: 10px 14px; border-radius: 14px; font-size: 14px; color: #8a5a00; background: rgba(255, 159, 10, 0.16); }
+@media (prefers-color-scheme: dark) { .notice { color: #ffcc66; } }

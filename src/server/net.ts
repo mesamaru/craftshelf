@@ -38,12 +38,19 @@ export function isPublicAddress(addr: string): boolean {
 export class UnsafeUrlError extends Error {}
 
 // 入力した URL を確かめて、正規化した形(末尾の / なし)を返す
-export function checkPublicUrl(input: string): string {
+// allowPrivate: 自分用の版では、家の中の Pterodactyl などにもつなげるようにする(http も許す)
+export function checkPublicUrl(input: string, allowPrivate = false): string {
   let url: URL;
   try {
     url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(input.trim()) ? input.trim() : `https://${input.trim()}`);
   } catch {
     throw new UnsafeUrlError("URL の形が正しくありません");
+  }
+  if (allowPrivate) {
+    if (url.protocol !== "https:" && url.protocol !== "http:") throw new UnsafeUrlError("http:// か https:// の URL を入力してください");
+    if (url.username || url.password) throw new UnsafeUrlError("URL にユーザー名やパスワードを含めないでください");
+    if (!url.hostname) throw new UnsafeUrlError("URL の形が正しくありません");
+    return url.origin + url.pathname.replace(/\/+$/, "");
   }
   if (url.protocol !== "https:") throw new UnsafeUrlError("https:// の URL を入力してください");
   if (url.username || url.password) throw new UnsafeUrlError("URL にユーザー名やパスワードを含めないでください");
@@ -75,6 +82,14 @@ const agent = new Agent({ connect: { lookup: safeLookup, timeout: 10_000 }, head
 export type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
 // 外へつなぐときに使う fetch。転送(リダイレクト)は追わない
+// 自分用の版で使う fetch。家の中のアドレスにもつなぐ(使う人がそのサーバー機の持ち主なので)。転送は追わない
+const lanAgent = new Agent({ connect: { timeout: 10_000 }, headersTimeout: 20_000, bodyTimeout: 60_000 });
+export const lanFetch: FetchLike = async (url, init) => {
+  checkPublicUrl(url, true);
+  const res = await undiciFetch(url, { ...(init as object), redirect: "manual", dispatcher: lanAgent } as never);
+  return res as unknown as Response;
+};
+
 export const safeFetch: FetchLike = async (url, init) => {
   checkPublicUrl(url);
   const res = await undiciFetch(url, { ...(init as object), redirect: "manual", dispatcher: agent } as never);

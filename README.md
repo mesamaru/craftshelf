@@ -34,7 +34,13 @@ docker compose up -d     # docker-compose.yml(イメージ ghcr.io/mesamaru/craf
 `http://サーバー機のアドレス:8765` を開き、最初の管理者を作ります。そのあとは、管理者が招待した人だけが登録できます。
 
 - パスキーを使うときや、リバースプロキシの後ろに置くときは、開く URL を `APP_URL` に書きます
-- **v02 から切り替える**: v02 の `docker-compose.yml` の `build: .` を `image: ghcr.io/mesamaru/craftshelf:dev` に変え、`docker compose up -d` します。同じ `/data` を使いますが、v03 のデータは `/data/v03` に作るので、v02 のデータはそのまま残ります(`build: .` に戻せば v02 に戻れます)。v02 のデータの取り込みは準備中です
+- **v02 から切り替える**: v02 の `docker-compose.yml` の `build: .` を `image: ghcr.io/mesamaru/craftshelf:dev` に変え、`docker compose up -d` します。同じ `/data` を使いますが、v03 のデータは `/data/v03` に作るので、v02 のデータはそのまま残ります(`build: .` に戻せば v02 に戻れます)
+- **v02 から取り込むもの**: 初めて起動したときに、v02 のデータ(`/data/index.db`)から次のものを取り込みます。v02 のデータには書き込みません。結果は「アカウント」の画面(管理者だけ)と `/data/v03/import-v02.json` で確かめられます
+  - 利用者(v02 のユーザー名とパスワードのままログインできます)と役割(最初の管理者がオーナー)
+  - 二段階認証: v02 と同じ認証アプリのコードでログインできます。予備のコードは引き継げないので、ログインしたら設定し直してください
+  - Pterodactyl の設定(家の中のアドレスも)とサーバー、サーバーの種類・Minecraft のバージョン
+  - まだ取り込めないもの: ライブラリ・セット・フォルダのサーバー・パスキー・API トークン(v03 に機能ができたら取り込みます)
+  - v02 の `index.db` を `/data` 以外に置いていた(`DB_DIR`・`CONFIG_DIR`)ときは、そのフォルダもつないで `V02_CONFIG_DIR` に書きます
 
 ## サーバー機で動かす(Docker・サービス版)
 

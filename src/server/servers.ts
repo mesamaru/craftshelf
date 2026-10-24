@@ -12,7 +12,8 @@ import { hint, open, seal } from "./secrets";
 // 無料で使える範囲
 export const SERVER_LIMITS = { connectionsPerTeam: 5, serversPerTeam: 20 };
 
-export type Deps = { db: Db; auth: Auth; secret: string; fetch: FetchLike };
+// allowPrivate: 自分用の版では、家の中のアドレス・http のパネルも登録できる
+export type Deps = { db: Db; auth: Auth; secret: string; fetch: FetchLike; allowPrivate?: boolean };
 
 // Pterodactyl からのエラーは、画面に出せる言葉にして返す
 export async function remote<T>(fn: () => Promise<T>): Promise<T> {
@@ -53,7 +54,7 @@ export function serverService(deps: Deps) {
       if (!/^ptlc_[A-Za-z0-9]{10,100}$/.test(apiKey)) throw new HttpError(400, "Client API キー(ptlc_…)を入力してください");
       let url: string;
       try {
-        url = checkPublicUrl(input.url);
+        url = checkPublicUrl(input.url, deps.allowPrivate);
       } catch (e) {
         throw new HttpError(400, (e as Error).message);
       }

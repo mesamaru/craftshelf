@@ -43,6 +43,9 @@ export function readEnv() {
   return {
     mode,
     dataDir,
+    v03Dir,
+    // v02 のデータ(index.db・secret.key)の場所。v02 と同じく CONFIG_DIR・DB_DIR があればそちら
+    v02Dir: process.env.V02_CONFIG_DIR || process.env.CONFIG_DIR || process.env.DB_DIR || dataDir,
     appUrl,
     secret,
     databaseUrl: process.env.DATABASE_URL || (service && isProd ? need("DATABASE_URL") : `pglite:${join(v03Dir, "pg")}`),

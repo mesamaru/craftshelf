@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { renderSVG } from "uqr";
 import { authClient } from "~/lib/auth-client";
 import { errorText } from "~/lib/errors";
+import { getImportReport } from "~/lib/session";
+import { useCan } from "~/lib/use-can";
 
 export const Route = createFileRoute("/settings")({
   beforeLoad: ({ context }) => {
@@ -33,12 +35,19 @@ function Settings() {
       <div className="group-title">プロフィール</div>
       <section className="group">
         <div className="row"><span>表示名</span><span className="trail" translate="no">{user.name}</span></div>
-        <div className="row"><span>メールアドレス</span><span className="trail" translate="no">{user.email}</span></div>
+        <div className="row"><span>メールアドレス</span><span className="trail" translate="no">{user.email.endsWith("@v02.craftshelf.invalid") ? "未設定(v02 から取り込み)" : user.email}</span></div>
       </section>
 
       <div className="group-title">セキュリティ</div>
+      {user.legacyTotp && (
+        <p className="notice" role="status">
+          v02 の二段階認証(認証アプリのコード)でログインしています。予備のコードは引き継げなかったので、下の「二段階認証を設定する」で設定し直してください(設定し直すと、v02 のものは使わなくなります)。
+        </p>
+      )}
       <TwoFactor enabled={user.twoFactorEnabled} />
       <Passkeys />
+
+      <ImportReport userId={user.id} />
 
       <section className="group spaced">
         <button className="row danger" type="button" onClick={logout}>ログアウト</button>
@@ -131,5 +140,32 @@ function Passkeys() {
       <button className="row link" type="button" onClick={add}>パスキーを追加</button>
       {error && <p className="row error" role="alert">{error}</p>}
     </section>
+  );
+}
+
+type Report = NonNullable<Awaited<ReturnType<typeof getImportReport>>>;
+
+// v02 から取り込んだもの(チームの管理者だけに見せる)
+function ImportReport({ userId }: { userId: string }) {
+  const { can } = useCan(userId);
+  const admin = can({ member: ["update"] });
+  const [report, setReport] = useState<Report | null>(null);
+  useEffect(() => {
+    if (admin) getImportReport().then(setReport, () => setReport(null));
+  }, [admin]);
+  if (!report) return null;
+  return (
+    <>
+      <div className="group-title">v02 から取り込んだもの({new Date(report.at).toLocaleString("ja-JP")})</div>
+      <section className="group">
+        <div className="row"><span>利用者</span><span className="trail">{report.users.length} 人</span></div>
+        <div className="row"><span>Pterodactyl</span><span className="trail" translate="no">{report.ptero ? `${report.ptero.url}(サーバー ${report.ptero.servers} 台)` : "なし"}</span></div>
+        {report.skipped.map((x, i) => (
+          <div className="row" key={i}><span className="main"><span>{x.what}</span><span className="muted">{x.detail}</span></span><span className="trail">取り込まず</span></div>
+        ))}
+        {report.notes.map((n, i) => <p className="row muted" key={`n${i}`}>{n}</p>)}
+      </section>
+      <p className="foot">v02 のデータは書き換えていません。Docker のイメージを v02 に戻せば、v02 をそのまま使えます。</p>
+    </>
   );
 }

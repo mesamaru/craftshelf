@@ -28,6 +28,15 @@ describe("入力した URL の確認", () => {
   ])("%s は断る", (u) => expect(() => checkPublicUrl(u)).toThrow());
 });
 
+describe("自分用の版の URL の確認", () => {
+  it("家の中のアドレスと http も受け付ける(使う人がサーバー機の持ち主なので)", () => {
+    expect(checkPublicUrl("http://192.168.1.5/", true)).toBe("http://192.168.1.5");
+    expect(checkPublicUrl("https://nas.local:8443", true)).toBe("https://nas.local:8443");
+  });
+  it.each(["ftp://panel.example.com", "https://user:pass@nas.local", "file:///etc/passwd"])("%s は断る", (u) =>
+    expect(() => checkPublicUrl(u, true)).toThrow());
+});
+
 describe("名前を引いた先の確認", () => {
   afterEach(() => vi.restoreAllMocks());
 

@@ -61,3 +61,10 @@ export const installedMod = pgTable(
   },
   (t) => [uniqueIndex("installed_mod_server_file_uq").on(t.serverId, t.filename), index("installed_mod_server_idx").on(t.serverId)],
 );
+
+// v02 から取り込んだ人の二段階認証(v02 の秘密の値を暗号化して保存)。v03 で二段階認証を設定し直したら消す
+export const legacyTotp = pgTable("legacy_totp", {
+  userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  secretSealed: text("secret_sealed").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});

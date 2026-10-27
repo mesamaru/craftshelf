@@ -975,7 +975,7 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
         <div class="group-title">受け取るアップデート</div>
         <div class="group">${Object.entries(CH).map(([k, [n, tag, desc]]) => `<label class="toggle-row ch-row"><span class="main">${n}${tag ? ` <span class="badge${k === "preview" ? " upd" : " ok"}">${tag}</span>` : ""}<small>${desc}</small></span>
           <input type="radio" class="switch" name="update_channel" value="${k}"${k === ch ? " checked" : ""}></label>`).join("")}</div>
-        <div class="group-foot">開発ビルドとプレビューは終わりました(開発ビルドは v03 の開発に使っています)。v03 へは、公開に合わせてこの画面から移れるようにします。</div>
+        <div class="group-foot">${d.mode === "installer" ? "開発中の v03 は、いまは Docker でだけ試せます(インストーラー版はまだ v03 に対応していません)。" : "開発中の v03 を試せます(Docker で動かしているとき): docker-compose.yml の build: . を image: ghcr.io/mesamaru/craftshelf:dev に変えて docker compose up -d します。利用者・パスワード・二段階認証・Pterodactyl の設定とサーバーを取り込みます(ライブラリ・セット・フォルダのサーバーはまだです)。v02 のデータは書き換えないので、build: . に戻せば v02 に戻れます。"}</div>
         ${d.blocked ? `<div class="result warn">${esc(d.blocked)}</div>` : ""}
         ${d.major_up && d.update_available && !d.blocked ? `<div class="result">${icon("shield")} v${esc(d.current)} → v${esc(d.latest)} は大きなアップデートです。インストールの前に、いまのデータを自動で退避します(下の「アップデートの前の状態」からいつでも戻せます)。</div>` : ""}
         ${d.downgrade && !d.blocked ? `<button class="btn tinted block" type="button" id="suDown">${icon("download")}${CH[ch][0]} v${esc(d.latest)} に戻す</button>` : ""}

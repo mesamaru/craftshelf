@@ -87,7 +87,7 @@ v02 receives only Stable releases (the `main` branch / official releases).
 
 - The **Development build** (`dev`) and **Preview** (`next`) channels that existed up to 02.21.00 have ended. The `dev` branch is now used to develop the next major version (v03). Panels that had chosen either one switch back to Stable automatically from 02.21.01.
 - If your panel is on 02.21.00 or older and set to Development build or Preview, set the update channel to Stable (otherwise it cannot receive v02 updates).
-- v03 is rebuilt from scratch, so v02 panels never switch to it through automatic updates. When v03 is released, you will be able to move to it from the panel.
+- v03 is rebuilt from scratch, so v02 panels never switch to it through automatic updates. With Docker you can try the v03 in development by changing `build: .` to `image: ghcr.io/mesamaru/craftshelf:dev` in docker-compose.yml (your v02 data is not changed, so switching back returns to v02).
 
 ## Security
 

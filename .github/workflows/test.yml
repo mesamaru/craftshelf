@@ -18,6 +18,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: docker build -t craftshelf-self .
+      - name: 起動できない版が選ばれていても、イメージの版で起動する
+        run: mkdir -p data/v03/versions && echo 03.99.99 > data/v03/versions/current
       - run: docker run -d --name cs -p 8765:8080 -v "$PWD/data:/data" craftshelf-self
       - name: 起動を待つ
         run: |
@@ -31,8 +33,11 @@ jobs:
           }
           test "$(signup first)" = 200 && grep -q '"token"' /tmp/out
           test "$(signup second)" = 403
-      - name: データは /data/v03 にできる
-        run: sudo test -s data/v03/secret && sudo test -d data/v03/pg
+      - name: データは /data/v03 にできる・起動できない版の選択は消える
+        run: |
+          sudo test -s data/v03/secret && sudo test -d data/v03/pg
+          ! sudo test -f data/v03/versions/current
+          docker logs cs 2>&1 | grep -q "イメージの版"
       - if: failure()
         run: docker logs cs
 

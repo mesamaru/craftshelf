@@ -5,7 +5,7 @@ on:
   push:
     branches: [dev]
 permissions:
-  contents: read
+  contents: write # パネルから切り替えられるよう、ビルド済みの一式をリリースに付ける
   packages: write
 jobs:
   test:
@@ -35,3 +35,29 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/mesamaru/craftshelf
             org.opencontainers.image.description=CraftShelf v03 (development)
+
+  # パネルの「パネルのバージョン」で選べるよう、ビルド済みの一式を GitHub のプレリリース dev-v03.xx.xx に付ける
+  # (v02 のインストーラー版は「最新の正式リリース」だけを見るので、プレリリースは目に入らない)
+  bundle:
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with: { node-version: 24, cache: npm }
+      - id: v
+        run: echo "version=$(tr -d '[:space:]' < VERSION)" >> "$GITHUB_OUTPUT"
+      - name: すでにあれば作らない(版を上げずに push したとき)
+        id: exists
+        run: echo "skip=$(gh release view "dev-v${{ steps.v.outputs.version }}" >/dev/null 2>&1 && echo 1 || echo 0)" >> "$GITHUB_OUTPUT"
+      - if: steps.exists.outputs.skip == '0'
+        run: |
+          npm ci && npm run build
+          f="craftshelf-v03-${{ steps.v.outputs.version }}.tar.gz"
+          tar -czf "$f" .output drizzle VERSION
+          sha256sum "$f" > SHA256SUMS
+          awk '/^## /{n++} n==1' CHANGELOG.md > notes.md
+          gh release create "dev-v${{ steps.v.outputs.version }}" "$f" SHA256SUMS --target "$GITHUB_SHA" \
+            --prerelease --latest=false --title "v${{ steps.v.outputs.version }}(v03 開発版)" --notes-file notes.md

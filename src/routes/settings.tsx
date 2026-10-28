@@ -4,6 +4,7 @@ import { renderSVG } from "uqr";
 import { authClient } from "~/lib/auth-client";
 import { errorText } from "~/lib/errors";
 import { getImportReport } from "~/lib/session";
+import { getVersions, installVersion, useImageVersion } from "~/lib/versions-api";
 import { useCan } from "~/lib/use-can";
 
 export const Route = createFileRoute("/settings")({
@@ -48,6 +49,7 @@ function Settings() {
       <Passkeys />
 
       <ImportReport userId={user.id} />
+      <Versions userId={user.id} />
 
       <section className="group spaced">
         <button className="row danger" type="button" onClick={logout}>ログアウト</button>
@@ -166,6 +168,78 @@ function ImportReport({ userId }: { userId: string }) {
         {report.notes.map((n, i) => <p className="row muted" key={`n${i}`}>{n}</p>)}
       </section>
       <p className="foot">v02 のデータは書き換えていません。Docker のイメージを v02 に戻せば、v02 をそのまま使えます。</p>
+    </>
+  );
+}
+
+type VersionInfo = Awaited<ReturnType<typeof getVersions>>;
+
+// パネルのバージョン(自分用の版。チームのオーナーと管理者だけ): GitHub にある版を選んで切り替える
+function Versions({ userId }: { userId: string }) {
+  const { app } = Route.useRouteContext();
+  const { can } = useCan(userId);
+  const admin = app.mode === "self" && can({ organization: ["update"] });
+  const [info, setInfo] = useState<VersionInfo | null>(null);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState("");
+  useEffect(() => {
+    if (admin) getVersions().then(setInfo, (e) => setError(e instanceof Error ? e.message : String(e)));
+  }, [admin]);
+  if (!admin) return null;
+
+  // 再起動を待って開き直す
+  const waitRestart = async () => {
+    await new Promise((r) => setTimeout(r, 3000));
+    for (let i = 0; i < 60; i++) {
+      if (await fetch("/api/auth/ok").then((r) => r.ok, () => false)) return location.reload();
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    setError("再起動を待ちきれませんでした。少し待ってから開き直してください");
+  };
+  const run = async (label: string, fn: () => Promise<unknown>) => {
+    if (!confirm(label)) return;
+    setBusy("切り替えています…");
+    setError("");
+    try {
+      await fn();
+      setBusy("再起動しています…");
+      await waitRestart();
+    } catch (e) {
+      setBusy("");
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  return (
+    <>
+      <div className="group-title">パネルのバージョン</div>
+      <section className="group">
+        <div className="row"><span>いまの版</span><span className="trail">v{info?.current ?? "…"}</span></div>
+        {info?.selected && (
+          <button className="row link" type="button" disabled={!!busy}
+            onClick={() => run(`イメージの版(v${info.image})に戻しますか? パネルが再起動します`, () => useImageVersion())}>
+            イメージの版(v{info.image})に戻す
+          </button>
+        )}
+        {info?.releases.map((r) => (
+          <div className="row" key={r.version}>
+            <span className="main">
+              <span>v{r.version}{r.version === info.current ? "(いまの版)" : ""}</span>
+              <span className="muted">{r.publishedAt ? new Date(r.publishedAt).toLocaleString("ja-JP") : ""}</span>
+            </span>
+            {r.version !== info.current && (
+              <button className="trail link" type="button" disabled={!!busy}
+                onClick={() => run(`v${r.version} に切り替えますか? パネルが再起動します(データはそのままです)`, () => installVersion({ data: { version: r.version } }))}>
+                {r.version > info.current ? "更新する" : "この版に戻す"}
+              </button>
+            )}
+          </div>
+        ))}
+        {info && info.releases.length === 0 && <p className="row muted">GitHub に切り替えられる版がまだありません。</p>}
+        {busy && <p className="row muted" role="status">{busy}</p>}
+        {error && <p className="row error" role="alert">{error}</p>}
+      </section>
+      <p className="foot">データベースは「足すだけ」で変えていくので、前の版に戻してもデータは読めます。選んだ版が起動できなかったときは、イメージの版に自動で戻ります。</p>
     </>
   );
 }

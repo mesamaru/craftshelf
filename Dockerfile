@@ -14,8 +14,10 @@ ENV NODE_ENV=production PORT=8080 MIGRATIONS_DIR=/app/drizzle DATA_DIR=/data CRA
 COPY --from=build /src/.output ./.output
 COPY --from=build /src/drizzle ./drizzle
 COPY VERSION ./
+COPY docker/start.sh /usr/local/bin/craftshelf-start
 VOLUME /data
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
   CMD wget -qO- "http://127.0.0.1:${PORT}/api/auth/ok" >/dev/null || exit 1
-CMD ["node", ".output/server/index.mjs"]
+# パネルで選んだ版(/data/v03/versions)があればそれを起動する
+CMD ["sh", "/usr/local/bin/craftshelf-start"]

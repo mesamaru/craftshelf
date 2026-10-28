@@ -7,6 +7,7 @@
 - **動き方は 2 つ**(`CRAFTSHELF_MODE`、`src/server/env.ts`): `self` = 自分用(既定。設定なしで動き、データは `/data/v03`。最初の 1 人が管理者、あとは招待された人だけ、チームは 1 つ)/ `service` = サービス版(`APP_URL`・`BETTER_AUTH_SECRET`・`DATABASE_URL` が必須)。どちらでも動くように作る。Docker は自分用が `docker-compose.yml`(イメージ `ghcr.io/mesamaru/craftshelf:dev`。`dev` に push すると `.github/workflows/image.yml` が作る)、サービス版が `docker-compose.service.yml`。
 - **v02 からの取り込み**(`src/server/import-v02.ts`): 自分用の版が初めて起動したとき、v02 の `index.db` を読み取り専用で開いて取り込む(v02 のデータには書き込まない。結果は `/data/v03/import-v02.json`)。v02 のパスワード(Werkzeug の形)・暗号化した値(Fernet)・二段階認証は `src/server/legacy.ts` で読む。v03 に機能を足したら(ライブラリ・セットなど)、ここにも取り込みを足す。
 - 自分用の版は家の中のアドレス・http の Pterodactyl にもつなぐ(`lanFetch`)。サービス版は公開されたアドレスの https だけ(`safeFetch`)。
+- **パネルからの版の切り替え**(自分用の版、`src/server/versions.ts`): `dev` に push すると `.github/workflows/image.yml` がビルド済みの一式(`.output`・`drizzle`・`VERSION`)と `SHA256SUMS` を GitHub のプレリリース `dev-v03.xx.xx` に付ける。パネルはそれを `/data/v03/versions/<版>` に置き、`docker/start.sh` が次の起動で使う(起動できなかったらイメージの版に戻す)。前の版に戻しても動くよう、データベースは「足すだけ」を守る。
 - 版は `03.xx.xx`。タグは `dev-v03.01.02`(リリースの仕組みはまだ無い)。
 
 - 利用者への説明・UI の文言は日本語。利用者が入力した名前・メモなどには `translate="no"` を付ける。

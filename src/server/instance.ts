@@ -5,6 +5,7 @@ import { readEnv } from "./env";
 import { lanFetch, safeFetch } from "./net";
 import { libraryService } from "./library";
 import { serverService } from "./servers";
+import { versionService } from "./versions";
 
 export const env = readEnv();
 export const db = await createDb(env.databaseUrl, env.migrationsDir);
@@ -23,3 +24,7 @@ export const auth = createAuth(db, env);
 const deps = { db, auth, secret: env.secret, fetch: env.mode === "self" ? lanFetch : safeFetch, allowPrivate: env.mode === "self" };
 export const servers = serverService(deps);
 export const library = libraryService(deps);
+
+// パネルからの版の切り替え(自分用の版だけ。サービス版は Docker のイメージで入れ替える)
+export const versions = env.mode === "self" ? versionService({ fetch: safeFetch, dataDir: env.dataDir }) : null;
+versions?.confirmStarted();

@@ -975,7 +975,8 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
         <div class="group-title">受け取るアップデート</div>
         <div class="group">${Object.entries(CH).map(([k, [n, tag, desc]]) => `<label class="toggle-row ch-row"><span class="main">${n}${tag ? ` <span class="badge${k === "preview" ? " upd" : " ok"}">${tag}</span>` : ""}<small>${desc}</small></span>
           <input type="radio" class="switch" name="update_channel" value="${k}"${k === ch ? " checked" : ""}></label>`).join("")}</div>
-        <div class="group-foot">${d.mode === "installer" ? "開発中の v03 は、いまは Docker でだけ試せます(インストーラー版はまだ v03 に対応していません)。" : "開発中の v03 を試せます(Docker で動かしているとき): docker-compose.yml の build: . を image: ghcr.io/mesamaru/craftshelf:dev に変えて docker compose up -d します。利用者・パスワード・二段階認証・Pterodactyl の設定とサーバーを取り込みます(ライブラリ・セット・フォルダのサーバーはまだです)。v02 のデータは書き換えないので、build: . に戻せば v02 に戻れます。"}</div>
+        <div class="group-title">v03(開発版)</div>
+        <div id="suV03"><div class="empty"><span class="spinner"></span></div></div>
         ${d.blocked ? `<div class="result warn">${esc(d.blocked)}</div>` : ""}
         ${d.major_up && d.update_available && !d.blocked ? `<div class="result">${icon("shield")} v${esc(d.current)} → v${esc(d.latest)} は大きなアップデートです。インストールの前に、いまのデータを自動で退避します(下の「アップデートの前の状態」からいつでも戻せます)。</div>` : ""}
         ${d.downgrade && !d.blocked ? `<button class="btn tinted block" type="button" id="suDown">${icon("download")}${CH[ch][0]} v${esc(d.latest)} に戻す</button>` : ""}
@@ -990,8 +991,8 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
           <div class="group-foot" style="text-align:center">インストールの前にデータを退避し、インストール後に自動で再起動します(数秒〜数十秒)。</div>`
           : `<button class="btn tinted block" type="button" id="suRe">${icon("refresh")}もう一度確認</button>`}
         ${d.mode === "installer" && !d.can_apply ? "" : `<div class="group" style="margin-top:6px">${toggle("self_auto_update", "自動アップデート", "6時間ごとに確認し、新しいバージョンがあれば自動でインストールします(大きなバージョンアップは自動では行いません)", (await api("/api/settings")).self_auto_update)}</div>`}
-        <div class="group-title">アップデートの前の状態</div>
-        <div id="suSnaps"><div class="empty"><span class="spinner"></span></div></div>
+        <details class="sect" id="suSnapsBox"><summary><span>アップデートの前の状態</span><span class="sum-r">${icon("chev", "i chev")}</span></summary>
+        <div id="suSnaps"><div class="empty"><span class="spinner"></span></div></div></details>
         <div class="group-foot">取得元: <a href="https://github.com/${esc(d.repo)}" target="_blank" rel="noopener noreferrer">github.com/${esc(d.repo)}</a> (${esc(d.branch)}${d.mode === "installer" ? " · リリース" : ""}) · データの保存方法 ${esc(String(d.data_in_use || 1))}(このバージョンは ${esc(String((d.this_format || {}).read || 1))} まで読めます)</div>`;
       const loadSnaps = async () => {
         let s;
@@ -1003,7 +1004,24 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
             || `<div class="empty">まだありません(アップデートのたびに自動で作られます)</div>`}</div>
           <div class="group-foot">アップデートの直前に、登録情報(データベース)と鍵を退避しています(直近 5 回分)。保存しているアドオンのファイルはそのままです。</div>`;
       };
-      loadSnaps();
+      $("#suSnapsBox", body).addEventListener("toggle", (e) => { if (e.currentTarget.open && !e.currentTarget.dataset.loaded) { e.currentTarget.dataset.loaded = "1"; loadSnaps(); } });
+      const loadV03 = async () => {
+        let v;
+        try { v = await api("/api/system/v03"); } catch (ex) { $("#suV03", body).innerHTML = `<div class="result err">${esc(ex.message)}</div>`; return; }
+        const top = v.releases[0];
+        $("#suV03", body).innerHTML = v.unsupported ? `<div class="group-foot">${esc(v.unsupported)}</div>`
+          : !top ? `<div class="group-foot">GitHub に v03 の版がまだありません</div>`
+          : `<div class="group"><div class="row"><span class="cicon sm c-mod">${icon("sparkle")}</span>
+              <span class="main"><span class="title">v${esc(top.version)}</span><span class="subtitle">${esc(top.published_at ? fmtDateTime(top.published_at) : "")}</span></span>
+              <span class="trail"><button class="btn small tinted" type="button" data-v03="${esc(top.version)}">切り替える</button></span></div></div>
+            <div class="group-foot">次の大きなバージョン(v03)の開発版です。利用者・パスワード・二段階認証・Pterodactyl の設定とサーバーを取り込みます(ライブラリ・セット・フォルダのサーバーはまだです)。v02 のデータは書き換えないので、v03 の「アカウント」→「パネルのバージョン」→「イメージの版に戻す」で v02 に戻れます。Docker は restart の設定(unless-stopped など)が要ります。</div>`;
+      };
+      loadV03();
+      $("#suV03", body).addEventListener("click", (e) => {
+        const b = e.target.closest("[data-v03]"); if (!b) return;
+        if (!(cfm([`v03(開発版)v${b.dataset.v03} に切り替えますか?`, "開発中の版なので、使えない機能や不具合があります。切り替える前にいまのデータを退避し、ダウンロード(約 60 MB)のあと再起動します。v02 のデータは書き換えません。"].join("\n\n")))) return;
+        busy(b, () => startSelfUpdate({ ...d, latest: b.dataset.v03 }, { start: () => api("/api/system/v03", { json: { version: b.dataset.v03 } }), v03: true }), "開始しています…");
+      });
       $("#suSnaps", body).addEventListener("click", async (e) => {
         const b = e.target.closest("[data-snap]"); if (!b) return;
         if (!(cfm(["この状態に戻しますか?", "登録情報(アドオン・サーバー・設定など)を、そのときの状態に戻します。それ以降に変えた登録情報は戻した状態になります(いまのデータも念のため残します)。CraftShelf を再起動します。"].join("\n\n")))) return;
@@ -1094,9 +1112,9 @@ async function checkSelfUpdate(force) {
     return d;
   } catch (e) { if (force) toast(e.message, true); return null; }
 }
-async function startSelfUpdate(d) {
+async function startSelfUpdate(d, opts = {}) {
   let job;
-  try { job = await api("/api/system/update", { method: "POST" }); }
+  try { job = await (opts.start ? opts.start() : api("/api/system/update", { method: "POST" })); }
   catch (e) { toast(e.message, true); return; }
   if ($("#dlg").open) $("#dlg").close();
   const from = d.current, to = d.latest;
@@ -1126,6 +1144,10 @@ async function startSelfUpdate(d) {
       } catch { restarting = true; draw(2, "再起動しています…"); }
     } else {
       try {
+        if (opts.v03) {
+          if ((await fetch("/api/auth/ok", { cache: "no-store" })).ok) { draw(3, "画面を読み込み直します…"); await sleep(1200); location.reload(); return; }
+          continue;
+        }
         const info = await (await fetch("/api/system/info", { cache: "no-store" })).json();
         if (info.version && info.version !== from) { draw(3, "画面を読み込み直します…"); await sleep(1200); location.reload(); return; }
       } catch { /* 再起動中 */ }

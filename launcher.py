@@ -69,6 +69,9 @@ def main():
         pass
     host = args.host or os.environ.get("HOST") or conf.get("host") or "127.0.0.1"
     port = int(args.port or os.environ.get("PORT") or conf.get("port") or 8765)
+    if not FROZEN:  # install.sh で動かしているとき: v03(開発版)に切り替えていれば乗り換える
+        import v03switch
+        v03switch.maybe_exec(port, host)
 
     # ウィンドウを持たない実行ファイルでは標準出力が無いので、ログをファイルに書く
     if FROZEN or sys.stdout is None:

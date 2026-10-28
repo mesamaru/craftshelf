@@ -3,6 +3,13 @@
    画面の文字は日本語で書き、英語表示のときにこの辞書で置き換える。長い語句から順に置き換えるので、
    文の一部だけが一致する短い語句は、長い文で先に置き換えられる。新しい文言を足したらここにも追加する。 */
 window.CS_EN = {
+  "v03(開発版)": "v03 (development)",
+  "切り替える": "Switch",
+  "GitHub に v03 の版がまだありません": "There are no v03 versions on GitHub yet",
+  "次の大きなバージョン(v03)の開発版です。利用者・パスワード・二段階認証・Pterodactyl の設定とサーバーを取り込みます(ライブラリ・セット・フォルダのサーバーはまだです)。v02 のデータは書き換えないので、v03 の「アカウント」→「パネルのバージョン」→「イメージの版に戻す」で v02 に戻れます。Docker は restart の設定(unless-stopped など)が要ります。": "Development builds of the next major version (v03). Users, passwords, two-factor authentication and the Pterodactyl settings and servers are imported (the library, sets and folder servers are not yet). Your v02 data is not changed, so you can return to v02 from v03 via Account → Panel version → Return to the image version. Docker needs a restart policy (such as unless-stopped).",
+  "開発中の版なので、使えない機能や不具合があります。切り替える前にいまのデータを退避し、ダウンロード(約 60 MB)のあと再起動します。v02 のデータは書き換えません。": "This is a development build, so some features are missing and there may be bugs. Your current data is backed up first, then it downloads (about 60 MB) and restarts. Your v02 data is not changed.",
+  "インストーラー版は、まだ v03 に対応していません(Docker で試せます)": "The installer version does not support v03 yet (you can try it with Docker)",
+  "v03 への切り替えは、Linux(Docker・install.sh)で動かしているときだけできます": "Switching to v03 is only possible on Linux (Docker or install.sh)",
   // ---- 長い説明文 ----
   // ---- ダッシュボードの編集 ----
   "セットには、それぞれの": "Sets always contain the ",
@@ -1414,8 +1421,6 @@ window.CS_EN = {
   "プレビュー": "Preview",
   "v03・開発中": "v03 · in development",
   "v02 としては最新です": "Up to date for v02",
-  "開発中の v03 を試せます(Docker で動かしているとき): docker-compose.yml の build: . を image: ghcr.io/mesamaru/craftshelf:dev に変えて docker compose up -d します。利用者・パスワード・二段階認証・Pterodactyl の設定とサーバーを取り込みます(ライブラリ・セット・フォルダのサーバーはまだです)。v02 のデータは書き換えないので、build: . に戻せば v02 に戻れます。": "You can try the v03 in development (when running with Docker): in docker-compose.yml, change build: . to image: ghcr.io/mesamaru/craftshelf:dev and run docker compose up -d. Users, passwords, two-factor authentication and the Pterodactyl settings and servers are imported (the library, sets and folder servers are not yet). Your v02 data is not changed, so switching back to build: . returns to v02.",
-  "開発中の v03 は、いまは Docker でだけ試せます(インストーラー版はまだ v03 に対応していません)。": "For now the v03 in development can only be tried with Docker (the installer version does not support v03 yet).",
   "おすすめ": "Recommended",
   "新しい機能をいち早く試せる代わりに、不具合が含まれることがあります。いつでも安定版に戻せます。": "Try new features early; they may contain bugs. You can go back to stable at any time.",
   "次の大きなバージョン(v03)の開発の様子を確かめられます。v03 は作りが新しくなるため、このパネルからは切り替えられません(移る方法は、v03 の公開に合わせて案内します)。": "See how the next major version (v03) is coming along. v03 is rebuilt from scratch, so this panel cannot switch to it (we will explain how to move when v03 is released).",
@@ -1863,6 +1868,7 @@ window.CS_EN = {
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [
+  [/v03.開発版.v([\d.]+) に切り替えますか[?？]/g, "Switch to v03 (development) v$1?"],
   [/v([\d.]+) は作りが新しくなったため、このパネルの自動更新では切り替えられません。いまのパネルはそのまま使えます\(移る方法は、v03 の公開に合わせて案内します\)/g, "v$1 is rebuilt from scratch, so this panel cannot update to it automatically. You can keep using this panel (we will explain how to move when v03 is released)"],
   [/。v02 の更新は、「受け取るアップデート」を「安定版」にすると受け取れます/g, ". To get v02 updates, set “Update channel” to Stable"],
   [/(\S+) のファイルが混ざっています/g, "Contains $1 files"],

@@ -5,5 +5,5 @@ import viteReact from "@vitejs/plugin-react";
 
 export default defineConfig({
   resolve: { tsconfigPaths: true },
-  plugins: [tanstackStart(), nitro({ traceDeps: ["@electric-sql/pglite*"] }), viteReact()],
+  plugins: [tanstackStart(), nitro({ traceDeps: ["@electric-sql/pglite*"], plugins: ["./src/server/startup.ts"] }), viteReact()],
 });

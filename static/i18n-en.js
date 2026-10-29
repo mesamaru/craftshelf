@@ -3,6 +3,7 @@
    画面の文字は日本語で書き、英語表示のときにこの辞書で置き換える。長い語句から順に置き換えるので、
    文の一部だけが一致する短い語句は、長い文で先に置き換えられる。新しい文言を足したらここにも追加する。 */
 window.CS_EN = {
+  "送るバージョンはサーバーのソフトに合わせて選び(Paper のサーバーには Paper 版を優先、いま入っているものと同じ作りを優先)、動かないもの(Paper のサーバーへの Mod など)は送りません。": "The version sent is chosen to match the server software (Paper builds first on Paper servers, and the same build as the one already installed first), and files that cannot run there (such as Mods on a Paper server) are not sent.",
   "v03(開発版)": "v03 (development)",
   "切り替える": "Switch",
   "GitHub に v03 の版がまだありません": "There are no v03 versions on GitHub yet",

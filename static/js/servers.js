@@ -1340,12 +1340,13 @@ async function pushDialog({ server = null, set = null, item = null, itemIds = nu
   const fixedIds = item ? [item.id] : itemIds;
   const fixed = fixedIds ? fixedIds.map((id) => state.items.find((i) => i.id === id)).filter(Boolean) : null;
   const latestOf = (it) => it.versions.find((v) => v.id === it.latest_id) || it.versions[0];
+  const platTag = (it) => (platformOf(it) ? `<span class="plat" translate="no">${esc(platShort(platformOf(it)))}</span>` : "");
   const items = [...state.items].sort((a, b) => a.name.localeCompare(b.name, "ja", { numeric: true }));
   const srvChecked = (x) => (server ? x.id === server.id : state.servers.length === 1);
   const what = fixed
     ? `<div class="group-title">送るもの(${fixed.length} 件 · ${fmtSize(fixed.reduce((n, it) => n + (latestOf(it).size || 0), 0))})</div>
       <div class="group scroll">${fixed.map((it) => `<div class="row">${itemIcon(it, true)}
-        <span class="main"><span class="title" translate="no">${esc(it.name)}</span><span class="subtitle">${esc(verLabel(latestOf(it).version))} · ${esc(latestOf(it).filename)}</span></span>
+        <span class="main"><span class="title"><span translate="no">${esc(it.name)}</span>${kindTag(it)}</span><span class="subtitle">${platTag(it)}${esc(verLabel(latestOf(it).version))} · ${esc(latestOf(it).filename)}</span></span>
         <span class="trail">${fmtSize(latestOf(it).size)}</span></div>`).join("")}</div>`
     : `<div class="group-title">送るもの</div>
       <div class="segmented seg-wide" role="group" aria-label="送るもの">
@@ -1356,16 +1357,16 @@ async function pushDialog({ server = null, set = null, item = null, itemIds = nu
           <input type="radio" class="switch" name="set_id" value="${x.id}"${(set ? x.id === set.id : n === 0) ? " checked" : ""}></label>`).join("")}</div>`
         : `<div class="empty">セットがありません(「セット」タブで作れます)</div>`}</div>
       <div id="pItems"><div class="group scroll">${items.map((it) => `<label class="toggle-row">${itemIcon(it, true)}
-        <span class="main">${esc(it.name)}<small>${esc(verLabel(latestOf(it).version))}(最新)</small></span>
+        <span class="main"><span translate="no">${esc(it.name)}</span>${kindTag(it)}<small>${platTag(it)}${esc(verLabel(latestOf(it).version))}</small></span>
         <input type="checkbox" class="switch" data-pi="${it.id}"></label>`).join("")}</div></div>`;
   const r = await sheet(`${sheetHead(fixed ? "サーバーへ転送" : "サーバーへ転送")}<div class="db">
       <div class="group-title">転送先のサーバー</div>
       <div class="group">${state.servers.map((x) => `<label class="toggle-row"><span class="cicon sm c-teal">${icon(x.kind === "local" ? "folder" : "server")}</span>
-        <span class="main">${esc(x.name)}<small>${esc(dirsLabel(x))}</small></span>
+        <span class="main">${esc(x.name)}<small>${x.software ? `${esc(SRV_SOFT[x.software] || x.software)} · ` : ""}${esc(dirsLabel(x))}</small></span>
         <input type="checkbox" class="switch" data-ps="${x.id}"${srvChecked(x) ? " checked" : ""}></label>`).join("")}</div>
       ${what}
       <div class="group">${toggle("restart", "完了後にサーバーを再起動", state.servers.some((x) => x.kind === "local") ? "フォルダのサーバーは再起動されません" : "", false)}</div>
-      <p style="font-size:12.5px">サーバーに同じアドオンの別のバージョンがある場合は、送ったものに置き換えます(置き換えたファイルは退避され、「履歴と巻き戻し」で戻せます)。</p>
+      <p style="font-size:12.5px">サーバーに同じアドオンの別のバージョンがある場合は、送ったものに置き換えます(置き換えたファイルは退避され、「履歴と巻き戻し」で戻せます)。送るバージョンはサーバーのソフトに合わせて選び(Paper のサーバーには Paper 版を優先、いま入っているものと同じ作りを優先)、動かないもの(Paper のサーバーへの Mod など)は送りません。</p>
     </div><div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok>転送する</button></div>`, (form, done) => {
     let mode = set || state.sets.length ? "set" : "items";
     const sync = () => {

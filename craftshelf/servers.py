@@ -570,6 +570,65 @@ def _compat(conn, row, item, v):
     return mc_supports(_version_mc(conn, item, v), row["mc_version"])
 
 
+_PAPER_LIKE = {"paper", "purpur", "leaf", "pufferfish"}
+_BUKKIT_LIKE = _PAPER_LIKE | {"spigot", "bukkit", "mohist", "arclight"}
+
+
+def _loader_softs(label):
+    """そのファイル(中身から読んだローダーの名前)を動かせるサーバーソフト。わからなければ None。"""
+    lab = (label or "").lower()
+    if "velocity" in lab:
+        return {"velocity"}
+    if "bungee" in lab or "waterfall" in lab:
+        return {"bungeecord", "waterfall"}
+    if "bukkit" in lab or "spigot" in lab:  # plugin.yml(Paper でも動く)
+        return _BUKKIT_LIKE | ({"folia"} if "folia" in lab else set())
+    if "paper" in lab:  # paper-plugin.yml(Paper 系だけ)
+        return set(_PAPER_LIKE)
+    if "neoforge" in lab:
+        return {"neoforge", "arclight"}
+    if "forge" in lab:
+        return {"forge", "mohist", "arclight"}
+    if "quilt" in lab:
+        return {"quilt"}
+    if "fabric" in lab:
+        return {"fabric", "quilt"}
+    return None
+
+
+def _label(v):
+    return str(_jl(v["meta"], {}).get("loader") or "")
+
+
+def _fits(row, v):
+    """このバージョンがサーバーのソフト(Paper・Fabric など)で動くか(True / False / 不明 None)。"""
+    softs = _loader_softs(_label(v)) if v else None
+    if not row["software"] or softs is None:
+        return None
+    return row["software"] in softs
+
+
+def _best_version(conn, row, item, current=None):
+    """このサーバーに入れるバージョン。サーバーのソフトで動くもののうち、いま入っているものと同じ作り
+    (Paper 版なら Paper 版)の最新。入っていなければ、そのソフト向けに作られたもの(動くソフトが少ないもの)の最新。"""
+    vs = _item_versions(conn, item["id"])
+    fit = [v for v in vs if _fits(row, v) is not False]
+    if not fit:
+        return None
+    if current is not None and _fits(row, current) is not False:
+        same = [v for v in fit if _label(v) == _label(current)]
+        if same:
+            return same[0]
+    if not row["software"]:
+        return fit[0]
+    return min(fit, key=lambda v: (len(_loader_softs(_label(v)) or range(99)), fit.index(v)))
+
+
+def _set_pinned(conn, set_id):
+    """セットで版を決めてあるアイテム(決めていないものは「常に最新」)。"""
+    return {r[0] for r in conn.execute("SELECT item_id FROM set_items WHERE set_id=? AND version_id IS NOT NULL", (set_id,))}
+
+
 def _holds(conn, srv_id):
     return {r[0] for r in conn.execute("SELECT item_id FROM server_holds WHERE server_id=?", (srv_id,))}
 
@@ -690,7 +749,6 @@ def _cached_states(conn, servers):
     by_key = {}
     for it in items.values():
         by_key.setdefault((it["category"], norm_key(it["name"])), it["id"])
-    latest = {iid: (_item_versions(conn, iid) or [None])[0] for iid in items}
     out = {}
     for srv in servers:
         rev = {d: c for c, d in server_dirs(srv).items()}
@@ -703,7 +761,7 @@ def _cached_states(conn, servers):
             iid = v["item_id"] if v else by_key.get((cat, norm_key(f["plugin_name"])))
             status = None
             if iid in items:
-                lv = latest.get(iid)
+                lv = _best_version(conn, srv, items[iid], v)  # このサーバーにとっての最新
                 same = (v and lv and v["id"] == lv["id"]) or (lv and src.same_version(lv["version"], f["version"]))
                 ahead = not same and lv and f["version"] and version_key(f["version"]) > version_key(lv["version"])
                 status = "latest" if same else "newer" if ahead else "outdated"
@@ -1078,24 +1136,25 @@ def server_inventory(conn, srv_row, target, note=lambda m: None, fs=None):
         v = by_sha.get(sha)
         item = items.get(v["item_id"]) if v else by_key.get((f["category"], norm_key(pname)))
         if item:
-            vs = _item_versions(conn, item["id"])
+            # このサーバーにとっての最新(サーバーのソフトで動く、いま入っているものと同じ作りの版)
+            best = _best_version(conn, srv_row, item, v)
             entry.update(item_id=item["id"], item_name=item["name"],
-                         latest_version=vs[0]["version"] if vs else None, latest_version_id=vs[0]["id"] if vs else None)
-            if v and vs and v["id"] == vs[0]["id"]:
+                         latest_version=best["version"] if best else None, latest_version_id=best["id"] if best else None)
+            if v and (not best or v["id"] == best["id"]):
                 entry["status"] = "latest"
             elif v:
                 entry["status"] = "outdated"
-            elif vs and src.same_version(vs[0]["version"], pver):
+            elif best and src.same_version(best["version"], pver):
                 entry["status"] = "latest"  # 中身のハッシュは違うが、ライブラリの最新と同じバージョン
             else:
-                newer = vs and version_key(vs[0]["version"]) > version_key(pver or "")
-                older = vs and pver and version_key(pver) > version_key(vs[0]["version"])
+                newer = best and version_key(best["version"]) > version_key(pver or "")
+                older = best and pver and version_key(pver) > version_key(best["version"])
                 entry["status"] = "outdated" if newer else "newer" if older else "different"
             entry["version_id"] = v["id"] if v else None
             entry["held"] = item["id"] in holds
-            if vs:
-                entry["compat"] = _compat(conn, srv_row, item, vs[0])
-                entry["compat_mc"] = _version_mc(conn, item, vs[0])
+            if best:
+                entry["compat"] = _compat(conn, srv_row, item, best)
+                entry["compat_mc"] = _version_mc(conn, item, best)
             if f["disabled"]:
                 entry["status"] = "disabled"
         elif f["disabled"]:
@@ -1109,7 +1168,10 @@ def server_inventory(conn, srv_row, target, note=lambda m: None, fs=None):
     missing = []
     if srv_row["set_id"]:
         present = {e["item_id"] for e in out if e["item_id"]}
+        pinned = _set_pinned(conn, srv_row["set_id"])
         for item, ver in resolve_set_versions(conn, srv_row["set_id"]):
+            if item["id"] not in pinned:  # 版を決めていなければ、このサーバーのソフト向けの最新
+                ver = _best_version(conn, srv_row, item) or ver
             if item["id"] not in present:
                 missing.append({"item_id": item["id"], "item_name": item["name"], "version": ver["version"],
                                 "version_id": ver["id"], "category": item["category"], "no_dir": item["category"] not in dirs,
@@ -1271,13 +1333,18 @@ def _server_job(job, srv, target_id, mode, item_ids, version_ids, restart, user,
         if not force and item["id"] in holds:
             job.note(f"見送り中のため入れません: {item['name']}")
             return
+        if not force and _fits(srv_row, v) is False:
+            job.note(f"このサーバーのソフト({srv_row['software']})では動かないため入れません: {item['name']} {v['version']}({_label(v)})")
+            return
         if not force and _compat(conn, srv_row, item, v) is False:
             job.note(f"MC {srv_row['mc_version']} に対応していないため入れません: {item['name']} {v['version']}"
                      f"(対応: {_version_mc(conn, item, v)})")
             return
         pairs.append((item, v))
     if mode == "sync":
-        chosen = {i["id"]: v for i, v in resolve_set_versions(conn, srv_row["set_id"])} if srv_row["set_id"] else {}
+        # セットで版を決めてあるものだけ、その版にする(ほかはこのサーバー向けの最新 = latest_version_id)
+        pinned = _set_pinned(conn, srv_row["set_id"]) if srv_row["set_id"] else set()
+        chosen = {i["id"]: v for i, v in resolve_set_versions(conn, srv_row["set_id"]) if i["id"] in pinned} if pinned else {}
         for e in inventory:
             if e["status"] == "outdated" and e["latest_version_id"]:
                 item = conn.execute("SELECT * FROM items WHERE id=?", (e["item_id"],)).fetchone()
@@ -1294,7 +1361,10 @@ def _server_job(job, srv, target_id, mode, item_ids, version_ids, restart, user,
             if not item:
                 continue
             v = conn.execute("SELECT * FROM versions WHERE id=? AND item_id=?", (vmap[iid], iid)).fetchone() if iid in vmap else None
-            v = v or (_item_versions(conn, iid) or [None])[0]
+            if not v:  # 版を選んでいなければ、このサーバー向けの最新(いま入っているものと同じ作り)
+                cur = next((e["version_id"] for e in inventory if e["item_id"] == iid and e.get("version_id")), None)
+                cur_v = conn.execute("SELECT * FROM versions WHERE id=?", (cur,)).fetchone() if cur else None
+                v = _best_version(conn, srv_row, item, cur_v) or (_item_versions(conn, iid) or [None])[0]
             if v:
                 add(item, v)
     job.total = len(pairs)
@@ -1854,11 +1924,18 @@ def _copy_job(job, src_id, dst_ids, target_id, mode, user, uid=0, set_id=None):
         inv, _m, _a = server_inventory(conn, dst, target, note=job.note, fs=fs)
         on_dst = {e["item_id"] for e in inv if e["item_id"]}
         pairs = []
+        pinned = _set_pinned(conn, set_id) if set_id else set()
         for iid, vid in want.items():
             if mode == "update" and iid not in on_dst:
                 continue
             item = conn.execute("SELECT * FROM items WHERE id=?", (iid,)).fetchone()
             v = conn.execute("SELECT * FROM versions WHERE id=?", (vid,)).fetchone()
+            if item and set_id and iid not in pinned:  # セットで版を決めていなければ、そのサーバーのソフト向けの最新
+                cur = next((e["version_id"] for e in inv if e["item_id"] == iid and e.get("version_id")), None)
+                v = _best_version(conn, dst, item, conn.execute("SELECT * FROM versions WHERE id=?", (cur,)).fetchone() if cur else None) or v
+            if item and v and _fits(dst, v) is False:
+                job.note(f"「{dst['name']}」のソフト({dst['software']})では動かないため入れません: {item['name']} {v['version']}({_label(v)})")
+                continue
             if item and v:
                 pairs.append((item, v))
         remove = [e for e in inv if mode == "mirror" and e["item_id"] and e["item_id"] not in want]

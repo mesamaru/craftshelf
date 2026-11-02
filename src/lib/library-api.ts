@@ -34,3 +34,17 @@ export const removeMod = createServerFn({ method: "POST" })
 export const modUpdates = createServerFn({ method: "GET" })
   .validator(z.object({ id: sid }))
   .handler(async ({ data }) => (await svc()).updates(headers(), data.id));
+
+export const libraryCatalog = createServerFn({ method: "GET" }).handler(async () => (await svc()).catalog(headers()));
+
+export const searchCatalog = createServerFn({ method: "GET" })
+  .validator(z.object({ query: z.string().max(100), type: z.enum(["plugin", "mod"]) }))
+  .handler(async ({ data }) => (await svc()).searchCatalog(headers(), data.query, data.type));
+
+export const addLibraryItem = createServerFn({ method: "POST" })
+  .validator(z.object({ projectId: z.string().max(20) }))
+  .handler(async ({ data }) => (await svc()).addItem(headers(), data.projectId));
+
+export const removeLibraryItem = createServerFn({ method: "POST" })
+  .validator(z.object({ itemId: z.string().min(1).max(64) }))
+  .handler(async ({ data }) => (await svc()).removeItem(headers(), data.itemId));

@@ -1,12 +1,15 @@
 // サーバーの Mod・プラグイン: 一覧・Modrinth での検索・入れる(更新を含む)・外す。
 // ファイルはこのアプリを通さず、Pterodactyl に Modrinth から直接取り込ませる
 import { randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, asc, count, eq } from "drizzle-orm";
 import { PLATFORMS, MC_VERSION, type Platform, isPlatform } from "~/lib/platforms";
-import { installedMod, serverProfile } from "./db/schema";
+import { installedMod, libraryItem, server, serverProfile } from "./db/schema";
 import { HttpError, requireTeam } from "./guard";
-import { ModrinthError, modrinthClient } from "./modrinth";
+import { ModrinthError, type ProjectType, isProjectType, modrinthClient } from "./modrinth";
 import { type Deps, remote, serverOf } from "./servers";
+
+// 無料で使える範囲
+export const LIBRARY_LIMITS = { itemsPerTeam: 500 };
 
 async function fromModrinth<T>(fn: () => Promise<T>): Promise<T> {
   try {
@@ -31,7 +34,61 @@ export function libraryService(deps: Deps) {
     return p;
   }
 
+  // ライブラリに載せる(載っていれば名前・アイコンを新しくする)
+  async function remember(teamId: string, userId: string, projectId: string, p: { title: string; slug: string; projectType: ProjectType; iconUrl: string }) {
+    const set = { title: p.title, slug: p.slug, iconUrl: p.iconUrl };
+    const [row] = await db.insert(libraryItem)
+      .values({ id: randomUUID(), teamId, source: "modrinth", projectId, projectType: p.projectType, addedBy: userId, ...set })
+      .onConflictDoUpdate({ target: [libraryItem.teamId, libraryItem.source, libraryItem.projectId], set })
+      .returning({ id: libraryItem.id });
+    return row.id;
+  }
+
   return {
+    /** チームのライブラリ: 登録したもの・それぞれが入っているサーバーと版・入れられるサーバー */
+    async catalog(headers: Headers) {
+      const { teamId } = await requireTeam(auth, headers);
+      const items = await db.select().from(libraryItem).where(eq(libraryItem.teamId, teamId)).orderBy(asc(libraryItem.title));
+      const installs = await db.select({ serverId: server.id, serverName: server.name, projectId: installedMod.projectId, versionNumber: installedMod.versionNumber })
+        .from(installedMod).innerJoin(server, eq(installedMod.serverId, server.id))
+        .where(and(eq(server.teamId, teamId), eq(installedMod.source, "modrinth"))).orderBy(asc(server.name));
+      const servers = await db.select({ id: server.id, name: server.name, platform: serverProfile.platform })
+        .from(server).leftJoin(serverProfile, eq(serverProfile.serverId, server.id)).where(eq(server.teamId, teamId)).orderBy(asc(server.name));
+      return {
+        items: items.map((i) => ({
+          id: i.id, projectId: i.projectId, title: i.title, slug: i.slug, projectType: i.projectType, iconUrl: i.iconUrl,
+          installs: installs.filter((r) => r.projectId === i.projectId).map(({ serverId, serverName, versionNumber }) => ({ serverId, serverName, versionNumber })),
+        })),
+        // 種類を決めていないサーバーには入れられない(type が null)
+        servers: servers.map((x) => ({ id: x.id, name: x.name, type: isPlatform(x.platform) ? PLATFORMS[x.platform].type : null })),
+      };
+    },
+
+    /** Modrinth で、プラグイン・Mod を種類だけで探す(ライブラリに足すとき) */
+    async searchCatalog(headers: Headers, query: string, type: string) {
+      await requireTeam(auth, headers);
+      if (!isProjectType(type)) throw new HttpError(400, "種類を選んでください");
+      return fromModrinth(() => modrinth.searchType(query, type));
+    },
+
+    /** ライブラリに足す */
+    async addItem(headers: Headers, projectId: string) {
+      const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
+      const [{ n }] = await db.select({ n: count() }).from(libraryItem).where(eq(libraryItem.teamId, teamId));
+      if (n >= LIBRARY_LIMITS.itemsPerTeam) throw new HttpError(400, `ライブラリに登録できるのは ${LIBRARY_LIMITS.itemsPerTeam} 件までです`);
+      const p = await fromModrinth(() => modrinth.project(projectId));
+      if (!p) throw new HttpError(404, "Modrinth にこのプロジェクトが見つかりません");
+      if (!isProjectType(p.projectType)) throw new HttpError(400, "ライブラリに登録できるのは、プラグインと Mod だけです");
+      return { id: await remember(teamId, user.id, projectId, { ...p, projectType: p.projectType, title: p.title || projectId }) };
+    },
+
+    /** ライブラリから外す(サーバーに入っているファイルはそのまま) */
+    async removeItem(headers: Headers, itemId: string) {
+      const { teamId } = await requireTeam(auth, headers, { library: ["edit"] });
+      const gone = await db.delete(libraryItem).where(and(eq(libraryItem.id, itemId), eq(libraryItem.teamId, teamId))).returning({ id: libraryItem.id });
+      if (!gone.length) throw new HttpError(404, "見つかりません");
+    },
+
     /** サーバーの名前・種類・バージョン */
     async detail(headers: Headers, id: string) {
       const { teamId } = await requireTeam(auth, headers);
@@ -103,6 +160,10 @@ export function libraryService(deps: Deps) {
       };
       const { id: _, ...update } = values;
       await db.insert(installedMod).values(values).onConflictDoUpdate({ target: [installedMod.serverId, installedMod.filename], set: update });
+      await remember(teamId, user.id, projectId, {
+        title: values.title, slug: project?.slug ?? "", iconUrl: project?.iconUrl ?? "",
+        projectType: isProjectType(project?.projectType) ? project.projectType : PLATFORMS[p.platform].type,
+      });
       return { filename: file.filename, versionNumber: file.versionNumber, replaced: stale.map((o) => o.filename) };
     },
 

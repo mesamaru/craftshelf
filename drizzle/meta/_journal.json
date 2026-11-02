@@ -29,6 +29,13 @@
       "when": 1792855281947,
       "tag": "0003_v02_import",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793640362369,
+      "tag": "0004_library_catalog",
+      "breakpoints": true
     }
   ]
 }

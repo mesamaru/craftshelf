@@ -31,6 +31,9 @@ await step("登録するとライブラリが開く", async () => {
   await page.getByRole("button", { name: "作成" }).click();
   await page.waitForURL(base + "/");
   await page.getByRole("heading", { name: "ライブラリ" }).waitFor();
+  await page.getByText(/まだ何もありません/).waitFor();
+  await page.getByText("Modrinth から足す", { exact: true }).waitFor();
+  await page.screenshot({ path: ".e2e/library.png", fullPage: true });
   await page.locator('a.capsule[aria-label="チーム"]').waitFor(); // チームの名前は版によって違う(サービス版は「E2E のチーム」、自分用は「CraftShelf」)
 });
 

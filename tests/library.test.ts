@@ -2,6 +2,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { HttpError } from "~/server/guard";
 import { libraryService } from "~/server/library";
+import { pickVersion } from "~/server/modrinth";
 import type { FetchLike } from "~/server/net";
 import { serverService } from "~/server/servers";
 import { setup } from "./helpers";
@@ -25,6 +26,8 @@ const fake: FetchLike = async (url, init) => {
       return json({ hits: [{ project_id: PID, slug: "luckperms", title: "LuckPerms", description: "権限", downloads: 10, icon_url: "https://evil.example/x.png" }] });
     }
     if (u.pathname === `/v2/project/${PID}`) return json({ title: "LuckPerms", slug: "luckperms", project_type: "plugin" });
+    if (u.pathname === "/v2/project/AANobbMI") return json({ title: "Sodium", slug: "sodium", project_type: "mod", icon_url: "https://cdn.modrinth.com/i.png" });
+    if (u.pathname === "/v2/project/RPRPRPRP") return json({ title: "Faithful", slug: "faithful", project_type: "resourcepack" });
     if (u.pathname === `/v2/project/${PID}/version`) {
       return json([{ id: latest.id, version_number: latest.number, version_type: "release", date_published: "2026-01-01",
         files: [{ primary: true, filename: latest.filename, url: latest.url || `https://cdn.modrinth.com/data/${PID}/versions/${latest.id}/${latest.filename}`, size: 1, hashes: { sha512: "x" } }] }]);
@@ -148,5 +151,56 @@ describe("Mod・プラグイン", () => {
     await lib.remove(editor, id, "LuckPerms-5.5.0.jar");
     expect(files.get("plugins")).toEqual(["Other-1.0.jar"]);
     expect((await lib.installed(viewer, id)).items.map((i) => i.filename)).toEqual(["Other-1.0.jar"]);
+  });
+});
+
+describe("ライブラリ(チームの目録)", () => {
+  it("サーバーに入れたものは自動で載り、外してもライブラリには残る(入っているサーバーは無くなる)", async () => {
+    await lib.install(editor, id, PID);
+    let cat = await lib.catalog(viewer);
+    expect(cat.items.map((i) => [i.title, i.projectType, i.installs.map((x) => `${x.serverName} ${x.versionNumber}`)])).toEqual([["LuckPerms", "plugin", ["サバイバル 5.5.0"]]]);
+    expect(cat.servers).toEqual([{ id, name: "サバイバル", type: "plugin" }]);
+    await lib.remove(editor, id, "LuckPerms-5.5.0.jar");
+    cat = await lib.catalog(viewer);
+    expect(cat.items[0].installs).toEqual([]);
+  });
+
+  it("種類だけで探して足せる。プラグインと Mod 以外は断る。足せるのは編集者以上", async () => {
+    await lib.searchCatalog(viewer, "sod", "mod");
+    expect(lastSearch).toContain("project_type:mod");
+    expect(lastSearch).not.toContain("categories:");
+    expect(await code(lib.searchCatalog(viewer, "", "resourcepack"))).toBe(400);
+    expect(await code(lib.addItem(viewer, "AANobbMI"))).toBe(403);
+    expect(await code(lib.addItem(editor, "RPRPRPRP"))).toBe(400);
+    expect(await code(lib.addItem(editor, "Missing1"))).toBe(404);
+    await lib.addItem(editor, "AANobbMI");
+    await lib.addItem(editor, "AANobbMI"); // 2 回足しても 1 件
+    const cat = await lib.catalog(viewer);
+    expect(cat.items.map((i) => [i.title, i.projectType, i.iconUrl])).toEqual([
+      ["LuckPerms", "plugin", ""], ["Sodium", "mod", "https://cdn.modrinth.com/i.png"]]);
+  });
+
+  it("ほかのチームからは見えず、外せない。外すのは編集者以上", async () => {
+    expect((await lib.catalog(outsider)).items).toEqual([]);
+    const item = (await lib.catalog(viewer)).items.find((i) => i.title === "Sodium")!;
+    expect(await code(lib.removeItem(outsider, item.id))).toBe(404);
+    expect(await code(lib.removeItem(viewer, item.id))).toBe(403);
+    await lib.removeItem(editor, item.id);
+    expect((await lib.catalog(viewer)).items.map((i) => i.title)).toEqual(["LuckPerms"]);
+  });
+});
+
+describe("版の選び方(サーバーの種類に合う作り)", () => {
+  const v = (id: string, loaders: string[], date: string) => ({ id, loaders, date_published: date });
+  const paper = ["paper", "spigot", "bukkit"];
+
+  it("同じ時期に Paper 向けと Bukkit 向けがあれば、Paper のサーバーには Paper 向け", () => {
+    expect(pickVersion([v("bukkit", ["bukkit", "spigot"], "2026-05-02"), v("paper", ["paper"], "2026-05-01")], paper)?.id).toBe("paper");
+    expect(pickVersion([v("bukkit", ["bukkit", "spigot"], "2026-05-02"), v("paper", ["paper"], "2026-05-01")], ["spigot", "bukkit"])?.id).toBe("bukkit");
+  });
+
+  it("Paper 向けの印が古い版にしか無ければ、新しい版を選ぶ(古い版には戻らない)", () => {
+    expect(pickVersion([v("new", ["bukkit"], "2026-05-20"), v("old", ["paper"], "2026-03-01")], paper)?.id).toBe("new");
+    expect(pickVersion([], paper)).toBeUndefined();
   });
 });

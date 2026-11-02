@@ -68,3 +68,22 @@ export const legacyTotp = pgTable("legacy_totp", {
   secretSealed: text("secret_sealed").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// チームのライブラリ(使う Mod・プラグインの目録)。ファイルは持たず、配布元のプロジェクトだけを記録する。
+// サーバーに入れたものは自動で載る。project_type = "plugin" / "mod"
+export const libraryItem = pgTable(
+  "library_item",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    source: text("source").notNull(),
+    projectId: text("project_id").notNull(),
+    title: text("title").notNull(),
+    slug: text("slug").notNull().default(""),
+    projectType: text("project_type").notNull(),
+    iconUrl: text("icon_url").notNull().default(""),
+    addedBy: text("added_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("library_item_team_project_uq").on(t.teamId, t.source, t.projectId)],
+);

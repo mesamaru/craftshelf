@@ -428,11 +428,17 @@ def _m_passkeys(conn):
                  "created_at TEXT NOT NULL, last_used TEXT NOT NULL DEFAULT '')")
 
 
+def _m_ptero_assign(conn):
+    # 管理者が割り当てた Pterodactyl のサーバー(identifier の JSON 配列)。NULL はすべて使える(これまでどおり)
+    conn.execute("ALTER TABLE users ADD COLUMN ptero_servers TEXT")
+
+
 MIGRATIONS = [
     ("02.00.00-migration-log", "バージョンごとの移行の記録を始める", lambda conn: None),
     ("02.01.00-notifications", "お知らせセンター", _m_notifications),
     ("02.03.00-file-history", "サーバーの設定ファイルの編集履歴", _m_file_history),
     ("02.09.00-passkeys", "パスキーでのログイン", _m_passkeys),
+    ("02.23.00-ptero-assign", "Pterodactyl のサーバーをユーザーに割り当てる", _m_ptero_assign),
 ]
 
 

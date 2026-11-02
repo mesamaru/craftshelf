@@ -763,6 +763,9 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
         ${field(u ? "新しいパスワード(変更する場合のみ・8文字以上)" : "パスワード(8文字以上)", `<input type="password" name="password" autocomplete="new-password">`)}
         ${isAdmin() ? `<div class="group-title" id="uPermT">管理の権限(管理者はすべて持っています)</div>
           <div class="group" id="uPerms">${Object.entries(PERM_LABELS).map(([k, [t, d]]) => toggle(`perm_${k}`, t, d, !!u && (u.perms || []).includes(k))).join("")}</div>` : ""}
+        ${isAdmin() && u ? `<div id="uPtero" hidden><div class="group-title">Pterodactyl のサーバー</div>
+          <div class="group">${toggle("ptero_all", "すべてのサーバーを使える", "オフにすると、下で選んだサーバーだけを連携・操作できます", u.ptero_servers == null)}<div id="uPteroList"></div></div>
+          <div class="group-foot">選んだサーバーは、ほかの人が連携していても、このユーザーが操作(アドオンの送信・更新・起動と停止など)できます。管理者はいつでもすべてのサーバーを使えます。</div></div>` : ""}
         <button class="btn filled block" type="button" id="uSave">${u ? "保存" : "追加"}</button>
         ${u && u.totp_enabled && u.id !== state.user.id ? `<button class="btn block" type="button" id="uTotp">二段階認証をリセット(スマホを紛失した場合)</button>` : ""}
         ${u && u.passkeys && u.id !== state.user.id ? `<button class="btn block" type="button" id="uPk">パスキーをすべて削除(${u.passkeys} 件。端末を紛失した場合)</button>` : ""}
@@ -775,11 +778,23 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
         if (!cfm(`「${u.username}」の二段階認証をリセットしますか?`)) return;
         try { await api(`/api/users/${u.id}`, { method: "PATCH", json: { reset_totp: true } }); toast("リセットしました"); popSettings(); } catch (ex) { toast(ex.message, true); }
       }));
-      const syncPerm = () => { const adm = $("[name=role]", body).value === "admin"; $("#uPerms", body) && ($("#uPerms", body).hidden = adm); $("#uPermT", body) && ($("#uPermT", body).hidden = adm); };
+      let pteroList = null;  // Pterodactyl のサーバーの一覧(つながっていなければ欄を出さない)
+      const syncPerm = () => { const adm = $("[name=role]", body).value === "admin"; $("#uPerms", body) && ($("#uPerms", body).hidden = adm); $("#uPermT", body) && ($("#uPermT", body).hidden = adm); $("#uPtero", body) && ($("#uPtero", body).hidden = adm || !pteroList); };
+      const syncPtero = () => { $("#uPteroList", body).hidden = $("[name=ptero_all]", body).checked; };
+      if ($("#uPtero", body)) {
+        api("/api/ptero/servers").then((r) => {
+          pteroList = r.servers;
+          const picked = new Set(u.ptero_servers || []);
+          $("#uPteroList", body).innerHTML = pteroList.length ? pteroList.map((p, i) => toggle(`psv_${i}`, p.name, [p.identifier, p.node, p.linked_by ? `「${p.linked_by}」さんが連携` : ""].filter(Boolean).join(" · "), picked.has(p.identifier))).join("")
+            : `<div class="empty">Pterodactyl からサーバーが返りませんでした</div>`;
+          $("[name=ptero_all]", body).addEventListener("change", syncPtero); syncPtero(); syncPerm();
+        }).catch(() => {});
+      }
       $("[name=role]", body).addEventListener("change", syncPerm); syncPerm();
       $("#uSave", body).onclick = (e) => busy(e.currentTarget, async () => {
         const d = { role: $("[name=role]", body).value };
         if (isAdmin()) d.perms = Object.keys(PERM_LABELS).filter((k) => $(`[name=perm_${k}]`, body)?.checked);
+        if (pteroList && d.role !== "admin") d.ptero_servers = $("[name=ptero_all]", body).checked ? null : pteroList.filter((p, i) => $(`[name=psv_${i}]`, body).checked).map((p) => p.identifier);
         const pw = $("[name=password]", body).value;
         try {
           if (u) { if (pw) d.password = pw; await api(`/api/users/${u.id}`, { method: "PATCH", json: d }); }

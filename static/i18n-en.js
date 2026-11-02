@@ -3,6 +3,16 @@
    画面の文字は日本語で書き、英語表示のときにこの辞書で置き換える。長い語句から順に置き換えるので、
    文の一部だけが一致する短い語句は、長い文で先に置き換えられる。新しい文言を足したらここにも追加する。 */
 window.CS_EN = {
+  "Pterodactyl のサーバー": "Pterodactyl servers",
+  "すべてのサーバーを使える": "Can use all servers",
+  "オフにすると、下で選んだサーバーだけを連携・操作できます": "When off, they can link and operate only the servers selected below",
+  "選んだサーバーは、ほかの人が連携していても、このユーザーが操作(アドオンの送信・更新・起動と停止など)できます。管理者はいつでもすべてのサーバーを使えます。": "This user can operate the selected servers (send and update add-ons, start and stop, and so on) even if someone else linked them. Administrators can always use every server.",
+  "Pterodactyl からサーバーが返りませんでした": "Pterodactyl returned no servers",
+  "管理者から割り当てられた Pterodactyl のサーバーがありません": "No Pterodactyl servers have been assigned to you by an administrator",
+  "このサーバーは、管理者から割り当てられていません": "This server has not been assigned to you by an administrator",
+  "管理者の変更や、権限・サーバーの割り当ての変更ができるのは管理者だけです": "Only administrators can change administrators, permissions or server assignments",
+  "サーバーの指定が不正です": "Invalid server selection",
+  "Pterodactyl のサーバーの割り当てを変更": "Changed Pterodactyl server assignment",
   "送るバージョンはサーバーのソフトに合わせて選び(Paper のサーバーには Paper 版を優先、いま入っているものと同じ作りを優先)、動かないもの(Paper のサーバーへの Mod など)は送りません。": "The version sent is chosen to match the server software (Paper builds first on Paper servers, and the same build as the one already installed first), and files that cannot run there (such as Mods on a Paper server) are not sent.",
   "v03(開発版)": "v03 (development)",
   "切り替える": "Switch",
@@ -1869,6 +1879,7 @@ window.CS_EN = {
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [
+  [/「(.+?)」さんが連携$/g, "linked by $1"],
   [/v03.開発版.v([\d.]+) に切り替えますか[?？]/g, "Switch to v03 (development) v$1?"],
   [/v([\d.]+) は作りが新しくなったため、このパネルの自動更新では切り替えられません。いまのパネルはそのまま使えます\(移る方法は、v03 の公開に合わせて案内します\)/g, "v$1 is rebuilt from scratch, so this panel cannot update to it automatically. You can keep using this panel (we will explain how to move when v03 is released)"],
   [/。v02 の更新は、「受け取るアップデート」を「安定版」にすると受け取れます/g, ". To get v02 updates, set “Update channel” to Stable"],

@@ -19,7 +19,7 @@ import sources as src
 
 from .core import ApiError, CATEGORIES, CONFIG_DIR, LOCK, TMP_DIR, _jl, _truthy, app, db, get_setting, norm_key, safe_name, utcnow
 from .analysis import analyze, auto_mc_versions, version_key
-from .auth import current_user, decrypt_secret, encrypt_secret, get_server_checked, has_perm, require, require_perm, visible_item_ids
+from .auth import current_user, decrypt_secret, encrypt_secret, get_server_checked, has_perm, ptero_allowed, require, require_perm, server_access, visible_item_ids
 from .events import audit, notify_event
 from .jobs import start_job
 from .library import _item_versions, _uid_of, active_store, build_library, ingest, lib_rel, open_store, resolve_set_versions, sha256_file
@@ -62,13 +62,16 @@ def api_ptero_test():
 @require("editor")
 def api_ptero_servers():
     servers = _pcall(ptero_client().servers)
+    allowed = ptero_allowed(current_user())
+    if allowed is not None:
+        servers = [s for s in servers if s["identifier"] in allowed]
     names = {r[0]: r[1] for r in db().execute("SELECT id, username FROM users")}
     linked = {r["identifier"]: r for r in db().execute("SELECT id, identifier, owner_id FROM servers")}
     for s in servers:
         r = linked.get(s["identifier"])
         s["linked_id"] = r["id"] if r else None
         s["linked_by"] = names.get(r["owner_id"], "") if r else ""
-    return jsonify(servers=servers)
+    return jsonify(servers=servers, assigned=allowed is not None)
 
 
 # --------------------------------------------------------------------------
@@ -777,8 +780,9 @@ def visible_servers(conn, user=None):
     if not u:
         return []
     shared = {r[0]: r[1] for r in conn.execute("SELECT server_id, level FROM server_acl WHERE user_id=?", (u["id"],))}
+    assigned = ptero_allowed(u) or set()
     return [r for r in conn.execute("SELECT * FROM servers ORDER BY name").fetchall()
-            if r["owner_id"] == u["id"] or r["id"] in shared]
+            if r["owner_id"] == u["id"] or r["id"] in shared or (r["kind"] == "ptero" and r["identifier"] in assigned)]
 
 
 def server_public(conn, r, summary=None):
@@ -805,8 +809,7 @@ def server_public(conn, r, summary=None):
     if u:
         names = {x[0]: x[1] for x in conn.execute("SELECT id, username FROM users")}
         mine = r["owner_id"] == u["id"]
-        lv = conn.execute("SELECT level FROM server_acl WHERE server_id=? AND user_id=?", (r["id"], u["id"])).fetchone()
-        d["access"] = "owner" if mine else (lv[0] if lv else "view")
+        d["access"] = server_access(r, u) or "view"
         d["owner_name"] = names.get(r["owner_id"], "")
         d["shared_with"] = [{"user_id": x[0], "username": names.get(x[0], "?"), "level": x[1]} for x in
                             conn.execute("SELECT user_id, level FROM server_acl WHERE server_id=?", (r["id"],))] if mine else []
@@ -851,6 +854,9 @@ def api_servers_create():
         ident = str(data.get("identifier") or "").strip()
         if not ident:
             raise ApiError("サーバーを選んでください")
+        allowed = ptero_allowed(current_user())
+        if allowed is not None and ident not in allowed:
+            raise ApiError("このサーバーは、管理者から割り当てられていません", 403)
         ex = conn.execute("SELECT owner_id FROM servers WHERE identifier=?", (ident,)).fetchone()
         if ex:
             who = conn.execute("SELECT username FROM users WHERE id=?", (ex[0],)).fetchone()

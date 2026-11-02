@@ -139,8 +139,8 @@ def api_users_update(uid):
     if not u:
         raise ApiError("見つかりません", 404)
     me = current_user()
-    if me["role"] != "admin" and (u["role"] == "admin" or data.get("role") == "admin" or "perms" in data):
-        raise ApiError("管理者の変更や、権限の付け外しができるのは管理者だけです", 403)
+    if me["role"] != "admin" and (u["role"] == "admin" or data.get("role") == "admin" or "perms" in data or "ptero_servers" in data):
+        raise ApiError("管理者の変更や、権限・サーバーの割り当ての変更ができるのは管理者だけです", 403)
     if "perms" in data:
         conn.execute("UPDATE users SET perms=? WHERE id=?", (json.dumps(_clean_perms(data["perms"])), uid))
     if "role" in data:
@@ -149,6 +149,12 @@ def api_users_update(uid):
         if u["role"] == "admin" and data["role"] != "admin" and _admin_count(conn) <= 1:
             raise ApiError("管理者が1人もいなくなるため変更できません")
         conn.execute("UPDATE users SET role=? WHERE id=?", (data["role"], uid))
+    if "ptero_servers" in data:  # 使える Pterodactyl のサーバー。None はすべて
+        v = data["ptero_servers"]
+        if v is not None and not (isinstance(v, list) and len(v) <= 1000 and all(isinstance(x, str) and 0 < len(x) <= 64 for x in v)):
+            raise ApiError("サーバーの指定が不正です")
+        conn.execute("UPDATE users SET ptero_servers=? WHERE id=?", (None if v is None else json.dumps(sorted(set(v))), uid))
+        audit("Pterodactyl のサーバーの割り当てを変更", u["username"], "すべて" if v is None else f"{len(set(v))} 台")
     if data.get("reset_totp"):
         conn.execute("UPDATE users SET totp_secret='', totp_enabled=0, recovery='[]' WHERE id=?", (uid,))
     if data.get("reset_passkeys"):  # 端末を紛失した・乗っ取られたとき、そのユーザーのパスキーをすべて無効にする

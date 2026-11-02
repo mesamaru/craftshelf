@@ -239,10 +239,11 @@ async function addServerMenu(btn) {
   openMenu(btn, items);
 }
 async function linkServerDialog() {
-  let ps;
+  let ps, pr;
   const tp = toastProgress("Pterodactyl からサーバーの一覧を取得しています…");
-  try { ps = (await api("/api/ptero/servers")).servers; } catch (e) { toast(e.message, true); return; } finally { tp.remove(); }
+  try { pr = await api("/api/ptero/servers"); ps = pr.servers; } catch (e) { toast(e.message, true); return; } finally { tp.remove(); }
   const avail = ps.filter((p) => !p.linked_id);
+  if (!ps.length && pr.assigned) { toast("管理者から割り当てられた Pterodactyl のサーバーがありません", true); return; }
   if (!ps.length) { toast("Pterodactyl からサーバーが 1 台も返りませんでした。APIキー(ptlc_…)を作ったユーザーに、サーバーの所有者・サブユーザー・管理者のいずれかの権限があるか確認してください", true); return; }
   if (!avail.length) { toast(`すべてのサーバー(${ps.length} 台)を連携済みです`); return; }
   if (!state.sets) { try { state.sets = (await api("/api/sets")).sets; } catch { state.sets = []; } }

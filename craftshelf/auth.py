@@ -175,12 +175,25 @@ def item_access(item, user=None):
     return r[0] if r else None
 
 
+def ptero_allowed(user):
+    """このユーザーが使える Pterodactyl のサーバー(identifier の集合)。None はすべて(管理者・割り当てを決めていない人)。"""
+    if not user or user["role"] == "admin" or user["ptero_servers"] is None:
+        return None
+    try:
+        v = json.loads(user["ptero_servers"])
+    except ValueError:
+        return set()
+    return {str(x) for x in v} if isinstance(v, list) else set()
+
+
 def server_access(srv, user=None):
     u = user or current_user()
     if not u or not srv:
         return None
     if srv["owner_id"] == u["id"]:
         return "owner"
+    if srv["kind"] == "ptero" and srv["identifier"] in (ptero_allowed(u) or ()):
+        return "edit"  # 管理者が割り当てたサーバーは、ほかの人が連携していても操作できる
     r = db().execute("SELECT level FROM server_acl WHERE server_id=? AND user_id=?", (srv["id"], u["id"])).fetchone()
     return r[0] if r else None
 
@@ -269,7 +282,8 @@ def user_public(u):
     return {"id": u["id"], "username": u["username"], "role": u["role"],
             "role_label": ROLES.get(u["role"], (0, u["role"]))[1], "perms": sorted(user_perms(u)),
             "created_at": u["created_at"], "last_login": u["last_login"], "totp_enabled": bool(u["totp_enabled"]),
-            "passkeys": db().execute("SELECT COUNT(*) FROM passkeys WHERE user_id=?", (u["id"],)).fetchone()[0]}
+            "passkeys": db().execute("SELECT COUNT(*) FROM passkeys WHERE user_id=?", (u["id"],)).fetchone()[0],
+            "ptero_servers": json.loads(u["ptero_servers"]) if u["ptero_servers"] is not None else None}
 
 
 def _login(u):

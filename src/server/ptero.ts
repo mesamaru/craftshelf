@@ -6,6 +6,7 @@ export class PteroError extends Error {}
 
 export type RemoteServer = { identifier: string; name: string; node: string; description: string };
 export type RemoteFile = { name: string; size: number; isFile: boolean; modifiedAt: string };
+export type Allocation = { ip: string; alias: string; port: number; notes: string; isDefault: boolean };
 export type Resources = { state: string; cpu: number | null; memory: number | null; disk: number | null; uptime: number | null };
 export const POWER_SIGNALS = ["start", "stop", "restart", "kill"] as const;
 export type PowerSignal = (typeof POWER_SIGNALS)[number];
@@ -13,6 +14,7 @@ export type PowerSignal = (typeof POWER_SIGNALS)[number];
 const IDENT = /^[a-z0-9-]{1,64}$/i;
 
 export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
+  // body が文字列なら、そのまま送る(ファイルの書き込み)。それ以外は JSON
   async function req(method: string, path: string, body?: unknown, ok = [200, 201, 204]) {
     let res: Response;
     try {
@@ -22,9 +24,9 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
           Authorization: `Bearer ${apiKey}`,
           Accept: "application/json",
           "User-Agent": "CraftShelf",
-          ...(body ? { "Content-Type": "application/json" } : {}),
+          ...(body ? { "Content-Type": typeof body === "string" ? "text/plain" : "application/json" } : {}),
         },
-        body: body ? JSON.stringify(body) : undefined,
+        body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body),
         signal: AbortSignal.timeout(20_000),
       });
     } catch (e) {
@@ -92,6 +94,21 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
         }
         throw e;
       }
+    },
+    // サーバーに割り当てられたポート(Pterodactyl の割り当て。is_default がゲームのポート)
+    async allocations(ident: string): Promise<Allocation[]> {
+      const d = await (await req("GET", srv(ident) + "/network/allocations")).json();
+      return (d?.data ?? []).map((x: { attributes?: Record<string, unknown> }) => x.attributes ?? {}).map((a: Record<string, unknown>) => ({
+        ip: String(a.ip ?? ""), alias: String(a.ip_alias ?? ""), port: Number(a.port ?? 0), notes: String(a.notes ?? ""), isDefault: !!a.is_default,
+      })).filter((a: Allocation) => Number.isInteger(a.port) && a.port > 0);
+    },
+    // テキストのファイルを読む(無ければ null)
+    async readFile(ident: string, file: string): Promise<string | null> {
+      const res = await req("GET", srv(ident) + `/files/contents?file=${encodeURIComponent(file)}`, undefined, [200, 404]);
+      return res.status === 404 ? null : res.text();
+    },
+    async writeFile(ident: string, file: string, text: string) {
+      await req("POST", srv(ident) + `/files/write?file=${encodeURIComponent(file)}`, text);
     },
     async deleteFiles(ident: string, root: string, files: string[]) {
       if (files.length) await req("POST", srv(ident) + "/files/delete", { root, files });

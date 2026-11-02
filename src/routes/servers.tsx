@@ -30,6 +30,7 @@ function Servers() {
       <header className="bar">
         <Link to="/" className="capsule">‹ 戻る</Link>
         <h1>サーバー</h1>
+        <Link to="/ports" className="capsule">ポート</Link>
       </header>
 
       <section className="group">

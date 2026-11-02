@@ -64,6 +64,30 @@ await step("おかしな URL のパネルは登録できず、理由が出る", 
   await page.screenshot({ path: ".e2e/servers.png", fullPage: true });
 });
 
+await step("ポートの画面で、種類とグループを足して並べ替えられる", async () => {
+  await page.goto(base + "/servers");
+  await page.getByRole("link", { name: "ポート" }).click();
+  await page.waitForURL(base + "/ports");
+  await page.getByText(/サーバーがありません/).waitFor();
+  await page.getByRole("button", { name: "種類とグループ" }).click();
+  await page.getByRole("button", { name: "グループ(行)" }).click();
+  await page.getByRole("button", { name: "＋ グループを追加" }).click();
+  await page.getByLabel("番号").last().fill("90");
+  await page.getByLabel("名前").last().fill("Proxy");
+  await page.getByRole("button", { name: "ポートの種類(列)" }).click();
+  await page.getByLabel("上へ").nth(1).click(); // 2 つ目の種類を一番上へ
+  await page.screenshot({ path: ".e2e/ports-rules.png", fullPage: true });
+  await page.getByRole("button", { name: "保存", exact: true }).click();
+  await page.getByRole("dialog").waitFor({ state: "detached" });
+  const heads = await page.locator(".ports-table th").allTextContents().catch(() => []);
+  await page.getByRole("button", { name: "種類とグループ" }).click();
+  if ((await page.getByLabel("種類の名前").first().inputValue()) !== "Bedrock") throw new Error(`並び順が保存されていません ${heads}`);
+  await page.getByRole("button", { name: "グループ(行)" }).click();
+  if ((await page.getByLabel("名前").first().inputValue()) !== "Proxy") throw new Error("グループが保存されていません");
+  await page.keyboard.press("Escape");
+  await page.screenshot({ path: ".e2e/ports.png", fullPage: true });
+});
+
 await step("ログアウトはアカウントの設定にあり、押すとログイン画面に戻る", async () => {
   await page.goto(base + "/settings");
   await page.screenshot({ path: ".e2e/settings.png", fullPage: true });

@@ -24,6 +24,14 @@ export const APP_NAME = "CraftShelf";
 // サービス版で無料で使える範囲。自分用の版はチームを 1 つだけ使う
 export const LIMITS = { teamsPerUser: 5, membersPerTeam: 20 };
 
+// URL を決めていないとき: ブラウザが開いたアドレスと同じホストからのリクエストを受け付ける。
+// リバースプロキシ(HTTPS)の後ろでは、こちらには http://内側のアドレス しか見えず、Origin と合わなくなるため
+export function sameHostOrigins(req?: Request): string[] {
+  if (!req) return [];
+  const hosts = [req.headers.get("x-forwarded-host")?.split(",")[0].trim(), req.headers.get("host")].filter((h): h is string => !!h);
+  return hosts.flatMap((h) => [`https://${h}`, `http://${h}`]);
+}
+
 type Options = { appUrl: string | null; secret: string; clientIpHeader?: string; mode?: Mode };
 
 export function createAuth(db: Db, opts: Options) {
@@ -41,7 +49,7 @@ export function createAuth(db: Db, opts: Options) {
 
   const auth = betterAuth({
     appName: APP_NAME,
-    ...(url ? { baseURL: url.origin, trustedOrigins: [url.origin] } : {}),
+    ...(url ? { baseURL: url.origin, trustedOrigins: [url.origin] } : { trustedOrigins: sameHostOrigins }),
     secret: opts.secret,
     database: drizzleAdapter(db, { provider: "pg", schema }),
     emailAndPassword: {
@@ -83,7 +91,9 @@ export function createAuth(db: Db, opts: Options) {
     // ログインなどの回数制限。複数のプロセスでも効くよう、データベースに数える
     rateLimit: { enabled: true, storage: "database" },
     advanced: {
-      ...(url ? { useSecureCookies: url.protocol === "https:" } : {}),
+      disableOriginCheck: false, // テスト(NODE_ENV=test)でも、ほかのサイトからのリクエストを断る確認を行う
+      // URL を決めていなければ、プロキシが伝える元のアドレス(X-Forwarded-Host / Proto)から自分の URL を決める
+      ...(url ? { useSecureCookies: url.protocol === "https:" } : { trustedProxyHeaders: true }),
       ...(opts.clientIpHeader ? { ipAddress: { ipAddressHeaders: [opts.clientIpHeader] } } : {}),
     },
     telemetry: { enabled: false },

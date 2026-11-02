@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { ApplyResults } from "~/lib/apply-results";
 import { libraryCatalog } from "~/lib/library-api";
 import { applySet, createSet, listSets, removeSet, renameSet, toggleSetItem } from "~/lib/sets-api";
+import { SOURCE_LABEL, isSource } from "~/lib/sources";
 import { useCan } from "~/lib/use-can";
 
 export const Route = createFileRoute("/sets")({
@@ -85,7 +86,7 @@ function SetCard({ set, catalog, edit, onChange }: { set: SetRow; catalog: Catal
             {i.iconUrl ? <img src={i.iconUrl} alt="" width={40} height={40} loading="lazy" /> : <span className="icon-ph" />}
             <span className="main">
               <span translate="no">{i.title}</span>
-              <span className="muted">{TYPE_LABEL[i.projectType] ?? i.projectType}</span>
+              <span className="muted">{TYPE_LABEL[i.projectType] ?? i.projectType} · {isSource(i.source) ? SOURCE_LABEL[i.source] : i.source}</span>
             </span>
             {edit && (
               <button className="trail link danger" type="button" disabled={!!busy}

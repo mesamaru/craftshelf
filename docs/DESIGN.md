@@ -89,7 +89,7 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 - チームで使う Mod・プラグインの一覧(表 `library_item`)。**ファイルは持たず**、配布元のプロジェクト(いまは Modrinth)だけを記録する。サーバーに入れたものは自動で載る。
 - 画面(トップ)では、それぞれがどのサーバーにどの版で入っているか(`installed_mod` から)を出し、種類が合うサーバー(プラグインなら plugins/ を使うサーバー)を選んで入れられる。
 - 足すのは `library: ["edit"]`(編集者以上)。プラグインと Mod だけ。外してもサーバーのファイルは消さない。無料の上限は 1 チーム 500 件(`LIBRARY_LIMITS`)。
-- v02 からの取り込み(`maybeImportV02Library`、結果は `/data/v03/import-v02-library.json`): v02 から移った自分用の版で一度だけ。配布元が Modrinth(ID が 8 文字)とわかるプラグイン・Mod だけを載せ、v02 のセットも作る(版の固定は引き継がない)。アップロードしただけのファイル・SpigotMC・CurseForge・データパックは、名前を結果に残して飛ばす。
+- v02 からの取り込み(`maybeImportV02Library`、結果は `/data/v03/import-v02-library.json`): v02 から移った自分用の版で一度だけ。配布元が Modrinth(ID が 8 文字)とわかるプラグイン・Mod と、SpigotMC(数字の ID)とわかるプラグインだけを載せ、v02 のセットも作る(版の固定は引き継がない)。アップロードしただけのファイル・CurseForge・データパックは、名前を結果に残して飛ばす。
 
 ## セット
 
@@ -99,11 +99,15 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 - サーバーに結び付けるセットは 1 台に 1 つ(表 `server_set`)。「そろえる」(`sync`)は `apply` と同じく種類の合うものだけを扱い、足りないものを入れ、入っているもの(`installed_mod`)に新しい版(`latestFile` の版が記録と違う)があれば入れ直す(= 更新。古いファイルは消す)。セットに無いものは外さない。
 - これから: そろえるのを予約で動かす、セットに無いものを外す(選べるようにする)。
 
-- CurseForge・SpigotMC はまだ。CurseForge はサービスとして使うときの API キーと規約を確かめてから足す。
+- **SpigotMC**(`src/server/spiget.ts`): Spiget(SpigotMC の公開 API)で探し、Pterodactyl に `https://api.spiget.org/v2/resources/<数字の ID>/download`(Spiget の CDN へ転送される)を取り込ませる。URL はこちらで組み立てるものだけ。SpigotMC の外のサイトで配っているもの(external)・有料のもの(premium)・プラグインではないカテゴリー(Standalone・Web・DataPack)は扱わない。
+  - 動くサーバーはカテゴリーで決める(`spigetFits`): サーバー用 → Paper・Purpur・Spigot、プロキシ用 → BungeeCord、Universal → 両方。Folia・Velocity は見分けられないので入れない。Minecraft のバージョンでは絞らない(SpigotMC の対応バージョンは作者の自己申告で粗いため)。版はいちばん新しいものだけ(古い版は Spiget から取り込めない)。
+  - ファイルの名前は、名前と版から安全な文字だけで作る(作れなければ `spigot-<ID>.jar`)。
+- 配布元は `installed_mod`・`library_item` の `source`(`modrinth` / `spigot`)で分け、同じものかは「配布元 + ID」で判断する(`src/lib/sources.ts`)。
+- CurseForge はまだ。サービスとして使うときの API キーと規約を確かめてから足す。
 
 ## これから決めること・作るもの
 
-1. CurseForge・SpigotMC から探す、サーバーに入っている Mod の配布元を見つける(ファイルの中身や SHA-1 から)
+1. CurseForge から探す、サーバーに入っている Mod の配布元を見つける(ファイルの中身や SHA-1 から)
 2. エージェント: 登録用のトークン・通信の約束事・02 の Python からの切り出し
 3. 公開の準備: 利用規約・プライバシーポリシー・監視・利用の上限・メールの送信(Resend などの送信サービス)・セキュリティスキャン
 

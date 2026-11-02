@@ -4,8 +4,8 @@ import { and, asc, count, eq } from "drizzle-orm";
 import { PLATFORMS } from "~/lib/platforms";
 import { addonSet, addonSetItem, installedMod, libraryItem, server, serverSet } from "./db/schema";
 import { HttpError, requireTeam } from "./guard";
+import { isSource } from "~/lib/sources";
 import { modTools } from "./library";
-import { ModrinthError } from "./modrinth";
 import { type Deps, serverOf } from "./servers";
 
 // 無料で使える範囲
@@ -21,7 +21,7 @@ const cleanName = (name: string) => {
 
 export function setService(deps: Deps) {
   const { db, auth } = deps;
-  const { modrinth, needProfile, installInto } = modTools(deps);
+  const { latestFile, needProfile, installInto } = modTools(deps);
 
   async function setOf(teamId: string, id: string) {
     const [s] = await db.select().from(addonSet).where(and(eq(addonSet.id, id), eq(addonSet.teamId, teamId)));
@@ -33,32 +33,33 @@ export function setService(deps: Deps) {
     const target = await serverOf(deps, teamId, serverId);
     const p = await needProfile(target.row.id);
     const type = PLATFORMS[p.platform].type;
-    const present = new Map((await db.select({ projectId: installedMod.projectId, versionId: installedMod.versionId, versionNumber: installedMod.versionNumber }).from(installedMod)
-      .where(and(eq(installedMod.serverId, target.row.id), eq(installedMod.source, "modrinth")))).map((r) => [r.projectId, r]));
+    const present = new Map((await db.select({ source: installedMod.source, projectId: installedMod.projectId, versionId: installedMod.versionId, versionNumber: installedMod.versionNumber })
+      .from(installedMod).where(eq(installedMod.serverId, target.row.id))).map((r) => [`${r.source}:${r.projectId}`, r]));
     const out: ApplyResult[] = [];
     for (const it of await itemsOf(set.id)) {
-      const now = present.get(it.projectId);
+      const now = present.get(`${it.source}:${it.projectId}`);
+      if (!isSource(it.source)) continue;
       if (it.projectType !== type) {
         out.push({ title: it.title, status: "skipped", detail: `${it.projectType === "mod" ? "Mod " : "プラグイン"}なので、${PLATFORMS[p.platform].label} のサーバーには入れません` });
         continue;
       }
       try {
         if (!now) {
-          const r = await installInto(teamId, userId, target, p, it.projectId);
+          const r = await installInto(teamId, userId, target, p, it.source, it.projectId);
           out.push({ title: it.title, status: "installed", detail: r.versionNumber });
         } else if (!update) {
           out.push({ title: it.title, status: "present", detail: "入っています" });
         } else {
-          const latest = await modrinth.latestFile(it.projectId, p.platform, p.mcVersion);
+          const latest = await latestFile(it.source, it.projectId, p);
           if (!latest || latest.versionId === now.versionId) {
             out.push({ title: it.title, status: "present", detail: `最新です(${now.versionNumber})` });
           } else {
-            const r = await installInto(teamId, userId, target, p, it.projectId);
+            const r = await installInto(teamId, userId, target, p, it.source, it.projectId);
             out.push({ title: it.title, status: "updated", detail: `${now.versionNumber} → ${r.versionNumber}` });
           }
         }
       } catch (e) {
-        if (!(e instanceof HttpError || e instanceof ModrinthError)) throw e;
+        if (!(e instanceof HttpError)) throw e;
         out.push({ title: it.title, status: "failed", detail: e.message });
       }
     }
@@ -69,7 +70,7 @@ export function setService(deps: Deps) {
     const [srv] = await db.select({ id: server.id }).from(server).where(and(eq(server.id, serverId), eq(server.teamId, teamId)));
     if (!srv) throw new HttpError(404, "サーバーが見つかりません");
   }
-  const itemsOf = (setId: string) => db.select({ id: libraryItem.id, projectId: libraryItem.projectId, title: libraryItem.title, projectType: libraryItem.projectType, iconUrl: libraryItem.iconUrl })
+  const itemsOf = (setId: string) => db.select({ id: libraryItem.id, source: libraryItem.source, projectId: libraryItem.projectId, title: libraryItem.title, projectType: libraryItem.projectType, iconUrl: libraryItem.iconUrl })
     .from(addonSetItem).innerJoin(libraryItem, eq(addonSetItem.itemId, libraryItem.id))
     .where(eq(addonSetItem.setId, setId)).orderBy(asc(libraryItem.title));
 

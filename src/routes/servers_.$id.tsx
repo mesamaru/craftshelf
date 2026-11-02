@@ -5,6 +5,7 @@ import { installMod, installedMods, modUpdates, removeMod, searchMods, serverDet
 import { ApplyResults } from "~/lib/apply-results";
 import { PLATFORMS, PLATFORM_IDS } from "~/lib/platforms";
 import { bindServerSet, listSets, syncServerSet } from "~/lib/sets-api";
+import { SOURCES, SOURCE_LABEL, type Source, pageUrl } from "~/lib/sources";
 import { useCan } from "~/lib/use-can";
 
 export const Route = createFileRoute("/servers_/$id")({
@@ -21,7 +22,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : "うまくい�
 type Installed = Awaited<ReturnType<typeof installedMods>>["items"][number];
 type Update = Awaited<ReturnType<typeof modUpdates>>[number];
 
-// サーバーの Mod・プラグイン(種類の設定・入っているもの・Modrinth から探して入れる)
+// サーバーの Mod・プラグイン(種類の設定・入っているもの・Modrinth / SpigotMC から探して入れる)
 function ServerPage() {
   const { user } = Route.useRouteContext();
   const server = Route.useLoaderData();
@@ -51,7 +52,7 @@ function ServerPage() {
           <SetBinding id={server.id} name={server.name} edit={edit} onSynced={reload} />
           <Installed id={server.id} items={items} error={error} edit={edit}
             dir={PLATFORMS[server.profile.platform].dir} onChange={reload} />
-          {edit && <Search id={server.id} installed={items ?? []} onInstalled={reload} />}
+          {edit && <Search id={server.id} installed={items ?? []} plugins={PLATFORMS[server.profile.platform].type === "plugin"} onInstalled={reload} />}
         </>
       )}
     </main>
@@ -152,7 +153,7 @@ function Installed({ id, items, error, edit, dir, onChange }:
               </span>
               {edit && u && (
                 <button className="trail link" type="button" disabled={!!busy}
-                  onClick={() => run(m.filename, async () => { await install({ data: { id, projectId: u.projectId } }); setUpdates((p) => { const n = new Map(p); n.delete(m.filename); return n; }); })}>
+                  onClick={() => run(m.filename, async () => { await install({ data: { id, projectId: u.projectId, source: u.source } }); setUpdates((p) => { const n = new Map(p); n.delete(m.filename); return n; }); })}>
                   {busy === m.filename ? "更新中…" : "更新"}
                 </button>
               )}
@@ -172,25 +173,27 @@ function Installed({ id, items, error, edit, dir, onChange }:
         )}
         {(error || err) && <p className="row error" role="alert">{error || err}</p>}
       </section>
-      <p className="foot">Modrinth から入れたものは、版と更新がわかります。それ以外のファイルは名前だけを表示します。変更はサーバーの再起動で反映されます。</p>
+      <p className="foot">Modrinth・SpigotMC から入れたものは、版と更新がわかります。それ以外のファイルは名前だけを表示します。変更はサーバーの再起動で反映されます。</p>
     </>
   );
 }
 
-function Search({ id, installed, onInstalled }: { id: string; installed: Installed[]; onInstalled: () => void }) {
+function Search({ id, installed, plugins, onInstalled }: { id: string; installed: Installed[]; plugins: boolean; onInstalled: () => void }) {
   const search = useServerFn(searchMods);
   const install = useServerFn(installMod);
+  const [source, setSource] = useState<Source>("modrinth");
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<Awaited<ReturnType<typeof searchMods>> | null>(null);
   const [busy, setBusy] = useState("");
   const [done, setDone] = useState<Set<string>>(new Set());
   const [error, setError] = useState("");
-  const have = new Set(installed.map((m) => m.projectId).filter(Boolean));
+  const key = (src: string, projectId: string) => `${src}:${projectId}`;
+  const have = new Set(installed.filter((m) => m.projectId).map((m) => key(m.source ?? "", m.projectId!)));
 
-  const find = async () => {
+  const find = async (src = source) => {
     setError("");
     try {
-      setHits(await search({ data: { id, query } }));
+      setHits(await search({ data: { id, query, source: src } }));
     } catch (e) {
       setError(message(e));
     }
@@ -201,8 +204,8 @@ function Search({ id, installed, onInstalled }: { id: string; installed: Install
     setBusy(projectId);
     setError("");
     try {
-      await install({ data: { id, projectId } });
-      setDone((d) => new Set(d).add(projectId));
+      await install({ data: { id, projectId, source } });
+      setDone((d) => new Set(d).add(key(source, projectId)));
       onInstalled();
     } catch (e) {
       setError(message(e));
@@ -213,19 +216,28 @@ function Search({ id, installed, onInstalled }: { id: string; installed: Install
 
   return (
     <>
-      <div className="group-title">Modrinth から探す</div>
+      <div className="group-title">{SOURCE_LABEL[source]} から探す</div>
       <form className="group form" onSubmit={(e) => (e.preventDefault(), find())}>
+        {plugins && (
+          <div className="row">
+            <span>配布元</span>
+            <select className="trail" value={source} aria-label="配布元"
+              onChange={(e) => { const s = e.target.value as Source; setSource(s); setHits(null); find(s); }}>
+              {SOURCES.map((s) => <option key={s} value={s}>{SOURCE_LABEL[s]}</option>)}
+            </select>
+          </div>
+        )}
         <input className="row" type="search" placeholder="名前で探す(空なら人気順)" value={query} onChange={(e) => setQuery(e.target.value)} />
         {hits?.length === 0 && <p className="row muted">見つかりませんでした。</p>}
         {hits?.map((h) => (
           <div className="row hit" key={h.projectId}>
             {h.iconUrl ? <img src={h.iconUrl} alt="" width={40} height={40} loading="lazy" /> : <span className="icon-ph" />}
             <span className="main">
-              <a href={`https://modrinth.com/project/${h.slug || h.projectId}`} target="_blank" rel="noreferrer noopener" translate="no">{h.title}</a>
+              <a href={pageUrl(source, h.projectId, h.slug)} target="_blank" rel="noreferrer noopener" translate="no">{h.title}</a>
               <span className="muted summary" translate="no">{h.summary}</span>
               <span className="muted">{h.downloads.toLocaleString("ja-JP")} ダウンロード</span>
             </span>
-            {have.has(h.projectId) || done.has(h.projectId) ? (
+            {have.has(key(source, h.projectId)) || done.has(key(source, h.projectId)) ? (
               <span className="trail muted">入っています</span>
             ) : (
               <button className="trail capsule" type="button" disabled={!!busy} onClick={() => add(h.projectId)}>

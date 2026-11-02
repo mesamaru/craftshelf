@@ -136,19 +136,20 @@ describe("v02 のデータの取り込み", () => {
 });
 
 describe("v02 のライブラリ・セットの取り込み", () => {
-  it("配布元が Modrinth とわかるプラグイン・Mod を載せ、セットも作る。取り込めないものは理由を残す", async () => {
+  it("配布元が Modrinth・SpigotMC とわかるプラグイン・Mod を載せ、セットも作る。取り込めないものは理由を残す", async () => {
     const r = (await maybeImportV02Library(t.db, { v02Dir, v03Dir }))!;
-    const items = await t.db.select({ title: libraryItem.title, type: libraryItem.projectType, slug: libraryItem.slug }).from(libraryItem);
+    const items = await t.db.select({ title: libraryItem.title, type: libraryItem.projectType, source: libraryItem.source, slug: libraryItem.slug }).from(libraryItem);
     expect(items.sort((a, b) => a.title.localeCompare(b.title))).toEqual([
-      { title: "Lithium", type: "mod", slug: "lithium" },
-      { title: "LuckPerms", type: "plugin", slug: "luckperms" }, // 2 人が持っていても 1 件
+      { title: "EssentialsX", type: "plugin", source: "spigot", slug: "" },
+      { title: "Lithium", type: "mod", source: "modrinth", slug: "lithium" },
+      { title: "LuckPerms", type: "plugin", source: "modrinth", slug: "luckperms" }, // 2 人が持っていても 1 件
     ]);
     const sets = await t.db.select({ name: addonSet.name, item: libraryItem.title }).from(addonSet)
       .innerJoin(addonSetItem, eq(addonSetItem.setId, addonSet.id)).innerJoin(libraryItem, eq(libraryItem.id, addonSetItem.itemId));
     expect(sets.map((x) => `${x.name}:${x.item}`).sort()).toEqual(["ロビー:Lithium", "ロビー:LuckPerms"]);
-    expect([r.items, r.sets]).toEqual([2, 1]);
+    expect([r.items, r.sets]).toEqual([3, 1]);
     const skipped = Object.fromEntries(r.skipped.map((x) => [x.what, x.detail]));
-    expect(skipped["ライブラリの 2 件"]).toContain("自作、EssentialsX");
+    expect(skipped["ライブラリの 1 件"]).toContain("自作");
     expect(skipped["データパックなど(1 件)"]).toContain("村人");
     expect(skipped["セット「ロビー」の 1 件"]).toBeTruthy();
     expect(skipped["セットの版の固定(1 件)"]).toBeTruthy();

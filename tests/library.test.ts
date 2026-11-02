@@ -120,7 +120,7 @@ describe("Mod・プラグイン", () => {
   it("新しい版が出たら更新がわかり、入れ直すと古いファイルは消える", async () => {
     expect(await lib.updates(viewer, id)).toEqual([]);
     latest = { id: "ver00002", number: "5.5.0", filename: "LuckPerms-5.5.0.jar", url: "" };
-    expect(await lib.updates(viewer, id)).toEqual([{ projectId: PID, filename: "LuckPerms-5.4.0.jar", current: "5.4.0", latest: "5.5.0" }]);
+    expect(await lib.updates(viewer, id)).toEqual([{ source: "modrinth", projectId: PID, filename: "LuckPerms-5.4.0.jar", current: "5.4.0", latest: "5.5.0" }]);
     const r = await lib.install(editor, id, PID);
     expect(r.replaced).toEqual(["LuckPerms-5.4.0.jar"]);
     expect(files.get("plugins")).toEqual(["Other-1.0.jar", "LuckPerms-5.5.0.jar"]);

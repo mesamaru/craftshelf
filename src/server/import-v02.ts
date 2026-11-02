@@ -171,7 +171,7 @@ export async function importFrom(db: Db, v02: DatabaseSync, opts: { secret: stri
 
 // ---------------------------------------------------------------------------
 // ライブラリ・セット(03.07.00 から)。v02 から取り込んだ自分用の版で一度だけ行う(それより前に取り込んだ人も、次の起動で)。
-// v03 はファイルを持たないので、配布元が Modrinth とわかるプラグイン・Mod だけを目録に載せる
+// v03 はファイルを持たないので、配布元が Modrinth とわかるプラグイン・Mod と、SpigotMC とわかるプラグインだけを目録に載せる
 export type LibraryImportReport = { at: string; items: number; sets: number; skipped: { what: string; detail: string }[] };
 
 export const libraryReportPath = (v03Dir: string) => join(v03Dir, "import-v02-library.json");
@@ -201,6 +201,7 @@ export async function maybeImportV02Library(db: Db, opts: { v02Dir: string; v03D
 }
 
 const MODRINTH_ID = /^[A-Za-z0-9]{8}$/;
+const SPIGOT_ID = /^\d{1,9}$/;
 const TYPES: Record<string, string> = { plugin: "plugin", mod: "mod" };
 const listOf = (names: string[]) => names.slice(0, 20).join("、") + (names.length > 20 ? ` ほか ${names.length - 20} 件` : "");
 
@@ -223,16 +224,19 @@ export async function importLibrary(db: Db, v02: DatabaseSync, teamId: string): 
         continue;
       }
       const projectId = str(r.project_id);
-      if (str(r.provider) !== "modrinth" || !MODRINTH_ID.test(projectId)) {
+      const provider = str(r.provider);
+      const source = provider === "modrinth" && MODRINTH_ID.test(projectId) ? "modrinth"
+        : provider === "spigot" && SPIGOT_ID.test(projectId) && type === "plugin" ? "spigot" : null;
+      if (!source) {
         unknown.push(str(r.name));
         continue;
       }
-      const slug = str(r.page_url).match(/modrinth\.com\/[a-z]+\/([A-Za-z0-9_.-]+)/)?.[1] ?? "";
+      const slug = source === "modrinth" ? str(r.page_url).match(/modrinth\.com\/[a-z]+\/([A-Za-z0-9_.-]+)/)?.[1] ?? "" : "";
       await tx.insert(schema.libraryItem)
-        .values({ id: randomUUID(), teamId, source: "modrinth", projectId, title: str(r.title) || str(r.name), slug, projectType: type })
+        .values({ id: randomUUID(), teamId, source, projectId, title: str(r.title) || str(r.name), slug, projectType: type })
         .onConflictDoNothing();
       const [row] = await tx.select({ id: schema.libraryItem.id }).from(schema.libraryItem)
-        .where(and(eq(schema.libraryItem.teamId, teamId), eq(schema.libraryItem.source, "modrinth"), eq(schema.libraryItem.projectId, projectId)));
+        .where(and(eq(schema.libraryItem.teamId, teamId), eq(schema.libraryItem.source, source), eq(schema.libraryItem.projectId, projectId)));
       mapped.set(Number(r.id), row.id);
     }
     report.items = new Set(mapped.values()).size;
@@ -254,13 +258,13 @@ export async function importLibrary(db: Db, v02: DatabaseSync, teamId: string): 
         if (m.version_id != null) pinned++;
         await tx.insert(schema.addonSetItem).values({ setId: id, itemId }).onConflictDoNothing();
       }
-      if (missing) report.skipped.push({ what: `セット「${str(set.name)}」の ${missing} 件`, detail: "配布元が Modrinth とわからないものは入れていません" });
+      if (missing) report.skipped.push({ what: `セット「${str(set.name)}」の ${missing} 件`, detail: "配布元が Modrinth・SpigotMC とわからないものは入れていません" });
     }
     if (pinned) report.skipped.push({ what: `セットの版の固定(${pinned} 件)`, detail: "v03 は固定せず、いつもサーバーに合う新しい版を入れます" });
   });
 
   if (unknown.length) {
-    report.skipped.push({ what: `ライブラリの ${unknown.length} 件`, detail: `配布元が Modrinth とわからないもの(アップロードしたファイル・SpigotMC・CurseForge など)は取り込めません。ファイルは v02 の保存先に残っています: ${listOf(unknown)}` });
+    report.skipped.push({ what: `ライブラリの ${unknown.length} 件`, detail: `配布元が Modrinth・SpigotMC とわからないもの(アップロードしたファイル・CurseForge など)は取り込めません。ファイルは v02 の保存先に残っています: ${listOf(unknown)}` });
   }
   if (otherKinds.length) {
     report.skipped.push({ what: `データパックなど(${otherKinds.length} 件)`, detail: `v03 はプラグインと Mod だけを扱います: ${listOf(otherKinds)}` });

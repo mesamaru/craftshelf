@@ -3,6 +3,7 @@ import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { authClient } from "~/lib/auth-client";
 import { addLibraryItem, installMod, libraryCatalog, removeLibraryItem, searchCatalog } from "~/lib/library-api";
+import { SOURCES, SOURCE_LABEL, type Source, isSource, pageUrl } from "~/lib/sources";
 import { useCan } from "~/lib/use-can";
 
 export const Route = createFileRoute("/")({
@@ -49,13 +50,13 @@ function Home() {
       <div className="group-title">Mod・プラグイン</div>
       <section className="group">
         {!cat && !error && <div className="row muted">読み込んでいます…</div>}
-        {cat?.items.length === 0 && <div className="row muted">まだ何もありません。サーバーに入れたものは自動でここに載ります。下の「Modrinth から足す」でも登録できます。</div>}
+        {cat?.items.length === 0 && <div className="row muted">まだ何もありません。サーバーに入れたものは自動でここに載ります。下の「配布元から足す」でも登録できます。</div>}
         {cat?.items.map((i) => <Item key={i.id} item={i} servers={cat.servers} edit={edit} onChange={reload} />)}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">チームで使う Mod・プラグインの一覧です。ファイルはこのアプリには置かず、サーバーには Modrinth から直接取り込みます。入れる版は、サーバーの種類とバージョンに合うものを選びます(Paper のサーバーには Paper 向けの作りを優先)。</p>
+      <p className="foot">チームで使う Mod・プラグインの一覧です。ファイルはこのアプリには置かず、サーバーには Modrinth・SpigotMC から直接取り込みます。入れる版は、サーバーの種類とバージョンに合うものを選びます(Paper のサーバーには Paper 向けの作りを優先)。</p>
 
-      {edit && cat && <AddFromModrinth have={new Set(cat.items.map((i) => i.projectId))} onAdded={reload} />}
+      {edit && cat && <AddFromSource have={new Set(cat.items.map((i) => `${i.source}:${i.projectId}`))} onAdded={reload} />}
     </main>
   );
 }
@@ -86,9 +87,9 @@ function Item({ item, servers, edit, onChange }:
     <div className="row hit">
       {item.iconUrl ? <img src={item.iconUrl} alt="" width={40} height={40} loading="lazy" /> : <span className="icon-ph" />}
       <span className="main">
-        <a href={`https://modrinth.com/project/${item.slug || item.projectId}`} target="_blank" rel="noreferrer noopener" translate="no">{item.title}</a>
+        <a href={pageUrl(item.source, item.projectId, item.slug)} target="_blank" rel="noreferrer noopener" translate="no">{item.title}</a>
         <span className="muted">
-          {TYPE_LABEL[item.projectType] ?? item.projectType} · {item.installs.length
+          {TYPE_LABEL[item.projectType] ?? item.projectType} · {isSource(item.source) ? SOURCE_LABEL[item.source] : item.source} · {item.installs.length
             ? <span translate="no">{item.installs.map((x) => `${x.serverName} ${x.versionNumber}`).join("、")}</span>
             : "どのサーバーにも入っていません"}
         </span>
@@ -97,7 +98,7 @@ function Item({ item, servers, edit, onChange }:
       </span>
       {edit && targets.length > 0 && (
         <select className="trail" value="" disabled={!!busy} aria-label={`${item.title} をサーバーに入れる`}
-          onChange={(e) => { const sid = e.target.value; if (sid) run(sid, () => install({ data: { id: sid, projectId: item.projectId } })); }}>
+          onChange={(e) => { const sid = e.target.value; if (sid && isSource(item.source)) run(sid, () => install({ data: { id: sid, projectId: item.projectId, source: item.source as Source } })); }}>
           <option value="">サーバーに入れる…</option>
           {targets.map((s) => <option key={s.id} value={s.id} translate="no">{s.name}</option>)}
         </select>
@@ -112,19 +113,20 @@ function Item({ item, servers, edit, onChange }:
   );
 }
 
-function AddFromModrinth({ have, onAdded }: { have: Set<string>; onAdded: () => void }) {
+function AddFromSource({ have, onAdded }: { have: Set<string>; onAdded: () => void }) {
   const search = useServerFn(searchCatalog);
   const add = useServerFn(addLibraryItem);
+  const [source, setSource] = useState<Source>("modrinth");
   const [type, setType] = useState<"plugin" | "mod">("plugin");
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<Awaited<ReturnType<typeof searchCatalog>> | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
 
-  const find = async (t = type) => {
+  const find = async (t = type, src = source) => {
     setError("");
     try {
-      setHits(await search({ data: { query, type: t } }));
+      setHits(await search({ data: { query, type: t, source: src } }));
     } catch (e) {
       setError(message(e));
     }
@@ -134,7 +136,7 @@ function AddFromModrinth({ have, onAdded }: { have: Set<string>; onAdded: () => 
     setBusy(projectId);
     setError("");
     try {
-      await add({ data: { projectId } });
+      await add({ data: { projectId, source } });
       onAdded();
     } catch (e) {
       setError(message(e));
@@ -145,11 +147,18 @@ function AddFromModrinth({ have, onAdded }: { have: Set<string>; onAdded: () => 
 
   return (
     <>
-      <div className="group-title">Modrinth から足す</div>
+      <div className="group-title">配布元から足す</div>
       <form className="group form" onSubmit={(e) => (e.preventDefault(), find())}>
         <div className="row">
+          <span>配布元</span>
+          <select className="trail" value={source} aria-label="配布元"
+            onChange={(e) => { const src = e.target.value as Source; const t = src === "spigot" ? "plugin" : type; setSource(src); setType(t); if (hits) find(t, src); }}>
+            {SOURCES.map((x) => <option key={x} value={x}>{SOURCE_LABEL[x]}</option>)}
+          </select>
+        </div>
+        <div className="row">
           <span>種類</span>
-          <select className="trail" value={type} aria-label="種類" onChange={(e) => { const t = e.target.value as "plugin" | "mod"; setType(t); if (hits) find(t); }}>
+          <select className="trail" value={type} aria-label="種類" disabled={source === "spigot"} onChange={(e) => { const t = e.target.value as "plugin" | "mod"; setType(t); if (hits) find(t); }}>
             <option value="plugin">プラグイン</option>
             <option value="mod">Mod</option>
           </select>
@@ -161,11 +170,11 @@ function AddFromModrinth({ have, onAdded }: { have: Set<string>; onAdded: () => 
           <div className="row hit" key={h.projectId}>
             {h.iconUrl ? <img src={h.iconUrl} alt="" width={40} height={40} loading="lazy" /> : <span className="icon-ph" />}
             <span className="main">
-              <a href={`https://modrinth.com/project/${h.slug || h.projectId}`} target="_blank" rel="noreferrer noopener" translate="no">{h.title}</a>
+              <a href={pageUrl(source, h.projectId, h.slug)} target="_blank" rel="noreferrer noopener" translate="no">{h.title}</a>
               <span className="muted summary" translate="no">{h.summary}</span>
               <span className="muted">{h.downloads.toLocaleString("ja-JP")} ダウンロード</span>
             </span>
-            {have.has(h.projectId) ? (
+            {have.has(`${source}:${h.projectId}`) ? (
               <span className="trail muted">登録済み</span>
             ) : (
               <button className="trail capsule" type="button" disabled={!!busy} onClick={() => pick(h.projectId)}>

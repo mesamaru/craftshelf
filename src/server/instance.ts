@@ -19,6 +19,13 @@ if (env.mode === "self") {
   } catch (e) {
     console.error("[v02] 取り込みに失敗しました(v02 のデータはそのままです):", e);
   }
+  const { maybeImportV02Library } = await import("./import-v02");
+  try {
+    const r = await maybeImportV02Library(db, env);
+    if (r) console.log(`[v02] ライブラリを取り込みました: ${r.items} 件・セット ${r.sets} 個(結果は /data/v03/import-v02-library.json)`);
+  } catch (e) {
+    console.error("[v02] ライブラリの取り込みに失敗しました(v02 のデータはそのままです):", e);
+  }
 }
 export const auth = createAuth(db, env);
 // 自分用の版は家の中のアドレスにもつなぐ。サービス版は公開されたアドレスだけ(SSRF 対策)

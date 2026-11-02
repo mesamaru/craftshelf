@@ -7,8 +7,8 @@ import { DatabaseSync } from "node:sqlite";
 import { beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { signupOpen } from "~/server/auth";
-import { pteroConnection, server, serverProfile } from "~/server/db/schema";
-import { maybeImportV02, type ImportReport } from "~/server/import-v02";
+import { addonSet, addonSetItem, libraryItem, pteroConnection, server, serverProfile } from "~/server/db/schema";
+import { maybeImportV02, maybeImportV02Library, type ImportReport } from "~/server/import-v02";
 import { totpCode } from "~/server/legacy";
 import { open } from "~/server/secrets";
 import { TEST_SECRET, setup } from "./helpers";
@@ -27,7 +27,11 @@ function makeV02(dir: string) {
     CREATE TABLE servers (id INTEGER PRIMARY KEY AUTOINCREMENT, identifier TEXT NOT NULL UNIQUE, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'ptero',
       software TEXT NOT NULL DEFAULT '', mc_version TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '');
     CREATE TABLE passkeys (id INTEGER PRIMARY KEY, user_id INTEGER, credential_id TEXT);
-    CREATE TABLE items (id INTEGER PRIMARY KEY); CREATE TABLE versions (id INTEGER PRIMARY KEY); CREATE TABLE sets (id INTEGER PRIMARY KEY);
+    CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT NOT NULL, name TEXT NOT NULL, owner_id INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE versions (id INTEGER PRIMARY KEY);
+    CREATE TABLE item_sources (item_id INTEGER PRIMARY KEY, provider TEXT NOT NULL, project_id TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', page_url TEXT NOT NULL DEFAULT '');
+    CREATE TABLE sets (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, owner_id INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE set_items (set_id INTEGER NOT NULL, item_id INTEGER NOT NULL, version_id INTEGER, PRIMARY KEY (set_id, item_id));
   `);
   const user = d.prepare("INSERT INTO users (username, password_hash, role, created_at, perms, totp_secret, totp_enabled) VALUES (?,?,?,?,?,?,?)");
   user.run("Owner", V02.scrypt, "admin", "2025-01-02T03:04:05Z", "[]", "", 0);
@@ -40,7 +44,15 @@ function makeV02(dir: string) {
   srv.run("abcd1234", "サバイバル", "ptero", "paper", "26.3");
   srv.run("efgh5678", "プロキシ", "ptero", "waterfall", "");
   srv.run("local-1", "家のサーバー", "local", "fabric", "1.21.1");
-  d.exec("INSERT INTO passkeys VALUES (1, 1, 'x'); INSERT INTO items VALUES (1),(2); INSERT INTO versions VALUES (1),(2),(3); INSERT INTO sets VALUES (1);");
+  d.exec("INSERT INTO passkeys VALUES (1, 1, 'x'); INSERT INTO versions VALUES (1),(2),(3);");
+  // 1 = Modrinth のプラグイン / 2 = 別の人が持つ同じプラグイン / 3 = Modrinth の Mod / 4 = アップロードしただけ / 5 = SpigotMC / 6 = データパック
+  d.exec(`
+    INSERT INTO items (category, name, owner_id) VALUES ('plugin','LuckPerms',1),('plugin','LuckPerms',2),('mod','Lithium',1),('plugin','自作',1),('plugin','EssentialsX',1),('datapack','村人',1);
+    INSERT INTO item_sources VALUES (1,'modrinth','Vebnzrzj','LuckPerms','https://modrinth.com/plugin/luckperms'),(2,'modrinth','Vebnzrzj','LuckPerms',''),
+      (3,'modrinth','gvQqBUqZ','Lithium','https://modrinth.com/mod/lithium'),(5,'spigot','9089','EssentialsX','');
+    INSERT INTO sets (name, owner_id) VALUES ('ロビー', 1);
+    INSERT INTO set_items VALUES (1,1,2),(1,3,NULL),(1,4,NULL);
+  `);
   d.close();
   writeFileSync(join(dir, "secret.key"), V02.fernetKey);
 }
@@ -113,7 +125,6 @@ describe("v02 のデータの取り込み", () => {
     const skipped = report!.skipped.map((s) => s.what);
     expect(skipped).toContain("フォルダのサーバー(1 台)");
     expect(report!.skipped.find((s) => s.what.startsWith("フォルダ"))!.detail).toContain("家のサーバー");
-    expect(skipped).toContain("ライブラリ(2 件・3 バージョン)");
     expect(skipped).toContain("パスキー");
   });
 
@@ -121,5 +132,30 @@ describe("v02 のデータの取り込み", () => {
     expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
     expect(await maybeImportV02(t.db, { secret: TEST_SECRET, v02Dir, v03Dir })).toBeNull();
     expect(await signupOpen(t.db, "self")).toBe(false);
+  });
+});
+
+describe("v02 のライブラリ・セットの取り込み", () => {
+  it("配布元が Modrinth とわかるプラグイン・Mod を載せ、セットも作る。取り込めないものは理由を残す", async () => {
+    const r = (await maybeImportV02Library(t.db, { v02Dir, v03Dir }))!;
+    const items = await t.db.select({ title: libraryItem.title, type: libraryItem.projectType, slug: libraryItem.slug }).from(libraryItem);
+    expect(items.sort((a, b) => a.title.localeCompare(b.title))).toEqual([
+      { title: "Lithium", type: "mod", slug: "lithium" },
+      { title: "LuckPerms", type: "plugin", slug: "luckperms" }, // 2 人が持っていても 1 件
+    ]);
+    const sets = await t.db.select({ name: addonSet.name, item: libraryItem.title }).from(addonSet)
+      .innerJoin(addonSetItem, eq(addonSetItem.setId, addonSet.id)).innerJoin(libraryItem, eq(libraryItem.id, addonSetItem.itemId));
+    expect(sets.map((x) => `${x.name}:${x.item}`).sort()).toEqual(["ロビー:Lithium", "ロビー:LuckPerms"]);
+    expect([r.items, r.sets]).toEqual([2, 1]);
+    const skipped = Object.fromEntries(r.skipped.map((x) => [x.what, x.detail]));
+    expect(skipped["ライブラリの 2 件"]).toContain("自作、EssentialsX");
+    expect(skipped["データパックなど(1 件)"]).toContain("村人");
+    expect(skipped["セット「ロビー」の 1 件"]).toBeTruthy();
+    expect(skipped["セットの版の固定(1 件)"]).toBeTruthy();
+  });
+
+  it("v02 のデータには書き込まない。二度目は取り込まない", async () => {
+    expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
+    expect(await maybeImportV02Library(t.db, { v02Dir, v03Dir })).toBeNull();
   });
 });

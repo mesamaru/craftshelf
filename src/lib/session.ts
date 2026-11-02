@@ -22,7 +22,8 @@ export type SessionUser = NonNullable<Awaited<ReturnType<typeof getAppState>>["u
 export const getImportReport = createServerFn({ method: "GET" }).handler(async () => {
   const { auth, env } = await import("~/server/instance");
   const { requireTeam } = await import("~/server/guard");
-  const { readReport } = await import("~/server/import-v02");
+  const { readLibraryReport, readReport } = await import("~/server/import-v02");
   await requireTeam(auth, getRequest().headers, { member: ["update"] });
-  return env.mode === "self" ? readReport(env.v03Dir) : null;
+  const report = env.mode === "self" ? readReport(env.v03Dir) : null;
+  return report ? { ...report, library: readLibraryReport(env.v03Dir) } : null;
 });

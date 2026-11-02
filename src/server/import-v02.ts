@@ -4,7 +4,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { count } from "drizzle-orm";
+import { and, asc, count, eq } from "drizzle-orm";
 import { MC_VERSION, type Platform, isPlatform } from "~/lib/platforms";
 import { APP_NAME, legacyTotpContext } from "./auth";
 import type { Db } from "./db";
@@ -164,8 +164,106 @@ export async function importFrom(db: Db, v02: DatabaseSync, opts: { secret: stri
 
   // v03 にまだ無いもの(v02 のデータはそのまま残る)
   const n = (table: string) => (has(v02, table) ? Number(all(v02, `SELECT COUNT(*) AS n FROM ${table}`)[0].n) : 0);
-  if (n("items")) report.skipped.push({ what: `ライブラリ(${n("items")} 件・${n("versions")} バージョン)`, detail: "v03 にライブラリはまだありません。ファイルは /data に残っています" });
-  if (n("sets")) report.skipped.push({ what: `セット(${n("sets")} 件)`, detail: "v03 にセットはまだありません" });
+  // ライブラリ・セットは maybeImportV02Library で取り込む(結果は import-v02-library.json)
   if (n("api_tokens")) report.skipped.push({ what: `API トークン(${n("api_tokens")} 件)`, detail: "作り直してください" });
+  return report;
+}
+
+// ---------------------------------------------------------------------------
+// ライブラリ・セット(03.07.00 から)。v02 から取り込んだ自分用の版で一度だけ行う(それより前に取り込んだ人も、次の起動で)。
+// v03 はファイルを持たないので、配布元が Modrinth とわかるプラグイン・Mod だけを目録に載せる
+export type LibraryImportReport = { at: string; items: number; sets: number; skipped: { what: string; detail: string }[] };
+
+export const libraryReportPath = (v03Dir: string) => join(v03Dir, "import-v02-library.json");
+
+export function readLibraryReport(v03Dir: string): LibraryImportReport | null {
+  try {
+    return JSON.parse(readFileSync(libraryReportPath(v03Dir), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+export async function maybeImportV02Library(db: Db, opts: { v02Dir: string; v03Dir: string }): Promise<LibraryImportReport | null> {
+  const dbFile = join(opts.v02Dir, "index.db");
+  if (!existsSync(dbFile) || !existsSync(reportPath(opts.v03Dir)) || existsSync(libraryReportPath(opts.v03Dir))) return null;
+  // 自分用の版のチームは 1 つ(v02 から取り込んだときに作ったもの)
+  const [team] = await db.select({ id: schema.organization.id }).from(schema.organization).orderBy(asc(schema.organization.createdAt)).limit(1);
+  if (!team) return null;
+  const v02 = new DatabaseSync(dbFile, { readOnly: true });
+  try {
+    const report = await importLibrary(db, v02, team.id);
+    writeFileSync(libraryReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
+    return report;
+  } finally {
+    v02.close();
+  }
+}
+
+const MODRINTH_ID = /^[A-Za-z0-9]{8}$/;
+const TYPES: Record<string, string> = { plugin: "plugin", mod: "mod" };
+const listOf = (names: string[]) => names.slice(0, 20).join("、") + (names.length > 20 ? ` ほか ${names.length - 20} 件` : "");
+
+export async function importLibrary(db: Db, v02: DatabaseSync, teamId: string): Promise<LibraryImportReport> {
+  const report: LibraryImportReport = { at: new Date().toISOString(), items: 0, sets: 0, skipped: [] };
+  if (!has(v02, "items")) return report;
+  const sourced = has(v02, "item_sources");
+  const rows = all(v02, sourced
+    ? "SELECT i.id, i.name, i.category, s.provider, s.project_id, s.title, s.page_url FROM items i LEFT JOIN item_sources s ON s.item_id = i.id ORDER BY i.id"
+    : "SELECT id, name, category FROM items ORDER BY id");
+  const mapped = new Map<number, string>(); // v02 のアイテムの ID → v03 のライブラリの ID
+  const unknown: string[] = [];
+  const otherKinds: string[] = [];
+
+  await db.transaction(async (tx) => {
+    for (const r of rows) {
+      const type = TYPES[str(r.category)];
+      if (!type) {
+        otherKinds.push(str(r.name));
+        continue;
+      }
+      const projectId = str(r.project_id);
+      if (str(r.provider) !== "modrinth" || !MODRINTH_ID.test(projectId)) {
+        unknown.push(str(r.name));
+        continue;
+      }
+      const slug = str(r.page_url).match(/modrinth\.com\/[a-z]+\/([A-Za-z0-9_.-]+)/)?.[1] ?? "";
+      await tx.insert(schema.libraryItem)
+        .values({ id: randomUUID(), teamId, source: "modrinth", projectId, title: str(r.title) || str(r.name), slug, projectType: type })
+        .onConflictDoNothing();
+      const [row] = await tx.select({ id: schema.libraryItem.id }).from(schema.libraryItem)
+        .where(and(eq(schema.libraryItem.teamId, teamId), eq(schema.libraryItem.source, "modrinth"), eq(schema.libraryItem.projectId, projectId)));
+      mapped.set(Number(r.id), row.id);
+    }
+    report.items = new Set(mapped.values()).size;
+
+    if (!has(v02, "sets") || !has(v02, "set_items")) return;
+    let pinned = 0;
+    for (const set of all(v02, "SELECT id, name FROM sets ORDER BY id")) {
+      const id = randomUUID();
+      await tx.insert(schema.addonSet).values({ id, teamId, name: (str(set.name) || "セット").slice(0, 60) });
+      report.sets++;
+      const members = v02.prepare("SELECT item_id, version_id FROM set_items WHERE set_id=?").all(Number(set.id)) as Row[];
+      let missing = 0;
+      for (const m of members) {
+        const itemId = mapped.get(Number(m.item_id));
+        if (!itemId) {
+          missing++;
+          continue;
+        }
+        if (m.version_id != null) pinned++;
+        await tx.insert(schema.addonSetItem).values({ setId: id, itemId }).onConflictDoNothing();
+      }
+      if (missing) report.skipped.push({ what: `セット「${str(set.name)}」の ${missing} 件`, detail: "配布元が Modrinth とわからないものは入れていません" });
+    }
+    if (pinned) report.skipped.push({ what: `セットの版の固定(${pinned} 件)`, detail: "v03 は固定せず、いつもサーバーに合う新しい版を入れます" });
+  });
+
+  if (unknown.length) {
+    report.skipped.push({ what: `ライブラリの ${unknown.length} 件`, detail: `配布元が Modrinth とわからないもの(アップロードしたファイル・SpigotMC・CurseForge など)は取り込めません。ファイルは v02 の保存先に残っています: ${listOf(unknown)}` });
+  }
+  if (otherKinds.length) {
+    report.skipped.push({ what: `データパックなど(${otherKinds.length} 件)`, detail: `v03 はプラグインと Mod だけを扱います: ${listOf(otherKinds)}` });
+  }
   return report;
 }

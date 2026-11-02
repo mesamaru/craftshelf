@@ -173,3 +173,10 @@ export const serverPort = pgTable(
   },
   (t) => [index("server_port_server_idx").on(t.serverId)],
 );
+
+// サーバーに結び付けたセット(1 台に 1 つ)。「セットでそろえる」で、足りないものを入れ、新しい版があれば更新する
+export const serverSet = pgTable("server_set", {
+  serverId: text("server_id").primaryKey().references(() => server.id, { onDelete: "cascade" }),
+  setId: text("set_id").notNull().references(() => addonSet.id, { onDelete: "cascade" }),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});

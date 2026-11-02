@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { ApplyResults } from "~/lib/apply-results";
 import { libraryCatalog } from "~/lib/library-api";
 import { applySet, createSet, listSets, removeSet, renameSet, toggleSetItem } from "~/lib/sets-api";
 import { useCan } from "~/lib/use-can";
@@ -16,7 +17,6 @@ export const Route = createFileRoute("/sets")({
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
 const TYPE_LABEL: Record<string, string> = { plugin: "プラグイン", mod: "Mod" };
-const STATUS_LABEL = { installed: "入れました", present: "入っています", skipped: "入れません", failed: "入れられません" } as const;
 
 type SetRow = Awaited<ReturnType<typeof listSets>>[number];
 type Catalog = Awaited<ReturnType<typeof libraryCatalog>>;
@@ -76,6 +76,9 @@ function SetCard({ set, catalog, edit, onChange }: { set: SetRow; catalog: Catal
     <>
       <div className="group-title" translate="no">{set.name}</div>
       <section className="group">
+        {set.servers.length > 0 && (
+          <div className="row"><span>結び付けているサーバー</span><span className="trail" translate="no">{set.servers.map((x) => x.name).join("、")}</span></div>
+        )}
         {set.items.length === 0 && <div className="row muted">まだ何も入っていません。{edit && catalog.items.length === 0 ? "先にライブラリに Mod・プラグインを登録すると、ここに足せます。" : ""}</div>}
         {set.items.map((i) => (
           <div className="row hit" key={i.id}>
@@ -116,19 +119,7 @@ function SetCard({ set, catalog, edit, onChange }: { set: SetRow; catalog: Catal
           </div>
         )}
         {busy === "apply" && <div className="row muted">サーバーに入れています…</div>}
-        {results && (
-          <div className="row">
-            <span className="main">
-              <span translate="no">{results.server} に入れた結果</span>
-              {results.list.length === 0 && <span className="muted">入れるものはありませんでした。</span>}
-              {results.list.map((r) => (
-                <span key={r.title} className={r.status === "failed" ? "error" : "muted"}>
-                  <span translate="no">{r.title}</span>: {STATUS_LABEL[r.status]}{r.status === "installed" ? `(${r.detail})` : r.status === "present" ? "" : `(${r.detail})`}
-                </span>
-              ))}
-            </span>
-          </div>
-        )}
+        {results && <ApplyResults server={results.server} verb="入れた" list={results.list} />}
         {edit && (
           <div className="row actions">
             <button className="link" type="button" disabled={!!busy} onClick={() => {

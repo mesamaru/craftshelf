@@ -2,15 +2,16 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, count, eq } from "drizzle-orm";
 import { PLATFORMS } from "~/lib/platforms";
-import { addonSet, addonSetItem, installedMod, libraryItem } from "./db/schema";
+import { addonSet, addonSetItem, installedMod, libraryItem, server, serverSet } from "./db/schema";
 import { HttpError, requireTeam } from "./guard";
 import { modTools } from "./library";
+import { ModrinthError } from "./modrinth";
 import { type Deps, serverOf } from "./servers";
 
 // 無料で使える範囲
 export const SET_LIMITS = { setsPerTeam: 50, itemsPerSet: 200 };
 
-export type ApplyResult = { title: string; status: "installed" | "present" | "skipped" | "failed"; detail: string };
+export type ApplyResult = { title: string; status: "installed" | "updated" | "present" | "skipped" | "failed"; detail: string };
 
 const cleanName = (name: string) => {
   const n = name.trim().slice(0, 60);
@@ -20,12 +21,53 @@ const cleanName = (name: string) => {
 
 export function setService(deps: Deps) {
   const { db, auth } = deps;
-  const { needProfile, installInto } = modTools(deps);
+  const { modrinth, needProfile, installInto } = modTools(deps);
 
   async function setOf(teamId: string, id: string) {
     const [s] = await db.select().from(addonSet).where(and(eq(addonSet.id, id), eq(addonSet.teamId, teamId)));
     if (!s) throw new HttpError(404, "セットが見つかりません");
     return s;
+  }
+  // セットの中身をサーバーに入れる。update なら、入っているものも新しい版にする
+  async function applyTo(teamId: string, userId: string, set: { id: string }, serverId: string, update: boolean): Promise<ApplyResult[]> {
+    const target = await serverOf(deps, teamId, serverId);
+    const p = await needProfile(target.row.id);
+    const type = PLATFORMS[p.platform].type;
+    const present = new Map((await db.select({ projectId: installedMod.projectId, versionId: installedMod.versionId, versionNumber: installedMod.versionNumber }).from(installedMod)
+      .where(and(eq(installedMod.serverId, target.row.id), eq(installedMod.source, "modrinth")))).map((r) => [r.projectId, r]));
+    const out: ApplyResult[] = [];
+    for (const it of await itemsOf(set.id)) {
+      const now = present.get(it.projectId);
+      if (it.projectType !== type) {
+        out.push({ title: it.title, status: "skipped", detail: `${it.projectType === "mod" ? "Mod " : "プラグイン"}なので、${PLATFORMS[p.platform].label} のサーバーには入れません` });
+        continue;
+      }
+      try {
+        if (!now) {
+          const r = await installInto(teamId, userId, target, p, it.projectId);
+          out.push({ title: it.title, status: "installed", detail: r.versionNumber });
+        } else if (!update) {
+          out.push({ title: it.title, status: "present", detail: "入っています" });
+        } else {
+          const latest = await modrinth.latestFile(it.projectId, p.platform, p.mcVersion);
+          if (!latest || latest.versionId === now.versionId) {
+            out.push({ title: it.title, status: "present", detail: `最新です(${now.versionNumber})` });
+          } else {
+            const r = await installInto(teamId, userId, target, p, it.projectId);
+            out.push({ title: it.title, status: "updated", detail: `${now.versionNumber} → ${r.versionNumber}` });
+          }
+        }
+      } catch (e) {
+        if (!(e instanceof HttpError || e instanceof ModrinthError)) throw e;
+        out.push({ title: it.title, status: "failed", detail: e.message });
+      }
+    }
+    return out;
+  }
+
+  async function serverInTeam(teamId: string, serverId: string) {
+    const [srv] = await db.select({ id: server.id }).from(server).where(and(eq(server.id, serverId), eq(server.teamId, teamId)));
+    if (!srv) throw new HttpError(404, "サーバーが見つかりません");
   }
   const itemsOf = (setId: string) => db.select({ id: libraryItem.id, projectId: libraryItem.projectId, title: libraryItem.title, projectType: libraryItem.projectType, iconUrl: libraryItem.iconUrl })
     .from(addonSetItem).innerJoin(libraryItem, eq(addonSetItem.itemId, libraryItem.id))
@@ -36,7 +78,12 @@ export function setService(deps: Deps) {
     async list(headers: Headers) {
       const { teamId } = await requireTeam(auth, headers);
       const sets = await db.select().from(addonSet).where(eq(addonSet.teamId, teamId)).orderBy(asc(addonSet.name));
-      return Promise.all(sets.map(async (s) => ({ id: s.id, name: s.name, items: await itemsOf(s.id) })));
+      const bound = await db.select({ setId: serverSet.setId, id: server.id, name: server.name }).from(serverSet)
+        .innerJoin(server, eq(serverSet.serverId, server.id)).where(eq(server.teamId, teamId)).orderBy(asc(server.name));
+      return Promise.all(sets.map(async (s) => ({
+        id: s.id, name: s.name, items: await itemsOf(s.id),
+        servers: bound.filter((b) => b.setId === s.id).map(({ id, name }) => ({ id, name })),
+      })));
     },
 
     /** セットを作る */
@@ -85,29 +132,29 @@ export function setService(deps: Deps) {
      */
     async apply(headers: Headers, id: string, serverId: string): Promise<ApplyResult[]> {
       const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
-      const set = await setOf(teamId, id);
-      const target = await serverOf(deps, teamId, serverId);
-      const p = await needProfile(target.row.id);
-      const type = PLATFORMS[p.platform].type;
-      const present = new Set((await db.select({ projectId: installedMod.projectId }).from(installedMod)
-        .where(and(eq(installedMod.serverId, target.row.id), eq(installedMod.source, "modrinth")))).map((r) => r.projectId));
-      const out: ApplyResult[] = [];
-      for (const it of await itemsOf(set.id)) {
-        if (it.projectType !== type) {
-          out.push({ title: it.title, status: "skipped", detail: `${it.projectType === "mod" ? "Mod" : "プラグイン"}なので、${PLATFORMS[p.platform].label} のサーバーには入れません` });
-        } else if (present.has(it.projectId)) {
-          out.push({ title: it.title, status: "present", detail: "入っています" });
-        } else {
-          try {
-            const r = await installInto(teamId, user.id, target, p, it.projectId);
-            out.push({ title: it.title, status: "installed", detail: r.versionNumber });
-          } catch (e) {
-            if (!(e instanceof HttpError)) throw e;
-            out.push({ title: it.title, status: "failed", detail: e.message });
-          }
-        }
+      return applyTo(teamId, user.id, await setOf(teamId, id), serverId, false);
+    },
+
+    /** サーバーにセットを結び付ける(setId が null なら外す)。結び付けるのは 1 台に 1 つ */
+    async bind(headers: Headers, serverId: string, setId: string | null) {
+      const { teamId } = await requireTeam(auth, headers, { library: ["edit"] });
+      await serverInTeam(teamId, serverId);
+      if (!setId) {
+        await db.delete(serverSet).where(eq(serverSet.serverId, serverId));
+        return;
       }
-      return out;
+      await setOf(teamId, setId);
+      const values = { serverId, setId, updatedAt: new Date() };
+      await db.insert(serverSet).values(values).onConflictDoUpdate({ target: serverSet.serverId, set: values });
+    },
+
+    /** 結び付けたセットでそろえる: 足りないものを入れ、入っているものに新しい版があれば更新する */
+    async sync(headers: Headers, serverId: string): Promise<ApplyResult[]> {
+      const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
+      await serverInTeam(teamId, serverId); // ほかのチームのサーバーは「見つからない」
+      const [b] = await db.select({ setId: serverSet.setId }).from(serverSet).where(eq(serverSet.serverId, serverId));
+      if (!b) throw new HttpError(400, "このサーバーにはセットを結び付けていません");
+      return applyTo(teamId, user.id, await setOf(teamId, b.setId), serverId, true);
     },
   };
 }

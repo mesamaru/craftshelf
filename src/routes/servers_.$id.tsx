@@ -2,7 +2,9 @@ import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { installMod, installedMods, modUpdates, removeMod, searchMods, serverDetail, setProfile } from "~/lib/library-api";
+import { ApplyResults } from "~/lib/apply-results";
 import { PLATFORMS, PLATFORM_IDS } from "~/lib/platforms";
+import { bindServerSet, listSets, syncServerSet } from "~/lib/sets-api";
 import { useCan } from "~/lib/use-can";
 
 export const Route = createFileRoute("/servers_/$id")({
@@ -46,6 +48,7 @@ function ServerPage() {
 
       {server.profile && (
         <>
+          <SetBinding id={server.id} name={server.name} edit={edit} onSynced={reload} />
           <Installed id={server.id} items={items} error={error} edit={edit}
             dir={PLATFORMS[server.profile.platform].dir} onChange={reload} />
           {edit && <Search id={server.id} installed={items ?? []} onInstalled={reload} />}
@@ -233,6 +236,61 @@ function Search({ id, installed, onInstalled }: { id: string; installed: Install
         ))}
         {error && <p className="row error" role="alert">{error}</p>}
       </form>
+    </>
+  );
+}
+
+// このサーバーに結び付けたセット。「セットでそろえる」で、足りないものを入れ、新しい版があれば更新する
+function SetBinding({ id, name, edit, onSynced }: { id: string; name: string; edit: boolean; onSynced: () => void }) {
+  const load = useServerFn(listSets);
+  const bind = useServerFn(bindServerSet);
+  const sync = useServerFn(syncServerSet);
+  const [sets, setSets] = useState<Awaited<ReturnType<typeof listSets>> | null>(null);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [results, setResults] = useState<Awaited<ReturnType<typeof syncServerSet>> | null>(null);
+  const reload = () => { load().then(setSets, (e) => setError(message(e))); };
+  useEffect(reload, [id]);
+  const current = sets?.find((x) => x.servers.some((v) => v.id === id)) ?? null;
+
+  const run = async (key: string, fn: () => Promise<unknown>) => {
+    setBusy(key);
+    setError("");
+    try {
+      await fn();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy("");
+    }
+  };
+
+  if (!sets || (!edit && !current)) return null;
+  return (
+    <>
+      <div className="group-title">セット</div>
+      <section className="group">
+        <div className="row">
+          <span>結び付けるセット</span>
+          {edit ? (
+            <select className="trail" value={current?.id ?? ""} disabled={!!busy} aria-label="結び付けるセット"
+              onChange={(e) => { const setId = e.target.value || null; run("bind", async () => { await bind({ data: { serverId: id, setId } }); setResults(null); reload(); }); }}>
+              <option value="">なし</option>
+              {sets.map((x) => <option key={x.id} value={x.id} translate="no">{x.name}({x.items.length} 件)</option>)}
+            </select>
+          ) : <span className="trail" translate="no">{current?.name}</span>}
+        </div>
+        {edit && current && (
+          <button className="row link" type="button" disabled={!!busy}
+            onClick={() => run("sync", async () => { setResults(await sync({ data: { serverId: id } })); onSynced(); })}>
+            {busy === "sync" ? "そろえています…" : "セットでそろえる"}
+          </button>
+        )}
+        {edit && sets.length === 0 && <div className="row muted">まだセットがありません。トップの「セット」で作れます。</div>}
+        {results && <ApplyResults server={name} verb="そろえた" list={results} />}
+        {error && <p className="row error" role="alert">{error}</p>}
+      </section>
+      <p className="foot">「セットでそろえる」は、セットのうちこのサーバーの種類に合うもので、足りないものを入れ、入っているものに新しい版があれば更新します。セットに無いものは外しません。</p>
     </>
   );
 }

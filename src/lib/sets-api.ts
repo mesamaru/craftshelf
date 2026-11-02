@@ -29,3 +29,11 @@ export const toggleSetItem = createServerFn({ method: "POST" })
 export const applySet = createServerFn({ method: "POST" })
   .validator(z.object({ id: sid, serverId: sid }))
   .handler(async ({ data }) => (await svc()).apply(headers(), data.id, data.serverId));
+
+export const bindServerSet = createServerFn({ method: "POST" })
+  .validator(z.object({ serverId: sid, setId: sid.nullable() }))
+  .handler(async ({ data }) => (await svc()).bind(headers(), data.serverId, data.setId));
+
+export const syncServerSet = createServerFn({ method: "POST" })
+  .validator(z.object({ serverId: sid }))
+  .handler(async ({ data }) => (await svc()).sync(headers(), data.serverId));

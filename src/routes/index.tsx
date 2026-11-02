@@ -43,6 +43,7 @@ function Home() {
       </header>
       <section className="group">
         <Link to="/servers" className="row link">サーバー(起動・停止・パネルの登録)</Link>
+        <Link to="/sets" className="row link">セット(まとめてサーバーに入れる)</Link>
       </section>
 
       <div className="group-title">Mod・プラグイン</div>

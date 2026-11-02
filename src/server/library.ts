@@ -20,8 +20,12 @@ async function fromModrinth<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-export function libraryService(deps: Deps) {
-  const { db, auth } = deps;
+type Target = Awaited<ReturnType<typeof serverOf>>;
+type Profile = { platform: Platform; mcVersion: string | null };
+
+// Mod・プラグインを扱う共通の処理(ライブラリ・セットで使う)。権限の確認は呼ぶ側で行う
+export function modTools(deps: Deps) {
+  const { db } = deps;
   const modrinth = modrinthClient(deps.fetch);
 
   async function profileOf(serverId: string) {
@@ -43,6 +47,42 @@ export function libraryService(deps: Deps) {
       .returning({ id: libraryItem.id });
     return row.id;
   }
+
+  // 入れる。同じものの古い版が入っていれば、新しい版を入れてから古いファイルを消す(= 更新)
+  async function installInto(teamId: string, userId: string, { row, client, remoteId }: Target, p: Profile, projectId: string) {
+    const file = await fromModrinth(() => modrinth.latestFile(projectId, p.platform, p.mcVersion));
+    if (!file) throw new HttpError(404, "このサーバーの種類・バージョンに合う版がありません");
+    const project = await fromModrinth(() => modrinth.project(projectId));
+    const dir = PLATFORMS[p.platform].dir;
+
+    await remote(() => client.pull(remoteId, file.url, dir, file.filename));
+
+    const old = await db.select().from(installedMod)
+      .where(and(eq(installedMod.serverId, row.id), eq(installedMod.source, "modrinth"), eq(installedMod.projectId, projectId)));
+    const stale = old.filter((o) => o.filename !== file.filename);
+    if (stale.length) {
+      await remote(() => client.deleteFiles(remoteId, dir, stale.map((o) => o.filename)));
+      for (const o of stale) await db.delete(installedMod).where(eq(installedMod.id, o.id));
+    }
+    const values = {
+      id: randomUUID(), serverId: row.id, source: "modrinth", projectId, versionId: file.versionId, versionNumber: file.versionNumber,
+      title: project?.title || file.filename, filename: file.filename, installedBy: userId, installedAt: new Date(),
+    };
+    const { id: _, ...update } = values;
+    await db.insert(installedMod).values(values).onConflictDoUpdate({ target: [installedMod.serverId, installedMod.filename], set: update });
+    await remember(teamId, userId, projectId, {
+      title: values.title, slug: project?.slug ?? "", iconUrl: project?.iconUrl ?? "",
+      projectType: isProjectType(project?.projectType) ? project.projectType : PLATFORMS[p.platform].type,
+    });
+    return { filename: file.filename, versionNumber: file.versionNumber, replaced: stale.map((o) => o.filename) };
+  }
+
+  return { modrinth, profileOf, needProfile, remember, installInto };
+}
+
+export function libraryService(deps: Deps) {
+  const { db, auth } = deps;
+  const { modrinth, profileOf, needProfile, remember, installInto } = modTools(deps);
 
   return {
     /** チームのライブラリ: 登録したもの・それぞれが入っているサーバーと版・入れられるサーバー */
@@ -140,31 +180,7 @@ export function libraryService(deps: Deps) {
       const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
       const { row, client, remoteId } = await serverOf(deps, teamId, id);
       const p = await needProfile(row.id);
-      const file = await fromModrinth(() => modrinth.latestFile(projectId, p.platform, p.mcVersion));
-      if (!file) throw new HttpError(404, "このサーバーの種類・バージョンに合う版がありません");
-      const project = await fromModrinth(() => modrinth.project(projectId));
-      const dir = PLATFORMS[p.platform].dir;
-
-      await remote(() => client.pull(remoteId, file.url, dir, file.filename));
-
-      const old = await db.select().from(installedMod)
-        .where(and(eq(installedMod.serverId, row.id), eq(installedMod.source, "modrinth"), eq(installedMod.projectId, projectId)));
-      const stale = old.filter((o) => o.filename !== file.filename);
-      if (stale.length) {
-        await remote(() => client.deleteFiles(remoteId, dir, stale.map((o) => o.filename)));
-        for (const o of stale) await db.delete(installedMod).where(eq(installedMod.id, o.id));
-      }
-      const values = {
-        id: randomUUID(), serverId: row.id, source: "modrinth", projectId, versionId: file.versionId, versionNumber: file.versionNumber,
-        title: project?.title || file.filename, filename: file.filename, installedBy: user.id, installedAt: new Date(),
-      };
-      const { id: _, ...update } = values;
-      await db.insert(installedMod).values(values).onConflictDoUpdate({ target: [installedMod.serverId, installedMod.filename], set: update });
-      await remember(teamId, user.id, projectId, {
-        title: values.title, slug: project?.slug ?? "", iconUrl: project?.iconUrl ?? "",
-        projectType: isProjectType(project?.projectType) ? project.projectType : PLATFORMS[p.platform].type,
-      });
-      return { filename: file.filename, versionNumber: file.versionNumber, replaced: stale.map((o) => o.filename) };
+      return installInto(teamId, user.id, { row, client, remoteId }, p, projectId);
     },
 
     /** 外す(サーバーのフォルダーからファイルを消す) */

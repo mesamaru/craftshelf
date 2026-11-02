@@ -1,5 +1,5 @@
 // アプリの表(認証の表は auth-schema.ts)。変更は「足すだけ」
-import { index, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { index, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { organization, user } from "./auth-schema";
 
 // チームが登録した Pterodactyl パネル(API キーは暗号化して保存)
@@ -86,4 +86,27 @@ export const libraryItem = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [uniqueIndex("library_item_team_project_uq").on(t.teamId, t.source, t.projectId)],
+);
+
+// セット: ライブラリから選んだものの組み合わせ。サーバーにまとめて入れる
+export const addonSet = pgTable(
+  "addon_set",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("addon_set_team_idx").on(t.teamId)],
+);
+
+export const addonSetItem = pgTable(
+  "addon_set_item",
+  {
+    setId: text("set_id").notNull().references(() => addonSet.id, { onDelete: "cascade" }),
+    itemId: text("item_id").notNull().references(() => libraryItem.id, { onDelete: "cascade" }),
+    addedAt: timestamp("added_at").defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.setId, t.itemId] })],
 );

@@ -37,6 +37,16 @@ await step("登録するとライブラリが開く", async () => {
   await page.locator('a.capsule[aria-label="チーム"]').waitFor(); // チームの名前は版によって違う(サービス版は「E2E のチーム」、自分用は「CraftShelf」)
 });
 
+await step("セットを作ると一覧に出る", async () => {
+  await page.goto(base + "/sets");
+  await page.getByText(/まだセットがありません/).waitFor();
+  await page.getByPlaceholder("セットの名前(例 ロビー用)").fill("ロビー用");
+  await page.getByRole("button", { name: "作る" }).click();
+  await page.getByText("ロビー用", { exact: true }).waitFor();
+  await page.getByText(/まだ何も入っていません。先にライブラリ/).waitFor();
+  await page.screenshot({ path: ".e2e/sets.png", fullPage: true });
+});
+
 await step("チームの画面に自分がオーナーとして出る", async () => {
   await page.goto(base + "/team");
   await page.getByText("E2E(自分)").waitFor();

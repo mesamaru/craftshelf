@@ -1,5 +1,5 @@
 // アプリの表(認証の表は auth-schema.ts)。変更は「足すだけ」
-import { index, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { boolean, index, integer, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 import { organization, user } from "./auth-schema";
 
 // チームが登録した Pterodactyl パネル(API キーは暗号化して保存)
@@ -109,4 +109,67 @@ export const addonSetItem = pgTable(
     addedAt: timestamp("added_at").defaultNow().notNull(),
   },
   (t) => [primaryKey({ columns: [t.setId, t.itemId] })],
+);
+
+// ポート管理: 種類(表の列)。mode = group(開始番号 + グループ番号から size 個)/ fixed(from–to)/ free(自由)。
+// file・key は読み書きする設定ファイルと項目(空 = 記録だけ)
+export const portKind = pgTable(
+  "port_kind",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    mode: text("mode").notNull().default("free"),
+    start: integer("start"),
+    size: integer("size"),
+    rangeFrom: integer("range_from"),
+    rangeTo: integer("range_to"),
+    proto: text("proto").notNull().default("TCP"),
+    file: text("file").notNull().default(""),
+    key: text("key").notNull().default(""),
+    position: integer("position").notNull().default(0),
+  },
+  (t) => [index("port_kind_team_idx").on(t.teamId)],
+);
+
+// ポート管理: グループ(表の行のまとまり)。number は範囲の計算に使う(例 "90")
+export const portGroup = pgTable(
+  "port_group",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    number: text("number").notNull(),
+    name: text("name").notNull(),
+    position: integer("position").notNull().default(0),
+  },
+  (t) => [index("port_group_team_idx").on(t.teamId)],
+);
+
+// サーバーごとのポート管理の情報(グループ・メモ・どのマシンで動くか = Pterodactyl のノード・最後に読み取った時刻)
+export const serverPortInfo = pgTable("server_port_info", {
+  serverId: text("server_id").primaryKey().references(() => server.id, { onDelete: "cascade" }),
+  groupId: text("group_id").references(() => portGroup.id, { onDelete: "set null" }),
+  memo: text("memo").notNull().default(""),
+  machine: text("machine").notNull().default(""),
+  scannedAt: timestamp("scanned_at"),
+});
+
+// サーバーのポート。source = allocation(Pterodactyl の割り当て)/ file(設定ファイルから読んだ)/ manual(手入力)/ found(見つけて、まだ聞いている)/ adopted(見つけて管理することにしたもの)。
+// ignored = 「管理から外す」を選んだもの(次の読み取りでも出さない)
+export const serverPort = pgTable(
+  "server_port",
+  {
+    id: text("id").primaryKey(),
+    serverId: text("server_id").notNull().references(() => server.id, { onDelete: "cascade" }),
+    kindId: text("kind_id").references(() => portKind.id, { onDelete: "set null" }),
+    port: integer("port").notNull(),
+    source: text("source").notNull(),
+    file: text("file").notNull().default(""),
+    key: text("key").notNull().default(""),
+    label: text("label").notNull().default(""),
+    memo: text("memo").notNull().default(""),
+    ignored: boolean("ignored").notNull().default(false),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [index("server_port_server_idx").on(t.serverId)],
 );

@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as PortsRouteImport } from './routes/ports'
 import { Route as ServersRouteImport } from './routes/servers'
 import { Route as SetsRouteImport } from './routes/sets'
 import { Route as SettingsRouteImport } from './routes/settings'
@@ -28,6 +29,11 @@ const IndexRoute = IndexRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PortsRoute = PortsRouteImport.update({
+  id: '/ports',
+  path: '/ports',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ServersRoute = ServersRouteImport.update({
@@ -74,6 +80,7 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/ports': typeof PortsRoute
   '/servers': typeof ServersRoute
   '/sets': typeof SetsRoute
   '/settings': typeof SettingsRoute
@@ -86,6 +93,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/ports': typeof PortsRoute
   '/servers': typeof ServersRoute
   '/sets': typeof SetsRoute
   '/settings': typeof SettingsRoute
@@ -99,6 +107,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
+  '/ports': typeof PortsRoute
   '/servers': typeof ServersRoute
   '/sets': typeof SetsRoute
   '/settings': typeof SettingsRoute
@@ -113,6 +122,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/login'
+    | '/ports'
     | '/servers'
     | '/sets'
     | '/settings'
@@ -125,6 +135,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/login'
+    | '/ports'
     | '/servers'
     | '/sets'
     | '/settings'
@@ -137,6 +148,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/login'
+    | '/ports'
     | '/servers'
     | '/sets'
     | '/settings'
@@ -150,6 +162,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   LoginRoute: typeof LoginRoute
+  PortsRoute: typeof PortsRoute
   ServersRoute: typeof ServersRoute
   SetsRoute: typeof SetsRoute
   SettingsRoute: typeof SettingsRoute
@@ -174,6 +187,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ports': {
+      id: '/ports'
+      path: '/ports'
+      fullPath: '/ports'
+      preLoaderRoute: typeof PortsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/servers': {
@@ -238,6 +258,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   LoginRoute: LoginRoute,
+  PortsRoute: PortsRoute,
   ServersRoute: ServersRoute,
   SetsRoute: SetsRoute,
   SettingsRoute: SettingsRoute,

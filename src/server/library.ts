@@ -49,7 +49,7 @@ export function modTools(deps: Deps) {
   }
 
   // ライブラリに載せる(載っていれば名前・アイコンを新しくする)
-  async function remember(teamId: string, userId: string, source: Source, projectId: string, p: { title: string; slug: string; projectType: ProjectType; iconUrl: string }) {
+  async function remember(teamId: string, userId: string | null, source: Source, projectId: string, p: { title: string; slug: string; projectType: ProjectType; iconUrl: string }) {
     const set = { title: p.title, slug: p.slug, iconUrl: p.iconUrl };
     const [row] = await db.insert(libraryItem)
       .values({ id: randomUUID(), teamId, source, projectId, projectType: p.projectType, addedBy: userId, ...set })
@@ -59,7 +59,7 @@ export function modTools(deps: Deps) {
   }
 
   // 入れる。同じものの古い版が入っていれば、新しい版を入れてから古いファイルを消す(= 更新)
-  async function installInto(teamId: string, userId: string, { row, client, remoteId }: Target, p: Profile, source: Source, projectId: string) {
+  async function installInto(teamId: string, userId: string | null, { row, client, remoteId }: Target, p: Profile, source: Source, projectId: string) {
     const file = await latestFile(source, projectId, p);
     if (!file) {
       throw new HttpError(404, source === "spigot"

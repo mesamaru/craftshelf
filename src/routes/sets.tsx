@@ -1,8 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { ApplyResults } from "~/lib/apply-results";
 import { libraryCatalog } from "~/lib/library-api";
+import { getSchedule, setSchedule } from "~/lib/schedule-api";
 import { applySet, createSet, listSets, removeSet, renameSet, toggleSetItem } from "~/lib/sets-api";
 import { SOURCE_LABEL, isSource } from "~/lib/sources";
 import { useCan } from "~/lib/use-can";
@@ -38,6 +39,7 @@ function Sets() {
         <Link to="/" className="capsule">‹ ライブラリ</Link>
         <h1>セット</h1>
       </header>
+      <Schedule editable={can({ server: ["update"] })} />
       {sets.length === 0 && (
         <section className="group"><div className="row muted">まだセットがありません。{edit ? "下で作れます。" : ""}</div></section>
       )}
@@ -161,6 +163,70 @@ function NewSet({ onCreated }: { onCreated: () => void }) {
         {error && <p className="row error" role="alert">{error}</p>}
         <button className="row link" type="submit" disabled={!name.trim()}>作る</button>
       </form>
+    </>
+  );
+}
+
+const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"];
+
+// 予約: 決めた曜日・時刻に、セットを結び付けたサーバーをそろえる(または確かめるだけ)
+function Schedule({ editable }: { editable: boolean }) {
+  const load = useServerFn(getSchedule);
+  const save = useServerFn(setSchedule);
+  const [s, setS] = useState<Awaited<ReturnType<typeof getSchedule>> | null>(null);
+  const [draft, setDraft] = useState<{ enabled: boolean; mode: string; time: string; days: number[] } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const reload = () => load().then((x) => { setS(x); setDraft({ enabled: x.enabled, mode: x.mode, time: x.time, days: x.days }); }, (e) => setError(message(e)));
+  useEffect(() => { reload(); }, []);
+  if (!s || !draft) return error ? <p className="row error" role="alert">{error}</p> : null;
+
+  const submit = async () => {
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      await save({ data: draft });
+      setNote("保存しました");
+      await reload();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const toggleDay = (d: number) => setDraft({ ...draft, days: draft.days.includes(d) ? draft.days.filter((x) => x !== d) : [...draft.days, d] });
+
+  return (
+    <>
+      <div className="group-title">予約</div>
+      <section className="group form">
+        <label className="row">
+          <span>予約を使う</span>
+          <input className="trail" type="checkbox" checked={draft.enabled} disabled={!editable} onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })} />
+        </label>
+        <div className="row">
+          <span>すること</span>
+          <select className="trail" value={draft.mode} disabled={!editable} aria-label="予約ですること" onChange={(e) => setDraft({ ...draft, mode: e.target.value })}>
+            {Object.entries(s.modes).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+          </select>
+        </div>
+        <div className="row">
+          <span>時刻(日本時間)</span>
+          <input className="trail" type="time" value={draft.time} disabled={!editable} aria-label="予約の時刻" onChange={(e) => setDraft({ ...draft, time: e.target.value })} />
+        </div>
+        <div className="row actions" role="group" aria-label="予約の曜日">
+          {DAY_NAMES.map((n, d) => (
+            <label key={d}><input type="checkbox" checked={draft.days.includes(d)} disabled={!editable} onChange={() => toggleDay(d)} /> {n}</label>
+          ))}
+        </div>
+        {s.lastRunAt && <div className="row muted">前に動いたとき: {new Date(s.lastRunAt).toLocaleString("ja-JP")}</div>}
+        {editable && <button className="row link" type="button" disabled={busy} onClick={submit}>{busy ? "保存しています…" : "保存"}</button>}
+        {note && <p className="row muted" role="status">{note}</p>}
+        {error && <p className="row error" role="alert">{error}</p>}
+      </section>
+      <p className="foot">決めた曜日・時刻に、セットを結び付けたすべてのサーバーをそろえる(足りないものを入れ、新しい版があれば更新する)か、何も変えずに更新があるかを確かめます。結果は「チーム」→「操作の記録と Discord への通知」に残り、Discord の「予約の結果」を選んでいれば知らせます。決められるのは管理者以上です。</p>
     </>
   );
 }

@@ -110,6 +110,12 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 - 操作の記録(表 `audit_log`。`src/server/events.ts` の `record`)。各サービスの、変える操作の最後に記録する(だれが・何を・どのサーバーに・詳しい内容)。予約で動いたものは user_id が null。見られるのは `member: ["update"]`(管理者以上)。
 - Discord への通知(表 `team_notify`)。Webhook の URL は `seal` で暗号化して保存し、`https://discord.com/api/webhooks/…`(discordapp.com・ptb・canary を含む)だけを受け付ける。記録の種類(`EVENT_KINDS`: changes・sets・schedule・power・admin)のうち、選んだものだけを送る。`allowed_mentions` を空にしてメンションさせない。送れなくても、もとの操作は失敗させない。
 
+## 予約
+
+- チームごとに 1 つ(表 `team_schedule`)。曜日・時刻(`tz`、いまは日本時間)・すること(`check` = 確かめるだけ / `sync` = そろえる)。決めるのは `server: ["update"]`。
+- `src/server/startup.ts` が 1 分ごとに `tick` を呼ぶ(前の回が終わっていなければ飛ばす)。時刻になったチームは、動かす前に `last_run_at` を条件付きで書き換え、書き換えられたときだけ動かす(同じ分に 2 回・複数のプロセスで重ねて動かさない)。
+- 中身は `setService.runForSchedule`(画面からは呼ばない)。セットを結び付けたサーバーを 1 台ずつ `applyTo` し、1 台が失敗しても残りは続ける。結果は `schedule` の種類で記録する(user_id は null)。
+
 ## これから決めること・作るもの
 
 1. CurseForge から探す、サーバーに入っている Mod の配布元を見つける(ファイルの中身や SHA-1 から)

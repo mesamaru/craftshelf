@@ -44,6 +44,7 @@ await step("セットを作ると一覧に出る", async () => {
   await page.getByRole("button", { name: "作る" }).click();
   await page.getByText("ロビー用", { exact: true }).waitFor();
   await page.getByText(/まだ何も入っていません。先にライブラリ/).waitFor();
+  await page.getByText("予約を使う").waitFor(); // 予約の欄も出る
   await page.screenshot({ path: ".e2e/sets.png", fullPage: true });
 });
 

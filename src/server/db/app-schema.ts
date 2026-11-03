@@ -205,3 +205,16 @@ export const teamNotify = pgTable("team_notify", {
   kinds: text("kinds").notNull().default("[]"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// チームの予約: 決めた曜日・時刻に、セットを結び付けたサーバーをそろえる(mode = sync)か、確かめるだけ(check)。
+// days は曜日(0 = 日曜)の JSON の配列、time は "HH:MM"(tz の時刻)
+export const teamSchedule = pgTable("team_schedule", {
+  teamId: text("team_id").primaryKey().references(() => organization.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(false),
+  mode: text("mode").notNull().default("check"),
+  time: text("time").notNull().default("04:00"),
+  days: text("days").notNull().default("[0,1,2,3,4,5,6]"),
+  tz: text("tz").notNull().default("Asia/Tokyo"),
+  lastRunAt: timestamp("last_run_at"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});

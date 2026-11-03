@@ -12,7 +12,10 @@ import { type Deps, serverOf } from "./servers";
 // 無料で使える範囲
 export const SET_LIMITS = { setsPerTeam: 50, itemsPerSet: 200 };
 
-export type ApplyResult = { title: string; status: "installed" | "updated" | "present" | "skipped" | "failed"; detail: string };
+// missing・available は「確かめるだけ」のときの、入っていない・新しい版がある
+export type ApplyResult = { title: string; status: "installed" | "updated" | "present" | "skipped" | "failed" | "missing" | "available"; detail: string };
+// add = 足りないものを入れる / sync = それに加えて更新する / check = 確かめるだけ(何も変えない)
+export type ApplyMode = "add" | "sync" | "check";
 
 const cleanName = (name: string) => {
   const n = name.trim().slice(0, 60);
@@ -27,8 +30,10 @@ export function setService(deps: Deps) {
   // 結果のまとめ(通知・記録に使う)。変わったもの・失敗したものだけを並べる
   const summary = (list: ApplyResult[]) => {
     const n = (s: ApplyResult["status"]) => list.filter((x) => x.status === s).length;
-    const head = [`入れた ${n("installed")}`, `更新 ${n("updated")}`, `失敗 ${n("failed")}`].join(" / ");
-    const lines = list.filter((x) => ["installed", "updated", "failed"].includes(x.status)).map((x) => `・${x.title}: ${x.detail}`);
+    const head = n("missing") + n("available")
+      ? [`入っていない ${n("missing")}`, `新しい版 ${n("available")}`, `失敗 ${n("failed")}`].join(" / ")
+      : [`入れた ${n("installed")}`, `更新 ${n("updated")}`, `失敗 ${n("failed")}`].join(" / ");
+    const lines = list.filter((x) => ["installed", "updated", "failed", "missing", "available"].includes(x.status)).map((x) => `・${x.title}: ${x.detail}`);
     return [head, ...lines].join("\n");
   };
 
@@ -37,8 +42,8 @@ export function setService(deps: Deps) {
     if (!s) throw new HttpError(404, "セットが見つかりません");
     return s;
   }
-  // セットの中身をサーバーに入れる。update なら、入っているものも新しい版にする
-  async function applyTo(teamId: string, userId: string, set: { id: string }, serverId: string, update: boolean): Promise<ApplyResult[]> {
+  // セットの中身をサーバーに入れる(mode は ApplyMode)
+  async function applyTo(teamId: string, userId: string | null, set: { id: string }, serverId: string, mode: ApplyMode): Promise<ApplyResult[]> {
     const target = await serverOf(deps, teamId, serverId);
     const p = await needProfile(target.row.id);
     const type = PLATFORMS[p.platform].type;
@@ -53,15 +58,19 @@ export function setService(deps: Deps) {
         continue;
       }
       try {
-        if (!now) {
+        if (!now && mode === "check") {
+          out.push({ title: it.title, status: "missing", detail: "入っていません" });
+        } else if (!now) {
           const r = await installInto(teamId, userId, target, p, it.source, it.projectId);
           out.push({ title: it.title, status: "installed", detail: r.versionNumber });
-        } else if (!update) {
+        } else if (mode === "add") {
           out.push({ title: it.title, status: "present", detail: "入っています" });
         } else {
           const latest = await latestFile(it.source, it.projectId, p);
           if (!latest || latest.versionId === now.versionId) {
             out.push({ title: it.title, status: "present", detail: `最新です(${now.versionNumber})` });
+          } else if (mode === "check") {
+            out.push({ title: it.title, status: "available", detail: `${now.versionNumber} → ${latest.versionNumber}` });
           } else {
             const r = await installInto(teamId, userId, target, p, it.source, it.projectId);
             out.push({ title: it.title, status: "updated", detail: `${now.versionNumber} → ${r.versionNumber}` });
@@ -148,7 +157,7 @@ export function setService(deps: Deps) {
     async apply(headers: Headers, id: string, serverId: string): Promise<ApplyResult[]> {
       const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
       const set = await setOf(teamId, id);
-      const r = await applyTo(teamId, user.id, set, serverId, false);
+      const r = await applyTo(teamId, user.id, set, serverId, "add");
       await record({ teamId, userId: user.id, kind: "sets", action: "セットを入れる", target: `${set.name} → ${await serverName(serverId)}`, detail: summary(r) });
       return r;
     },
@@ -175,9 +184,29 @@ export function setService(deps: Deps) {
       const [b] = await db.select({ setId: serverSet.setId }).from(serverSet).where(eq(serverSet.serverId, serverId));
       if (!b) throw new HttpError(400, "このサーバーにはセットを結び付けていません");
       const set = await setOf(teamId, b.setId);
-      const r = await applyTo(teamId, user.id, set, serverId, true);
+      const r = await applyTo(teamId, user.id, set, serverId, "sync");
       await record({ teamId, userId: user.id, kind: "sets", action: "セットでそろえる", target: `${await serverName(serverId)}(${set.name})`, detail: summary(r) });
       return r;
+    },
+
+    /**
+     * 予約で動かす(画面からは呼ばない。権限の確認は予約を決めたときに済ませている)。
+     * セットを結び付けたチームのサーバーを 1 台ずつそろえる・確かめる。1 台が失敗しても残りは続ける
+     */
+    async runForSchedule(teamId: string, mode: "sync" | "check") {
+      const bound = await db.select({ serverId: serverSet.serverId, setId: serverSet.setId, name: server.name, setName: addonSet.name })
+        .from(serverSet).innerJoin(server, eq(serverSet.serverId, server.id)).innerJoin(addonSet, eq(serverSet.setId, addonSet.id))
+        .where(eq(server.teamId, teamId)).orderBy(asc(server.name));
+      const out: { server: string; set: string; results: ApplyResult[]; error: string }[] = [];
+      for (const b of bound) {
+        try {
+          out.push({ server: b.name, set: b.setName, results: await applyTo(teamId, null, { id: b.setId }, b.serverId, mode), error: "" });
+        } catch (e) {
+          if (!(e instanceof HttpError)) throw e;
+          out.push({ server: b.name, set: b.setName, results: [], error: e.message });
+        }
+      }
+      return { servers: out, summary };
     },
   };
 }

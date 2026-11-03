@@ -8,6 +8,7 @@ import { portService } from "./ports";
 import { serverService } from "./servers";
 import { setService } from "./sets";
 import { eventService } from "./events";
+import { scheduleService } from "./schedule";
 import { versionService } from "./versions";
 
 export const env = readEnv();
@@ -36,6 +37,7 @@ export const servers = serverService(deps);
 export const library = libraryService(deps);
 export const sets = setService(deps);
 export const events = eventService(deps);
+export const schedules = scheduleService(deps, sets);
 export const ports = portService(deps);
 
 // パネルからの版の切り替え(自分用の版だけ。サービス版は Docker のイメージで入れ替える)

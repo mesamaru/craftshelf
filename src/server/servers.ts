@@ -7,6 +7,7 @@ import { pteroConnection, server } from "./db/schema";
 import { HttpError, requireTeam } from "./guard";
 import { type FetchLike, UnsafeUrlError, checkPublicUrl } from "./net";
 import { POWER_SIGNALS, type PowerSignal, PteroError, pteroClient } from "./ptero";
+import { eventService } from "./events";
 import { hint, open, seal } from "./secrets";
 
 // 無料で使える範囲
@@ -42,8 +43,11 @@ export async function serverOf(deps: Deps, teamId: string, id: string) {
   return { row: s, client, remoteId: s.remoteId };
 }
 
+const POWER_LABEL: Record<PowerSignal, string> = { start: "起動", stop: "停止", restart: "再起動", kill: "強制停止" };
+
 export function serverService(deps: Deps) {
   const { db, auth, secret, fetch } = deps;
+  const { record } = eventService(deps);
 
   return {
     /** Pterodactyl パネルを登録する。キーで一覧が取れることを確かめてから保存する */
@@ -66,6 +70,7 @@ export function serverService(deps: Deps) {
       await db.insert(pteroConnection).values({
         id, teamId, name, url, apiKeySealed: seal(secret, apiKey, sealContext(teamId, id)), apiKeyHint: hint(apiKey), createdBy: user.id,
       });
+      await record({ teamId, userId: user.id, kind: "admin", action: "Pterodactyl パネルを登録", target: name, detail: url });
       return { id, servers };
     },
 
@@ -87,24 +92,27 @@ export function serverService(deps: Deps) {
 
     /** パネルのサーバーを、チームのサーバーとして追加する */
     async addServers(headers: Headers, connectionId: string, remoteIds: string[]) {
-      const { teamId } = await requireTeam(auth, headers, { server: ["create"] });
+      const { teamId, user } = await requireTeam(auth, headers, { server: ["create"] });
       const { client } = await connectionOf(deps, teamId, connectionId);
       const available = new Map((await remote(() => client.servers())).map((s) => [s.identifier, s]));
       const picked = [...new Set(remoteIds)].map((r) => available.get(r)).filter((s) => !!s);
       if (picked.length === 0) return { added: 0 };
-      return db.transaction(async (tx) => {
+      const r = await db.transaction(async (tx) => {
         const [{ n }] = await tx.select({ n: count() }).from(server).where(eq(server.teamId, teamId));
         if (n + picked.length > SERVER_LIMITS.serversPerTeam) throw new HttpError(400, `サーバーは 1 チーム ${SERVER_LIMITS.serversPerTeam} 台までです`);
         const rows = picked.map((s) => ({ id: randomUUID(), teamId, kind: "ptero", name: s.name || s.identifier, pteroConnectionId: connectionId, remoteId: s.identifier }));
-        const inserted = await tx.insert(server).values(rows).onConflictDoNothing().returning({ id: server.id });
-        return { added: inserted.length };
+        const inserted = await tx.insert(server).values(rows).onConflictDoNothing().returning({ name: server.name });
+        return { added: inserted.length, names: inserted.map((x) => x.name) };
       });
+      if (r.added) await record({ teamId, userId: user.id, kind: "admin", action: "サーバーを追加", target: r.names.join("、") });
+      return { added: r.added };
     },
 
     async removeConnection(headers: Headers, id: string) {
-      const { teamId } = await requireTeam(auth, headers, { server: ["delete"] });
-      const r = await db.delete(pteroConnection).where(and(eq(pteroConnection.id, id), eq(pteroConnection.teamId, teamId))).returning({ id: pteroConnection.id });
+      const { teamId, user } = await requireTeam(auth, headers, { server: ["delete"] });
+      const r = await db.delete(pteroConnection).where(and(eq(pteroConnection.id, id), eq(pteroConnection.teamId, teamId))).returning({ name: pteroConnection.name });
       if (r.length === 0) throw new HttpError(404, "接続が見つかりません");
+      await record({ teamId, userId: user.id, kind: "admin", action: "Pterodactyl パネルの登録を消す", target: r[0].name });
     },
 
     async listServers(headers: Headers) {
@@ -122,15 +130,17 @@ export function serverService(deps: Deps) {
 
     async power(headers: Headers, id: string, signal: PowerSignal) {
       if (!POWER_SIGNALS.includes(signal)) throw new HttpError(400, "不正な操作です");
-      const { teamId } = await requireTeam(auth, headers, { server: ["control"] });
-      const { client, remoteId } = await serverOf(deps, teamId, id);
+      const { teamId, user } = await requireTeam(auth, headers, { server: ["control"] });
+      const { row, client, remoteId } = await serverOf(deps, teamId, id);
       await remote(() => client.power(remoteId, signal));
+      await record({ teamId, userId: user.id, kind: "power", action: POWER_LABEL[signal], target: row.name });
     },
 
     async removeServer(headers: Headers, id: string) {
-      const { teamId } = await requireTeam(auth, headers, { server: ["delete"] });
-      const r = await db.delete(server).where(and(eq(server.id, id), eq(server.teamId, teamId))).returning({ id: server.id });
+      const { teamId, user } = await requireTeam(auth, headers, { server: ["delete"] });
+      const r = await db.delete(server).where(and(eq(server.id, id), eq(server.teamId, teamId))).returning({ name: server.name });
       if (r.length === 0) throw new HttpError(404, "サーバーが見つかりません");
+      await record({ teamId, userId: user.id, kind: "admin", action: "サーバーを外す", target: r[0].name });
     },
   };
 }

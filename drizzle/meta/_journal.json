@@ -57,6 +57,13 @@
       "when": 1793656496973,
       "tag": "0007_server_set",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793664936229,
+      "tag": "0008_audit_notify",
+      "breakpoints": true
     }
   ]
 }

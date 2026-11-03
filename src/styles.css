@@ -137,3 +137,6 @@ input.memo { width: 100%; }
 .panel-foot .actions { display: flex; gap: 8px; justify-content: flex-end; }
 .side-panel > * { flex-shrink: 0; } /* 中身が多いときは縮めずにスクロール */
 .side-panel input, .side-panel select { font: inherit; font-size: 14px; padding: 6px 8px; border-radius: 10px; border: 1px solid var(--line); background: rgba(127, 127, 127, 0.08); color: inherit; }
+
+/* 改行をそのまま出す(操作の記録の詳しい内容) */
+.pre { white-space: pre-line; }

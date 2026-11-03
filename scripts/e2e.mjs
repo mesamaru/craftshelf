@@ -55,6 +55,14 @@ await step("チームの画面に自分がオーナーとして出る", async ()
 });
 
 // 自分用の版は家の中のパネルも登録できるので、どちらの版でも断る URL(ftp)で確かめる
+await step("チームの画面から、操作の記録と Discord への通知を開ける", async () => {
+  await page.goto(base + "/team");
+  await page.getByRole("link", { name: "操作の記録と Discord への通知" }).click();
+  await page.getByText("Discord への通知", { exact: true }).waitFor();
+  await page.getByText("セットを作る").first().waitFor(); // さっき作ったセットが記録に出る
+  await page.screenshot({ path: ".e2e/activity.png", fullPage: true });
+});
+
 await step("おかしな URL のパネルは登録できず、理由が出る", async () => {
   await page.goto(base + "/servers");
   await page.getByPlaceholder("パネルの URL(https://…)").fill("ftp://panel.example.com");

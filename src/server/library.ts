@@ -8,6 +8,7 @@ import { HttpError, requireTeam } from "./guard";
 import { type Source, SOURCE_LABEL, isSource } from "~/lib/sources";
 import { ModrinthError, type ProjectType, isProjectType, modrinthClient } from "./modrinth";
 import { SpigetError, spigetClient } from "./spiget";
+import { eventService } from "./events";
 import { type Deps, remote, serverOf } from "./servers";
 
 // 無料で使える範囲
@@ -87,7 +88,7 @@ export function modTools(deps: Deps) {
       title: values.title, slug: info?.slug ?? "", iconUrl: info?.iconUrl ?? "",
       projectType: isProjectType(info?.projectType) ? info.projectType : PLATFORMS[p.platform].type,
     });
-    return { filename: file.filename, versionNumber: file.versionNumber, replaced: stale.map((o) => o.filename) };
+    return { title: values.title, filename: file.filename, versionNumber: file.versionNumber, replaced: stale.map((o) => o.filename) };
   }
 
   return { modrinth, spiget, latestFile, project, profileOf, needProfile, remember, installInto };
@@ -95,6 +96,7 @@ export function modTools(deps: Deps) {
 
 export function libraryService(deps: Deps) {
   const { db, auth } = deps;
+  const { record } = eventService(deps);
   const { modrinth, spiget, latestFile, project, profileOf, needProfile, remember, installInto } = modTools(deps);
   const sourceOf = (v: string) => {
     if (!isSource(v)) throw new HttpError(400, "配布元を選んでください");
@@ -143,14 +145,17 @@ export function libraryService(deps: Deps) {
           ? "SpigotMC の外で配っているもの・有料のもの・プラグインではないものは登録できません"
           : "ライブラリに登録できるのは、プラグインと Mod だけです");
       }
-      return { id: await remember(teamId, user.id, src, projectId, { ...p, projectType: p.projectType, title: p.title || projectId }) };
+      const itemId = await remember(teamId, user.id, src, projectId, { ...p, projectType: p.projectType, title: p.title || projectId });
+      await record({ teamId, userId: user.id, kind: "admin", action: "ライブラリに足す", target: p.title || projectId, detail: SOURCE_LABEL[src] });
+      return { id: itemId };
     },
 
     /** ライブラリから外す(サーバーに入っているファイルはそのまま) */
     async removeItem(headers: Headers, itemId: string) {
-      const { teamId } = await requireTeam(auth, headers, { library: ["edit"] });
-      const gone = await db.delete(libraryItem).where(and(eq(libraryItem.id, itemId), eq(libraryItem.teamId, teamId))).returning({ id: libraryItem.id });
+      const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
+      const gone = await db.delete(libraryItem).where(and(eq(libraryItem.id, itemId), eq(libraryItem.teamId, teamId))).returning({ title: libraryItem.title });
       if (!gone.length) throw new HttpError(404, "見つかりません");
+      await record({ teamId, userId: user.id, kind: "admin", action: "ライブラリから外す", target: gone[0].title });
     },
 
     /** サーバーの名前・種類・バージョン */
@@ -162,13 +167,14 @@ export function libraryService(deps: Deps) {
 
     /** サーバーの種類(paper・fabric など)とバージョンを決める */
     async setProfile(headers: Headers, id: string, input: { platform: string; mcVersion: string }) {
-      const { teamId } = await requireTeam(auth, headers, { server: ["update"] });
+      const { teamId, user } = await requireTeam(auth, headers, { server: ["update"] });
       const { row } = await serverOf(deps, teamId, id);
       if (!isPlatform(input.platform)) throw new HttpError(400, "サーバーの種類を選んでください");
       const mcVersion = input.mcVersion.trim() || null;
       if (mcVersion && !MC_VERSION.test(mcVersion)) throw new HttpError(400, "バージョンは 1.21.1 や 26.3 のように入力してください");
       const values = { serverId: row.id, platform: input.platform, mcVersion, updatedAt: new Date() };
       await db.insert(serverProfile).values(values).onConflictDoUpdate({ target: serverProfile.serverId, set: values });
+      await record({ teamId, userId: user.id, kind: "admin", action: "サーバーの種類を設定", target: row.name, detail: `${PLATFORMS[input.platform].label}${mcVersion ? ` ${mcVersion}` : ""}` });
     },
 
     /** 入っている Mod・プラグイン(サーバーのフォルダーの中身と、このアプリで入れた記録を合わせる) */
@@ -207,12 +213,14 @@ export function libraryService(deps: Deps) {
       const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
       const { row, client, remoteId } = await serverOf(deps, teamId, id);
       const p = await needProfile(row.id);
-      return installInto(teamId, user.id, { row, client, remoteId }, p, src, projectId);
+      const r = await installInto(teamId, user.id, { row, client, remoteId }, p, src, projectId);
+      await record({ teamId, userId: user.id, kind: "changes", action: r.replaced.length ? "更新" : "入れる", target: row.name, detail: `${r.title} ${r.versionNumber}(${SOURCE_LABEL[src]})` });
+      return r;
     },
 
     /** 外す(サーバーのフォルダーからファイルを消す) */
     async remove(headers: Headers, id: string, filename: string) {
-      const { teamId } = await requireTeam(auth, headers, { library: ["edit"] });
+      const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
       const { row, client, remoteId } = await serverOf(deps, teamId, id);
       // フォルダーをまたぐ名前は受け付けず、いまフォルダーにある .jar だけを消す
       if (/[\\/]|^\.\.?$/.test(filename) || !filename.toLowerCase().endsWith(".jar")) throw new HttpError(400, "ファイルの名前が正しくありません");
@@ -222,6 +230,7 @@ export function libraryService(deps: Deps) {
       if (!present) throw new HttpError(404, "ファイルが見つかりません");
       await remote(() => client.deleteFiles(remoteId, dir, [filename]));
       await db.delete(installedMod).where(and(eq(installedMod.serverId, row.id), eq(installedMod.filename, filename)));
+      await record({ teamId, userId: user.id, kind: "changes", action: "外す", target: row.name, detail: filename });
     },
 
     /** このアプリで入れたものに、新しい版があるか */

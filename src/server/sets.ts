@@ -6,6 +6,7 @@ import { addonSet, addonSetItem, installedMod, libraryItem, server, serverSet } 
 import { HttpError, requireTeam } from "./guard";
 import { isSource } from "~/lib/sources";
 import { modTools } from "./library";
+import { eventService } from "./events";
 import { type Deps, serverOf } from "./servers";
 
 // 無料で使える範囲
@@ -22,6 +23,14 @@ const cleanName = (name: string) => {
 export function setService(deps: Deps) {
   const { db, auth } = deps;
   const { latestFile, needProfile, installInto } = modTools(deps);
+  const { record } = eventService(deps);
+  // 結果のまとめ(通知・記録に使う)。変わったもの・失敗したものだけを並べる
+  const summary = (list: ApplyResult[]) => {
+    const n = (s: ApplyResult["status"]) => list.filter((x) => x.status === s).length;
+    const head = [`入れた ${n("installed")}`, `更新 ${n("updated")}`, `失敗 ${n("failed")}`].join(" / ");
+    const lines = list.filter((x) => ["installed", "updated", "failed"].includes(x.status)).map((x) => `・${x.title}: ${x.detail}`);
+    return [head, ...lines].join("\n");
+  };
 
   async function setOf(teamId: string, id: string) {
     const [s] = await db.select().from(addonSet).where(and(eq(addonSet.id, id), eq(addonSet.teamId, teamId)));
@@ -66,6 +75,7 @@ export function setService(deps: Deps) {
     return out;
   }
 
+  const serverName = async (serverId: string) => (await db.select({ name: server.name }).from(server).where(eq(server.id, serverId)))[0]?.name ?? "";
   async function serverInTeam(teamId: string, serverId: string) {
     const [srv] = await db.select({ id: server.id }).from(server).where(and(eq(server.id, serverId), eq(server.teamId, teamId)));
     if (!srv) throw new HttpError(404, "サーバーが見つかりません");
@@ -95,21 +105,25 @@ export function setService(deps: Deps) {
       if (c >= SET_LIMITS.setsPerTeam) throw new HttpError(400, `セットは ${SET_LIMITS.setsPerTeam} 個まで作れます`);
       const id = randomUUID();
       await db.insert(addonSet).values({ id, teamId, name: n, createdBy: user.id });
+      await record({ teamId, userId: user.id, kind: "admin", action: "セットを作る", target: n });
       return { id };
     },
 
     /** 名前を変える */
     async rename(headers: Headers, id: string, name: string) {
-      const { teamId } = await requireTeam(auth, headers, { library: ["edit"] });
-      await setOf(teamId, id);
-      await db.update(addonSet).set({ name: cleanName(name) }).where(eq(addonSet.id, id));
+      const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
+      const before = await setOf(teamId, id);
+      const n = cleanName(name);
+      await db.update(addonSet).set({ name: n }).where(eq(addonSet.id, id));
+      await record({ teamId, userId: user.id, kind: "admin", action: "セットの名前を変える", target: `${before.name} → ${n}` });
     },
 
     /** セットを消す(ライブラリとサーバーはそのまま) */
     async remove(headers: Headers, id: string) {
-      const { teamId } = await requireTeam(auth, headers, { library: ["edit"] });
-      await setOf(teamId, id);
+      const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
+      const set = await setOf(teamId, id);
       await db.delete(addonSet).where(eq(addonSet.id, id));
+      await record({ teamId, userId: user.id, kind: "admin", action: "セットを消す", target: set.name });
     },
 
     /** ライブラリのものをセットに入れる・外す */
@@ -133,20 +147,25 @@ export function setService(deps: Deps) {
      */
     async apply(headers: Headers, id: string, serverId: string): Promise<ApplyResult[]> {
       const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
-      return applyTo(teamId, user.id, await setOf(teamId, id), serverId, false);
+      const set = await setOf(teamId, id);
+      const r = await applyTo(teamId, user.id, set, serverId, false);
+      await record({ teamId, userId: user.id, kind: "sets", action: "セットを入れる", target: `${set.name} → ${await serverName(serverId)}`, detail: summary(r) });
+      return r;
     },
 
     /** サーバーにセットを結び付ける(setId が null なら外す)。結び付けるのは 1 台に 1 つ */
     async bind(headers: Headers, serverId: string, setId: string | null) {
-      const { teamId } = await requireTeam(auth, headers, { library: ["edit"] });
+      const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
       await serverInTeam(teamId, serverId);
       if (!setId) {
         await db.delete(serverSet).where(eq(serverSet.serverId, serverId));
+        await record({ teamId, userId: user.id, kind: "admin", action: "セットの結び付けを外す", target: await serverName(serverId) });
         return;
       }
-      await setOf(teamId, setId);
+      const set = await setOf(teamId, setId);
       const values = { serverId, setId, updatedAt: new Date() };
       await db.insert(serverSet).values(values).onConflictDoUpdate({ target: serverSet.serverId, set: values });
+      await record({ teamId, userId: user.id, kind: "admin", action: "セットを結び付ける", target: `${await serverName(serverId)} ← ${set.name}` });
     },
 
     /** 結び付けたセットでそろえる: 足りないものを入れ、入っているものに新しい版があれば更新する */
@@ -155,7 +174,10 @@ export function setService(deps: Deps) {
       await serverInTeam(teamId, serverId); // ほかのチームのサーバーは「見つからない」
       const [b] = await db.select({ setId: serverSet.setId }).from(serverSet).where(eq(serverSet.serverId, serverId));
       if (!b) throw new HttpError(400, "このサーバーにはセットを結び付けていません");
-      return applyTo(teamId, user.id, await setOf(teamId, b.setId), serverId, true);
+      const set = await setOf(teamId, b.setId);
+      const r = await applyTo(teamId, user.id, set, serverId, true);
+      await record({ teamId, userId: user.id, kind: "sets", action: "セットでそろえる", target: `${await serverName(serverId)}(${set.name})`, detail: summary(r) });
+      return r;
     },
   };
 }

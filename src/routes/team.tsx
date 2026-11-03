@@ -48,6 +48,9 @@ function Team() {
               </section>
             </>
           )}
+          {can({ member: ["update"] }) && (
+            <section className="group"><Link to="/activity" className="row link">操作の記録と Discord への通知</Link></section>
+          )}
           {me && me.role !== "owner" && <Leave teamId={team.id} />}
         </>
       )}

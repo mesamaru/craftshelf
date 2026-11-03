@@ -7,6 +7,7 @@ import { libraryService } from "./library";
 import { portService } from "./ports";
 import { serverService } from "./servers";
 import { setService } from "./sets";
+import { eventService } from "./events";
 import { versionService } from "./versions";
 
 export const env = readEnv();
@@ -34,6 +35,7 @@ const deps = { db, auth, secret: env.secret, fetch: env.mode === "self" ? lanFet
 export const servers = serverService(deps);
 export const library = libraryService(deps);
 export const sets = setService(deps);
+export const events = eventService(deps);
 export const ports = portService(deps);
 
 // パネルからの版の切り替え(自分用の版だけ。サービス版は Docker のイメージで入れ替える)

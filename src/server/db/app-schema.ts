@@ -180,3 +180,28 @@ export const serverSet = pgTable("server_set", {
   setId: text("set_id").notNull().references(() => addonSet.id, { onDelete: "cascade" }),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// 操作の記録(だれが・いつ・何をしたか)。user_id が null のものは予約で動いたもの。kind は Discord に知らせる種類
+export const auditLog = pgTable(
+  "audit_log",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+    kind: text("kind").notNull(),
+    action: text("action").notNull(),
+    target: text("target").notNull().default(""),
+    detail: text("detail").notNull().default(""),
+    at: timestamp("at").defaultNow().notNull(),
+  },
+  (t) => [index("audit_log_team_at_idx").on(t.teamId, t.at)],
+);
+
+// チームの Discord への通知(Webhook の URL は暗号化して保存)。kinds は知らせる種類の JSON の配列
+export const teamNotify = pgTable("team_notify", {
+  teamId: text("team_id").primaryKey().references(() => organization.id, { onDelete: "cascade" }),
+  webhookSealed: text("webhook_sealed").notNull(),
+  webhookHint: text("webhook_hint").notNull(),
+  kinds: text("kinds").notNull().default("[]"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});

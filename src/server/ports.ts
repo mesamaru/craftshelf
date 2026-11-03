@@ -5,6 +5,7 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 import { DEFAULT_KINDS, PORT_CATALOG, type Port, type ServerPorts, findProblems, isPort } from "~/lib/ports";
 import { portGroup, portKind, server, serverPort, serverPortInfo } from "./db/schema";
 import { HttpError, requireTeam } from "./guard";
+import { eventService } from "./events";
 import { portLike, readPort, writePort } from "./port-config";
 import { type Deps, remote, serverOf } from "./servers";
 
@@ -29,6 +30,7 @@ export type PortChange = { id?: string; kindId?: string | null; port?: number; m
 
 export function portService(deps: Deps) {
   const { db, auth } = deps;
+  const { record } = eventService(deps);
 
   // 初めて開いたチームには、よく使う種類を用意する
   async function ensureKinds(teamId: string) {
@@ -156,7 +158,7 @@ export function portService(deps: Deps) {
 
     /** 種類とグループを並び順ごと保存する(無くなったものは消す) */
     async saveRules(headers: Headers, input: RuleInput) {
-      const { teamId } = await requireTeam(auth, headers, { server: ["update"] });
+      const { teamId, user } = await requireTeam(auth, headers, { server: ["update"] });
       if (input.kinds.length > PORT_LIMITS.kindsPerTeam) throw new HttpError(400, `種類は ${PORT_LIMITS.kindsPerTeam} 個までです`);
       if (input.groups.length > PORT_LIMITS.groupsPerTeam) throw new HttpError(400, `グループは ${PORT_LIMITS.groupsPerTeam} 個までです`);
       const kinds = input.kinds.map((k, i) => {
@@ -187,6 +189,7 @@ export function portService(deps: Deps) {
         for (const k of kinds) await tx.insert(portKind).values(k).onConflictDoUpdate({ target: portKind.id, set: { ...k, id: undefined, teamId: undefined } });
         for (const g of groups) await tx.insert(portGroup).values(g).onConflictDoUpdate({ target: portGroup.id, set: { ...g, id: undefined, teamId: undefined } });
       });
+      await record({ teamId, userId: user.id, kind: "admin", action: "ポートの種類とグループを変更", detail: `種類 ${kinds.length} 個・グループ ${groups.length} 個` });
       return overviewOf(teamId);
     },
 
@@ -208,7 +211,7 @@ export function portService(deps: Deps) {
      * (動いているサーバーは、再起動すると新しい番号になる)。同じマシンで重複する番号にはしない
      */
     async savePorts(headers: Headers, serverId: string, changes: PortChange[]) {
-      const { teamId } = await requireTeam(auth, headers, { server: ["update"] });
+      const { teamId, user } = await requireTeam(auth, headers, { server: ["update"] });
       await serverInTeam(teamId, serverId);
       const ov = await overviewOf(teamId);
       const me = ov.servers.find((s) => s.id === serverId)!;
@@ -272,7 +275,10 @@ export function portService(deps: Deps) {
         const added = next.ports.filter((p) => p.id.startsWith("new-"));
         if (added.length) await tx.insert(serverPort).values(added.map((p) => ({ id: randomUUID(), serverId, kindId: p.kindId, port: p.port, source: "manual", memo: p.memo })));
       });
-      return { wroteFiles: [...new Set(writes.map((w) => w.file))], ...(await overviewOf(teamId)) };
+      const wroteFiles = [...new Set(writes.map((w) => w.file))];
+      await record({ teamId, userId: user.id, kind: "admin", action: "ポートを変更", target: me.name,
+        detail: writes.map((w) => `${w.file} の ${w.key} → ${w.port}`).join("\n") || `${changes.length} 件` });
+      return { wroteFiles, ...(await overviewOf(teamId)) };
     },
 
     /** 見つけたポートを管理する(種類を選ぶか、新しい種類を作る)。同じファイル・項目は、ほかのサーバーでも読むようになる */

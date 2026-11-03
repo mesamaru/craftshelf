@@ -218,3 +218,17 @@ export const teamSchedule = pgTable("team_schedule", {
   lastRunAt: timestamp("last_run_at"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// サーバーの設定ファイルの編集の履歴(保存する前の中身。そこから戻せる)
+export const serverFileHistory = pgTable(
+  "server_file_history",
+  {
+    id: text("id").primaryKey(),
+    serverId: text("server_id").notNull().references(() => server.id, { onDelete: "cascade" }),
+    path: text("path").notNull(),
+    content: text("content").notNull(),
+    savedBy: text("saved_by").references(() => user.id, { onDelete: "set null" }),
+    savedAt: timestamp("saved_at").defaultNow().notNull(),
+  },
+  (t) => [index("server_file_history_idx").on(t.serverId, t.path, t.savedAt)],
+);

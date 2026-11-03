@@ -71,6 +71,10 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
       const num = (v: unknown) => (typeof v === "number" ? v : null);
       return { state: String(a.current_state ?? "unknown"), cpu: num(r.cpu_absolute), memory: num(r.memory_bytes), disk: num(r.disk_bytes), uptime: num(r.uptime) };
     },
+    // コンソールにコマンドを送る(動いていないと 502 が返る)
+    async command(ident: string, command: string) {
+      await req("POST", srv(ident) + "/command", { command });
+    },
     async power(ident: string, signal: PowerSignal) {
       if (!POWER_SIGNALS.includes(signal)) throw new PteroError("不正な操作です");
       await req("POST", srv(ident) + "/power", { signal });

@@ -1,0 +1,109 @@
+// サーバーの操作: コンソールへのコマンドと、設定ファイルの閲覧・編集(保存する前の中身は履歴に残す)。
+// 設定ファイルにはパスワードなどが入っていることがあるので、見る・直すのは管理者以上。どの処理も、選んでいるチームの中だけ
+import { randomUUID } from "node:crypto";
+import { and, desc, eq, inArray } from "drizzle-orm";
+import { serverFileHistory, user } from "./db/schema";
+import { eventService } from "./events";
+import { HttpError, requireTeam } from "./guard";
+import { type Deps, remote, serverOf } from "./servers";
+
+// 開いて直せるファイル(テキストの設定ファイルだけ)。大きすぎるものは開かない
+const TEXT_FILE = /\.(properties|ya?ml|json|json5|toml|conf|cfg|ini|txt|hocon|sk|lang|md|csv|sh|env)$/i;
+export const FILE_LIMITS = { maxBytes: 512 * 1024, historyPerFile: 30, commandLength: 500 };
+
+/** サーバーのフォルダーの中の相対パスだけ(.. や先頭の / は認めない)。空は一番上のフォルダー */
+export function cleanPath(input: string) {
+  const p = String(input ?? "").replace(/\\/g, "/").replace(/^\.?\/+/, "").replace(/\/+$/, "");
+  if (p.length > 300 || p.split("/").some((x) => x === ".." || x === "." || (x === "" && p !== "")) || /[\0\r\n]/.test(p)) {
+    throw new HttpError(400, "ファイルの場所が正しくありません");
+  }
+  return p;
+}
+const editable = (path: string) => TEXT_FILE.test(path) || /(^|\/)(eula\.txt|server\.properties|\.env)$/i.test(path);
+
+export function fileService(deps: Deps) {
+  const { db, auth } = deps;
+  const { record } = eventService(deps);
+
+  async function readText(target: Awaited<ReturnType<typeof serverOf>>, path: string) {
+    const name = path.split("/").pop() ?? "";
+    const dir = path.split("/").slice(0, -1).join("/");
+    const entry = (await remote(() => target.client.listFiles(target.remoteId, dir || "/"))).find((f) => f.name === name && f.isFile);
+    if (!entry) throw new HttpError(404, "ファイルが見つかりません");
+    if (entry.size > FILE_LIMITS.maxBytes) throw new HttpError(400, `大きすぎるファイル(${Math.ceil(FILE_LIMITS.maxBytes / 1024)} KB まで)は、ここでは開けません`);
+    const text = await remote(() => target.client.readFile(target.remoteId, path));
+    if (text === null) throw new HttpError(404, "ファイルが見つかりません");
+    return text;
+  }
+
+  return {
+    /** コンソールにコマンドを送る(編集者以上)。結果はコンソールに出る(ここでは受け取らない) */
+    async command(headers: Headers, serverId: string, command: string) {
+      const { teamId, user: me } = await requireTeam(auth, headers, { server: ["control"] });
+      const cmd = String(command ?? "").trim().replace(/^\//, "");
+      if (!cmd) throw new HttpError(400, "コマンドを入力してください");
+      if (cmd.length > FILE_LIMITS.commandLength || /[\r\n]/.test(cmd)) throw new HttpError(400, `コマンドは 1 行・${FILE_LIMITS.commandLength} 文字までです`);
+      const target = await serverOf(deps, teamId, serverId);
+      await remote(() => target.client.command(target.remoteId, cmd));
+      await record({ teamId, userId: me.id, kind: "power", action: "コマンドを送る", target: target.row.name, detail: cmd });
+    },
+
+    /** フォルダーの中身(フォルダーと、開けるファイルが分かるように) */
+    async list(headers: Headers, serverId: string, dir: string) {
+      const { teamId } = await requireTeam(auth, headers, { server: ["update"] });
+      const target = await serverOf(deps, teamId, serverId);
+      const d = cleanPath(dir);
+      const files = await remote(() => target.client.listFiles(target.remoteId, d || "/"));
+      return {
+        dir: d,
+        entries: files.map((f) => ({ name: f.name, isFile: f.isFile, size: f.size, editable: f.isFile && editable(f.name) && f.size <= FILE_LIMITS.maxBytes }))
+          .sort((a, b) => Number(a.isFile) - Number(b.isFile) || a.name.localeCompare(b.name)),
+      };
+    },
+
+    /** ファイルを開く(と、その履歴) */
+    async read(headers: Headers, serverId: string, path: string) {
+      const { teamId } = await requireTeam(auth, headers, { server: ["update"] });
+      const p = cleanPath(path);
+      if (!p || !editable(p)) throw new HttpError(400, "ここで開けるのは、テキストの設定ファイルだけです");
+      const target = await serverOf(deps, teamId, serverId);
+      const content = await readText(target, p);
+      const history = await db.select({ id: serverFileHistory.id, savedAt: serverFileHistory.savedAt, savedBy: user.name })
+        .from(serverFileHistory).leftJoin(user, eq(serverFileHistory.savedBy, user.id))
+        .where(and(eq(serverFileHistory.serverId, serverId), eq(serverFileHistory.path, p))).orderBy(desc(serverFileHistory.savedAt));
+      return { path: p, content, history: history.map((h) => ({ id: h.id, savedAt: h.savedAt.toISOString(), savedBy: h.savedBy ?? "" })) };
+    },
+
+    /**
+     * 保存する。開いたときの中身(base)と、いまのサーバーの中身が違えば保存しない(ほかの人・サーバーが書き換えていたら)。
+     * 保存する前の中身は履歴に残す(1 つのファイルにつき新しい 30 件)
+     */
+    async save(headers: Headers, serverId: string, path: string, content: string, base: string) {
+      const { teamId, user: me } = await requireTeam(auth, headers, { server: ["update"] });
+      const p = cleanPath(path);
+      if (!p || !editable(p)) throw new HttpError(400, "ここで直せるのは、テキストの設定ファイルだけです");
+      if (Buffer.byteLength(content) > FILE_LIMITS.maxBytes) throw new HttpError(400, "大きすぎます");
+      const target = await serverOf(deps, teamId, serverId);
+      const now = await readText(target, p);
+      if (now !== base) throw new HttpError(409, "開いたあとで、ファイルが書き換えられています。開き直してから直してください");
+      if (now === content) return { saved: false };
+      await remote(() => target.client.writeFile(target.remoteId, p, content));
+      await db.insert(serverFileHistory).values({ id: randomUUID(), serverId, path: p, content: now, savedBy: me.id });
+      const old = await db.select({ id: serverFileHistory.id }).from(serverFileHistory)
+        .where(and(eq(serverFileHistory.serverId, serverId), eq(serverFileHistory.path, p))).orderBy(desc(serverFileHistory.savedAt)).offset(FILE_LIMITS.historyPerFile);
+      if (old.length) await db.delete(serverFileHistory).where(inArray(serverFileHistory.id, old.map((x) => x.id)));
+      await record({ teamId, userId: me.id, kind: "admin", action: "設定ファイルを直す", target: `${target.row.name} の ${p}` });
+      return { saved: true };
+    },
+
+    /** 履歴の中身(戻す前に見る) */
+    async historyContent(headers: Headers, serverId: string, historyId: string) {
+      const { teamId } = await requireTeam(auth, headers, { server: ["update"] });
+      await serverOf(deps, teamId, serverId); // ほかのチームのサーバーは「見つからない」
+      const [h] = await db.select().from(serverFileHistory).where(and(eq(serverFileHistory.id, historyId), eq(serverFileHistory.serverId, serverId)));
+      if (!h) throw new HttpError(404, "履歴が見つかりません");
+      return { path: h.path, content: h.content, savedAt: h.savedAt.toISOString() };
+    },
+  };
+}
+

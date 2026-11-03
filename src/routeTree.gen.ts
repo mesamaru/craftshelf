@@ -21,6 +21,7 @@ import { Route as TeamRouteImport } from './routes/team'
 import { Route as InviteIdRouteImport } from './routes/invite.$id'
 import { Route as ServersIdRouteImport } from './routes/servers_.$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ServersIdFilesRouteImport } from './routes/servers_.$id_.files'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -82,6 +83,11 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ServersIdFilesRoute = ServersIdFilesRouteImport.update({
+  id: '/servers_/$id_/files',
+  path: '/servers/$id/files',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -96,6 +102,7 @@ export interface FileRoutesByFullPath {
   '/invite/$id': typeof InviteIdRoute
   '/servers/$id': typeof ServersIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/servers/$id/files': typeof ServersIdFilesRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -110,6 +117,7 @@ export interface FileRoutesByTo {
   '/invite/$id': typeof InviteIdRoute
   '/servers/$id': typeof ServersIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/servers/$id/files': typeof ServersIdFilesRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -125,6 +133,7 @@ export interface FileRoutesById {
   '/invite/$id': typeof InviteIdRoute
   '/servers_/$id': typeof ServersIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/servers_/$id_/files': typeof ServersIdFilesRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -141,6 +150,7 @@ export interface FileRouteTypes {
     | '/invite/$id'
     | '/servers/$id'
     | '/api/auth/$'
+    | '/servers/$id/files'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -155,6 +165,7 @@ export interface FileRouteTypes {
     | '/invite/$id'
     | '/servers/$id'
     | '/api/auth/$'
+    | '/servers/$id/files'
   id:
     | '__root__'
     | '/'
@@ -169,6 +180,7 @@ export interface FileRouteTypes {
     | '/invite/$id'
     | '/servers_/$id'
     | '/api/auth/$'
+    | '/servers_/$id_/files'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -184,6 +196,7 @@ export interface RootRouteChildren {
   InviteIdRoute: typeof InviteIdRoute
   ServersIdRoute: typeof ServersIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ServersIdFilesRoute: typeof ServersIdFilesRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -272,6 +285,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/servers_/$id_/files': {
+      id: '/servers_/$id_/files'
+      path: '/servers/$id/files'
+      fullPath: '/servers/$id/files'
+      preLoaderRoute: typeof ServersIdFilesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -288,6 +308,7 @@ const rootRouteChildren: RootRouteChildren = {
   InviteIdRoute: InviteIdRoute,
   ServersIdRoute: ServersIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ServersIdFilesRoute: ServersIdFilesRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

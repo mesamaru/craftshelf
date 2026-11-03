@@ -3,7 +3,9 @@ import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { authClient } from "~/lib/auth-client";
 import { addLibraryItem, installMod, libraryCatalog, removeLibraryItem, searchCatalog } from "~/lib/library-api";
-import { SOURCES, SOURCE_LABEL, type Source, isSource, pageUrl } from "~/lib/sources";
+import { localEnabled } from "~/lib/servers-api";
+import { SOURCES, SOURCE_LABEL, type ItemSource, type Source, isItemSource, pageUrl } from "~/lib/sources";
+import { removeUploadedFile, uploadedFiles } from "~/lib/uploads-api";
 import { useCan } from "~/lib/use-can";
 
 export const Route = createFileRoute("/")({
@@ -29,6 +31,9 @@ function Home() {
   const [error, setError] = useState("");
   const reload = () => { load().then((c) => { setCat(c); setError(""); }, (e) => setError(message(e))); };
   useEffect(reload, [team?.id]);
+  const isLocal = useServerFn(localEnabled);
+  const [uploads, setUploads] = useState(false); // アップロードは自分用の版だけ
+  useEffect(() => { isLocal().then(setUploads, () => setUploads(false)); }, []);
 
   const edit = can({ library: ["edit"] });
   return (
@@ -54,8 +59,9 @@ function Home() {
         {cat?.items.map((i) => <Item key={i.id} item={i} servers={cat.servers} edit={edit} onChange={reload} />)}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">チームで使う Mod・プラグインの一覧です。ファイルはこのアプリには置かず、サーバーには Modrinth・SpigotMC から直接取り込みます。入れる版は、サーバーの種類とバージョンに合うものを選びます(Paper のサーバーには Paper 向けの作りを優先)。</p>
+      <p className="foot">チームで使う Mod・プラグインの一覧です。Modrinth・SpigotMC のものは、サーバーが配布元から直接取り込みます(アップロードしたものは、保存先から送ります)。入れる版は、サーバーの種類とバージョンに合うものを選びます(Paper のサーバーには Paper 向けの作りを優先)。</p>
 
+      {edit && uploads && <Upload onDone={reload} />}
       {edit && cat && <AddFromSource have={new Set(cat.items.map((i) => `${i.source}:${i.projectId}`))} onAdded={reload} />}
     </main>
   );
@@ -66,6 +72,7 @@ function Item({ item, servers, edit, onChange }:
   const install = useServerFn(installMod);
   const remove = useServerFn(removeLibraryItem);
   const [busy, setBusy] = useState("");
+  const [showFiles, setShowFiles] = useState(false);
   const [error, setError] = useState("");
   const have = new Set(item.installs.map((x) => x.serverId));
   const targets = servers.filter((s) => s.type === item.projectType && !have.has(s.id));
@@ -87,18 +94,22 @@ function Item({ item, servers, edit, onChange }:
     <div className="row hit">
       {item.iconUrl ? <img src={item.iconUrl} alt="" width={40} height={40} loading="lazy" /> : <span className="icon-ph" />}
       <span className="main">
-        <a href={pageUrl(item.source, item.projectId, item.slug)} target="_blank" rel="noreferrer noopener" translate="no">{item.title}</a>
+        {pageUrl(item.source, item.projectId, item.slug)
+          ? <a href={pageUrl(item.source, item.projectId, item.slug)} target="_blank" rel="noreferrer noopener" translate="no">{item.title}</a>
+          : <span translate="no" className="strong">{item.title}</span>}
         <span className="muted">
-          {TYPE_LABEL[item.projectType] ?? item.projectType} · {isSource(item.source) ? SOURCE_LABEL[item.source] : item.source} · {item.installs.length
+          {TYPE_LABEL[item.projectType] ?? item.projectType} · {isItemSource(item.source) ? SOURCE_LABEL[item.source] : item.source} · {item.installs.length
             ? <span translate="no">{item.installs.map((x) => `${x.serverName} ${x.versionNumber}`).join("、")}</span>
             : "どのサーバーにも入っていません"}
         </span>
         {busy && <span className="muted">{busy === "remove" ? "外しています…" : "サーバーに入れています…"}</span>}
         {error && <span className="error" role="alert">{error}</span>}
+        {item.source === "upload" && <button className="link small" type="button" onClick={() => setShowFiles((v) => !v)}>{showFiles ? "版を閉じる" : "版を見る"}</button>}
+        {showFiles && <Files itemId={item.id} edit={edit} />}
       </span>
       {edit && targets.length > 0 && (
         <select className="trail" value="" disabled={!!busy} aria-label={`${item.title} をサーバーに入れる`}
-          onChange={(e) => { const sid = e.target.value; if (sid && isSource(item.source)) run(sid, () => install({ data: { id: sid, projectId: item.projectId, source: item.source as Source } })); }}>
+          onChange={(e) => { const sid = e.target.value; if (sid && isItemSource(item.source)) run(sid, () => install({ data: { id: sid, projectId: item.projectId, source: item.source as ItemSource } })); }}>
           <option value="">サーバーに入れる…</option>
           {targets.map((s) => <option key={s.id} value={s.id} translate="no">{s.name}</option>)}
         </select>
@@ -185,6 +196,65 @@ function AddFromSource({ have, onAdded }: { have: Set<string>; onAdded: () => vo
         ))}
         {error && <p className="row error" role="alert">{error}</p>}
       </form>
+    </>
+  );
+}
+
+// アップロードしたものの版(ダウンロード・消す)
+function Files({ itemId, edit }: { itemId: string; edit: boolean }) {
+  const load = useServerFn(uploadedFiles);
+  const remove = useServerFn(removeUploadedFile);
+  const [files, setFiles] = useState<Awaited<ReturnType<typeof uploadedFiles>> | null>(null);
+  const [error, setError] = useState("");
+  const reload = () => { load({ data: { itemId } }).then(setFiles, (e) => setError(message(e))); };
+  useEffect(reload, [itemId]);
+  return (
+    <span className="files">
+      {files?.map((f) => (
+        <span key={f.id} className="muted">
+          <span translate="no">{f.version || f.filename}</span>({(f.size / 1024).toFixed(0)} KB・{new Date(f.createdAt).toLocaleDateString("ja-JP")}{f.loaders.length ? `・${f.loaders.join(" / ")}` : ""})
+          {" "}<a href={`/api/library/files/${f.id}`} download>ダウンロード</a>
+          {edit && <>{" "}<button className="link danger small" type="button"
+            onClick={() => confirm(`${f.filename} を消しますか?(保存先からも消えます。サーバーに入っているものはそのままです)`) && remove({ data: { fileId: f.id } }).then(reload, (e) => setError(message(e)))}>消す</button></>}
+        </span>
+      ))}
+      {error && <span className="error" role="alert">{error}</span>}
+    </span>
+  );
+}
+
+// ファイルをアップロード(自分用の版だけ)。jar を調べて、名前と版・動くサーバーの種類を読み取る
+function Upload({ onDone }: { onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState<{ name: string; ok: boolean; text: string }[]>([]);
+  const send = async (list: FileList | null) => {
+    if (!list?.length) return;
+    setBusy(true);
+    const out: typeof results = [];
+    for (const f of Array.from(list)) {
+      try {
+        const res = await fetch(`/api/library/upload?filename=${encodeURIComponent(f.name)}`, { method: "POST", body: f });
+        const j = await res.json();
+        out.push(res.ok ? { name: f.name, ok: true, text: `${j.title} ${j.version}(${TYPE_LABEL[j.projectType] ?? j.projectType})` } : { name: f.name, ok: false, text: j.message });
+      } catch {
+        out.push({ name: f.name, ok: false, text: "送れませんでした" });
+      }
+      setResults([...out]);
+    }
+    setBusy(false);
+    onDone();
+  };
+  return (
+    <>
+      <div className="group-title">ファイルをアップロード</div>
+      <section className="group form">
+        <label className="row link">
+          {busy ? "送っています…" : "jar を選ぶ(いくつでも)"}
+          <input type="file" accept=".jar" multiple hidden disabled={busy} onChange={(e) => { send(e.target.files); e.target.value = ""; }} />
+        </label>
+        {results.map((r, i) => <p key={i} className={`row ${r.ok ? "muted" : "error"}`} translate="no">{r.name}: {r.ok ? `載せました — ${r.text}` : r.text}</p>)}
+      </section>
+      <p className="foot">配布元に無いプラグイン・Mod を、jar のままライブラリに載せます。中の plugin.yml・fabric.mod.json などから名前・版・動くサーバーの種類を読み取り、同じ名前のものは新しい版として足します。置き場所は「チーム」→「保存先」で決められます(100 MB まで)。</p>
     </>
   );
 }

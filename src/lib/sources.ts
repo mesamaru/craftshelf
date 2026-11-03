@@ -1,9 +1,12 @@
-// 配布元(画面とサーバーで共有)。どちらも、ファイルはこのアプリを通さず、Pterodactyl に直接取り込ませる
-export const SOURCES = ["modrinth", "spigot"] as const;
+// 配布元(画面とサーバーで共有)。Modrinth・SpigotMC は、ファイルをこのアプリを通さず Pterodactyl に直接取り込ませる。
+// upload は利用者がアップロードしたもの(自分用の版だけ。保存先に置いて、サーバーに送る)
+export const SOURCES = ["modrinth", "spigot"] as const; // 探せる配布元
 export type Source = (typeof SOURCES)[number];
+export type ItemSource = Source | "upload";
 export const isSource = (v: unknown): v is Source => v === "modrinth" || v === "spigot";
-export const SOURCE_LABEL: Record<Source, string> = { modrinth: "Modrinth", spigot: "SpigotMC" };
+export const isItemSource = (v: unknown): v is ItemSource => isSource(v) || v === "upload";
+export const SOURCE_LABEL: Record<ItemSource, string> = { modrinth: "Modrinth", spigot: "SpigotMC", upload: "アップロード" };
 
-/** 配布元のページ */
+/** 配布元のページ(アップロードしたものには無い) */
 export const pageUrl = (source: string, projectId: string, slug = "") =>
-  source === "spigot" ? `https://www.spigotmc.org/resources/${projectId}/` : `https://modrinth.com/project/${slug || projectId}`;
+  source === "upload" ? "" : source === "spigot" ? `https://www.spigotmc.org/resources/${projectId}/` : `https://modrinth.com/project/${slug || projectId}`;

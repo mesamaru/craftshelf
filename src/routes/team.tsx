@@ -49,7 +49,10 @@ function Team() {
             </>
           )}
           {can({ member: ["update"] }) && (
-            <section className="group"><Link to="/activity" className="row link">操作の記録と Discord への通知</Link></section>
+            <section className="group">
+              <Link to="/activity" className="row link">操作の記録と Discord への通知</Link>
+              {app.mode === "self" && <Link to="/storage" className="row link">保存先(アップロードしたアドオンの置き場所)</Link>}
+            </section>
           )}
           {me && me.role !== "owner" && <Leave teamId={team.id} />}
         </>

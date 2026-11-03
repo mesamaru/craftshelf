@@ -144,3 +144,9 @@ input.memo { width: 100%; }
 .editor { min-height: 360px; resize: vertical; font-size: 13px; line-height: 1.5; white-space: pre; overflow: auto; }
 /* 目立たせない印(更新を止めているなど) */
 .badge.muted-badge { background: var(--line); color: var(--text); }
+/* アップロードしたものの版 */
+.files { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+.link.small { font-size: 13px; padding: 0; }
+.strong { font-weight: 600; }
+.link.small { align-self: flex-start; }
+.hit .files a { font-weight: 400; color: var(--accent); }

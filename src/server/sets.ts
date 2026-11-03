@@ -4,7 +4,7 @@ import { and, asc, count, eq, inArray } from "drizzle-orm";
 import { PLATFORMS } from "~/lib/platforms";
 import { addonSet, addonSetItem, installedMod, libraryItem, server, serverSet } from "./db/schema";
 import { HttpError, requireTeam } from "./guard";
-import { isSource } from "~/lib/sources";
+import { isItemSource } from "~/lib/sources";
 import { modTools } from "./library";
 import { eventService } from "./events";
 import { type Deps, remote, serverOf } from "./servers";
@@ -54,7 +54,7 @@ export function setService(deps: Deps) {
     const out: ApplyResult[] = [];
     for (const it of items) {
       const now = present.get(`${it.source}:${it.projectId}`);
-      if (!isSource(it.source)) continue;
+      if (!isItemSource(it.source)) continue;
       if (it.projectType !== type) {
         out.push({ title: it.title, status: "skipped", detail: `${it.projectType === "mod" ? "Mod " : "プラグイン"}なので、${PLATFORMS[p.platform].label} のサーバーには入れません` });
         continue;
@@ -70,7 +70,7 @@ export function setService(deps: Deps) {
         } else if (holds.has(`${it.source}:${it.projectId}`)) {
           out.push({ title: it.title, status: "present", detail: `更新を止めています(${now.versionNumber})` });
         } else {
-          const latest = await latestFile(it.source, it.projectId, p);
+          const latest = await latestFile(it.source, it.projectId, p, teamId);
           if (!latest || latest.versionId === now.versionId) {
             out.push({ title: it.title, status: "present", detail: `最新です(${now.versionNumber})` });
           } else if (mode === "check") {

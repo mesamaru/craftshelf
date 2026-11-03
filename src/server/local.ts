@@ -234,6 +234,15 @@ export function localClient(root: string, fetch: FetchLike, control: Control): P
       }
     },
 
+    async upload(_ident: string, directory: string, filename: string, data: Uint8Array) {
+      if (/[\\/]/.test(filename) || filename.startsWith(".")) throw new PteroError("ファイルの名前が正しくありません");
+      const dir = inside(root, directory);
+      await mkdir(dir, { recursive: true });
+      const tmp = join(dir, `.craftshelf-${process.pid}-${Date.now()}.part`);
+      await writeFile(tmp, data);
+      await rename(tmp, join(dir, filename));
+    },
+
     async allocations(): Promise<Allocation[]> {
       const p = await props();
       const out: Allocation[] = [];

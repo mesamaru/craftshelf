@@ -132,6 +132,15 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 - 起動・停止: `command`(`spawn` でサーバーのフォルダで実行。起動は待たない、停止は 120 秒まで待つ)/ `docker`(`/var/run/docker.sock` の HTTP API)。RCON(`rcon`)はコマンド・停止(停止のコマンドが無いとき)・状態に使う。パスワードは `seal`(`rcon:<サーバーの ID>`)。設定できるのは `server: ["update"]`。
 - v02 からの取り込み(`importFolders`): `kind=local` のうち、このマシンから見えるフォルダのものを、起動・停止・RCON の設定と一緒に取り込む(RCON のパスワードは v02 の鍵で開いて、v03 の鍵で包み直す)。
 
+## アップロードしたアドオン(自分用の版だけ)
+
+- 「ファイルは利用者側だけに置く」の方針に合わせ、自分用の版(利用者のサーバー機)でだけ受け付ける。サービス版では使えない(`deps.local` が無い)。
+- ライブラリの項目は `source = "upload"`(`project_id` はこのアプリが作る ID)。版は表 `library_file`(保存先・中の場所・大きさ・SHA-256・版・動くサーバーの種類)。同じ種類で名前が同じなら同じ項目の新しい版、同じ SHA-256 は 2 度入れない。
+- jar は `src/server/jar.ts` で、zip の目次から説明ファイルだけを取り出して読む(展開しない。1 ファイル 1 MB まで)。
+- 保存先(表 `storage_target`。設定は `seal` で暗号化): パネルの中(既定、`/data/v03/library`)・フォルダ・WebDAV。中の場所は `<種類>/<名前>/<ID の頭>-<ファイル名>`。保存先を切り替えても、いままでのファイルは元の保存先のまま(`target_id`)。ファイルが残っている保存先は消せない。
+- サーバーへは `installInto` が、サーバーの種類に合う作り(`loaders`)のいちばん新しい版を、保存先から読んで送る。Pterodactyl は `files/upload` の署名付きの先へ multipart で送る(undici の fetch には undici の FormData を使う)。フォルダのサーバーは書き込む。
+- アップロード・ダウンロードはファイルをそのまま送るので、サーバーの関数ではなく `/api/library/upload`・`/api/library/files/<ID>` の口を使う(権限の確認は `uploadService`)。
+
 ## これから決めること・作るもの
 
 1. CurseForge から探す、サーバーに入っている Mod の配布元を見つける(ファイルの中身や SHA-1 から)

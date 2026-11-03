@@ -6,7 +6,7 @@ import { z } from "zod";
 const svc = async () => (await import("~/server/instance")).library;
 const headers = () => getRequest().headers;
 const sid = z.string().min(1).max(64);
-const source = z.enum(["modrinth", "spigot"]).default("modrinth");
+const source = z.enum(["modrinth", "spigot", "upload"]).default("modrinth");
 
 export const serverDetail = createServerFn({ method: "GET" })
   .validator(z.object({ id: sid }))

@@ -1,6 +1,7 @@
 // Pterodactyl パネルとの連携(Client API)。CraftShelf 02 の ptero.py と同じ考え方。
 // パネルの「アカウント → API 認証情報」で作る Client API キー(ptlc_…)を使う
 import type { FetchLike } from "./net";
+import { FormData as UFormData } from "undici";
 
 export class PteroError extends Error {}
 
@@ -113,6 +114,22 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
     },
     async writeFile(ident: string, file: string, text: string) {
       await req("POST", srv(ident) + `/files/write?file=${encodeURIComponent(file)}`, text);
+    },
+    // ファイルを送る(Wings の、署名付きのアップロード先へ)
+    async upload(ident: string, directory: string, filename: string, data: Uint8Array) {
+      const d = await (await req("GET", srv(ident) + "/files/upload")).json();
+      const url = String(d?.attributes?.url ?? "");
+      if (!/^https?:\/\//.test(url)) throw new PteroError("Pterodactyl からアップロード先を受け取れませんでした");
+      // undici の fetch(lanFetch・safeFetch)には、undici の FormData を渡す(Node の FormData だと中身が送られない)
+      const form = new UFormData();
+      form.append("files", new Blob([new Uint8Array(data)]), filename);
+      let res: Response;
+      try {
+        res = await fetch(`${url}${url.includes("?") ? "&" : "?"}directory=${encodeURIComponent(directory)}`, { method: "POST", body: form as unknown as BodyInit, signal: AbortSignal.timeout(300_000) });
+      } catch {
+        throw new PteroError("Pterodactyl のノード(Wings)に接続できません");
+      }
+      if (!res.ok) throw new PteroError(`ファイルを送れませんでした(HTTP ${res.status})`);
     },
     async deleteFiles(ident: string, root: string, files: string[]) {
       if (files.length) await req("POST", srv(ident) + "/files/delete", { root, files });

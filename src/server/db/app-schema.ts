@@ -259,3 +259,40 @@ export const localServer = pgTable("local_server", {
   rconPasswordSealed: text("rcon_password_sealed").notNull().default(""),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// アップロードしたアドオンの保存先(自分用の版だけ)。kind = local(フォルダ。NAS をマウントしたものでもよい)/ webdav / smb。
+// config は種類ごとの設定の JSON を暗号化したもの(パスワードを含むため)。active が今の保存先(チームに 1 つ)
+export const storageTarget = pgTable(
+  "storage_target",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    kind: text("kind").notNull(),
+    configSealed: text("config_sealed").notNull(),
+    summary: text("summary").notNull().default(""),
+    active: boolean("active").notNull().default(false),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("storage_target_team_idx").on(t.teamId)],
+);
+
+// アップロードしたアドオンの版(ファイル)。storage_key は保存先の中の場所。loaders は動くサーバーの種類の JSON の配列
+export const libraryFile = pgTable(
+  "library_file",
+  {
+    id: text("id").primaryKey(),
+    itemId: text("item_id").notNull().references(() => libraryItem.id, { onDelete: "cascade" }),
+    targetId: text("target_id").references(() => storageTarget.id, { onDelete: "set null" }),
+    storageKey: text("storage_key").notNull(),
+    filename: text("filename").notNull(),
+    size: integer("size").notNull(),
+    sha256: text("sha256").notNull(),
+    version: text("version").notNull().default(""),
+    loaders: text("loaders").notNull().default("[]"),
+    mcVersions: text("mc_versions").notNull().default("[]"),
+    uploadedBy: text("uploaded_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("library_file_item_idx").on(t.itemId), index("library_file_sha_idx").on(t.sha256)],
+);

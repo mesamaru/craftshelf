@@ -5,9 +5,10 @@ import { and, asc, count, eq } from "drizzle-orm";
 import { PLATFORMS, MC_VERSION, type Platform, isPlatform } from "~/lib/platforms";
 import { installedMod, libraryItem, server, serverHold, serverProfile } from "./db/schema";
 import { HttpError, requireTeam } from "./guard";
-import { type Source, SOURCE_LABEL, isSource } from "~/lib/sources";
+import { type ItemSource, SOURCE_LABEL, isItemSource } from "~/lib/sources";
 import { ModrinthError, type ProjectType, isProjectType, modrinthClient } from "./modrinth";
 import { SpigetError, spigetClient } from "./spiget";
+import { fileStore } from "./uploads";
 import { eventService } from "./events";
 import { type Deps, remote, serverOf } from "./servers";
 
@@ -33,10 +34,26 @@ export function modTools(deps: Deps) {
   const modrinth = modrinthClient(deps.fetch);
   const spiget = spigetClient(deps.fetch);
 
-  // 配布元ごとの、入れる版・プロジェクトの名前
-  const latestFile = (source: Source, projectId: string, p: Profile) =>
-    fromSource(() => (source === "spigot" ? spiget.latestFile(projectId, p.platform) : modrinth.latestFile(projectId, p.platform, p.mcVersion)));
-  const project = (source: Source, projectId: string) => fromSource(() => (source === "spigot" ? spiget.project(projectId) : modrinth.project(projectId)));
+  const files = fileStore(deps);
+
+  // 配布元ごとの、入れる版・プロジェクトの名前。アップロードしたものは、保存先のファイル(upload)を返す
+  async function latestFile(source: ItemSource, projectId: string, p: Profile, teamId: string) {
+    if (source === "upload") {
+      const r = await files.pick(teamId, projectId, p.platform);
+      if (!r) return null;
+      const f = r.file;
+      return { projectId, versionId: f.id, versionNumber: f.version || f.filename, filename: f.filename, url: "", sha512: "", size: f.size, upload: f };
+    }
+    const f = await fromSource(() => (source === "spigot" ? spiget.latestFile(projectId, p.platform) : modrinth.latestFile(projectId, p.platform, p.mcVersion)));
+    return f ? { ...f, upload: undefined } : null;
+  }
+  async function project(source: ItemSource, projectId: string, teamId: string) {
+    if (source === "upload") {
+      const [i] = await db.select().from(libraryItem).where(and(eq(libraryItem.teamId, teamId), eq(libraryItem.source, "upload"), eq(libraryItem.projectId, projectId)));
+      return i ? { title: i.title, slug: "", projectType: i.projectType, iconUrl: "" } : null;
+    }
+    return fromSource(() => (source === "spigot" ? spiget.project(projectId) : modrinth.project(projectId)));
+  }
 
   async function profileOf(serverId: string) {
     const [p] = await db.select().from(serverProfile).where(eq(serverProfile.serverId, serverId));
@@ -49,7 +66,7 @@ export function modTools(deps: Deps) {
   }
 
   // ライブラリに載せる(載っていれば名前・アイコンを新しくする)
-  async function remember(teamId: string, userId: string | null, source: Source, projectId: string, p: { title: string; slug: string; projectType: ProjectType; iconUrl: string }) {
+  async function remember(teamId: string, userId: string | null, source: ItemSource, projectId: string, p: { title: string; slug: string; projectType: ProjectType; iconUrl: string }) {
     const set = { title: p.title, slug: p.slug, iconUrl: p.iconUrl };
     const [row] = await db.insert(libraryItem)
       .values({ id: randomUUID(), teamId, source, projectId, projectType: p.projectType, addedBy: userId, ...set })
@@ -59,17 +76,24 @@ export function modTools(deps: Deps) {
   }
 
   // 入れる。同じものの古い版が入っていれば、新しい版を入れてから古いファイルを消す(= 更新)
-  async function installInto(teamId: string, userId: string | null, { row, client, remoteId }: Target, p: Profile, source: Source, projectId: string) {
-    const file = await latestFile(source, projectId, p);
+  async function installInto(teamId: string, userId: string | null, { row, client, remoteId }: Target, p: Profile, source: ItemSource, projectId: string) {
+    const file = await latestFile(source, projectId, p, teamId);
     if (!file) {
       throw new HttpError(404, source === "spigot"
         ? "このサーバーの種類で動く版がありません(SpigotMC の外で配っているもの・有料のものは入れられません)"
+        : source === "upload" ? "このサーバーの種類で動く版が、アップロードしたものの中にありません"
         : "このサーバーの種類・バージョンに合う版がありません");
     }
-    const info = await project(source, projectId);
+    const info = await project(source, projectId, teamId);
     const dir = PLATFORMS[p.platform].dir;
 
-    await remote(() => client.pull(remoteId, file.url, dir, file.filename));
+    // アップロードしたものは、保存先から読んでサーバーに送る。配布元のものは、サーバーに直接取り込ませる
+    if (file.upload) {
+      const data = await files.read(teamId, file.upload);
+      await remote(() => client.upload(remoteId, dir, file.filename, data));
+    } else {
+      await remote(() => client.pull(remoteId, file.url, dir, file.filename));
+    }
 
     const old = await db.select().from(installedMod)
       .where(and(eq(installedMod.serverId, row.id), eq(installedMod.source, source), eq(installedMod.projectId, projectId)));
@@ -103,8 +127,14 @@ export function libraryService(deps: Deps) {
   const { record } = eventService(deps);
   const { modrinth, spiget, latestFile, project, profileOf, needProfile, remember, installInto, holdsOf } = modTools(deps);
   const sourceOf = (v: string) => {
-    if (!isSource(v)) throw new HttpError(400, "配布元を選んでください");
+    if (!isItemSource(v)) throw new HttpError(400, "配布元を選んでください");
     return v;
+  };
+  // 探す・足すのは配布元(Modrinth・SpigotMC)だけ。アップロードしたものは、アップロードで足す
+  const searchable = (v: string) => {
+    const s = sourceOf(v);
+    if (s === "upload") throw new HttpError(400, "アップロードしたものは、「ファイルをアップロード」から足してください");
+    return s;
   };
 
   return {
@@ -131,18 +161,18 @@ export function libraryService(deps: Deps) {
     async searchCatalog(headers: Headers, query: string, type: string, source = "modrinth") {
       await requireTeam(auth, headers);
       if (!isProjectType(type)) throw new HttpError(400, "種類を選んでください");
-      const src = sourceOf(source);
+      const src = searchable(source);
       if (src === "spigot" && type !== "plugin") throw new HttpError(400, "SpigotMC で探せるのはプラグインだけです");
       return fromSource(() => (src === "spigot" ? spiget.searchAll(query) : modrinth.searchType(query, type)));
     },
 
     /** ライブラリに足す */
     async addItem(headers: Headers, projectId: string, source = "modrinth") {
-      const src = sourceOf(source);
+      const src = searchable(source);
       const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
       const [{ n }] = await db.select({ n: count() }).from(libraryItem).where(eq(libraryItem.teamId, teamId));
       if (n >= LIBRARY_LIMITS.itemsPerTeam) throw new HttpError(400, `ライブラリに登録できるのは ${LIBRARY_LIMITS.itemsPerTeam} 件までです`);
-      const p = await project(src, projectId);
+      const p = await project(src, projectId, teamId);
       if (!p) throw new HttpError(404, `${SOURCE_LABEL[src]} にこのプロジェクトが見つかりません`);
       if (!isProjectType(p.projectType)) {
         throw new HttpError(400, src === "spigot"
@@ -207,7 +237,7 @@ export function libraryService(deps: Deps) {
       const { teamId } = await requireTeam(auth, headers);
       const { row } = await serverOf(deps, teamId, id);
       const p = await needProfile(row.id);
-      const src = sourceOf(source);
+      const src = searchable(source);
       if (src === "spigot" && PLATFORMS[p.platform].type !== "plugin") throw new HttpError(400, "SpigotMC にあるのはプラグインだけです");
       return fromSource(() => (src === "spigot" ? spiget.search(query, p.platform) : modrinth.search(query, p.platform, p.mcVersion)));
     },
@@ -258,10 +288,10 @@ export function libraryService(deps: Deps) {
       const p = await needProfile(row.id);
       const records = await db.select().from(installedMod).where(eq(installedMod.serverId, row.id));
       const holds = await holdsOf(row.id);
-      const out: { source: Source; projectId: string; filename: string; current: string; latest: string }[] = [];
+      const out: { source: ItemSource; projectId: string; filename: string; current: string; latest: string }[] = [];
       for (const r of records) {
-        if (!isSource(r.source) || holds.has(`${r.source}:${r.projectId}`)) continue; // 止めているものは確かめない
-        const f = await latestFile(r.source, r.projectId, p);
+        if (!isItemSource(r.source) || holds.has(`${r.source}:${r.projectId}`)) continue; // 止めているものは確かめない
+        const f = await latestFile(r.source, r.projectId, p, teamId);
         if (f && f.versionId !== r.versionId) out.push({ source: r.source, projectId: r.projectId, filename: r.filename, current: r.versionNumber, latest: f.versionNumber });
       }
       return out;

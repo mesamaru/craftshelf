@@ -17,11 +17,14 @@ import { Route as ServersRouteImport } from './routes/servers'
 import { Route as SetsRouteImport } from './routes/sets'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SignupRouteImport } from './routes/signup'
+import { Route as StorageRouteImport } from './routes/storage'
 import { Route as TeamRouteImport } from './routes/team'
 import { Route as InviteIdRouteImport } from './routes/invite.$id'
 import { Route as ServersIdRouteImport } from './routes/servers_.$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiLibraryUploadRouteImport } from './routes/api/library/upload'
 import { Route as ServersIdFilesRouteImport } from './routes/servers_.$id_.files'
+import { Route as ApiLibraryFilesIdRouteImport } from './routes/api/library/files.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -63,6 +66,11 @@ const SignupRoute = SignupRouteImport.update({
   path: '/signup',
   getParentRoute: () => rootRouteImport,
 } as any)
+const StorageRoute = StorageRouteImport.update({
+  id: '/storage',
+  path: '/storage',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const TeamRoute = TeamRouteImport.update({
   id: '/team',
   path: '/team',
@@ -83,9 +91,19 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiLibraryUploadRoute = ApiLibraryUploadRouteImport.update({
+  id: '/api/library/upload',
+  path: '/api/library/upload',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ServersIdFilesRoute = ServersIdFilesRouteImport.update({
   id: '/servers_/$id_/files',
   path: '/servers/$id/files',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiLibraryFilesIdRoute = ApiLibraryFilesIdRouteImport.update({
+  id: '/api/library/files/$id',
+  path: '/api/library/files/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
 
@@ -98,11 +116,14 @@ export interface FileRoutesByFullPath {
   '/sets': typeof SetsRoute
   '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
+  '/storage': typeof StorageRoute
   '/team': typeof TeamRoute
   '/invite/$id': typeof InviteIdRoute
   '/servers/$id': typeof ServersIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/library/upload': typeof ApiLibraryUploadRoute
   '/servers/$id/files': typeof ServersIdFilesRoute
+  '/api/library/files/$id': typeof ApiLibraryFilesIdRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -113,11 +134,14 @@ export interface FileRoutesByTo {
   '/sets': typeof SetsRoute
   '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
+  '/storage': typeof StorageRoute
   '/team': typeof TeamRoute
   '/invite/$id': typeof InviteIdRoute
   '/servers/$id': typeof ServersIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/library/upload': typeof ApiLibraryUploadRoute
   '/servers/$id/files': typeof ServersIdFilesRoute
+  '/api/library/files/$id': typeof ApiLibraryFilesIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -129,11 +153,14 @@ export interface FileRoutesById {
   '/sets': typeof SetsRoute
   '/settings': typeof SettingsRoute
   '/signup': typeof SignupRoute
+  '/storage': typeof StorageRoute
   '/team': typeof TeamRoute
   '/invite/$id': typeof InviteIdRoute
   '/servers_/$id': typeof ServersIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/library/upload': typeof ApiLibraryUploadRoute
   '/servers_/$id_/files': typeof ServersIdFilesRoute
+  '/api/library/files/$id': typeof ApiLibraryFilesIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -146,11 +173,14 @@ export interface FileRouteTypes {
     | '/sets'
     | '/settings'
     | '/signup'
+    | '/storage'
     | '/team'
     | '/invite/$id'
     | '/servers/$id'
     | '/api/auth/$'
+    | '/api/library/upload'
     | '/servers/$id/files'
+    | '/api/library/files/$id'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -161,11 +191,14 @@ export interface FileRouteTypes {
     | '/sets'
     | '/settings'
     | '/signup'
+    | '/storage'
     | '/team'
     | '/invite/$id'
     | '/servers/$id'
     | '/api/auth/$'
+    | '/api/library/upload'
     | '/servers/$id/files'
+    | '/api/library/files/$id'
   id:
     | '__root__'
     | '/'
@@ -176,11 +209,14 @@ export interface FileRouteTypes {
     | '/sets'
     | '/settings'
     | '/signup'
+    | '/storage'
     | '/team'
     | '/invite/$id'
     | '/servers_/$id'
     | '/api/auth/$'
+    | '/api/library/upload'
     | '/servers_/$id_/files'
+    | '/api/library/files/$id'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -192,11 +228,14 @@ export interface RootRouteChildren {
   SetsRoute: typeof SetsRoute
   SettingsRoute: typeof SettingsRoute
   SignupRoute: typeof SignupRoute
+  StorageRoute: typeof StorageRoute
   TeamRoute: typeof TeamRoute
   InviteIdRoute: typeof InviteIdRoute
   ServersIdRoute: typeof ServersIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiLibraryUploadRoute: typeof ApiLibraryUploadRoute
   ServersIdFilesRoute: typeof ServersIdFilesRoute
+  ApiLibraryFilesIdRoute: typeof ApiLibraryFilesIdRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -257,6 +296,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SignupRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/storage': {
+      id: '/storage'
+      path: '/storage'
+      fullPath: '/storage'
+      preLoaderRoute: typeof StorageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/team': {
       id: '/team'
       path: '/team'
@@ -285,11 +331,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/library/upload': {
+      id: '/api/library/upload'
+      path: '/api/library/upload'
+      fullPath: '/api/library/upload'
+      preLoaderRoute: typeof ApiLibraryUploadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/servers_/$id_/files': {
       id: '/servers_/$id_/files'
       path: '/servers/$id/files'
       fullPath: '/servers/$id/files'
       preLoaderRoute: typeof ServersIdFilesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/library/files/$id': {
+      id: '/api/library/files/$id'
+      path: '/api/library/files/$id'
+      fullPath: '/api/library/files/$id'
+      preLoaderRoute: typeof ApiLibraryFilesIdRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
@@ -304,11 +364,14 @@ const rootRouteChildren: RootRouteChildren = {
   SetsRoute: SetsRoute,
   SettingsRoute: SettingsRoute,
   SignupRoute: SignupRoute,
+  StorageRoute: StorageRoute,
   TeamRoute: TeamRoute,
   InviteIdRoute: InviteIdRoute,
   ServersIdRoute: ServersIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiLibraryUploadRoute: ApiLibraryUploadRoute,
   ServersIdFilesRoute: ServersIdFilesRoute,
+  ApiLibraryFilesIdRoute: ApiLibraryFilesIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

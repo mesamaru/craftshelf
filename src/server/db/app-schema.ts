@@ -232,3 +232,16 @@ export const serverFileHistory = pgTable(
   },
   (t) => [index("server_file_history_idx").on(t.serverId, t.path, t.savedAt)],
 );
+
+// サーバーごとの「更新を止める」(そろえる・予約・更新の確認で、新しい版にしない)
+export const serverHold = pgTable(
+  "server_hold",
+  {
+    serverId: text("server_id").notNull().references(() => server.id, { onDelete: "cascade" }),
+    source: text("source").notNull(),
+    projectId: text("project_id").notNull(),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.serverId, t.source, t.projectId] })],
+);

@@ -3,7 +3,7 @@ import type { ApplyResult } from "~/server/sets";
 
 const LABEL: Record<ApplyResult["status"], string> = {
   installed: "入れました", updated: "更新しました", present: "入っています", skipped: "入れません", failed: "入れられません",
-  missing: "入っていません", available: "新しい版があります",
+  missing: "入っていません", available: "新しい版があります", removed: "外しました",
 };
 
 export function ApplyResults({ server, verb, list }: { server: string; verb: string; list: ApplyResult[] }) {

@@ -168,3 +168,31 @@ describe("サーバーとセットの結び付け", () => {
     expect(await code(sets.sync(owner, serverId))).toBe(400);
   });
 });
+
+describe("更新を止める・セットに無いものを外す", () => {
+  let holdSet: string;
+
+  it("止めたものは、そろえても更新の確認でも新しい版にしない。やめれば更新する", async () => {
+    expect(await code(lib.setHold(viewer, serverId, "modrinth", PLUGIN, true))).toBe(403);
+    expect(await code(lib.setHold(owner, serverId, "modrinth", "Missing1", true))).toBe(404);
+    await lib.setHold(owner, serverId, "modrinth", PLUGIN, true);
+    expect((await lib.installed(owner, serverId)).items.find((i) => i.projectId === PLUGIN)?.held).toBe(true);
+    pluginLatest = { id: "ver00003", number: "5.6.0" };
+    expect(await lib.updates(owner, serverId)).toEqual([]);
+    holdSet = (await sets.create(owner, "止める")).id;
+    await sets.toggleItem(owner, holdSet, await itemId(owner, "LuckPerms"), true);
+    await sets.bind(owner, serverId, holdSet);
+    expect((await sets.sync(owner, serverId))[0]).toMatchObject({ status: "present", detail: "更新を止めています(5.5.0)" });
+    await lib.setHold(owner, serverId, "modrinth", PLUGIN, false);
+    expect((await sets.sync(owner, serverId))[0]).toMatchObject({ status: "updated", detail: "5.5.0 → 5.6.0" });
+  });
+
+  it("「セットに無いものを外す」は、このアプリで入れたものだけを外す(手で置いたファイルはそのまま)", async () => {
+    files.set("plugins", [...(files.get("plugins") ?? []), "Manual.jar"]);
+    await sets.toggleItem(owner, holdSet, await itemId(owner, "LuckPerms"), false);
+    expect((await sets.sync(owner, serverId)).map((x) => x.status)).toEqual([]); // 外す指定が無ければ何もしない
+    const r = await sets.sync(owner, serverId, true);
+    expect(r).toEqual([{ title: "LuckPerms", status: "removed", detail: "LuckPerms-5.6.0.jar" }]);
+    expect(files.get("plugins")).toEqual(["Manual.jar"]);
+  });
+});

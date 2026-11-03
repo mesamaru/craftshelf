@@ -36,6 +36,10 @@ export const modUpdates = createServerFn({ method: "GET" })
   .validator(z.object({ id: sid }))
   .handler(async ({ data }) => (await svc()).updates(headers(), data.id));
 
+export const setModHold = createServerFn({ method: "POST" })
+  .validator(z.object({ id: sid, projectId: z.string().max(20), source, hold: z.boolean() }))
+  .handler(async ({ data }) => (await svc()).setHold(headers(), data.id, data.source, data.projectId, data.hold));
+
 export const libraryCatalog = createServerFn({ method: "GET" }).handler(async () => (await svc()).catalog(headers()));
 
 export const searchCatalog = createServerFn({ method: "GET" })

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { installMod, installedMods, modUpdates, removeMod, searchMods, serverDetail, setProfile } from "~/lib/library-api";
+import { installMod, installedMods, modUpdates, removeMod, searchMods, serverDetail, setModHold, setProfile } from "~/lib/library-api";
 import { ApplyResults } from "~/lib/apply-results";
 import { PLATFORMS, PLATFORM_IDS } from "~/lib/platforms";
 import { bindServerSet, listSets, syncServerSet } from "~/lib/sets-api";
@@ -112,6 +112,7 @@ function Installed({ id, items, error, edit, dir, onChange }:
   const check = useServerFn(modUpdates);
   const install = useServerFn(installMod);
   const remove = useServerFn(removeMod);
+  const hold = useServerFn(setModHold);
   const [updates, setUpdates] = useState<Map<string, Update> | null>(null);
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
@@ -149,6 +150,7 @@ function Installed({ id, items, error, edit, dir, onChange }:
                   <span className="muted" translate="no">
                     {m.versionNumber} · {m.filename}
                     {u && <span className="badge">新しい版 {u.latest}</span>}
+                    {m.held && <span className="badge muted-badge">更新を止めています</span>}
                   </span>
                 )}
               </span>
@@ -158,8 +160,14 @@ function Installed({ id, items, error, edit, dir, onChange }:
                   {busy === m.filename ? "更新中…" : "更新"}
                 </button>
               )}
+              {edit && m.projectId && m.source && (
+                <button className={`${u ? "" : "trail "}link`} type="button" disabled={!!busy}
+                  onClick={() => run(`hold:${m.filename}`, () => hold({ data: { id, projectId: m.projectId!, source: m.source as Source, hold: !m.held } }))}>
+                  {m.held ? "止めるのをやめる" : "更新を止める"}
+                </button>
+              )}
               {edit && (
-                <button className={`${u ? "" : "trail "}link danger`} type="button" disabled={!!busy}
+                <button className={`${u || m.projectId ? "" : "trail "}link danger`} type="button" disabled={!!busy}
                   onClick={() => confirm(`${m.title ?? m.filename} を外しますか?(サーバーからファイルを消します)`) && run(m.filename, () => remove({ data: { id, filename: m.filename } }))}>
                   外す
                 </button>
@@ -174,7 +182,7 @@ function Installed({ id, items, error, edit, dir, onChange }:
         )}
         {(error || err) && <p className="row error" role="alert">{error || err}</p>}
       </section>
-      <p className="foot">Modrinth・SpigotMC から入れたものは、版と更新がわかります。それ以外のファイルは名前だけを表示します。変更はサーバーの再起動で反映されます。</p>
+      <p className="foot">Modrinth・SpigotMC から入れたものは、版と更新がわかります。それ以外のファイルは名前だけを表示します。「更新を止める」にしたものは、セットでそろえる・予約・更新の確認で新しい版にしません。変更はサーバーの再起動で反映されます。</p>
     </>
   );
 }
@@ -262,6 +270,7 @@ function SetBinding({ id, name, edit, onSynced }: { id: string; name: string; ed
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [results, setResults] = useState<Awaited<ReturnType<typeof syncServerSet>> | null>(null);
+  const [removeExtra, setRemoveExtra] = useState(false);
   const reload = () => { load().then(setSets, (e) => setError(message(e))); };
   useEffect(reload, [id]);
   const current = sets?.find((x) => x.servers.some((v) => v.id === id)) ?? null;
@@ -295,9 +304,16 @@ function SetBinding({ id, name, edit, onSynced }: { id: string; name: string; ed
         </div>
         {edit && current && (
           <button className="row link" type="button" disabled={!!busy}
-            onClick={() => run("sync", async () => { setResults(await sync({ data: { serverId: id } })); onSynced(); })}>
+            onClick={() => (!removeExtra || confirm("セットに無いもの(このアプリで入れたもの)をサーバーから外します。よろしいですか?"))
+              && run("sync", async () => { setResults(await sync({ data: { serverId: id, removeExtra } })); onSynced(); })}>
             {busy === "sync" ? "そろえています…" : "セットでそろえる"}
           </button>
+        )}
+        {edit && current && (
+          <label className="row">
+            <span>セットに無いものを外す(このアプリで入れたものだけ)</span>
+            <input className="trail" type="checkbox" checked={removeExtra} onChange={(e) => setRemoveExtra(e.target.checked)} />
+          </label>
         )}
         {edit && sets.length === 0 && <div className="row muted">まだセットがありません。トップの「セット」で作れます。</div>}
         {results && <ApplyResults server={name} verb="そろえた" list={results} />}

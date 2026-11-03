@@ -1,19 +1,19 @@
 // セット: ライブラリから選んだものの組み合わせ。サーバーにまとめて入れる。どの処理も、選んでいるチームの中だけを読み書きする
 import { randomUUID } from "node:crypto";
-import { and, asc, count, eq } from "drizzle-orm";
+import { and, asc, count, eq, inArray } from "drizzle-orm";
 import { PLATFORMS } from "~/lib/platforms";
 import { addonSet, addonSetItem, installedMod, libraryItem, server, serverSet } from "./db/schema";
 import { HttpError, requireTeam } from "./guard";
 import { isSource } from "~/lib/sources";
 import { modTools } from "./library";
 import { eventService } from "./events";
-import { type Deps, serverOf } from "./servers";
+import { type Deps, remote, serverOf } from "./servers";
 
 // 無料で使える範囲
 export const SET_LIMITS = { setsPerTeam: 50, itemsPerSet: 200 };
 
 // missing・available は「確かめるだけ」のときの、入っていない・新しい版がある
-export type ApplyResult = { title: string; status: "installed" | "updated" | "present" | "skipped" | "failed" | "missing" | "available"; detail: string };
+export type ApplyResult = { title: string; status: "installed" | "updated" | "present" | "skipped" | "failed" | "missing" | "available" | "removed"; detail: string };
 // add = 足りないものを入れる / sync = それに加えて更新する / check = 確かめるだけ(何も変えない)
 export type ApplyMode = "add" | "sync" | "check";
 
@@ -25,7 +25,7 @@ const cleanName = (name: string) => {
 
 export function setService(deps: Deps) {
   const { db, auth } = deps;
-  const { latestFile, needProfile, installInto } = modTools(deps);
+  const { latestFile, needProfile, installInto, holdsOf } = modTools(deps);
   const { record } = eventService(deps);
   // 結果のまとめ(通知・記録に使う)。変わったもの・失敗したものだけを並べる
   const summary = (list: ApplyResult[]) => {
@@ -33,7 +33,7 @@ export function setService(deps: Deps) {
     const head = n("missing") + n("available")
       ? [`入っていない ${n("missing")}`, `新しい版 ${n("available")}`, `失敗 ${n("failed")}`].join(" / ")
       : [`入れた ${n("installed")}`, `更新 ${n("updated")}`, `失敗 ${n("failed")}`].join(" / ");
-    const lines = list.filter((x) => ["installed", "updated", "failed", "missing", "available"].includes(x.status)).map((x) => `・${x.title}: ${x.detail}`);
+    const lines = list.filter((x) => ["installed", "updated", "failed", "missing", "available", "removed"].includes(x.status)).map((x) => `・${x.title}: ${x.detail}`);
     return [head, ...lines].join("\n");
   };
 
@@ -43,14 +43,16 @@ export function setService(deps: Deps) {
     return s;
   }
   // セットの中身をサーバーに入れる(mode は ApplyMode)
-  async function applyTo(teamId: string, userId: string | null, set: { id: string }, serverId: string, mode: ApplyMode): Promise<ApplyResult[]> {
+  async function applyTo(teamId: string, userId: string | null, set: { id: string }, serverId: string, mode: ApplyMode, removeExtra = false): Promise<ApplyResult[]> {
     const target = await serverOf(deps, teamId, serverId);
     const p = await needProfile(target.row.id);
     const type = PLATFORMS[p.platform].type;
-    const present = new Map((await db.select({ source: installedMod.source, projectId: installedMod.projectId, versionId: installedMod.versionId, versionNumber: installedMod.versionNumber })
-      .from(installedMod).where(eq(installedMod.serverId, target.row.id))).map((r) => [`${r.source}:${r.projectId}`, r]));
+    const records = await db.select().from(installedMod).where(eq(installedMod.serverId, target.row.id));
+    const present = new Map(records.map((r) => [`${r.source}:${r.projectId}`, r]));
+    const holds = await holdsOf(target.row.id);
+    const items = await itemsOf(set.id);
     const out: ApplyResult[] = [];
-    for (const it of await itemsOf(set.id)) {
+    for (const it of items) {
       const now = present.get(`${it.source}:${it.projectId}`);
       if (!isSource(it.source)) continue;
       if (it.projectType !== type) {
@@ -65,6 +67,8 @@ export function setService(deps: Deps) {
           out.push({ title: it.title, status: "installed", detail: r.versionNumber });
         } else if (mode === "add") {
           out.push({ title: it.title, status: "present", detail: "入っています" });
+        } else if (holds.has(`${it.source}:${it.projectId}`)) {
+          out.push({ title: it.title, status: "present", detail: `更新を止めています(${now.versionNumber})` });
         } else {
           const latest = await latestFile(it.source, it.projectId, p);
           if (!latest || latest.versionId === now.versionId) {
@@ -79,6 +83,21 @@ export function setService(deps: Deps) {
       } catch (e) {
         if (!(e instanceof HttpError)) throw e;
         out.push({ title: it.title, status: "failed", detail: e.message });
+      }
+    }
+    // セットに無いもの(このアプリで入れたものだけ。手で置いたファイルは触らない)を外す
+    if (removeExtra && mode === "sync") {
+      const keep = new Set(items.map((it) => `${it.source}:${it.projectId}`));
+      const extra = records.filter((r) => !keep.has(`${r.source}:${r.projectId}`));
+      if (extra.length) {
+        try {
+          await remote(() => target.client.deleteFiles(target.remoteId, PLATFORMS[p.platform].dir, extra.map((r) => r.filename)));
+          await db.delete(installedMod).where(inArray(installedMod.id, extra.map((r) => r.id)));
+          for (const r of extra) out.push({ title: r.title, status: "removed", detail: r.filename });
+        } catch (e) {
+          if (!(e instanceof HttpError)) throw e;
+          for (const r of extra) out.push({ title: r.title, status: "failed", detail: `外せませんでした(${e.message})` });
+        }
       }
     }
     return out;
@@ -178,13 +197,13 @@ export function setService(deps: Deps) {
     },
 
     /** 結び付けたセットでそろえる: 足りないものを入れ、入っているものに新しい版があれば更新する */
-    async sync(headers: Headers, serverId: string): Promise<ApplyResult[]> {
+    async sync(headers: Headers, serverId: string, removeExtra = false): Promise<ApplyResult[]> {
       const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
       await serverInTeam(teamId, serverId); // ほかのチームのサーバーは「見つからない」
       const [b] = await db.select({ setId: serverSet.setId }).from(serverSet).where(eq(serverSet.serverId, serverId));
       if (!b) throw new HttpError(400, "このサーバーにはセットを結び付けていません");
       const set = await setOf(teamId, b.setId);
-      const r = await applyTo(teamId, user.id, set, serverId, "sync");
+      const r = await applyTo(teamId, user.id, set, serverId, "sync", removeExtra);
       await record({ teamId, userId: user.id, kind: "sets", action: "セットでそろえる", target: `${await serverName(serverId)}(${set.name})`, detail: summary(r) });
       return r;
     },

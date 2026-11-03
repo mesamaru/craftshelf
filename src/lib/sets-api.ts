@@ -35,5 +35,5 @@ export const bindServerSet = createServerFn({ method: "POST" })
   .handler(async ({ data }) => (await svc()).bind(headers(), data.serverId, data.setId));
 
 export const syncServerSet = createServerFn({ method: "POST" })
-  .validator(z.object({ serverId: sid }))
-  .handler(async ({ data }) => (await svc()).sync(headers(), data.serverId));
+  .validator(z.object({ serverId: sid, removeExtra: z.boolean().default(false) }))
+  .handler(async ({ data }) => (await svc()).sync(headers(), data.serverId, data.removeExtra));

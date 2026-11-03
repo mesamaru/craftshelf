@@ -97,7 +97,8 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 - 「サーバーに入れる」(`apply`)は、サーバーの種類(プラグイン / Mod)に合うもので、このアプリで入れた記録(`installed_mod`)に無いものだけを入れる。種類の合わないものは入れない。1 件ずつ結果(入れた・入っている・入れない・入れられない)を返し、失敗しても残りは続ける。入れる処理はライブラリと同じ(`modTools` の `installInto`)。
 - 権限: 作る・中身を変える・入れるのは `library: ["edit"]`、見るのはメンバー全員。無料の上限は 1 チーム 50 個・1 セット 200 件(`SET_LIMITS`)。
 - サーバーに結び付けるセットは 1 台に 1 つ(表 `server_set`)。「そろえる」(`sync`)は `apply` と同じく種類の合うものだけを扱い、足りないものを入れ、入っているもの(`installed_mod`)に新しい版(`latestFile` の版が記録と違う)があれば入れ直す(= 更新。古いファイルは消す)。セットに無いものは外さない。
-- これから: そろえるのを予約で動かす、セットに無いものを外す(選べるようにする)。
+- 「更新を止める」(表 `server_hold`、サーバー × 配布元 × ID)。そろえる・予約・更新の確認では、止めたものを新しい版にしない(画面の「更新」は、その場の操作なので止めない)。
+- 「セットに無いものを外す」(`sync` の `removeExtra`)は、`installed_mod` の記録があるもの(このアプリで入れたもの)のうち、セットに無いものだけを外す。手で置いたファイルは記録が無いので触らない。予約では外さない(気づかないうちに消えないように)。
 
 - **SpigotMC**(`src/server/spiget.ts`): Spiget(SpigotMC の公開 API)で探し、Pterodactyl に `https://api.spiget.org/v2/resources/<数字の ID>/download`(Spiget の CDN へ転送される)を取り込ませる。URL はこちらで組み立てるものだけ。SpigotMC の外のサイトで配っているもの(external)・有料のもの(premium)・プラグインではないカテゴリー(Standalone・Web・DataPack)は扱わない。
   - 動くサーバーはカテゴリーで決める(`spigetFits`): サーバー用 → Paper・Purpur・Spigot、プロキシ用 → BungeeCord、Universal → 両方。Folia・Velocity は見分けられないので入れない。Minecraft のバージョンでは絞らない(SpigotMC の対応バージョンは作者の自己申告で粗いため)。版はいちばん新しいものだけ(古い版は Spiget から取り込めない)。

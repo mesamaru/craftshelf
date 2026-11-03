@@ -142,3 +142,5 @@ input.memo { width: 100%; }
 .pre { white-space: pre-line; }
 /* 設定ファイルを直すところ */
 .editor { min-height: 360px; resize: vertical; font-size: 13px; line-height: 1.5; white-space: pre; overflow: auto; }
+/* 目立たせない印(更新を止めているなど) */
+.badge.muted-badge { background: var(--line); color: var(--text); }

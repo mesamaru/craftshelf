@@ -3,7 +3,7 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, count, eq } from "drizzle-orm";
 import { PLATFORMS, MC_VERSION, type Platform, isPlatform } from "~/lib/platforms";
-import { installedMod, libraryItem, server, serverProfile } from "./db/schema";
+import { installedMod, libraryItem, server, serverHold, serverProfile } from "./db/schema";
 import { HttpError, requireTeam } from "./guard";
 import { type Source, SOURCE_LABEL, isSource } from "~/lib/sources";
 import { ModrinthError, type ProjectType, isProjectType, modrinthClient } from "./modrinth";
@@ -91,13 +91,17 @@ export function modTools(deps: Deps) {
     return { title: values.title, filename: file.filename, versionNumber: file.versionNumber, replaced: stale.map((o) => o.filename) };
   }
 
-  return { modrinth, spiget, latestFile, project, profileOf, needProfile, remember, installInto };
+  // 更新を止めているもの("配布元:ID" の集合)
+  const holdsOf = async (serverId: string) =>
+    new Set((await db.select().from(serverHold).where(eq(serverHold.serverId, serverId))).map((h) => `${h.source}:${h.projectId}`));
+
+  return { modrinth, spiget, latestFile, project, profileOf, needProfile, remember, installInto, holdsOf };
 }
 
 export function libraryService(deps: Deps) {
   const { db, auth } = deps;
   const { record } = eventService(deps);
-  const { modrinth, spiget, latestFile, project, profileOf, needProfile, remember, installInto } = modTools(deps);
+  const { modrinth, spiget, latestFile, project, profileOf, needProfile, remember, installInto, holdsOf } = modTools(deps);
   const sourceOf = (v: string) => {
     if (!isSource(v)) throw new HttpError(400, "配布元を選んでください");
     return v;
@@ -185,13 +189,14 @@ export function libraryService(deps: Deps) {
       const dir = PLATFORMS[profile.platform].dir;
       const files = (await remote(() => client.listFiles(remoteId, dir))).filter((f) => f.isFile && f.name.toLowerCase().endsWith(".jar"));
       const records = new Map((await db.select().from(installedMod).where(eq(installedMod.serverId, row.id))).map((r) => [r.filename, r]));
+      const holds = await holdsOf(row.id);
       return {
         dir,
         items: files.map((f) => {
           const r = records.get(f.name);
           return {
             filename: f.name, size: f.size,
-            ...(r ? { source: r.source, projectId: r.projectId, versionId: r.versionId, versionNumber: r.versionNumber, title: r.title } : {}),
+            ...(r ? { source: r.source, projectId: r.projectId, versionId: r.versionId, versionNumber: r.versionNumber, title: r.title, held: holds.has(`${r.source}:${r.projectId}`) } : {}),
           };
         }).sort((a, b) => (a.title ?? a.filename).localeCompare(b.title ?? b.filename)),
       };
@@ -233,15 +238,29 @@ export function libraryService(deps: Deps) {
       await record({ teamId, userId: user.id, kind: "changes", action: "外す", target: row.name, detail: filename });
     },
 
+    /** 更新を止める・止めるのをやめる(そろえる・予約・更新の確認で、新しい版にしない) */
+    async setHold(headers: Headers, id: string, source: string, projectId: string, hold: boolean) {
+      const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
+      const { row } = await serverOf(deps, teamId, id);
+      const src = sourceOf(source);
+      const [rec] = await db.select({ title: installedMod.title, versionNumber: installedMod.versionNumber }).from(installedMod)
+        .where(and(eq(installedMod.serverId, row.id), eq(installedMod.source, src), eq(installedMod.projectId, projectId)));
+      if (!rec) throw new HttpError(404, "このアプリで入れたものではありません");
+      if (hold) await db.insert(serverHold).values({ serverId: row.id, source: src, projectId, createdBy: user.id }).onConflictDoNothing();
+      else await db.delete(serverHold).where(and(eq(serverHold.serverId, row.id), eq(serverHold.source, src), eq(serverHold.projectId, projectId)));
+      await record({ teamId, userId: user.id, kind: "changes", action: hold ? "更新を止める" : "更新を止めるのをやめる", target: row.name, detail: `${rec.title} ${rec.versionNumber}` });
+    },
+
     /** このアプリで入れたものに、新しい版があるか */
     async updates(headers: Headers, id: string) {
       const { teamId } = await requireTeam(auth, headers);
       const { row } = await serverOf(deps, teamId, id);
       const p = await needProfile(row.id);
       const records = await db.select().from(installedMod).where(eq(installedMod.serverId, row.id));
+      const holds = await holdsOf(row.id);
       const out: { source: Source; projectId: string; filename: string; current: string; latest: string }[] = [];
       for (const r of records) {
-        if (!isSource(r.source)) continue;
+        if (!isSource(r.source) || holds.has(`${r.source}:${r.projectId}`)) continue; // 止めているものは確かめない
         const f = await latestFile(r.source, r.projectId, p);
         if (f && f.versionId !== r.versionId) out.push({ source: r.source, projectId: r.projectId, filename: r.filename, current: r.versionNumber, latest: f.versionNumber });
       }

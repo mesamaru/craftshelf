@@ -150,3 +150,5 @@ input.memo { width: 100%; }
 .strong { font-weight: 600; }
 .link.small { align-self: flex-start; }
 .hit .files a { font-weight: 400; color: var(--accent); }
+/* 共有リンクの URL */
+.share-url { width: 100%; font-size: 12px; padding: 4px 6px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; }

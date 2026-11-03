@@ -54,8 +54,10 @@ function Team() {
             <section className="group">
               <Link to="/activity" className="row link">操作の記録と Discord への通知</Link>
               {app.mode === "self" && <Link to="/storage" className="row link">保存先(アップロードしたアドオンの置き場所)</Link>}
+              <Link to="/usage" className="row link">利用状況</Link>
             </section>
           )}
+          {app.mode === "self" && <section className="group"><Link to="/shares" className="row link">共有リンク</Link></section>}
           {app.mode === "self" && can({ member: ["update"] }) && <CurseForgeKey />}
           {me && me.role !== "owner" && <Leave teamId={team.id} />}
         </>

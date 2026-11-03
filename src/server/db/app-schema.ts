@@ -320,3 +320,21 @@ export const installHistory = pgTable(
   },
   (t) => [index("install_history_idx").on(t.serverId, t.source, t.projectId, t.replacedAt)],
 );
+
+// 共有リンク(アップロードした版を、ログインしていない人に渡す)。トークンはハッシュだけを保存する。file_ids は版の ID の JSON の配列
+export const shareLink = pgTable(
+  "share_link",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    name: text("name").notNull(),
+    fileIds: text("file_ids").notNull(),
+    filename: text("filename").notNull(),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    downloads: integer("downloads").notNull().default(0),
+  },
+  (t) => [uniqueIndex("share_link_token_uq").on(t.tokenHash), index("share_link_team_idx").on(t.teamId)],
+);

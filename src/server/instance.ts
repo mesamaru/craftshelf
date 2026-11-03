@@ -11,6 +11,7 @@ import { eventService } from "./events";
 import { scheduleService } from "./schedule";
 import { fileService } from "./files";
 import { uploadService } from "./uploads";
+import { shareService } from "./shares";
 import { versionService } from "./versions";
 
 export const env = readEnv();
@@ -43,6 +44,7 @@ export const events = eventService(deps);
 export const schedules = scheduleService(deps, sets);
 export const files = fileService(deps);
 export const uploads = uploadService(deps);
+export const shares = shareService(deps);
 export const ports = portService(deps);
 
 // パネルからの版の切り替え(自分用の版だけ。サービス版は Docker のイメージで入れ替える)

@@ -16,10 +16,13 @@ import { Route as PortsRouteImport } from './routes/ports'
 import { Route as ServersRouteImport } from './routes/servers'
 import { Route as SetsRouteImport } from './routes/sets'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as SharesRouteImport } from './routes/shares'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as StorageRouteImport } from './routes/storage'
 import { Route as TeamRouteImport } from './routes/team'
+import { Route as UsageRouteImport } from './routes/usage'
 import { Route as InviteIdRouteImport } from './routes/invite.$id'
+import { Route as SSplatRouteImport } from './routes/s.$'
 import { Route as ServersIdRouteImport } from './routes/servers_.$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiLibraryUploadRouteImport } from './routes/api/library/upload'
@@ -61,6 +64,11 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SharesRoute = SharesRouteImport.update({
+  id: '/shares',
+  path: '/shares',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
   path: '/signup',
@@ -76,9 +84,19 @@ const TeamRoute = TeamRouteImport.update({
   path: '/team',
   getParentRoute: () => rootRouteImport,
 } as any)
+const UsageRoute = UsageRouteImport.update({
+  id: '/usage',
+  path: '/usage',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const InviteIdRoute = InviteIdRouteImport.update({
   id: '/invite/$id',
   path: '/invite/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SSplatRoute = SSplatRouteImport.update({
+  id: '/s/$',
+  path: '/s/$',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ServersIdRoute = ServersIdRouteImport.update({
@@ -115,10 +133,13 @@ export interface FileRoutesByFullPath {
   '/servers': typeof ServersRoute
   '/sets': typeof SetsRoute
   '/settings': typeof SettingsRoute
+  '/shares': typeof SharesRoute
   '/signup': typeof SignupRoute
   '/storage': typeof StorageRoute
   '/team': typeof TeamRoute
+  '/usage': typeof UsageRoute
   '/invite/$id': typeof InviteIdRoute
+  '/s/$': typeof SSplatRoute
   '/servers/$id': typeof ServersIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/library/upload': typeof ApiLibraryUploadRoute
@@ -133,10 +154,13 @@ export interface FileRoutesByTo {
   '/servers': typeof ServersRoute
   '/sets': typeof SetsRoute
   '/settings': typeof SettingsRoute
+  '/shares': typeof SharesRoute
   '/signup': typeof SignupRoute
   '/storage': typeof StorageRoute
   '/team': typeof TeamRoute
+  '/usage': typeof UsageRoute
   '/invite/$id': typeof InviteIdRoute
+  '/s/$': typeof SSplatRoute
   '/servers/$id': typeof ServersIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/library/upload': typeof ApiLibraryUploadRoute
@@ -152,10 +176,13 @@ export interface FileRoutesById {
   '/servers': typeof ServersRoute
   '/sets': typeof SetsRoute
   '/settings': typeof SettingsRoute
+  '/shares': typeof SharesRoute
   '/signup': typeof SignupRoute
   '/storage': typeof StorageRoute
   '/team': typeof TeamRoute
+  '/usage': typeof UsageRoute
   '/invite/$id': typeof InviteIdRoute
+  '/s/$': typeof SSplatRoute
   '/servers_/$id': typeof ServersIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/library/upload': typeof ApiLibraryUploadRoute
@@ -172,10 +199,13 @@ export interface FileRouteTypes {
     | '/servers'
     | '/sets'
     | '/settings'
+    | '/shares'
     | '/signup'
     | '/storage'
     | '/team'
+    | '/usage'
     | '/invite/$id'
+    | '/s/$'
     | '/servers/$id'
     | '/api/auth/$'
     | '/api/library/upload'
@@ -190,10 +220,13 @@ export interface FileRouteTypes {
     | '/servers'
     | '/sets'
     | '/settings'
+    | '/shares'
     | '/signup'
     | '/storage'
     | '/team'
+    | '/usage'
     | '/invite/$id'
+    | '/s/$'
     | '/servers/$id'
     | '/api/auth/$'
     | '/api/library/upload'
@@ -208,10 +241,13 @@ export interface FileRouteTypes {
     | '/servers'
     | '/sets'
     | '/settings'
+    | '/shares'
     | '/signup'
     | '/storage'
     | '/team'
+    | '/usage'
     | '/invite/$id'
+    | '/s/$'
     | '/servers_/$id'
     | '/api/auth/$'
     | '/api/library/upload'
@@ -227,10 +263,13 @@ export interface RootRouteChildren {
   ServersRoute: typeof ServersRoute
   SetsRoute: typeof SetsRoute
   SettingsRoute: typeof SettingsRoute
+  SharesRoute: typeof SharesRoute
   SignupRoute: typeof SignupRoute
   StorageRoute: typeof StorageRoute
   TeamRoute: typeof TeamRoute
+  UsageRoute: typeof UsageRoute
   InviteIdRoute: typeof InviteIdRoute
+  SSplatRoute: typeof SSplatRoute
   ServersIdRoute: typeof ServersIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiLibraryUploadRoute: typeof ApiLibraryUploadRoute
@@ -289,6 +328,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/shares': {
+      id: '/shares'
+      path: '/shares'
+      fullPath: '/shares'
+      preLoaderRoute: typeof SharesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/signup': {
       id: '/signup'
       path: '/signup'
@@ -310,11 +356,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeamRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/usage': {
+      id: '/usage'
+      path: '/usage'
+      fullPath: '/usage'
+      preLoaderRoute: typeof UsageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/invite/$id': {
       id: '/invite/$id'
       path: '/invite/$id'
       fullPath: '/invite/$id'
       preLoaderRoute: typeof InviteIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/s/$': {
+      id: '/s/$'
+      path: '/s/$'
+      fullPath: '/s/$'
+      preLoaderRoute: typeof SSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/servers_/$id': {
@@ -363,10 +423,13 @@ const rootRouteChildren: RootRouteChildren = {
   ServersRoute: ServersRoute,
   SetsRoute: SetsRoute,
   SettingsRoute: SettingsRoute,
+  SharesRoute: SharesRoute,
   SignupRoute: SignupRoute,
   StorageRoute: StorageRoute,
   TeamRoute: TeamRoute,
+  UsageRoute: UsageRoute,
   InviteIdRoute: InviteIdRoute,
+  SSplatRoute: SSplatRoute,
   ServersIdRoute: ServersIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiLibraryUploadRoute: ApiLibraryUploadRoute,

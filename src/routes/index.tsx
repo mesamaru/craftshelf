@@ -6,6 +6,7 @@ import { addLibraryItem, installMod, libraryCatalog, removeLibraryItem, searchCa
 import { localEnabled } from "~/lib/servers-api";
 import { SOURCE_LABEL, type ItemSource, type Source, isItemSource, pageUrl } from "~/lib/sources";
 import { removeUploadedFile, uploadedFiles } from "~/lib/uploads-api";
+import { createShare } from "~/lib/shares-api";
 import { useCan } from "~/lib/use-can";
 
 export const Route = createFileRoute("/")({
@@ -105,7 +106,7 @@ function Item({ item, servers, edit, onChange }:
         {busy && <span className="muted">{busy === "remove" ? "外しています…" : "サーバーに入れています…"}</span>}
         {error && <span className="error" role="alert">{error}</span>}
         {item.source === "upload" && <button className="link small" type="button" onClick={() => setShowFiles((v) => !v)}>{showFiles ? "版を閉じる" : "版を見る"}</button>}
-        {showFiles && <Files itemId={item.id} edit={edit} />}
+        {showFiles && <Files itemId={item.id} title={item.title} edit={edit} />}
       </span>
       {edit && targets.length > 0 && (
         <select className="trail" value="" disabled={!!busy} aria-label={`${item.title} をサーバーに入れる`}
@@ -201,9 +202,11 @@ function AddFromSource({ sources, have, onAdded }: { sources: Source[]; have: Se
 }
 
 // アップロードしたものの版(ダウンロード・消す)
-function Files({ itemId, edit }: { itemId: string; edit: boolean }) {
+function Files({ itemId, title, edit }: { itemId: string; title: string; edit: boolean }) {
   const load = useServerFn(uploadedFiles);
   const remove = useServerFn(removeUploadedFile);
+  const share = useServerFn(createShare);
+  const [link, setLink] = useState("");
   const [files, setFiles] = useState<Awaited<ReturnType<typeof uploadedFiles>> | null>(null);
   const [error, setError] = useState("");
   const reload = () => { load({ data: { itemId } }).then(setFiles, (e) => setError(message(e))); };
@@ -218,6 +221,19 @@ function Files({ itemId, edit }: { itemId: string; edit: boolean }) {
             onClick={() => confirm(`${f.filename} を消しますか?(保存先からも消えます。サーバーに入っているものはそのままです)`) && remove({ data: { fileId: f.id } }).then(reload, (e) => setError(message(e)))}>消す</button></>}
         </span>
       ))}
+      {edit && files && files.length > 0 && (
+        <button className="link small" type="button"
+          onClick={() => share({ data: { itemIds: [itemId], hours: 168, name: title } }).then((r) => setLink(r.url), (e) => setError(message(e)))}>
+          共有リンクを作る(いちばん新しい版・7 日)
+        </button>
+      )}
+      {link && (
+        <span className="muted">
+          <input className="codes share-url" readOnly value={link} onFocus={(e) => e.currentTarget.select()} aria-label="共有リンクの URL" />
+          {" "}<button className="link small" type="button" onClick={() => navigator.clipboard?.writeText(link)}>コピー</button>
+          {" "}(この URL は今だけ表示します。消すのは「チーム」→「共有リンク」から)
+        </span>
+      )}
       {error && <span className="error" role="alert">{error}</span>}
     </span>
   );

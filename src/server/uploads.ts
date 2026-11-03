@@ -73,7 +73,7 @@ export function uploadService(deps: Deps) {
   };
   const activeOf = async (teamId: string) => (await db.select().from(storageTarget).where(and(eq(storageTarget.teamId, teamId), eq(storageTarget.active, true))))[0] ?? null;
 
-  function cleanConfig(input: { kind: string; path?: string; url?: string; user?: string; password?: string }): { config: StorageConfig; summary: string } {
+  function cleanConfig(input: { kind: string; path?: string; url?: string; user?: string; password?: string; host?: string; share?: string; domain?: string }): { config: StorageConfig; summary: string } {
     if (input.kind === "local") {
       const path = String(input.path ?? "").trim();
       return { config: { kind: "local", path }, summary: path };
@@ -81,6 +81,11 @@ export function uploadService(deps: Deps) {
     if (input.kind === "webdav") {
       const url = String(input.url ?? "").trim();
       return { config: { kind: "webdav", url, user: String(input.user ?? ""), password: String(input.password ?? "") }, summary: `${url}${input.user ? `(${input.user})` : ""}` };
+    }
+    if (input.kind === "smb") {
+      const c = { kind: "smb" as const, host: String(input.host ?? "").trim(), share: String(input.share ?? "").trim(), path: String(input.path ?? "").trim(),
+        user: String(input.user ?? ""), password: String(input.password ?? ""), domain: String(input.domain ?? "") };
+      return { config: c, summary: `\\\\${c.host}\\${c.share}${c.path ? `\\${c.path.replace(/\//g, "\\")}` : ""}${c.user ? `(${c.user})` : ""}` };
     }
     throw new HttpError(400, "保存先の種類を選んでください");
   }
@@ -99,7 +104,7 @@ export function uploadService(deps: Deps) {
     },
 
     /** 保存先を足す。つながる・書き込めることを確かめてから保存し、これからのアップロードの保存先にする */
-    async addTarget(headers: Headers, input: { name: string; kind: string; path?: string; url?: string; user?: string; password?: string }) {
+    async addTarget(headers: Headers, input: { name: string; kind: string; path?: string; url?: string; user?: string; password?: string; host?: string; share?: string; domain?: string }) {
       const { teamId, user } = await requireTeam(auth, headers, { member: ["update"] });
       needLocal();
       const n = await db.select({ id: storageTarget.id }).from(storageTarget).where(eq(storageTarget.teamId, teamId));
@@ -107,7 +112,7 @@ export function uploadService(deps: Deps) {
       const { config, summary } = cleanConfig(input);
       await fromStorage(async () => storeFor(config, deps.fetch).test());
       const id = randomUUID();
-      const name = String(input.name ?? "").trim().slice(0, 60) || (config.kind === "local" ? "フォルダ" : "WebDAV");
+      const name = String(input.name ?? "").trim().slice(0, 60) || { local: "フォルダ", webdav: "WebDAV", smb: "SMB" }[config.kind];
       await db.transaction(async (tx) => {
         await tx.update(storageTarget).set({ active: false }).where(eq(storageTarget.teamId, teamId));
         await tx.insert(storageTarget).values({ id, teamId, name, kind: config.kind, configSealed: seal(secret, JSON.stringify(config), sealContext(teamId, id)), summary, active: true });

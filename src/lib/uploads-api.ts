@@ -11,8 +11,9 @@ const sid = z.string().min(1).max(64);
 export const storageTargets = createServerFn({ method: "GET" }).handler(async () => (await svc()).targets(headers()));
 
 export const addStorageTarget = createServerFn({ method: "POST" })
-  .validator(z.object({ name: z.string().max(100), kind: z.enum(["local", "webdav"]), path: z.string().max(1000).optional(),
-    url: z.string().max(1000).optional(), user: z.string().max(200).optional(), password: z.string().max(300).optional() }))
+  .validator(z.object({ name: z.string().max(100), kind: z.enum(["local", "webdav", "smb"]), path: z.string().max(1000).optional(),
+    url: z.string().max(1000).optional(), user: z.string().max(200).optional(), password: z.string().max(300).optional(),
+    host: z.string().max(253).optional(), share: z.string().max(200).optional(), domain: z.string().max(100).optional() }))
   .handler(async ({ data }) => (await svc()).addTarget(headers(), data));
 
 export const activateStorageTarget = createServerFn({ method: "POST" })

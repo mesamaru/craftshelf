@@ -56,7 +56,7 @@ function makeV02(dir: string) {
   d.exec("INSERT INTO passkeys VALUES (1, 1, 'x'); ");
   // 保存先: 1 = パネルの中 / 2 = SMB(v03 はまだつなげない)。自作は 1 に、NASだけ は 2 にだけ版がある
   d.exec(`
-    INSERT INTO storage_targets (name, protocol, active) VALUES ('パネルの中', 'local', 1), ('家の NAS', 'smb', 0);
+    INSERT INTO storage_targets (name, protocol, server, share, active) VALUES ('パネルの中', 'local', '', '', 1), ('家の NAS', 'smb', 'nas.example.test', 'share', 0);
     INSERT INTO versions (item_id, target_id, version, filename, relpath, size, sha256, meta, added_at) VALUES
       (1, 1, '5.4', 'LuckPerms-5.4.jar', 'plugin/LuckPerms/LuckPerms-5.4.jar', 10, 'aaa', '{}', '2025-01-01'),
       (4, 1, '1.0', 'Jisaku-1.0.jar', 'plugin/自作/Jisaku-1.0.jar', 20, 'bbb', '{"loader":"Bukkit / Spigot / Paper"}', '2025-02-01'),
@@ -160,17 +160,20 @@ describe("v02 のライブラリ・セットの取り込み", () => {
       { title: "Lithium", type: "mod", source: "modrinth", slug: "lithium" },
       { title: "LuckPerms", type: "plugin", source: "modrinth", slug: "luckperms" }, // 2 人が持っていても 1 件
       { title: "自作", type: "plugin", source: "upload", slug: "" }, // アップロードしたもの(v02 の保存先のファイルを指す)
-    ]);
+      { title: "NASだけ", type: "plugin", source: "upload", slug: "" }, // SMB の保存先のもの
+    ].sort((a, b) => a.title.localeCompare(b.title)));
     const sets = await t.db.select({ name: addonSet.name, item: libraryItem.title }).from(addonSet)
       .innerJoin(addonSetItem, eq(addonSetItem.setId, addonSet.id)).innerJoin(libraryItem, eq(libraryItem.id, addonSetItem.itemId));
     expect(sets.map((x) => `${x.name}:${x.item}`).sort()).toEqual(["ロビー:Lithium", "ロビー:LuckPerms", "ロビー:自作"]);
-    expect([r.items, r.sets, r.uploads]).toEqual([3, 1, 1]);
+    expect([r.items, r.sets, r.uploads]).toEqual([3, 1, 2]);
     const skipped = Object.fromEntries(r.skipped.map((x) => [x.what, x.detail]));
-    expect(skipped["ライブラリの 1 件"]).toContain("NASだけ");
-    expect(skipped["v02 の保存先(SMB)"]).toContain("家の NAS");
-    const [file] = await t.db.select({ key: libraryFile.storageKey, loaders: libraryFile.loaders, target: storageTarget.summary })
+    expect(skipped["ライブラリの 1 件"]).toBeUndefined();
+    const files = await t.db.select({ key: libraryFile.storageKey, loaders: libraryFile.loaders, kind: storageTarget.kind, target: storageTarget.summary })
       .from(libraryFile).innerJoin(storageTarget, eq(libraryFile.targetId, storageTarget.id));
-    expect(file).toEqual({ key: "library/plugin/自作/Jisaku-1.0.jar", loaders: JSON.stringify(["bukkit", "spigot", "paper", "purpur"]), target: `${v03Dir}(v02 のパネルの中)` });
+    expect(files.sort((a, b) => a.key.localeCompare(b.key))).toEqual([
+      { key: "library/plugin/NasOnly/NasOnly.jar", loaders: "[]", kind: "smb", target: "\\\\nas.example.test\\share" },
+      { key: "library/plugin/自作/Jisaku-1.0.jar", loaders: JSON.stringify(["bukkit", "spigot", "paper", "purpur"]), kind: "local", target: `${v03Dir}(v02 のパネルの中)` },
+    ]);
     expect(skipped["データパックなど(1 件)"]).toContain("村人");
     expect(skipped["セットの版の固定(1 件)"]).toBeTruthy();
   });

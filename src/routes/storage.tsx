@@ -12,7 +12,7 @@ export const Route = createFileRoute("/storage")({
 });
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
-const KIND_LABEL: Record<string, string> = { local: "フォルダ", webdav: "WebDAV" };
+const KIND_LABEL: Record<string, string> = { local: "フォルダ", webdav: "WebDAV", smb: "SMB" };
 
 // アップロードしたアドオンの保存先(自分用の版・管理者以上)
 function Storage() {
@@ -68,7 +68,7 @@ function Storage() {
         ))}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">これからアップロードするものの置き場所です。切り替えても、いままでのファイルは元の保存先に置いたまま使えます。NAS(SMB・NFS)は、パネルのコンテナにマウントして「フォルダ」として足してください。</p>
+      <p className="foot">これからアップロードするものの置き場所です。切り替えても、いままでのファイルは元の保存先に置いたまま使えます。NAS は、SMB で直接つなぐか、パネルのコンテナにマウントして「フォルダ」として足してください。</p>
       <NewTarget onDone={reload} />
     </main>
   );
@@ -76,16 +76,18 @@ function Storage() {
 
 function NewTarget({ onDone }: { onDone: () => void }) {
   const add = useServerFn(addStorageTarget);
-  const [kind, setKind] = useState<"local" | "webdav">("local");
-  const [f, setF] = useState({ name: "", path: "", url: "", user: "", password: "" });
+  const [kind, setKind] = useState<"local" | "webdav" | "smb">("local");
+  const [f, setF] = useState({ name: "", path: "", url: "", user: "", password: "", host: "", share: "", domain: "" });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const submit = async () => {
     setBusy(true);
     setError("");
     try {
-      await add({ data: { kind, name: f.name, ...(kind === "local" ? { path: f.path } : { url: f.url, user: f.user, password: f.password }) } });
-      setF({ name: "", path: "", url: "", user: "", password: "" });
+      await add({ data: { kind, name: f.name, ...(kind === "local" ? { path: f.path }
+        : kind === "webdav" ? { url: f.url, user: f.user, password: f.password }
+        : { host: f.host, share: f.share, path: f.path, user: f.user, password: f.password, domain: f.domain }) } });
+      setF({ name: "", path: "", url: "", user: "", password: "", host: "", share: "", domain: "" });
       onDone();
     } catch (e) {
       setError(message(e));
@@ -99,15 +101,25 @@ function NewTarget({ onDone }: { onDone: () => void }) {
       <form className="group form" onSubmit={(e) => (e.preventDefault(), submit())}>
         <div className="row">
           <span>種類</span>
-          <select className="trail" value={kind} aria-label="保存先の種類" onChange={(e) => setKind(e.target.value as "local" | "webdav")}>
+          <select className="trail" value={kind} aria-label="保存先の種類" onChange={(e) => setKind(e.target.value as "local" | "webdav" | "smb")}>
             <option value="local">フォルダ(NAS をマウントしたものも)</option>
+            <option value="smb">SMB(NAS に直接)</option>
             <option value="webdav">WebDAV</option>
           </select>
         </div>
         <input className="row" placeholder="名前(例 家の NAS)" translate="no" value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
-        {kind === "local"
-          ? <input className="row codes" placeholder="フォルダの場所(例 /mnt/nas/craftshelf)" value={f.path} onChange={(e) => setF({ ...f, path: e.target.value })} aria-label="フォルダの場所" />
-          : (
+        {kind === "local" && <input className="row codes" placeholder="フォルダの場所(例 /mnt/nas/craftshelf)" value={f.path} onChange={(e) => setF({ ...f, path: e.target.value })} aria-label="フォルダの場所" />}
+        {kind === "smb" && (
+          <>
+            <input className="row codes" placeholder="サーバー名か IP アドレス(例 nas.local)" value={f.host} onChange={(e) => setF({ ...f, host: e.target.value })} aria-label="SMB のサーバー" />
+            <input className="row codes" placeholder="共有フォルダの名前(例 share)" value={f.share} onChange={(e) => setF({ ...f, share: e.target.value })} aria-label="共有フォルダ" />
+            <input className="row codes" placeholder="共有フォルダの中の場所(任意。例 craftshelf)" value={f.path} onChange={(e) => setF({ ...f, path: e.target.value })} aria-label="共有フォルダの中の場所" />
+            <input className="row" placeholder="ユーザー名" autoComplete="off" value={f.user} onChange={(e) => setF({ ...f, user: e.target.value })} />
+            <input className="row" type="password" placeholder="パスワード" autoComplete="off" value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
+            <input className="row" placeholder="ドメイン(任意。ふつうは空)" autoComplete="off" value={f.domain} onChange={(e) => setF({ ...f, domain: e.target.value })} />
+          </>
+        )}
+        {kind === "webdav" && (
             <>
               <input className="row codes" placeholder="URL(例 https://nas.example/remote.php/dav/files/me/craftshelf)" value={f.url} onChange={(e) => setF({ ...f, url: e.target.value })} aria-label="WebDAV の URL" />
               <input className="row" placeholder="ユーザー名" autoComplete="off" value={f.user} onChange={(e) => setF({ ...f, user: e.target.value })} />
@@ -117,7 +129,7 @@ function NewTarget({ onDone }: { onDone: () => void }) {
         {error && <p className="row error" role="alert">{error}</p>}
         <button className="row link" type="submit" disabled={busy}>{busy ? "確かめています…" : "書き込めるか確かめて足す"}</button>
       </form>
-      <p className="foot">足すと、これからのアップロードの保存先になります。パスワードは暗号化して保存し、画面には出しません。</p>
+      <p className="foot">足すと、これからのアップロードの保存先になります。パスワードは暗号化して保存し、画面には出しません。SMB は SMB 2.0・2.1 でつなぎます(通信への署名・SMB 3 を必須にしている NAS や Windows のサーバーには、つながりません。そのときはマウントしてフォルダとして足してください)。</p>
     </>
   );
 }

@@ -270,7 +270,7 @@ export async function importLibrary(db: Db, v02: DatabaseSync, teamId: string, u
   });
 
   if (unknown.length) {
-    report.skipped.push({ what: `ライブラリの ${unknown.length} 件`, detail: `配布元が Modrinth・SpigotMC とわからず、ファイルも取り込めなかったもの(保存先が SMB・版が無いなど)です。ファイルは v02 の保存先に残っています: ${listOf(unknown)}` });
+    report.skipped.push({ what: `ライブラリの ${unknown.length} 件`, detail: `配布元が Modrinth・SpigotMC とわからず、ファイルも取り込めなかったもの(保存先の方式が使えない・版が無いなど)です。ファイルは v02 の保存先に残っています: ${listOf(unknown)}` });
   }
   if (otherKinds.length) {
     report.skipped.push({ what: `データパックなど(${otherKinds.length} 件)`, detail: `v03 はプラグインと Mod だけを扱います: ${listOf(otherKinds)}` });
@@ -366,8 +366,17 @@ export async function importUploads(db: Db, v02: DatabaseSync, teamId: string, o
       const url = str(t.server).replace(/\/+$/, "") + (str(t.subpath) ? `/${str(t.subpath).replace(/^\/+/, "")}` : "");
       config = { kind: "webdav", url, user: str(t.username), password };
       summary = `${url}${str(t.username) ? `(${str(t.username)})` : ""}`;
+    } else if (proto === "smb") {
+      let password = "";
+      try {
+        password = str(t.password_enc) ? decryptV02Secret(str(t.password_enc), v02Key) : "";
+      } catch {
+        report.skipped.push({ what: `v02 の保存先「${str(t.name)}」のパスワード`, detail: "読めませんでした。「保存先」で設定し直してください" });
+      }
+      config = { kind: "smb", host: str(t.server), share: str(t.share), path: str(t.subpath), user: str(t.username), password, domain: has(v02, "storage_targets", "domain") ? str(t.domain) : "" };
+      summary = `\\\\${str(t.server)}\\${str(t.share)}${str(t.subpath) ? `\\${str(t.subpath)}` : ""}${str(t.username) ? `(${str(t.username)})` : ""}`;
     } else {
-      smb.push(str(t.name) || proto);
+      smb.push(str(t.name) || proto); // NFS など、v03 にない方式
       targets.set(Number(t.id), null);
       continue;
     }
@@ -406,6 +415,6 @@ export async function importUploads(db: Db, v02: DatabaseSync, teamId: string, o
     uploaded.set(Number(it.id), item.id);
     report.uploads++;
   }
-  if (smb.length) report.skipped.push({ what: `v02 の保存先(SMB)`, detail: `${smb.join("、")}。v03 で SMB につなげるようになったら取り込みます(いまは NAS をマウントしてフォルダとして足せます)` });
+  if (smb.length) report.skipped.push({ what: `v02 の保存先(${smb.length} 個)`, detail: `${smb.join("、")}。v03 で使えない方式(NFS など)なので取り込んでいません(NAS をマウントしてフォルダとして足せます)` });
   return uploaded;
 }

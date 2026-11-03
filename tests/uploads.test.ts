@@ -7,7 +7,7 @@ import { HttpError } from "~/server/guard";
 import { libraryService } from "~/server/library";
 import type { FetchLike } from "~/server/net";
 import { serverService } from "~/server/servers";
-import { webdavStore } from "~/server/storage";
+import { smbStore, webdavStore } from "~/server/storage";
 import { uploadService } from "~/server/uploads";
 import { setup } from "./helpers";
 import { makeZip } from "./zip";
@@ -136,4 +136,20 @@ describe("保存先", () => {
   it("WebDAV の URL にユーザー名を書いたものは断る", () => {
     expect(() => webdavStore("https://me:pw@dav.example.test/", "", "", fake)).toThrow();
   });
+});
+
+describe("SMB の保存先", () => {
+  it("サーバー名・共有フォルダ・中の場所を確かめる", () => {
+    const base = { host: "nas.local", share: "share", path: "", user: "", password: "", domain: "" };
+    expect(() => smbStore({ ...base, host: "\\nas\share" })).toThrow();
+    expect(() => smbStore({ ...base, share: "" })).toThrow();
+    expect(() => smbStore({ ...base, share: "a/b" })).toThrow();
+    expect(() => smbStore({ ...base, path: "../x" })).toThrow();
+    expect(() => smbStore({ ...base, path: "craftshelf/library" })).not.toThrow();
+  });
+
+  it("つながらない・認証できないときは、足さずに理由を返す", async () => {
+    expect(await code(up.addTarget(owner, { name: "NAS", kind: "smb", host: "127.0.0.1", share: "nope", user: "x", password: "y" }))).toBe(502);
+    expect((await up.targets(owner)).targets.some((t) => t.kind === "smb")).toBe(false);
+  }, 60_000);
 });

@@ -139,6 +139,7 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 - jar は `src/server/jar.ts` で、zip の目次から説明ファイルだけを取り出して読む(展開しない。1 ファイル 1 MB まで)。
 - 保存先(表 `storage_target`。設定は `seal` で暗号化): パネルの中(既定、`/data/v03/library`)・フォルダ・WebDAV。中の場所は `<種類>/<名前>/<ID の頭>-<ファイル名>`。保存先を切り替えても、いままでのファイルは元の保存先のまま(`target_id`)。ファイルが残っている保存先は消せない。
 - サーバーへは `installInto` が、サーバーの種類に合う作り(`loaders`)のいちばん新しい版を、保存先から読んで送る。Pterodactyl は `files/upload` の署名付きの先へ multipart で送る(undici の fetch には undici の FormData を使う)。フォルダのサーバーは書き込む。
+- v02 からの取り込み(`importUploads`、ライブラリ・セットより先に行う): 配布元がわからないプラグイン・Mod を `upload` の項目にし、版は v02 の保存先のファイルをそのまま指す(コピーしない)。v02 のパネルの中(`/data`、中の場所は `library/<relpath>`)・WebDAV を v03 の保存先として登録する(使う保存先にはしない)。SMB はまだつなげないので飛ばす。動くサーバーの種類は v02 の `meta.loader` の表示から決める。
 - アップロード・ダウンロードはファイルをそのまま送るので、サーバーの関数ではなく `/api/library/upload`・`/api/library/files/<ID>` の口を使う(権限の確認は `uploadService`)。
 
 ## これから決めること・作るもの

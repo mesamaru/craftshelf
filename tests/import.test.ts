@@ -7,7 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { signupOpen } from "~/server/auth";
-import { addonSet, addonSetItem, libraryItem, localServer, pteroConnection, server, serverProfile } from "~/server/db/schema";
+import { addonSet, addonSetItem, libraryFile, libraryItem, localServer, pteroConnection, server, serverProfile, storageTarget } from "~/server/db/schema";
 import { maybeImportV02, maybeImportV02Library, type ImportReport } from "~/server/import-v02";
 import { totpCode } from "~/server/legacy";
 import { open } from "~/server/secrets";
@@ -30,7 +30,10 @@ function makeV02(dir: string) {
       rcon_port INTEGER NOT NULL DEFAULT 0, rcon_password TEXT NOT NULL DEFAULT '');
     CREATE TABLE passkeys (id INTEGER PRIMARY KEY, user_id INTEGER, credential_id TEXT);
     CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT NOT NULL, name TEXT NOT NULL, owner_id INTEGER NOT NULL DEFAULT 0);
-    CREATE TABLE versions (id INTEGER PRIMARY KEY);
+    CREATE TABLE versions (id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER NOT NULL DEFAULT 0, target_id INTEGER NOT NULL DEFAULT 1, version TEXT NOT NULL DEFAULT '',
+      filename TEXT NOT NULL DEFAULT '', relpath TEXT NOT NULL DEFAULT '', size INTEGER NOT NULL DEFAULT 0, sha256 TEXT NOT NULL DEFAULT '', meta TEXT NOT NULL DEFAULT '{}', added_at TEXT NOT NULL DEFAULT '');
+    CREATE TABLE storage_targets (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, protocol TEXT NOT NULL, server TEXT NOT NULL DEFAULT '', share TEXT NOT NULL DEFAULT '',
+      subpath TEXT NOT NULL DEFAULT '', username TEXT NOT NULL DEFAULT '', password_enc TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE item_sources (item_id INTEGER PRIMARY KEY, provider TEXT NOT NULL, project_id TEXT NOT NULL, title TEXT NOT NULL DEFAULT '', page_url TEXT NOT NULL DEFAULT '');
     CREATE TABLE sets (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, owner_id INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE set_items (set_id INTEGER NOT NULL, item_id INTEGER NOT NULL, version_id INTEGER, PRIMARY KEY (set_id, item_id));
@@ -50,10 +53,18 @@ function makeV02(dir: string) {
   // 家のサーバーはこのマシンにあるフォルダ・コマンドで起動。消えたサーバーのフォルダはもう無い
   d.prepare("UPDATE servers SET root_dir=?, control='command', start_cmd='./start.sh', rcon_port=25575 WHERE identifier='local-1'").run(mkdtempSync(join(tmpdir(), "cs-v02srv-")));
   d.prepare("UPDATE servers SET root_dir=? WHERE identifier='local-2'").run(join(tmpdir(), "cs-no-such-folder-x"));
-  d.exec("INSERT INTO passkeys VALUES (1, 1, 'x'); INSERT INTO versions VALUES (1),(2),(3);");
+  d.exec("INSERT INTO passkeys VALUES (1, 1, 'x'); ");
+  // 保存先: 1 = パネルの中 / 2 = SMB(v03 はまだつなげない)。自作は 1 に、NASだけ は 2 にだけ版がある
+  d.exec(`
+    INSERT INTO storage_targets (name, protocol, active) VALUES ('パネルの中', 'local', 1), ('家の NAS', 'smb', 0);
+    INSERT INTO versions (item_id, target_id, version, filename, relpath, size, sha256, meta, added_at) VALUES
+      (1, 1, '5.4', 'LuckPerms-5.4.jar', 'plugin/LuckPerms/LuckPerms-5.4.jar', 10, 'aaa', '{}', '2025-01-01'),
+      (4, 1, '1.0', 'Jisaku-1.0.jar', 'plugin/自作/Jisaku-1.0.jar', 20, 'bbb', '{"loader":"Bukkit / Spigot / Paper"}', '2025-02-01'),
+      (7, 2, '2.0', 'NasOnly.jar', 'plugin/NasOnly/NasOnly.jar', 30, 'ccc', '{}', '2025-03-01');
+  `);
   // 1 = Modrinth のプラグイン / 2 = 別の人が持つ同じプラグイン / 3 = Modrinth の Mod / 4 = アップロードしただけ / 5 = SpigotMC / 6 = データパック
   d.exec(`
-    INSERT INTO items (category, name, owner_id) VALUES ('plugin','LuckPerms',1),('plugin','LuckPerms',2),('mod','Lithium',1),('plugin','自作',1),('plugin','EssentialsX',1),('datapack','村人',1);
+    INSERT INTO items (category, name, owner_id) VALUES ('plugin','LuckPerms',1),('plugin','LuckPerms',2),('mod','Lithium',1),('plugin','自作',1),('plugin','EssentialsX',1),('datapack','村人',1),('plugin','NASだけ',1);
     INSERT INTO item_sources VALUES (1,'modrinth','Vebnzrzj','LuckPerms','https://modrinth.com/plugin/luckperms'),(2,'modrinth','Vebnzrzj','LuckPerms',''),
       (3,'modrinth','gvQqBUqZ','Lithium','https://modrinth.com/mod/lithium'),(5,'spigot','9089','EssentialsX','');
     INSERT INTO sets (name, owner_id) VALUES ('ロビー', 1);
@@ -148,15 +159,19 @@ describe("v02 のライブラリ・セットの取り込み", () => {
       { title: "EssentialsX", type: "plugin", source: "spigot", slug: "" },
       { title: "Lithium", type: "mod", source: "modrinth", slug: "lithium" },
       { title: "LuckPerms", type: "plugin", source: "modrinth", slug: "luckperms" }, // 2 人が持っていても 1 件
+      { title: "自作", type: "plugin", source: "upload", slug: "" }, // アップロードしたもの(v02 の保存先のファイルを指す)
     ]);
     const sets = await t.db.select({ name: addonSet.name, item: libraryItem.title }).from(addonSet)
       .innerJoin(addonSetItem, eq(addonSetItem.setId, addonSet.id)).innerJoin(libraryItem, eq(libraryItem.id, addonSetItem.itemId));
-    expect(sets.map((x) => `${x.name}:${x.item}`).sort()).toEqual(["ロビー:Lithium", "ロビー:LuckPerms"]);
-    expect([r.items, r.sets]).toEqual([3, 1]);
+    expect(sets.map((x) => `${x.name}:${x.item}`).sort()).toEqual(["ロビー:Lithium", "ロビー:LuckPerms", "ロビー:自作"]);
+    expect([r.items, r.sets, r.uploads]).toEqual([3, 1, 1]);
     const skipped = Object.fromEntries(r.skipped.map((x) => [x.what, x.detail]));
-    expect(skipped["ライブラリの 1 件"]).toContain("自作");
+    expect(skipped["ライブラリの 1 件"]).toContain("NASだけ");
+    expect(skipped["v02 の保存先(SMB)"]).toContain("家の NAS");
+    const [file] = await t.db.select({ key: libraryFile.storageKey, loaders: libraryFile.loaders, target: storageTarget.summary })
+      .from(libraryFile).innerJoin(storageTarget, eq(libraryFile.targetId, storageTarget.id));
+    expect(file).toEqual({ key: "library/plugin/自作/Jisaku-1.0.jar", loaders: JSON.stringify(["bukkit", "spigot", "paper", "purpur"]), target: `${v03Dir}(v02 のパネルの中)` });
     expect(skipped["データパックなど(1 件)"]).toContain("村人");
-    expect(skipped["セット「ロビー」の 1 件"]).toBeTruthy();
     expect(skipped["セットの版の固定(1 件)"]).toBeTruthy();
   });
 

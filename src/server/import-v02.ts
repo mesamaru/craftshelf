@@ -171,7 +171,7 @@ export async function importFrom(db: Db, v02: DatabaseSync, opts: { secret: stri
 // ---------------------------------------------------------------------------
 // ライブラリ・セット(03.07.00 から)。v02 から取り込んだ自分用の版で一度だけ行う(それより前に取り込んだ人も、次の起動で)。
 // v03 はファイルを持たないので、配布元が Modrinth とわかるプラグイン・Mod と、SpigotMC とわかるプラグインだけを目録に載せる
-export type LibraryImportReport = { at: string; items: number; sets: number; folders?: number; skipped: { what: string; detail: string }[] };
+export type LibraryImportReport = { at: string; items: number; sets: number; folders?: number; uploads?: number; skipped: { what: string; detail: string }[] };
 
 export const libraryReportPath = (v03Dir: string) => join(v03Dir, "import-v02-library.json");
 
@@ -191,8 +191,13 @@ export async function maybeImportV02Library(db: Db, opts: { v02Dir: string; v03D
   if (!team) return null;
   const v02 = new DatabaseSync(dbFile, { readOnly: true });
   try {
-    const report = await importLibrary(db, v02, team.id);
-    if (opts.secret) await importFolders(db, v02, team.id, { secret: opts.secret, v02Dir: opts.v02Dir, dataDir: opts.dataDir ?? opts.v02Dir }, report);
+    const o = opts.secret ? { secret: opts.secret, v02Dir: opts.v02Dir, dataDir: opts.dataDir ?? opts.v02Dir } : null;
+    const pre: LibraryImportReport = { at: "", items: 0, sets: 0, skipped: [] };
+    const uploaded = o ? await importUploads(db, v02, team.id, o, pre) : new Map<number, string>();
+    const report = await importLibrary(db, v02, team.id, uploaded);
+    report.uploads = pre.uploads;
+    report.skipped.push(...pre.skipped);
+    if (o) await importFolders(db, v02, team.id, o, report);
     writeFileSync(libraryReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
     return report;
   } finally {
@@ -205,7 +210,8 @@ const SPIGOT_ID = /^\d{1,9}$/;
 const TYPES: Record<string, string> = { plugin: "plugin", mod: "mod" };
 const listOf = (names: string[]) => names.slice(0, 20).join("、") + (names.length > 20 ? ` ほか ${names.length - 20} 件` : "");
 
-export async function importLibrary(db: Db, v02: DatabaseSync, teamId: string): Promise<LibraryImportReport> {
+// uploaded: アップロードとして取り込んだもの(v02 のアイテムの ID → v03 のライブラリの ID)。セットに入れるのに使う
+export async function importLibrary(db: Db, v02: DatabaseSync, teamId: string, uploaded = new Map<number, string>()): Promise<LibraryImportReport> {
   const report: LibraryImportReport = { at: new Date().toISOString(), items: 0, sets: 0, skipped: [] };
   if (!has(v02, "items")) return report;
   const sourced = has(v02, "item_sources");
@@ -228,7 +234,7 @@ export async function importLibrary(db: Db, v02: DatabaseSync, teamId: string): 
       const source = provider === "modrinth" && MODRINTH_ID.test(projectId) ? "modrinth"
         : provider === "spigot" && SPIGOT_ID.test(projectId) && type === "plugin" ? "spigot" : null;
       if (!source) {
-        unknown.push(str(r.name));
+        if (!uploaded.has(Number(r.id))) unknown.push(str(r.name));
         continue;
       }
       const slug = source === "modrinth" ? str(r.page_url).match(/modrinth\.com\/[a-z]+\/([A-Za-z0-9_.-]+)/)?.[1] ?? "" : "";
@@ -250,7 +256,7 @@ export async function importLibrary(db: Db, v02: DatabaseSync, teamId: string): 
       const members = v02.prepare("SELECT item_id, version_id FROM set_items WHERE set_id=?").all(Number(set.id)) as Row[];
       let missing = 0;
       for (const m of members) {
-        const itemId = mapped.get(Number(m.item_id));
+        const itemId = mapped.get(Number(m.item_id)) ?? uploaded.get(Number(m.item_id));
         if (!itemId) {
           missing++;
           continue;
@@ -258,13 +264,13 @@ export async function importLibrary(db: Db, v02: DatabaseSync, teamId: string): 
         if (m.version_id != null) pinned++;
         await tx.insert(schema.addonSetItem).values({ setId: id, itemId }).onConflictDoNothing();
       }
-      if (missing) report.skipped.push({ what: `セット「${str(set.name)}」の ${missing} 件`, detail: "配布元が Modrinth・SpigotMC とわからないものは入れていません" });
+      if (missing) report.skipped.push({ what: `セット「${str(set.name)}」の ${missing} 件`, detail: "ライブラリに取り込めなかったものは入れていません" });
     }
     if (pinned) report.skipped.push({ what: `セットの版の固定(${pinned} 件)`, detail: "v03 は固定せず、いつもサーバーに合う新しい版を入れます" });
   });
 
   if (unknown.length) {
-    report.skipped.push({ what: `ライブラリの ${unknown.length} 件`, detail: `配布元が Modrinth・SpigotMC とわからないもの(アップロードしたファイル・CurseForge など)は取り込めません。ファイルは v02 の保存先に残っています: ${listOf(unknown)}` });
+    report.skipped.push({ what: `ライブラリの ${unknown.length} 件`, detail: `配布元が Modrinth・SpigotMC とわからず、ファイルも取り込めなかったもの(保存先が SMB・版が無いなど)です。ファイルは v02 の保存先に残っています: ${listOf(unknown)}` });
   }
   if (otherKinds.length) {
     report.skipped.push({ what: `データパックなど(${otherKinds.length} 件)`, detail: `v03 はプラグインと Mod だけを扱います: ${listOf(otherKinds)}` });
@@ -313,4 +319,93 @@ export async function importFolders(db: Db, v02: DatabaseSync, teamId: string, o
     });
     report.folders++;
   }
+}
+
+// アップロードしたアドオン(03.17.00 から)。配布元が Modrinth・SpigotMC とわからないプラグイン・Mod を、v02 の保存先のファイルを
+// そのまま指す形で取り込む(コピーしない)。v02 のパネルの中の保存先(/data/library)・WebDAV を、v03 の保存先として登録する
+const LOADERS: [RegExp, string[]][] = [
+  [/folia/i, ["folia"]], [/bukkit|spigot/i, ["bukkit", "spigot", "paper", "purpur"]], [/paper/i, ["paper", "purpur"]],
+  [/bungee/i, ["bungeecord", "waterfall"]], [/velocity/i, ["velocity"]], [/neoforge/i, ["neoforge"]], [/(^|[^o])forge/i, ["forge"]],
+  [/fabric/i, ["fabric", "quilt"]], [/quilt/i, ["quilt"]],
+];
+const loadersOf = (label: string) => [...new Set(LOADERS.filter(([re]) => re.test(label)).flatMap(([, l]) => l))];
+
+export async function importUploads(db: Db, v02: DatabaseSync, teamId: string, opts: { secret: string; v02Dir: string; dataDir: string }, report: LibraryImportReport) {
+  report.uploads = 0;
+  const uploaded = new Map<number, string>();
+  if (!has(v02, "items") || !has(v02, "versions", "relpath")) return uploaded;
+  const keyFile = join(opts.v02Dir, "secret.key");
+  const v02Key = existsSync(keyFile) ? readFileSync(keyFile, "utf8") : "";
+  const sourced = has(v02, "item_sources");
+  const items = all(v02, sourced
+    ? "SELECT i.id, i.name, i.category, s.provider, s.project_id FROM items i LEFT JOIN item_sources s ON s.item_id = i.id ORDER BY i.id"
+    : "SELECT id, name, category FROM items ORDER BY id")
+    .filter((r) => TYPES[str(r.category)] && !(str(r.provider) === "modrinth" && MODRINTH_ID.test(str(r.project_id)))
+      && !(str(r.provider) === "spigot" && SPIGOT_ID.test(str(r.project_id)) && str(r.category) === "plugin"));
+  if (!items.length) return uploaded;
+
+  // v02 の保存先 → v03 の保存先(SMB はまだつなげないので飛ばす)
+  const targets = new Map<number, string | null>();
+  const smb: string[] = [];
+  const v02Targets = has(v02, "storage_targets") ? all(v02, "SELECT * FROM storage_targets ORDER BY id") : [];
+  if (!v02Targets.length) v02Targets.push({ id: 1, name: "パネルの中", protocol: "local", active: 1 });
+  for (const t of v02Targets) {
+    const proto = str(t.protocol);
+    let config: Record<string, string> | null = null;
+    let summary = "";
+    if (proto === "local") {
+      config = { kind: "local", path: opts.dataDir };
+      summary = `${opts.dataDir}(v02 のパネルの中)`;
+    } else if (proto === "webdav") {
+      let password = "";
+      try {
+        password = str(t.password_enc) ? decryptV02Secret(str(t.password_enc), v02Key) : "";
+      } catch {
+        report.skipped.push({ what: `v02 の保存先「${str(t.name)}」のパスワード`, detail: "読めませんでした。「保存先」で設定し直してください" });
+      }
+      const url = str(t.server).replace(/\/+$/, "") + (str(t.subpath) ? `/${str(t.subpath).replace(/^\/+/, "")}` : "");
+      config = { kind: "webdav", url, user: str(t.username), password };
+      summary = `${url}${str(t.username) ? `(${str(t.username)})` : ""}`;
+    } else {
+      smb.push(str(t.name) || proto);
+      targets.set(Number(t.id), null);
+      continue;
+    }
+    const id = randomUUID();
+    await db.insert(schema.storageTarget).values({
+      id, teamId, name: `v02: ${str(t.name) || proto}`.slice(0, 60), kind: config.kind, summary,
+      configSealed: seal(opts.secret, JSON.stringify(config), `storage:${teamId}:${id}`), active: false,
+    });
+    targets.set(Number(t.id), id);
+  }
+
+  for (const it of items) {
+    const versions = all(v02, `SELECT * FROM versions WHERE item_id=${Number(it.id)} ORDER BY id`).filter((v) => targets.get(Number(v.target_id ?? 1)));
+    if (!versions.length) continue; // 取り込めなかったものは、importLibrary が知らせる
+    const type = TYPES[str(it.category)];
+    const existing = await db.select().from(schema.libraryItem)
+      .where(and(eq(schema.libraryItem.teamId, teamId), eq(schema.libraryItem.source, "upload"), eq(schema.libraryItem.projectType, type)));
+    let item = existing.find((x) => x.title.toLowerCase() === str(it.name).toLowerCase());
+    if (!item) {
+      [item] = await db.insert(schema.libraryItem).values({ id: randomUUID(), teamId, source: "upload", projectId: randomUUID().replace(/-/g, "").slice(0, 16), title: str(it.name).slice(0, 80), projectType: type }).returning();
+    }
+    for (const v of versions) {
+      const sha = str(v.sha256);
+      const dup = await db.select({ id: schema.libraryFile.id }).from(schema.libraryFile).where(eq(schema.libraryFile.sha256, sha)).limit(1);
+      if (dup.length) continue;
+      let meta: Record<string, unknown> = {};
+      try {
+        meta = JSON.parse(str(v.meta) || "{}");
+      } catch { /* 読めなければ空 */ }
+      await db.insert(schema.libraryFile).values({
+        id: randomUUID(), itemId: item.id, targetId: targets.get(Number(v.target_id ?? 1))!, storageKey: `library/${str(v.relpath).replace(/^\/+/, "")}`,
+        filename: str(v.filename), size: Number(v.size) || 0, sha256: sha, version: str(v.version), loaders: JSON.stringify(loadersOf(str(meta.loader))), mcVersions: "[]",
+        createdAt: new Date(str(v.added_at) || Date.now()),
+      });
+    }
+    uploaded.set(Number(it.id), item.id);
+    report.uploads++;
+  }
+  if (smb.length) report.skipped.push({ what: `v02 の保存先(SMB)`, detail: `${smb.join("、")}。v03 で SMB につなげるようになったら取り込みます(いまは NAS をマウントしてフォルダとして足せます)` });
+  return uploaded;
 }

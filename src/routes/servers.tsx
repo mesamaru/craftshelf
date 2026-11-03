@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
-  addConnection, addServers, listConnections, listServers, powerServer, remoteServers, removeConnection, removeServer, serverStatus,
+  addConnection, addLocalServer, addServers, browseHost, listConnections, listServers, localEnabled, powerServer, remoteServers, removeConnection, removeServer, serverStatus,
 } from "~/lib/servers-api";
 import { useCan } from "~/lib/use-can";
 
@@ -11,7 +11,7 @@ export const Route = createFileRoute("/servers")({
     if (!context.user) throw redirect({ to: "/login", search: { next: "/servers" } });
     return { user: context.user };
   },
-  loader: async () => ({ servers: await listServers(), connections: await listConnections() }),
+  loader: async () => ({ servers: await listServers(), connections: await listConnections(), local: await localEnabled() }),
   component: Servers,
 });
 
@@ -20,7 +20,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : "うまくい�
 // チームのサーバー(状態・起動と停止)と、Pterodactyl パネルの登録
 function Servers() {
   const { user } = Route.useRouteContext();
-  const { servers, connections } = Route.useLoaderData();
+  const { servers, connections, local } = Route.useLoaderData();
   const { can } = useCan(user.id);
   const router = useRouter();
   const reload = () => router.invalidate();
@@ -46,6 +46,7 @@ function Servers() {
         <Connection key={c.id} {...c} addable={can({ server: ["create"] })} removable={can({ server: ["delete"] })} onDone={reload} />
       ))}
       {can({ server: ["create"] }) && <NewConnection onDone={reload} />}
+      {local && can({ server: ["create"] }) && <NewLocal onDone={reload} />}
     </main>
   );
 }
@@ -235,5 +236,76 @@ function NewConnection({ onDone }: { onDone: () => void }) {
       {error && <p className="row error" role="alert">{error}</p>}
       <button className="capsule primary" disabled={busy || !url || !apiKey}>{busy ? "確かめています…" : "パネルをつなぐ"}</button>
     </form>
+  );
+}
+
+// フォルダのサーバーを追加(自分用の版だけ): パネルから見えるフォルダをたどり、サーバーの jar か、フォルダを選ぶ
+function NewLocal({ onDone }: { onDone: () => void }) {
+  const browse = useServerFn(browseHost);
+  const add = useServerFn(addLocalServer);
+  const [open, setOpen] = useState(false);
+  const [view, setView] = useState<Awaited<ReturnType<typeof browseHost>> | null>(null);
+  const [path, setPath] = useState("/");
+  const [name, setName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const latest = useRef(0); // 後から届いた古い返事で、表示を上書きしない
+
+  const go = async (p: string) => {
+    setError("");
+    const n = ++latest.current;
+    try {
+      const v = await browse({ data: { path: p } });
+      if (n !== latest.current) return;
+      setView(v);
+      setPath(v.path);
+    } catch (e) {
+      setError(message(e));
+    }
+  };
+  const submit = async (rootDir: string, jar?: string) => {
+    setBusy(true);
+    setError("");
+    try {
+      await add({ data: { rootDir, name, ...(jar ? { jar } : {}) } });
+      setOpen(false);
+      setView(null);
+      onDone();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const join = (a: string, b: string) => (a.endsWith("/") || a.endsWith("\\") ? a + b : `${a}/${b}`);
+
+  if (!open) {
+    return (
+      <>
+        <div className="group-title">フォルダのサーバー</div>
+        <section className="group"><button className="row link" type="button" onClick={() => { setOpen(true); go(path); }}>フォルダのサーバーを追加</button></section>
+        <p className="foot">パネルから見えるフォルダ(同じ PC・NAS・Docker でマウントしたフォルダ)にあるサーバーを、Pterodactyl を通さずに管理します。</p>
+      </>
+    );
+  }
+  return (
+    <>
+      <div className="group-title">フォルダのサーバーを追加</div>
+      <section className="group form">
+        <input className="row" placeholder="名前(空ならフォルダの名前)" translate="no" value={name} onChange={(e) => setName(e.target.value)} />
+        <form className="row" onSubmit={(e) => (e.preventDefault(), go(path))}>
+          <input className="main codes" value={path} onChange={(e) => { latest.current++; setPath(e.target.value); }} aria-label="フォルダの場所" />
+          <button className="trail link" type="submit">開く</button>
+        </form>
+        {view?.parent && <button className="row link" type="button" onClick={() => go(view.parent!)}>‹ 上のフォルダ</button>}
+        {view?.entries.map((e) => e.isDir
+          ? <button key={e.name} className="row link" type="button" translate="no" onClick={() => go(join(view.path, e.name))}>📁 {e.name}</button>
+          : <button key={e.name} className="row link" type="button" translate="no" disabled={busy} onClick={() => submit(view.path, e.name)}>☕ {e.name}(このサーバーにする)</button>)}
+        {view && <button className="row link" type="button" disabled={busy} onClick={() => submit(view.path)}>このフォルダを使う</button>}
+        {error && <p className="row error" role="alert">{error}</p>}
+        <button className="row link" type="button" onClick={() => setOpen(false)}>やめる</button>
+      </section>
+      <p className="foot">サーバーの jar(例 paper-1.21.4.jar)を選ぶと、そのフォルダをサーバーにして、名前から種類と Minecraft のバージョンを決めます。Docker で動かしている場合は、サーバーのフォルダをパネルのコンテナにマウントしてください。</p>
+    </>
   );
 }

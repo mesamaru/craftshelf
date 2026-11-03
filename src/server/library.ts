@@ -166,7 +166,7 @@ export function libraryService(deps: Deps) {
     async detail(headers: Headers, id: string) {
       const { teamId } = await requireTeam(auth, headers);
       const { row } = await serverOf(deps, teamId, id);
-      return { id: row.id, name: row.name, profile: await profileOf(row.id) };
+      return { id: row.id, name: row.name, kind: row.kind, profile: await profileOf(row.id) };
     },
 
     /** サーバーの種類(paper・fabric など)とバージョンを決める */

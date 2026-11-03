@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { installMod, installedMods, modUpdates, removeMod, searchMods, serverDetail, setModHold, setProfile } from "~/lib/library-api";
 import { ApplyResults } from "~/lib/apply-results";
 import { PLATFORMS, PLATFORM_IDS } from "~/lib/platforms";
+import { localSettings, setLocalSettings } from "~/lib/servers-api";
 import { bindServerSet, listSets, syncServerSet } from "~/lib/sets-api";
 import { SOURCES, SOURCE_LABEL, type Source, pageUrl } from "~/lib/sources";
 import { useCan } from "~/lib/use-can";
@@ -47,6 +48,7 @@ function ServerPage() {
       </header>
 
       <Profile id={server.id} profile={server.profile} editable={can({ server: ["update"] })} />
+      {server.kind === "local" && can({ server: ["update"] }) && <LocalControl id={server.id} />}
 
       {server.profile && (
         <>
@@ -320,6 +322,71 @@ function SetBinding({ id, name, edit, onSynced }: { id: string; name: string; ed
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
       <p className="foot">「セットでそろえる」は、セットのうちこのサーバーの種類に合うもので、足りないものを入れ、入っているものに新しい版があれば更新します。セットに無いものは外しません。</p>
+    </>
+  );
+}
+
+// フォルダのサーバーの起動・停止・RCON(パネルの PC でコマンドを実行するので、管理者以上だけ)
+function LocalControl({ id }: { id: string }) {
+  const load = useServerFn(localSettings);
+  const save = useServerFn(setLocalSettings);
+  const [s, setS] = useState<Awaited<ReturnType<typeof localSettings>> | null>(null);
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => { load({ data: { id } }).then(setS, (e) => setError(message(e))); }, [id]);
+  if (!s) return error ? <p className="row error" role="alert">{error}</p> : null;
+
+  const submit = async (clearPassword = false) => {
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      await save({ data: { id, control: s.control, startCmd: s.startCmd, stopCmd: s.stopCmd, container: s.container, rconPort: s.rconPort,
+        ...(clearPassword ? { rconPassword: "" } : password ? { rconPassword: password } : {}) } });
+      setPassword("");
+      setS(await load({ data: { id } }));
+      setNote("保存しました");
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <div className="group-title">起動・停止と RCON(フォルダ <span translate="no">{s.rootDir}</span>)</div>
+      <section className="group form">
+        <div className="row">
+          <span>起動・停止</span>
+          <select className="trail" value={s.control} aria-label="起動・停止の方法" onChange={(e) => setS({ ...s, control: e.target.value })}>
+            <option value="none">このパネルからはしない</option>
+            <option value="command">コマンドを実行する</option>
+            <option value="docker">Docker のコンテナ</option>
+          </select>
+        </div>
+        {s.control === "command" && (
+          <>
+            <input className="row codes" placeholder="起動のコマンド(例 systemctl start minecraft)" value={s.startCmd} onChange={(e) => setS({ ...s, startCmd: e.target.value })} aria-label="起動のコマンド" />
+            <input className="row codes" placeholder="停止のコマンド(空なら RCON の stop)" value={s.stopCmd} onChange={(e) => setS({ ...s, stopCmd: e.target.value })} aria-label="停止のコマンド" />
+          </>
+        )}
+        {s.control === "docker" && (
+          <input className="row codes" placeholder="コンテナの名前(例 minecraft)" value={s.container} onChange={(e) => setS({ ...s, container: e.target.value })} aria-label="コンテナの名前" />
+        )}
+        <input className="row" inputMode="numeric" placeholder="RCON のポート(空なら server.properties の rcon.port)" value={s.rconPort ?? ""}
+          onChange={(e) => setS({ ...s, rconPort: e.target.value.trim() ? Number(e.target.value) : null })} aria-label="RCON のポート" />
+        <input className="row" type="password" autoComplete="off" placeholder={s.hasRconPassword ? "RCON のパスワード(設定済み。変えるときだけ入力)" : "RCON のパスワード(コマンド・停止・状態に使う)"}
+          value={password} onChange={(e) => setPassword(e.target.value)} aria-label="RCON のパスワード" />
+        <div className="row actions">
+          <button className="link" type="button" disabled={busy} onClick={() => submit()}>{busy ? "保存しています…" : "保存"}</button>
+          {s.hasRconPassword && <button className="trail link danger" type="button" disabled={busy} onClick={() => submit(true)}>RCON のパスワードを消す</button>}
+        </div>
+        {note && <p className="row muted" role="status">{note}</p>}
+        {error && <p className="row error" role="alert">{error}</p>}
+      </section>
+      <p className="foot">コマンドは、パネルを動かしている PC の、サーバーのフォルダで実行します。Docker のコンテナを使うときは、パネルのコンテナに /var/run/docker.sock をマウントしてください(ほかのコンテナも操作できるようになるので、要るときだけ)。RCON は server.properties で enable-rcon=true にしてください。</p>
     </>
   );
 }

@@ -245,3 +245,17 @@ export const serverHold = pgTable(
   },
   (t) => [primaryKey({ columns: [t.serverId, t.source, t.projectId] })],
 );
+
+// フォルダでつなぐサーバー(自分用の版だけ)。root_dir はパネルから見えるサーバーのフォルダ。
+// 起動・停止は control = none / command(パネルの PC でコマンドを実行)/ docker(コンテナを操作)。RCON のパスワードは暗号化して保存
+export const localServer = pgTable("local_server", {
+  serverId: text("server_id").primaryKey().references(() => server.id, { onDelete: "cascade" }),
+  rootDir: text("root_dir").notNull(),
+  control: text("control").notNull().default("none"),
+  startCmd: text("start_cmd").notNull().default(""),
+  stopCmd: text("stop_cmd").notNull().default(""),
+  container: text("container").notNull().default(""),
+  rconPort: integer("rcon_port"),
+  rconPasswordSealed: text("rcon_password_sealed").notNull().default(""),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});

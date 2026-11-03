@@ -119,3 +119,5 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
     },
   };
 }
+
+export type PteroClient = ReturnType<typeof pteroClient>;

@@ -10,6 +10,7 @@ import { APP_NAME, legacyTotpContext } from "./auth";
 import type { Db } from "./db";
 import * as schema from "./db/schema";
 import { decryptV02Secret } from "./legacy";
+import { checkRoot } from "./local";
 import { checkPublicUrl } from "./net";
 import { hint, seal } from "./secrets";
 
@@ -132,7 +133,7 @@ export async function importFrom(db: Db, v02: DatabaseSync, opts: { secret: stri
       }
     }
 
-    // サーバー: Pterodactyl のものだけ(フォルダのサーバーは v03 にまだ無いので、まとめて知らせる)
+    // サーバー: Pterodactyl のもの(フォルダのサーバーは maybeImportV02Library で取り込む)
     const folders: string[] = [];
     for (const s of has(v02, "servers") ? all(v02, "SELECT * FROM servers ORDER BY id") : []) {
       const kind = str(s.kind) || "ptero";
@@ -157,9 +158,7 @@ export async function importFrom(db: Db, v02: DatabaseSync, opts: { secret: stri
         report.notes.push(`サーバー「${str(s.name)}」のサーバーソフト(${str(s.software)})は v03 にまだ無いので、種類を選び直してください`);
       }
     }
-    if (folders.length) {
-      report.skipped.push({ what: `フォルダのサーバー(${folders.length} 台)`, detail: `v03 ではまだ使えません: ${folders.join("、")}` });
-    }
+    if (folders.length) report.notes.push(`フォルダのサーバー(${folders.length} 台)は、ライブラリと一緒に取り込みます`);
   });
 
   // v03 にまだ無いもの(v02 のデータはそのまま残る)
@@ -172,7 +171,7 @@ export async function importFrom(db: Db, v02: DatabaseSync, opts: { secret: stri
 // ---------------------------------------------------------------------------
 // ライブラリ・セット(03.07.00 から)。v02 から取り込んだ自分用の版で一度だけ行う(それより前に取り込んだ人も、次の起動で)。
 // v03 はファイルを持たないので、配布元が Modrinth とわかるプラグイン・Mod と、SpigotMC とわかるプラグインだけを目録に載せる
-export type LibraryImportReport = { at: string; items: number; sets: number; skipped: { what: string; detail: string }[] };
+export type LibraryImportReport = { at: string; items: number; sets: number; folders?: number; skipped: { what: string; detail: string }[] };
 
 export const libraryReportPath = (v03Dir: string) => join(v03Dir, "import-v02-library.json");
 
@@ -184,7 +183,7 @@ export function readLibraryReport(v03Dir: string): LibraryImportReport | null {
   }
 }
 
-export async function maybeImportV02Library(db: Db, opts: { v02Dir: string; v03Dir: string }): Promise<LibraryImportReport | null> {
+export async function maybeImportV02Library(db: Db, opts: { v02Dir: string; v03Dir: string; secret?: string; dataDir?: string }): Promise<LibraryImportReport | null> {
   const dbFile = join(opts.v02Dir, "index.db");
   if (!existsSync(dbFile) || !existsSync(reportPath(opts.v03Dir)) || existsSync(libraryReportPath(opts.v03Dir))) return null;
   // 自分用の版のチームは 1 つ(v02 から取り込んだときに作ったもの)
@@ -193,6 +192,7 @@ export async function maybeImportV02Library(db: Db, opts: { v02Dir: string; v03D
   const v02 = new DatabaseSync(dbFile, { readOnly: true });
   try {
     const report = await importLibrary(db, v02, team.id);
+    if (opts.secret) await importFolders(db, v02, team.id, { secret: opts.secret, v02Dir: opts.v02Dir, dataDir: opts.dataDir ?? opts.v02Dir }, report);
     writeFileSync(libraryReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
     return report;
   } finally {
@@ -270,4 +270,47 @@ export async function importLibrary(db: Db, v02: DatabaseSync, teamId: string): 
     report.skipped.push({ what: `データパックなど(${otherKinds.length} 件)`, detail: `v03 はプラグインと Mod だけを扱います: ${listOf(otherKinds)}` });
   }
   return report;
+}
+
+// フォルダのサーバー(03.15.00 から)。このマシンから見えるフォルダのものだけ。起動・停止・RCON の設定も引き継ぐ
+export async function importFolders(db: Db, v02: DatabaseSync, teamId: string, opts: { secret: string; v02Dir: string; dataDir: string }, report: LibraryImportReport) {
+  report.folders = 0;
+  if (!has(v02, "servers", "root_dir")) return;
+  const keyFile = join(opts.v02Dir, "secret.key");
+  const v02Key = existsSync(keyFile) ? readFileSync(keyFile, "utf8") : "";
+  const col = (name: string) => has(v02, "servers", name);
+  for (const s of all(v02, "SELECT * FROM servers WHERE kind='local' ORDER BY id")) {
+    const name = str(s.name) || "フォルダのサーバー";
+    let root: string;
+    try {
+      root = checkRoot(str(s.root_dir), opts.dataDir);
+    } catch (e) {
+      report.skipped.push({ what: `フォルダのサーバー「${name}」`, detail: `${str(s.root_dir)}: ${(e as Error).message}` });
+      continue;
+    }
+    const id = randomUUID();
+    let rconPasswordSealed = "";
+    if (col("rcon_password") && str(s.rcon_password)) {
+      try {
+        rconPasswordSealed = seal(opts.secret, decryptV02Secret(str(s.rcon_password), v02Key), `rcon:${id}`);
+      } catch {
+        report.skipped.push({ what: `「${name}」の RCON のパスワード`, detail: "読めませんでした。設定し直してください" });
+      }
+    }
+    const control = col("control") && ["none", "command", "docker"].includes(str(s.control)) ? str(s.control) : "none";
+    await db.transaction(async (tx) => {
+      await tx.insert(schema.server).values({ id, teamId, kind: "local", name });
+      await tx.insert(schema.localServer).values({
+        serverId: id, rootDir: root, control,
+        startCmd: col("start_cmd") ? str(s.start_cmd).slice(0, 500) : "", stopCmd: col("stop_cmd") ? str(s.stop_cmd).slice(0, 500) : "",
+        container: col("container") ? str(s.container).slice(0, 128) : "", rconPort: col("rcon_port") && Number(s.rcon_port) > 0 ? Number(s.rcon_port) : null, rconPasswordSealed,
+      });
+      const platform = SOFT[str(s.software)];
+      if (platform && isPlatform(platform)) {
+        const mc = str(s.mc_version);
+        await tx.insert(schema.serverProfile).values({ serverId: id, platform, mcVersion: MC_VERSION.test(mc) ? mc : null });
+      }
+    });
+    report.folders++;
+  }
 }

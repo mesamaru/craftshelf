@@ -163,7 +163,7 @@ function ImportReport({ userId }: { userId: string }) {
         <div className="row"><span>利用者</span><span className="trail">{report.users.length} 人</span></div>
         <div className="row"><span>Pterodactyl</span><span className="trail" translate="no">{report.ptero ? `${report.ptero.url}(サーバー ${report.ptero.servers} 台)` : "なし"}</span></div>
         {report.library && (
-          <div className="row"><span>ライブラリ・セット</span><span className="trail">{report.library.items} 件・セット {report.library.sets} 個</span></div>
+          <div className="row"><span>ライブラリ・セット</span><span className="trail">{report.library.items} 件・セット {report.library.sets} 個{report.library.folders ? `・フォルダのサーバー ${report.library.folders} 台` : ""}</span></div>
         )}
         {[...report.skipped, ...(report.library?.skipped ?? [])].map((x, i) => (
           <div className="row" key={i}><span className="main"><span>{x.what}</span><span className="muted" translate="no">{x.detail}</span></span><span className="trail">取り込まず</span></div>

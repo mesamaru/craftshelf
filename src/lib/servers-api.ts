@@ -38,3 +38,22 @@ export const remoteServers = createServerFn({ method: "GET" })
 export const addServers = createServerFn({ method: "POST" })
   .validator(z.object({ connectionId: z.string().min(1).max(64), remoteIds: z.array(z.string().max(64)).max(100) }))
   .handler(async ({ data }) => (await svc()).addServers(headers(), data.connectionId, data.remoteIds));
+
+export const localEnabled = createServerFn({ method: "GET" }).handler(async () => (await svc()).localEnabled());
+
+export const browseHost = createServerFn({ method: "GET" })
+  .validator(z.object({ path: z.string().max(1000) }))
+  .handler(async ({ data }) => (await svc()).browseHost(headers(), data.path));
+
+export const addLocalServer = createServerFn({ method: "POST" })
+  .validator(z.object({ rootDir: z.string().min(1).max(1000), name: z.string().max(100), jar: z.string().max(300).optional() }))
+  .handler(async ({ data }) => (await svc()).addLocal(headers(), data));
+
+export const localSettings = createServerFn({ method: "GET" })
+  .validator(id)
+  .handler(async ({ data }) => (await svc()).localSettings(headers(), data.id));
+
+export const setLocalSettings = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string().min(1).max(64), control: z.string().max(10), startCmd: z.string().max(600), stopCmd: z.string().max(600),
+    container: z.string().max(200), rconPort: z.number().int().nullable(), rconPassword: z.string().max(300).optional() }))
+  .handler(async ({ data }) => (await svc()).setLocalSettings(headers(), data.id, data));

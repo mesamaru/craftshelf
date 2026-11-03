@@ -7,7 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { signupOpen } from "~/server/auth";
-import { addonSet, addonSetItem, libraryItem, pteroConnection, server, serverProfile } from "~/server/db/schema";
+import { addonSet, addonSetItem, libraryItem, localServer, pteroConnection, server, serverProfile } from "~/server/db/schema";
 import { maybeImportV02, maybeImportV02Library, type ImportReport } from "~/server/import-v02";
 import { totpCode } from "~/server/legacy";
 import { open } from "~/server/secrets";
@@ -25,7 +25,9 @@ function makeV02(dir: string) {
       totp_secret TEXT NOT NULL DEFAULT '', totp_enabled INTEGER NOT NULL DEFAULT 0, recovery TEXT NOT NULL DEFAULT '[]', prefs TEXT NOT NULL DEFAULT '{}');
     CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '');
     CREATE TABLE servers (id INTEGER PRIMARY KEY AUTOINCREMENT, identifier TEXT NOT NULL UNIQUE, name TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'ptero',
-      software TEXT NOT NULL DEFAULT '', mc_version TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '');
+      software TEXT NOT NULL DEFAULT '', mc_version TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT '', root_dir TEXT NOT NULL DEFAULT '',
+      control TEXT NOT NULL DEFAULT 'none', start_cmd TEXT NOT NULL DEFAULT '', stop_cmd TEXT NOT NULL DEFAULT '', container TEXT NOT NULL DEFAULT '',
+      rcon_port INTEGER NOT NULL DEFAULT 0, rcon_password TEXT NOT NULL DEFAULT '');
     CREATE TABLE passkeys (id INTEGER PRIMARY KEY, user_id INTEGER, credential_id TEXT);
     CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT NOT NULL, name TEXT NOT NULL, owner_id INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE versions (id INTEGER PRIMARY KEY);
@@ -44,6 +46,10 @@ function makeV02(dir: string) {
   srv.run("abcd1234", "サバイバル", "ptero", "paper", "26.3");
   srv.run("efgh5678", "プロキシ", "ptero", "waterfall", "");
   srv.run("local-1", "家のサーバー", "local", "fabric", "1.21.1");
+  srv.run("local-2", "消えたサーバー", "local", "paper", "");
+  // 家のサーバーはこのマシンにあるフォルダ・コマンドで起動。消えたサーバーのフォルダはもう無い
+  d.prepare("UPDATE servers SET root_dir=?, control='command', start_cmd='./start.sh', rcon_port=25575 WHERE identifier='local-1'").run(mkdtempSync(join(tmpdir(), "cs-v02srv-")));
+  d.prepare("UPDATE servers SET root_dir=? WHERE identifier='local-2'").run(join(tmpdir(), "cs-no-such-folder-x"));
   d.exec("INSERT INTO passkeys VALUES (1, 1, 'x'); INSERT INTO versions VALUES (1),(2),(3);");
   // 1 = Modrinth のプラグイン / 2 = 別の人が持つ同じプラグイン / 3 = Modrinth の Mod / 4 = アップロードしただけ / 5 = SpigotMC / 6 = データパック
   d.exec(`
@@ -111,7 +117,7 @@ describe("v02 のデータの取り込み", () => {
     expect(ok.status).toBe(200);
   });
 
-  it("Pterodactyl の設定(家の中のアドレスも)とサーバーを取り込む。フォルダのサーバーは飛ばして知らせる", async () => {
+  it("Pterodactyl の設定(家の中のアドレスも)とサーバーを取り込む。フォルダのサーバーは、あとの取り込みに回す", async () => {
     const [c] = await t.db.select().from(pteroConnection);
     expect(c.url).toBe("http://192.168.1.20");
     expect(open(TEST_SECRET, c.apiKeySealed, `ptero:${c.teamId}:${c.id}`)).toBe("ptlc_abcdefghij0123456789");
@@ -123,8 +129,7 @@ describe("v02 のデータの取り込み", () => {
     ]);
     expect(report?.ptero).toEqual({ url: "http://192.168.1.20", servers: 2 });
     const skipped = report!.skipped.map((s) => s.what);
-    expect(skipped).toContain("フォルダのサーバー(1 台)");
-    expect(report!.skipped.find((s) => s.what.startsWith("フォルダ"))!.detail).toContain("家のサーバー");
+    expect(report!.notes).toContain("フォルダのサーバー(2 台)は、ライブラリと一緒に取り込みます");
     expect(skipped).toContain("パスキー");
   });
 
@@ -137,7 +142,7 @@ describe("v02 のデータの取り込み", () => {
 
 describe("v02 のライブラリ・セットの取り込み", () => {
   it("配布元が Modrinth・SpigotMC とわかるプラグイン・Mod を載せ、セットも作る。取り込めないものは理由を残す", async () => {
-    const r = (await maybeImportV02Library(t.db, { v02Dir, v03Dir }))!;
+    const r = (await maybeImportV02Library(t.db, { v02Dir, v03Dir, secret: TEST_SECRET, dataDir: v03Dir }))!;
     const items = await t.db.select({ title: libraryItem.title, type: libraryItem.projectType, source: libraryItem.source, slug: libraryItem.slug }).from(libraryItem);
     expect(items.sort((a, b) => a.title.localeCompare(b.title))).toEqual([
       { title: "EssentialsX", type: "plugin", source: "spigot", slug: "" },
@@ -158,5 +163,16 @@ describe("v02 のライブラリ・セットの取り込み", () => {
   it("v02 のデータには書き込まない。二度目は取り込まない", async () => {
     expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
     expect(await maybeImportV02Library(t.db, { v02Dir, v03Dir })).toBeNull();
+  });
+});
+
+describe("v02 のフォルダのサーバーの取り込み", () => {
+  it("このマシンにあるフォルダのものを、起動の設定・種類と一緒に取り込む。無いフォルダは理由を残す", async () => {
+    const r = JSON.parse(readFileSync(join(v03Dir, "import-v02-library.json"), "utf8"));
+    expect(r.folders).toBe(1);
+    expect(r.skipped.find((x: { what: string }) => x.what === "フォルダのサーバー「消えたサーバー」")).toBeTruthy();
+    const [row] = await t.db.select({ name: server.name, control: localServer.control, start: localServer.startCmd, rcon: localServer.rconPort, platform: serverProfile.platform })
+      .from(localServer).innerJoin(server, eq(localServer.serverId, server.id)).leftJoin(serverProfile, eq(serverProfile.serverId, server.id));
+    expect(row).toEqual({ name: "家のサーバー", control: "command", start: "./start.sh", rcon: 25575, platform: "fabric" });
   });
 });

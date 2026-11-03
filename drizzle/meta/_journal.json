@@ -99,6 +99,13 @@
       "when": 1793671855195,
       "tag": "0013_uploads",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793738397987,
+      "tag": "0014_curseforge",
+      "breakpoints": true
     }
   ]
 }

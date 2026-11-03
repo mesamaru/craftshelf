@@ -8,6 +8,9 @@ import { HttpError, requireTeam } from "./guard";
 import { type ItemSource, SOURCE_LABEL, isItemSource } from "~/lib/sources";
 import { ModrinthError, type ProjectType, isProjectType, modrinthClient } from "./modrinth";
 import { SpigetError, spigetClient } from "./spiget";
+import { CF_KEY, CurseForgeError, curseforgeClient } from "./curseforge";
+import { teamCurseforge } from "./db/schema";
+import { hint, open, seal } from "./secrets";
 import { fileStore } from "./uploads";
 import { eventService } from "./events";
 import { type Deps, remote, serverOf } from "./servers";
@@ -20,7 +23,7 @@ export async function fromSource<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (e) {
-    if (e instanceof ModrinthError || e instanceof SpigetError) throw new HttpError(502, e.message);
+    if (e instanceof ModrinthError || e instanceof SpigetError || e instanceof CurseForgeError) throw new HttpError(502, e.message);
     throw e;
   }
 }
@@ -36,6 +39,18 @@ export function modTools(deps: Deps) {
 
   const files = fileStore(deps);
 
+  // CurseForge は、チームが設定した API キーで使う(自分用の版だけ)
+  const cfKeyOf = async (teamId: string) => {
+    if (!deps.local) return null;
+    const [k] = await db.select().from(teamCurseforge).where(eq(teamCurseforge.teamId, teamId));
+    return k ? open(deps.secret, k.apiKeySealed, `curseforge:${teamId}`) : null;
+  };
+  async function curseforge(teamId: string) {
+    const key = await cfKeyOf(teamId);
+    if (!key) throw new HttpError(400, "CurseForge を使うには、「チーム」で CurseForge の API キーを設定してください");
+    return curseforgeClient(deps.fetch, key);
+  }
+
   // 配布元ごとの、入れる版・プロジェクトの名前。アップロードしたものは、保存先のファイル(upload)を返す
   async function latestFile(source: ItemSource, projectId: string, p: Profile, teamId: string) {
     if (source === "upload") {
@@ -44,7 +59,9 @@ export function modTools(deps: Deps) {
       const f = r.file;
       return { projectId, versionId: f.id, versionNumber: f.version || f.filename, filename: f.filename, url: "", sha512: "", size: f.size, upload: f };
     }
-    const f = await fromSource(() => (source === "spigot" ? spiget.latestFile(projectId, p.platform) : modrinth.latestFile(projectId, p.platform, p.mcVersion)));
+    const cf = source === "curseforge" ? await curseforge(teamId) : null;
+    const f = await fromSource(() => (cf ? cf.latestFile(projectId, p.platform, p.mcVersion)
+      : source === "spigot" ? spiget.latestFile(projectId, p.platform) : modrinth.latestFile(projectId, p.platform, p.mcVersion)));
     return f ? { ...f, upload: undefined } : null;
   }
   async function project(source: ItemSource, projectId: string, teamId: string) {
@@ -52,7 +69,8 @@ export function modTools(deps: Deps) {
       const [i] = await db.select().from(libraryItem).where(and(eq(libraryItem.teamId, teamId), eq(libraryItem.source, "upload"), eq(libraryItem.projectId, projectId)));
       return i ? { title: i.title, slug: "", projectType: i.projectType, iconUrl: "" } : null;
     }
-    return fromSource(() => (source === "spigot" ? spiget.project(projectId) : modrinth.project(projectId)));
+    const cf = source === "curseforge" ? await curseforge(teamId) : null;
+    return fromSource(() => (cf ? cf.project(projectId) : source === "spigot" ? spiget.project(projectId) : modrinth.project(projectId)));
   }
 
   async function profileOf(serverId: string) {
@@ -82,6 +100,7 @@ export function modTools(deps: Deps) {
       throw new HttpError(404, source === "spigot"
         ? "このサーバーの種類で動く版がありません(SpigotMC の外で配っているもの・有料のものは入れられません)"
         : source === "upload" ? "このサーバーの種類で動く版が、アップロードしたものの中にありません"
+        : source === "curseforge" ? "このサーバーの種類・バージョンに合う版がありません(外部からのダウンロードを許していない版は入れられません)"
         : "このサーバーの種類・バージョンに合う版がありません");
     }
     const info = await project(source, projectId, teamId);
@@ -119,13 +138,15 @@ export function modTools(deps: Deps) {
   const holdsOf = async (serverId: string) =>
     new Set((await db.select().from(serverHold).where(eq(serverHold.serverId, serverId))).map((h) => `${h.source}:${h.projectId}`));
 
-  return { modrinth, spiget, latestFile, project, profileOf, needProfile, remember, installInto, holdsOf };
+  return { modrinth, spiget, curseforge, cfKeyOf, latestFile, project, profileOf, needProfile, remember, installInto, holdsOf };
 }
 
 export function libraryService(deps: Deps) {
   const { db, auth } = deps;
   const { record } = eventService(deps);
-  const { modrinth, spiget, latestFile, project, profileOf, needProfile, remember, installInto, holdsOf } = modTools(deps);
+  const { modrinth, spiget, curseforge, cfKeyOf, latestFile, project, profileOf, needProfile, remember, installInto, holdsOf } = modTools(deps);
+  // このチームで探せる配布元(CurseForge は API キーを設定したときだけ)
+  const sourcesOf = async (teamId: string) => ["modrinth", "spigot", ...((await cfKeyOf(teamId)) ? ["curseforge"] : [])];
   const sourceOf = (v: string) => {
     if (!isItemSource(v)) throw new HttpError(400, "配布元を選んでください");
     return v;
@@ -154,16 +175,43 @@ export function libraryService(deps: Deps) {
         })),
         // 種類を決めていないサーバーには入れられない(type が null)
         servers: servers.map((x) => ({ id: x.id, name: x.name, type: isPlatform(x.platform) ? PLATFORMS[x.platform].type : null })),
+        sources: await sourcesOf(teamId),
       };
     },
 
     /** 配布元で、プラグイン・Mod を種類だけで探す(ライブラリに足すとき)。SpigotMC はプラグインだけ */
     async searchCatalog(headers: Headers, query: string, type: string, source = "modrinth") {
-      await requireTeam(auth, headers);
+      const { teamId } = await requireTeam(auth, headers);
       if (!isProjectType(type)) throw new HttpError(400, "種類を選んでください");
       const src = searchable(source);
       if (src === "spigot" && type !== "plugin") throw new HttpError(400, "SpigotMC で探せるのはプラグインだけです");
-      return fromSource(() => (src === "spigot" ? spiget.searchAll(query) : modrinth.searchType(query, type)));
+      const cf = src === "curseforge" ? await curseforge(teamId) : null;
+      return fromSource(() => (cf ? cf.searchType(query, type) : src === "spigot" ? spiget.searchAll(query) : modrinth.searchType(query, type)));
+    },
+
+    /** CurseForge の API キーの設定(自分用の版・管理者以上。キーは最後の 4 文字だけ) */
+    async curseforgeKey(headers: Headers) {
+      const { teamId } = await requireTeam(auth, headers, { member: ["update"] });
+      if (!deps.local) return { enabled: false, hint: "" };
+      const [k] = await db.select({ hint: teamCurseforge.apiKeyHint }).from(teamCurseforge).where(eq(teamCurseforge.teamId, teamId));
+      return { enabled: true, hint: k?.hint ?? "" };
+    },
+
+    /** CurseForge の API キーを設定する(使えることを確かめてから保存)。null なら消す */
+    async setCurseforgeKey(headers: Headers, key: string | null) {
+      const { teamId, user } = await requireTeam(auth, headers, { member: ["update"] });
+      if (!deps.local) throw new HttpError(400, "CurseForge は、自分用の版だけで使えます");
+      if (key === null) {
+        await db.delete(teamCurseforge).where(eq(teamCurseforge.teamId, teamId));
+        await record({ teamId, userId: user.id, kind: "admin", action: "CurseForge の API キーを消す" });
+        return;
+      }
+      const k = key.trim();
+      if (!CF_KEY.test(k)) throw new HttpError(400, "CurseForge の API キー(console.curseforge.com で作ったもの)を入力してください");
+      await fromSource(() => curseforgeClient(deps.fetch, k).check());
+      const values = { teamId, apiKeySealed: seal(deps.secret, k, `curseforge:${teamId}`), apiKeyHint: hint(k), updatedAt: new Date() };
+      await db.insert(teamCurseforge).values(values).onConflictDoUpdate({ target: teamCurseforge.teamId, set: values });
+      await record({ teamId, userId: user.id, kind: "admin", action: "CurseForge の API キーを設定" });
     },
 
     /** ライブラリに足す */
@@ -177,6 +225,7 @@ export function libraryService(deps: Deps) {
       if (!isProjectType(p.projectType)) {
         throw new HttpError(400, src === "spigot"
           ? "SpigotMC の外で配っているもの・有料のもの・プラグインではないものは登録できません"
+          : src === "curseforge" ? "外部からのダウンロードを許していないもの・プラグインと Mod 以外は登録できません"
           : "ライブラリに登録できるのは、プラグインと Mod だけです");
       }
       const itemId = await remember(teamId, user.id, src, projectId, { ...p, projectType: p.projectType, title: p.title || projectId });
@@ -196,7 +245,7 @@ export function libraryService(deps: Deps) {
     async detail(headers: Headers, id: string) {
       const { teamId } = await requireTeam(auth, headers);
       const { row } = await serverOf(deps, teamId, id);
-      return { id: row.id, name: row.name, kind: row.kind, profile: await profileOf(row.id) };
+      return { id: row.id, name: row.name, kind: row.kind, profile: await profileOf(row.id), sources: await sourcesOf(teamId) };
     },
 
     /** サーバーの種類(paper・fabric など)とバージョンを決める */
@@ -239,7 +288,8 @@ export function libraryService(deps: Deps) {
       const p = await needProfile(row.id);
       const src = searchable(source);
       if (src === "spigot" && PLATFORMS[p.platform].type !== "plugin") throw new HttpError(400, "SpigotMC にあるのはプラグインだけです");
-      return fromSource(() => (src === "spigot" ? spiget.search(query, p.platform) : modrinth.search(query, p.platform, p.mcVersion)));
+      const cf = src === "curseforge" ? await curseforge(teamId) : null;
+      return fromSource(() => (cf ? cf.search(query, p.platform, p.mcVersion) : src === "spigot" ? spiget.search(query, p.platform) : modrinth.search(query, p.platform, p.mcVersion)));
     },
 
     /** 入れる。同じものの古い版が入っていれば、新しい版を入れてから古いファイルを消す(= 更新) */

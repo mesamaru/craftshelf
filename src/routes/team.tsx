@@ -1,8 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { authClient } from "~/lib/auth-client";
 import { errorText } from "~/lib/errors";
+import { curseforgeKey, setCurseforgeKey } from "~/lib/library-api";
 import { useCan } from "~/lib/use-can";
+import { useServerFn } from "@tanstack/react-start";
 import { ASSIGNABLE_ROLES, type RoleName, roleLabel } from "~/lib/permissions";
 
 export const Route = createFileRoute("/team")({
@@ -54,6 +56,7 @@ function Team() {
               {app.mode === "self" && <Link to="/storage" className="row link">保存先(アップロードしたアドオンの置き場所)</Link>}
             </section>
           )}
+          {app.mode === "self" && can({ member: ["update"] }) && <CurseForgeKey />}
           {me && me.role !== "owner" && <Leave teamId={team.id} />}
         </>
       )}
@@ -220,5 +223,52 @@ function Leave({ teamId }: { teamId: string }) {
       <button className="row danger" type="button" onClick={leave}>このチームから抜ける</button>
       {error && <p className="row error" role="alert">{error}</p>}
     </section>
+  );
+}
+
+// CurseForge の API キー(console.curseforge.com で作るもの)。設定すると、CurseForge から探して入れられる
+const cfMessage = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
+
+function CurseForgeKey() {
+  const load = useServerFn(curseforgeKey);
+  const save = useServerFn(setCurseforgeKey);
+  const [hint, setHint] = useState<string | null>(null);
+  const [key, setKey] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const reload = () => load().then((r) => setHint(r.hint), (e) => setError(cfMessage(e)));
+  useEffect(() => { reload(); }, []);
+  const run = async (value: string | null, done: string) => {
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      await save({ data: { key: value } });
+      setKey("");
+      setNote(done);
+      await reload();
+    } catch (e) {
+      setError(cfMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (hint === null) return null;
+  return (
+    <>
+      <div className="group-title">CurseForge</div>
+      <form className="group form" onSubmit={(e) => (e.preventDefault(), run(key, "保存しました"))}>
+        <input className="row" type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)}
+          placeholder={hint ? `API キー(設定済み ${hint}。変えるときだけ入力)` : "API キー(console.curseforge.com で作ったもの)"} aria-label="CurseForge の API キー" />
+        <div className="row actions">
+          <button className="link" type="submit" disabled={busy || !key.trim()}>{busy ? "確かめています…" : "確かめて保存"}</button>
+          {hint && <button className="trail link danger" type="button" disabled={busy} onClick={() => run(null, "消しました")}>キーを消す</button>}
+        </div>
+        {note && <p className="row muted" role="status">{note}</p>}
+        {error && <p className="row error" role="alert">{error}</p>}
+      </form>
+      <p className="foot">設定すると、サーバーの画面とライブラリで CurseForge からも探して入れられます。作者が外部からのダウンロードを許していないものは入れられません。キーは暗号化して保存し、画面には最後の 4 文字だけを出します。</p>
+    </>
   );
 }

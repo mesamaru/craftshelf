@@ -13,7 +13,7 @@ import type { FetchLike } from "./net";
 import { type Allocation, POWER_SIGNALS, type PowerSignal, type PteroClient, PteroError, type RemoteFile, type Resources } from "./ptero";
 
 // フォルダのサーバーへ取ってくるファイルの置き場所(配布元の CDN だけ)
-const PULL_HOSTS = new Set(["cdn.modrinth.com", "api.spiget.org", "cdn.spiget.org"]);
+const PULL_HOSTS = new Set(["cdn.modrinth.com", "api.spiget.org", "cdn.spiget.org", "edge.forgecdn.net", "mediafilez.forgecdn.net"]);
 export const LOCAL_LIMITS = { downloadBytes: 300 * 1024 * 1024, commandSeconds: 120 };
 export type Control = { control: string; startCmd: string; stopCmd: string; container: string; rconPort: number | null; rconPassword: string };
 

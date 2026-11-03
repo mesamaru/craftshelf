@@ -197,7 +197,10 @@ export async function maybeImportV02Library(db: Db, opts: { v02Dir: string; v03D
     const report = await importLibrary(db, v02, team.id, uploaded);
     report.uploads = pre.uploads;
     report.skipped.push(...pre.skipped);
-    if (o) await importFolders(db, v02, team.id, o, report);
+    if (o) {
+      await importFolders(db, v02, team.id, o, report);
+      await importCurseforgeKey(db, v02, team.id, o, report);
+    }
     writeFileSync(libraryReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
     return report;
   } finally {
@@ -232,12 +235,14 @@ export async function importLibrary(db: Db, v02: DatabaseSync, teamId: string, u
       const projectId = str(r.project_id);
       const provider = str(r.provider);
       const source = provider === "modrinth" && MODRINTH_ID.test(projectId) ? "modrinth"
-        : provider === "spigot" && SPIGOT_ID.test(projectId) && type === "plugin" ? "spigot" : null;
+        : provider === "spigot" && SPIGOT_ID.test(projectId) && type === "plugin" ? "spigot"
+        : provider === "curseforge" && SPIGOT_ID.test(projectId) ? "curseforge" : null;
       if (!source) {
         if (!uploaded.has(Number(r.id))) unknown.push(str(r.name));
         continue;
       }
-      const slug = source === "modrinth" ? str(r.page_url).match(/modrinth\.com\/[a-z]+\/([A-Za-z0-9_.-]+)/)?.[1] ?? "" : "";
+      const slug = source === "modrinth" ? str(r.page_url).match(/modrinth\.com\/[a-z]+\/([A-Za-z0-9_.-]+)/)?.[1] ?? ""
+        : source === "curseforge" ? str(r.page_url).match(/curseforge\.com\/minecraft\/([a-z-]+\/[A-Za-z0-9_.-]+)/)?.[1] ?? "" : "";
       await tx.insert(schema.libraryItem)
         .values({ id: randomUUID(), teamId, source, projectId, title: str(r.title) || str(r.name), slug, projectType: type })
         .onConflictDoNothing();
@@ -270,7 +275,7 @@ export async function importLibrary(db: Db, v02: DatabaseSync, teamId: string, u
   });
 
   if (unknown.length) {
-    report.skipped.push({ what: `ライブラリの ${unknown.length} 件`, detail: `配布元が Modrinth・SpigotMC とわからず、ファイルも取り込めなかったもの(保存先の方式が使えない・版が無いなど)です。ファイルは v02 の保存先に残っています: ${listOf(unknown)}` });
+    report.skipped.push({ what: `ライブラリの ${unknown.length} 件`, detail: `配布元が Modrinth・SpigotMC・CurseForge とわからず、ファイルも取り込めなかったもの(保存先の方式が使えない・版が無いなど)です。ファイルは v02 の保存先に残っています: ${listOf(unknown)}` });
   }
   if (otherKinds.length) {
     report.skipped.push({ what: `データパックなど(${otherKinds.length} 件)`, detail: `v03 はプラグインと Mod だけを扱います: ${listOf(otherKinds)}` });
@@ -341,7 +346,8 @@ export async function importUploads(db: Db, v02: DatabaseSync, teamId: string, o
     ? "SELECT i.id, i.name, i.category, s.provider, s.project_id FROM items i LEFT JOIN item_sources s ON s.item_id = i.id ORDER BY i.id"
     : "SELECT id, name, category FROM items ORDER BY id")
     .filter((r) => TYPES[str(r.category)] && !(str(r.provider) === "modrinth" && MODRINTH_ID.test(str(r.project_id)))
-      && !(str(r.provider) === "spigot" && SPIGOT_ID.test(str(r.project_id)) && str(r.category) === "plugin"));
+      && !(str(r.provider) === "spigot" && SPIGOT_ID.test(str(r.project_id)) && str(r.category) === "plugin")
+      && !(str(r.provider) === "curseforge" && SPIGOT_ID.test(str(r.project_id))));
   if (!items.length) return uploaded;
 
   // v02 の保存先 → v03 の保存先(SMB はまだつなげないので飛ばす)
@@ -417,4 +423,18 @@ export async function importUploads(db: Db, v02: DatabaseSync, teamId: string, o
   }
   if (smb.length) report.skipped.push({ what: `v02 の保存先(${smb.length} 個)`, detail: `${smb.join("、")}。v03 で使えない方式(NFS など)なので取り込んでいません(NAS をマウントしてフォルダとして足せます)` });
   return uploaded;
+}
+
+// CurseForge の API キー(03.19.00 から)。v02 のパネル全体の設定を、チームのキーにする
+export async function importCurseforgeKey(db: Db, v02: DatabaseSync, teamId: string, opts: { secret: string; v02Dir: string }, report: LibraryImportReport) {
+  if (!has(v02, "settings")) return;
+  const enc = str((v02.prepare("SELECT value FROM settings WHERE key='cf_api_key'").get() as Row | undefined)?.value);
+  if (!enc) return;
+  const keyFile = join(opts.v02Dir, "secret.key");
+  try {
+    const key = decryptV02Secret(enc, existsSync(keyFile) ? readFileSync(keyFile, "utf8") : "");
+    await db.insert(schema.teamCurseforge).values({ teamId, apiKeySealed: seal(opts.secret, key, `curseforge:${teamId}`), apiKeyHint: hint(key) }).onConflictDoNothing();
+  } catch {
+    report.skipped.push({ what: "CurseForge の API キー", detail: "読めませんでした。「チーム」で設定し直してください" });
+  }
 }

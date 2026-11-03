@@ -6,7 +6,7 @@ import { z } from "zod";
 const svc = async () => (await import("~/server/instance")).library;
 const headers = () => getRequest().headers;
 const sid = z.string().min(1).max(64);
-const source = z.enum(["modrinth", "spigot", "upload"]).default("modrinth");
+const source = z.enum(["modrinth", "spigot", "curseforge", "upload"]).default("modrinth");
 
 export const serverDetail = createServerFn({ method: "GET" })
   .validator(z.object({ id: sid }))
@@ -53,3 +53,9 @@ export const addLibraryItem = createServerFn({ method: "POST" })
 export const removeLibraryItem = createServerFn({ method: "POST" })
   .validator(z.object({ itemId: z.string().min(1).max(64) }))
   .handler(async ({ data }) => (await svc()).removeItem(headers(), data.itemId));
+
+export const curseforgeKey = createServerFn({ method: "GET" }).handler(async () => (await svc()).curseforgeKey(headers()));
+
+export const setCurseforgeKey = createServerFn({ method: "POST" })
+  .validator(z.object({ key: z.string().max(200).nullable() }))
+  .handler(async ({ data }) => (await svc()).setCurseforgeKey(headers(), data.key));

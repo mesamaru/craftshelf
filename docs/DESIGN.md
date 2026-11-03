@@ -104,7 +104,7 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
   - 動くサーバーはカテゴリーで決める(`spigetFits`): サーバー用 → Paper・Purpur・Spigot、プロキシ用 → BungeeCord、Universal → 両方。Folia・Velocity は見分けられないので入れない。Minecraft のバージョンでは絞らない(SpigotMC の対応バージョンは作者の自己申告で粗いため)。版はいちばん新しいものだけ(古い版は Spiget から取り込めない)。
   - ファイルの名前は、名前と版から安全な文字だけで作る(作れなければ `spigot-<ID>.jar`)。
 - 配布元は `installed_mod`・`library_item` の `source`(`modrinth` / `spigot`)で分け、同じものかは「配布元 + ID」で判断する(`src/lib/sources.ts`)。
-- CurseForge はまだ。サービスとして使うときの API キーと規約を確かめてから足す。
+- **CurseForge**(`src/server/curseforge.ts`、自分用の版だけ): チームが設定した利用者の API キー(表 `team_curseforge`、`seal`)で使う。サービス版では使わない(CurseForge の規約で、サービスとして使うには別の取り決めが要るため)。分類はプラグイン = 5・Mod = 6、作りは `modLoaderType`(Forge 1・Fabric 4・Quilt 5・NeoForge 6)。取り込ませるのは `downloadUrl` が forgecdn.net のものだけで、作者が外部からのダウンロードを許していないもの(`allowModDistribution: false`・`downloadUrl` が無い)は扱わない。
 
 ## 操作の記録と通知
 

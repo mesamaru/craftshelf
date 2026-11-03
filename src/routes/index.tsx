@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { authClient } from "~/lib/auth-client";
 import { addLibraryItem, installMod, libraryCatalog, removeLibraryItem, searchCatalog } from "~/lib/library-api";
 import { localEnabled } from "~/lib/servers-api";
-import { SOURCES, SOURCE_LABEL, type ItemSource, type Source, isItemSource, pageUrl } from "~/lib/sources";
+import { SOURCE_LABEL, type ItemSource, type Source, isItemSource, pageUrl } from "~/lib/sources";
 import { removeUploadedFile, uploadedFiles } from "~/lib/uploads-api";
 import { useCan } from "~/lib/use-can";
 
@@ -62,7 +62,7 @@ function Home() {
       <p className="foot">チームで使う Mod・プラグインの一覧です。Modrinth・SpigotMC のものは、サーバーが配布元から直接取り込みます(アップロードしたものは、保存先から送ります)。入れる版は、サーバーの種類とバージョンに合うものを選びます(Paper のサーバーには Paper 向けの作りを優先)。</p>
 
       {edit && uploads && <Upload onDone={reload} />}
-      {edit && cat && <AddFromSource have={new Set(cat.items.map((i) => `${i.source}:${i.projectId}`))} onAdded={reload} />}
+      {edit && cat && <AddFromSource sources={cat.sources as Source[]} have={new Set(cat.items.map((i) => `${i.source}:${i.projectId}`))} onAdded={reload} />}
     </main>
   );
 }
@@ -124,7 +124,7 @@ function Item({ item, servers, edit, onChange }:
   );
 }
 
-function AddFromSource({ have, onAdded }: { have: Set<string>; onAdded: () => void }) {
+function AddFromSource({ sources, have, onAdded }: { sources: Source[]; have: Set<string>; onAdded: () => void }) {
   const search = useServerFn(searchCatalog);
   const add = useServerFn(addLibraryItem);
   const [source, setSource] = useState<Source>("modrinth");
@@ -164,7 +164,7 @@ function AddFromSource({ have, onAdded }: { have: Set<string>; onAdded: () => vo
           <span>配布元</span>
           <select className="trail" value={source} aria-label="配布元"
             onChange={(e) => { const src = e.target.value as Source; const t = src === "spigot" ? "plugin" : type; setSource(src); setType(t); if (hits) find(t, src); }}>
-            {SOURCES.map((x) => <option key={x} value={x}>{SOURCE_LABEL[x]}</option>)}
+            {sources.map((x) => <option key={x} value={x}>{SOURCE_LABEL[x]}</option>)}
           </select>
         </div>
         <div className="row">

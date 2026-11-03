@@ -6,7 +6,7 @@ import { ApplyResults } from "~/lib/apply-results";
 import { PLATFORMS, PLATFORM_IDS } from "~/lib/platforms";
 import { localSettings, setLocalSettings } from "~/lib/servers-api";
 import { bindServerSet, listSets, syncServerSet } from "~/lib/sets-api";
-import { SOURCES, SOURCE_LABEL, type Source, pageUrl } from "~/lib/sources";
+import { SOURCE_LABEL, type Source, pageUrl } from "~/lib/sources";
 import { useCan } from "~/lib/use-can";
 
 export const Route = createFileRoute("/servers_/$id")({
@@ -55,7 +55,8 @@ function ServerPage() {
           <SetBinding id={server.id} name={server.name} edit={edit} onSynced={reload} />
           <Installed id={server.id} items={items} error={error} edit={edit}
             dir={PLATFORMS[server.profile.platform].dir} onChange={reload} />
-          {edit && <Search id={server.id} installed={items ?? []} plugins={PLATFORMS[server.profile.platform].type === "plugin"} onInstalled={reload} />}
+          {edit && <Search id={server.id} installed={items ?? []}
+            sources={(server.sources as Source[]).filter((s) => s !== "spigot" || PLATFORMS[server.profile!.platform].type === "plugin")} onInstalled={reload} />}
         </>
       )}
     </main>
@@ -189,7 +190,7 @@ function Installed({ id, items, error, edit, dir, onChange }:
   );
 }
 
-function Search({ id, installed, plugins, onInstalled }: { id: string; installed: Installed[]; plugins: boolean; onInstalled: () => void }) {
+function Search({ id, installed, sources, onInstalled }: { id: string; installed: Installed[]; sources: Source[]; onInstalled: () => void }) {
   const search = useServerFn(searchMods);
   const install = useServerFn(installMod);
   const [source, setSource] = useState<Source>("modrinth");
@@ -229,12 +230,12 @@ function Search({ id, installed, plugins, onInstalled }: { id: string; installed
     <>
       <div className="group-title">{SOURCE_LABEL[source]} から探す</div>
       <form className="group form" onSubmit={(e) => (e.preventDefault(), find())}>
-        {plugins && (
+        {sources.length > 1 && (
           <div className="row">
             <span>配布元</span>
             <select className="trail" value={source} aria-label="配布元"
               onChange={(e) => { const s = e.target.value as Source; setSource(s); setHits(null); find(s); }}>
-              {SOURCES.map((s) => <option key={s} value={s}>{SOURCE_LABEL[s]}</option>)}
+              {sources.map((s) => <option key={s} value={s}>{SOURCE_LABEL[s]}</option>)}
             </select>
           </div>
         )}

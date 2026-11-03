@@ -296,3 +296,11 @@ export const libraryFile = pgTable(
   },
   (t) => [index("library_file_item_idx").on(t.itemId), index("library_file_sha_idx").on(t.sha256)],
 );
+
+// チームの CurseForge の API キー(自分用の版だけ。利用者が console.curseforge.com で作ったもの。暗号化して保存)
+export const teamCurseforge = pgTable("team_curseforge", {
+  teamId: text("team_id").primaryKey().references(() => organization.id, { onDelete: "cascade" }),
+  apiKeySealed: text("api_key_sealed").notNull(),
+  apiKeyHint: text("api_key_hint").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});

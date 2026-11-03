@@ -82,6 +82,14 @@ export function curseforgeClient(fetch: FetchLike, apiKey: string) {
       return { projectId, versionId: String(f.id), versionNumber: f.displayName.replace(/\.jar$/i, "").slice(0, 60), filename: f.fileName, url: f.downloadUrl!, sha512: "", size: f.fileLength };
     },
 
+    /** 決まったファイル(前の版に戻すとき) */
+    async file(projectId: string, fileId: string): Promise<FileChoice | null> {
+      if (!CF_ID.test(projectId) || !CF_ID.test(fileId)) return null;
+      const f = (await get(`/mods/${projectId}/files/${fileId}`))?.data as File | undefined;
+      if (!f?.downloadUrl || !CF_HOSTS.includes(new URL(f.downloadUrl).host) || !SAFE_JAR.test(f.fileName)) return null;
+      return { projectId, versionId: String(f.id), versionNumber: f.displayName.replace(/\.jar$/i, "").slice(0, 60), filename: f.fileName, url: f.downloadUrl, sha512: "", size: f.fileLength };
+    },
+
     async project(projectId: string) {
       if (!CF_ID.test(projectId)) return null;
       const m = (await get(`/mods/${projectId}`))?.data as Mod | undefined;

@@ -304,3 +304,19 @@ export const teamCurseforge = pgTable("team_curseforge", {
   apiKeyHint: text("api_key_hint").notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// 更新で入れ替えた前の版(前の版に戻すのに使う。サーバー × 配布元 × ID の、新しい順)
+export const installHistory = pgTable(
+  "install_history",
+  {
+    id: text("id").primaryKey(),
+    serverId: text("server_id").notNull().references(() => server.id, { onDelete: "cascade" }),
+    source: text("source").notNull(),
+    projectId: text("project_id").notNull(),
+    versionId: text("version_id").notNull(),
+    versionNumber: text("version_number").notNull(),
+    filename: text("filename").notNull(),
+    replacedAt: timestamp("replaced_at").defaultNow().notNull(),
+  },
+  (t) => [index("install_history_idx").on(t.serverId, t.source, t.projectId, t.replacedAt)],
+);

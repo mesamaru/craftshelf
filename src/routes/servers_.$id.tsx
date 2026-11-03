@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { installMod, installedMods, modUpdates, removeMod, searchMods, serverDetail, setModHold, setProfile } from "~/lib/library-api";
+import { installMod, installedMods, modUpdates, removeMod, rollbackMod, searchMods, serverDetail, setModHold, setProfile } from "~/lib/library-api";
 import { ApplyResults } from "~/lib/apply-results";
 import { PLATFORMS, PLATFORM_IDS } from "~/lib/platforms";
 import { localSettings, setLocalSettings } from "~/lib/servers-api";
@@ -116,6 +116,7 @@ function Installed({ id, items, error, edit, dir, onChange }:
   const install = useServerFn(installMod);
   const remove = useServerFn(removeMod);
   const hold = useServerFn(setModHold);
+  const rollback = useServerFn(rollbackMod);
   const [updates, setUpdates] = useState<Map<string, Update> | null>(null);
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
@@ -163,8 +164,14 @@ function Installed({ id, items, error, edit, dir, onChange }:
                   {busy === m.filename ? "更新中…" : "更新"}
                 </button>
               )}
-              {edit && m.projectId && m.source && (
+              {edit && m.canRollback && m.projectId && m.source && (
                 <button className={`${u ? "" : "trail "}link`} type="button" disabled={!!busy}
+                  onClick={() => confirm(`${m.title} を前の版に戻しますか?(戻したあとは「更新を止める」になります)`) && run(`rb:${m.filename}`, () => rollback({ data: { id, projectId: m.projectId!, source: m.source as Source } }))}>
+                  {busy === `rb:${m.filename}` ? "戻しています…" : "前の版に戻す"}
+                </button>
+              )}
+              {edit && m.projectId && m.source && (
+                <button className={`${u || m.canRollback ? "" : "trail "}link`} type="button" disabled={!!busy}
                   onClick={() => run(`hold:${m.filename}`, () => hold({ data: { id, projectId: m.projectId!, source: m.source as Source, hold: !m.held } }))}>
                   {m.held ? "止めるのをやめる" : "更新を止める"}
                 </button>
@@ -198,6 +205,7 @@ function Search({ id, installed, sources, onInstalled }: { id: string; installed
   const [hits, setHits] = useState<Awaited<ReturnType<typeof searchMods>> | null>(null);
   const [busy, setBusy] = useState("");
   const [done, setDone] = useState<Set<string>>(new Set());
+  const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const key = (src: string, projectId: string) => `${src}:${projectId}`;
   const have = new Set(installed.filter((m) => m.projectId).map((m) => key(m.source ?? "", m.projectId!)));
@@ -216,8 +224,9 @@ function Search({ id, installed, sources, onInstalled }: { id: string; installed
     setBusy(projectId);
     setError("");
     try {
-      await install({ data: { id, projectId, source } });
+      const r = await install({ data: { id, projectId, source } });
       setDone((d) => new Set(d).add(key(source, projectId)));
+      if (r.deps.length) setNote(`前提も入れました: ${r.deps.map((d) => (d.ok ? `${d.title} ${d.detail}` : `${d.title}(入れられません: ${d.detail})`)).join("、")}`);
       onInstalled();
     } catch (e) {
       setError(message(e));
@@ -258,6 +267,7 @@ function Search({ id, installed, sources, onInstalled }: { id: string; installed
             )}
           </div>
         ))}
+        {note && <p className="row muted" role="status">{note}</p>}
         {error && <p className="row error" role="alert">{error}</p>}
       </form>
     </>

@@ -65,6 +65,7 @@ export function setService(deps: Deps) {
         } else if (!now) {
           const r = await installInto(teamId, userId, target, p, it.source, it.projectId);
           out.push({ title: it.title, status: "installed", detail: r.versionNumber });
+          for (const d of r.deps) out.push({ title: d.title, status: d.ok ? "installed" : "failed", detail: d.ok ? `${d.detail}(${it.title} の前提)` : d.detail });
         } else if (mode === "add") {
           out.push({ title: it.title, status: "present", detail: "入っています" });
         } else if (holds.has(`${it.source}:${it.projectId}`)) {

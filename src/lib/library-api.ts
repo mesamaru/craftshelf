@@ -59,3 +59,7 @@ export const curseforgeKey = createServerFn({ method: "GET" }).handler(async () 
 export const setCurseforgeKey = createServerFn({ method: "POST" })
   .validator(z.object({ key: z.string().max(200).nullable() }))
   .handler(async ({ data }) => (await svc()).setCurseforgeKey(headers(), data.key));
+
+export const rollbackMod = createServerFn({ method: "POST" })
+  .validator(z.object({ id: sid, projectId: z.string().max(40), source }))
+  .handler(async ({ data }) => (await svc()).rollback(headers(), data.id, data.source, data.projectId));

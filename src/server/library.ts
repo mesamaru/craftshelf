@@ -1,7 +1,7 @@
 // サーバーの Mod・プラグイン: 一覧・配布元(Modrinth・SpigotMC)での検索・入れる(更新を含む)・外す。
 // ファイルはこのアプリを通さず、Pterodactyl に配布元から直接取り込ませる
 import { randomUUID } from "node:crypto";
-import { and, asc, count, eq } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 import { PLATFORMS, MC_VERSION, type Platform, isPlatform } from "~/lib/platforms";
 import { installedMod, libraryItem, server, serverHold, serverProfile } from "./db/schema";
 import { HttpError, requireTeam } from "./guard";
@@ -9,7 +9,7 @@ import { type ItemSource, SOURCE_LABEL, isItemSource } from "~/lib/sources";
 import { ModrinthError, type ProjectType, isProjectType, modrinthClient } from "./modrinth";
 import { SpigetError, spigetClient } from "./spiget";
 import { CF_KEY, CurseForgeError, curseforgeClient } from "./curseforge";
-import { teamCurseforge } from "./db/schema";
+import { installHistory, libraryFile, teamCurseforge } from "./db/schema";
 import { hint, open, seal } from "./secrets";
 import { fileStore } from "./uploads";
 import { eventService } from "./events";
@@ -57,7 +57,7 @@ export function modTools(deps: Deps) {
       const r = await files.pick(teamId, projectId, p.platform);
       if (!r) return null;
       const f = r.file;
-      return { projectId, versionId: f.id, versionNumber: f.version || f.filename, filename: f.filename, url: "", sha512: "", size: f.size, upload: f };
+      return { projectId, versionId: f.id, versionNumber: f.version || f.filename, filename: f.filename, url: "", sha512: "", size: f.size, upload: f, deps: [] as string[] };
     }
     const cf = source === "curseforge" ? await curseforge(teamId) : null;
     const f = await fromSource(() => (cf ? cf.latestFile(projectId, p.platform, p.mcVersion)
@@ -93,9 +93,28 @@ export function modTools(deps: Deps) {
     return row.id;
   }
 
-  // 入れる。同じものの古い版が入っていれば、新しい版を入れてから古いファイルを消す(= 更新)
-  async function installInto(teamId: string, userId: string | null, { row, client, remoteId }: Target, p: Profile, source: ItemSource, projectId: string) {
-    const file = await latestFile(source, projectId, p, teamId);
+  // 決まった版のファイル(前の版に戻すとき)。SpigotMC は古い版を取ってこられないので null
+  async function fileById(source: ItemSource, projectId: string, versionId: string, teamId: string) {
+    if (source === "upload") {
+      const [f] = await db.select().from(libraryFile).where(eq(libraryFile.id, versionId));
+      return f ? { projectId, versionId: f.id, versionNumber: f.version || f.filename, filename: f.filename, url: "", sha512: "", size: f.size, upload: f, deps: [] as string[] } : null;
+    }
+    if (source === "spigot") return null;
+    const cf = source === "curseforge" ? await curseforge(teamId) : null;
+    const file = await fromSource(() => (cf ? cf.file(projectId, versionId) : modrinth.version(projectId, versionId)));
+    return file ? { ...file, upload: undefined } : null;
+  }
+
+  type Installed = { title: string; filename: string; versionNumber: string; replaced: string[]; deps: { title: string; ok: boolean; detail: string }[] };
+
+  /**
+   * 入れる。同じものの古い版が入っていれば、新しい版を入れてから古いファイルを消す(= 更新。消した版は履歴に残す)。
+   * Modrinth の前提(必須)で、まだ入っていないものも入れる(depth 段まで)。opts.file を渡すと、その版を入れる(前の版に戻すとき)
+   */
+  async function installInto(teamId: string, userId: string | null, target: Target, p: Profile, source: ItemSource, projectId: string,
+    opts: { file?: Awaited<ReturnType<typeof fileById>>; depth?: number } = {}): Promise<Installed> {
+    const { row, client, remoteId } = target;
+    const file = opts.file ?? await latestFile(source, projectId, p, teamId);
     if (!file) {
       throw new HttpError(404, source === "spigot"
         ? "このサーバーの種類で動く版がありません(SpigotMC の外で配っているもの・有料のものは入れられません)"
@@ -119,7 +138,16 @@ export function modTools(deps: Deps) {
     const stale = old.filter((o) => o.filename !== file.filename);
     if (stale.length) {
       await remote(() => client.deleteFiles(remoteId, dir, stale.map((o) => o.filename)));
-      for (const o of stale) await db.delete(installedMod).where(eq(installedMod.id, o.id));
+      for (const o of stale) {
+        await db.delete(installedMod).where(eq(installedMod.id, o.id));
+        if (o.versionId !== file.versionId) {
+          await db.insert(installHistory).values({ id: randomUUID(), serverId: row.id, source, projectId, versionId: o.versionId, versionNumber: o.versionNumber, filename: o.filename });
+        }
+      }
+      // 履歴は 1 つにつき新しい 10 件まで
+      const hist = await db.select({ id: installHistory.id }).from(installHistory)
+        .where(and(eq(installHistory.serverId, row.id), eq(installHistory.source, source), eq(installHistory.projectId, projectId))).orderBy(desc(installHistory.replacedAt)).offset(10);
+      if (hist.length) await db.delete(installHistory).where(inArray(installHistory.id, hist.map((h) => h.id)));
     }
     const values = {
       id: randomUUID(), serverId: row.id, source, projectId, versionId: file.versionId, versionNumber: file.versionNumber,
@@ -131,20 +159,37 @@ export function modTools(deps: Deps) {
       title: values.title, slug: info?.slug ?? "", iconUrl: info?.iconUrl ?? "",
       projectType: isProjectType(info?.projectType) ? info.projectType : PLATFORMS[p.platform].type,
     });
-    return { title: values.title, filename: file.filename, versionNumber: file.versionNumber, replaced: stale.map((o) => o.filename) };
+
+    // 前提(Modrinth の必須)のうち、このサーバーにまだ無いもの。入れられなくても、もとのものは入れたまま
+    const deps: Installed["deps"] = [];
+    const depth = opts.depth ?? 2;
+    if (source === "modrinth" && depth > 0 && file.deps?.length) {
+      const have = new Set((await db.select({ id: installedMod.projectId }).from(installedMod)
+        .where(and(eq(installedMod.serverId, row.id), eq(installedMod.source, "modrinth")))).map((x) => x.id));
+      for (const dep of file.deps.filter((d) => !have.has(d))) {
+        try {
+          const r = await installInto(teamId, userId, target, p, "modrinth", dep, { depth: depth - 1 });
+          deps.push({ title: r.title, ok: true, detail: r.versionNumber }, ...r.deps);
+        } catch (e) {
+          if (!(e instanceof HttpError)) throw e;
+          deps.push({ title: dep, ok: false, detail: e.message });
+        }
+      }
+    }
+    return { title: values.title, filename: file.filename, versionNumber: file.versionNumber, replaced: stale.map((o) => o.filename), deps };
   }
 
   // 更新を止めているもの("配布元:ID" の集合)
   const holdsOf = async (serverId: string) =>
     new Set((await db.select().from(serverHold).where(eq(serverHold.serverId, serverId))).map((h) => `${h.source}:${h.projectId}`));
 
-  return { modrinth, spiget, curseforge, cfKeyOf, latestFile, project, profileOf, needProfile, remember, installInto, holdsOf };
+  return { modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, project, profileOf, needProfile, remember, installInto, holdsOf };
 }
 
 export function libraryService(deps: Deps) {
   const { db, auth } = deps;
   const { record } = eventService(deps);
-  const { modrinth, spiget, curseforge, cfKeyOf, latestFile, project, profileOf, needProfile, remember, installInto, holdsOf } = modTools(deps);
+  const { modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, project, profileOf, needProfile, remember, installInto, holdsOf } = modTools(deps);
   // このチームで探せる配布元(CurseForge は API キーを設定したときだけ)
   const sourcesOf = async (teamId: string) => ["modrinth", "spigot", ...((await cfKeyOf(teamId)) ? ["curseforge"] : [])];
   const sourceOf = (v: string) => {
@@ -269,13 +314,15 @@ export function libraryService(deps: Deps) {
       const files = (await remote(() => client.listFiles(remoteId, dir))).filter((f) => f.isFile && f.name.toLowerCase().endsWith(".jar"));
       const records = new Map((await db.select().from(installedMod).where(eq(installedMod.serverId, row.id))).map((r) => [r.filename, r]));
       const holds = await holdsOf(row.id);
+      const history = new Set((await db.select({ source: installHistory.source, projectId: installHistory.projectId }).from(installHistory)
+        .where(eq(installHistory.serverId, row.id))).filter((h) => h.source !== "spigot").map((h) => `${h.source}:${h.projectId}`));
       return {
         dir,
         items: files.map((f) => {
           const r = records.get(f.name);
           return {
             filename: f.name, size: f.size,
-            ...(r ? { source: r.source, projectId: r.projectId, versionId: r.versionId, versionNumber: r.versionNumber, title: r.title, held: holds.has(`${r.source}:${r.projectId}`) } : {}),
+            ...(r ? { source: r.source, projectId: r.projectId, versionId: r.versionId, versionNumber: r.versionNumber, title: r.title, held: holds.has(`${r.source}:${r.projectId}`), canRollback: history.has(`${r.source}:${r.projectId}`) } : {}),
           };
         }).sort((a, b) => (a.title ?? a.filename).localeCompare(b.title ?? b.filename)),
       };
@@ -299,7 +346,32 @@ export function libraryService(deps: Deps) {
       const { row, client, remoteId } = await serverOf(deps, teamId, id);
       const p = await needProfile(row.id);
       const r = await installInto(teamId, user.id, { row, client, remoteId }, p, src, projectId);
-      await record({ teamId, userId: user.id, kind: "changes", action: r.replaced.length ? "更新" : "入れる", target: row.name, detail: `${r.title} ${r.versionNumber}(${SOURCE_LABEL[src]})` });
+      await record({ teamId, userId: user.id, kind: "changes", action: r.replaced.length ? "更新" : "入れる", target: row.name,
+        detail: `${r.title} ${r.versionNumber}(${SOURCE_LABEL[src]})${r.deps.length ? `\n前提: ${r.deps.map((d) => `${d.title} ${d.ok ? d.detail : `(入れられません: ${d.detail})`}`).join("、")}` : ""}` });
+      return r;
+    },
+
+    /** 前の版に戻す(更新で入れ替えた、いちばん新しい前の版を入れ直す)。戻したものは「更新を止める」にする */
+    async rollback(headers: Headers, id: string, source: string, projectId: string) {
+      const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
+      const target = await serverOf(deps, teamId, id);
+      const src = sourceOf(source);
+      if (src === "spigot") throw new HttpError(400, "SpigotMC のものは、前の版を取ってこられないので戻せません");
+      const p = await needProfile(target.row.id);
+      const [prev] = await db.select().from(installHistory)
+        .where(and(eq(installHistory.serverId, target.row.id), eq(installHistory.source, src), eq(installHistory.projectId, projectId)))
+        .orderBy(desc(installHistory.replacedAt)).limit(1);
+      if (!prev) throw new HttpError(404, "前の版の記録がありません");
+      const file = await fileById(src, projectId, prev.versionId, teamId);
+      if (!file) throw new HttpError(404, "前の版のファイルが、もう取ってこられません");
+      const now = await db.select({ versionId: installedMod.versionId }).from(installedMod)
+        .where(and(eq(installedMod.serverId, target.row.id), eq(installedMod.source, src), eq(installedMod.projectId, projectId)));
+      const r = await installInto(teamId, user.id, target, p, src, projectId, { file, depth: 0 });
+      // いま使った前の版の記録と、入れ替えで残った「戻す前の(新しい)版」の記録は消す(続けて押すと、さらに前の版に戻るように)
+      await db.delete(installHistory).where(and(eq(installHistory.serverId, target.row.id), eq(installHistory.source, src), eq(installHistory.projectId, projectId),
+        inArray(installHistory.versionId, [prev.versionId, ...now.map((x) => x.versionId)])));
+      await db.insert(serverHold).values({ serverId: target.row.id, source: src, projectId, createdBy: user.id }).onConflictDoNothing();
+      await record({ teamId, userId: user.id, kind: "changes", action: "前の版に戻す", target: target.row.name, detail: `${r.title} → ${r.versionNumber}(更新を止めました)` });
       return r;
     },
 

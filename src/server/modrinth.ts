@@ -9,7 +9,24 @@ const UA = "mesamaru/craftshelf (https://github.com/mesamaru/craftshelf)";
 export class ModrinthError extends Error {}
 
 export type Hit = { projectId: string; slug: string; title: string; summary: string; downloads: number; iconUrl: string; author: string };
-export type FileChoice = { projectId: string; versionId: string; versionNumber: string; filename: string; url: string; sha512: string; size: number };
+// deps: 一緒に入れる必要がある前提(Modrinth の required)のプロジェクトの ID
+export type FileChoice = { projectId: string; versionId: string; versionNumber: string; filename: string; url: string; sha512: string; size: number; deps?: string[] };
+
+// Modrinth の版 → 入れるファイル(CDN の外・安全でない名前のものは null)
+function fileOf(projectId: string, v: Record<string, unknown>): FileChoice | null {
+  const files = (v.files as Record<string, unknown>[]) ?? [];
+  const f = files.find((x) => x.primary) ?? files[0];
+  const url = String(f?.url ?? "");
+  const filename = String(f?.filename ?? "");
+  if (!url.startsWith("https://cdn.modrinth.com/") || !SAFE_JAR.test(filename)) return null;
+  const deps = ((v.dependencies as Record<string, unknown>[]) ?? [])
+    .filter((d) => d.dependency_type === "required" && typeof d.project_id === "string" && PROJECT_ID.test(d.project_id))
+    .map((d) => String(d.project_id));
+  return {
+    projectId, versionId: String(v.id), versionNumber: String(v.version_number ?? ""), filename, url,
+    sha512: String((f.hashes as Record<string, string>)?.sha512 ?? ""), size: Number(f.size ?? 0), deps: [...new Set(deps)].filter((d) => d !== projectId),
+  };
+}
 
 const PROJECT_ID = /^[A-Za-z0-9]{8}$/;
 const icon = (v: unknown) => (typeof v === "string" && v.startsWith("https://cdn.modrinth.com/") ? v : "");
@@ -64,16 +81,14 @@ export function modrinthClient(fetch: FetchLike) {
       const versions: Record<string, unknown>[] = (await get(`/project/${projectId}/version?${q}`)) ?? [];
       const releases = versions.filter((x) => x.version_type === "release");
       const v = pickVersion(releases.length ? releases : versions, PLATFORMS[platform].loaders);
-      if (!v) return null;
-      const files = (v.files as Record<string, unknown>[]) ?? [];
-      const f = files.find((x) => x.primary) ?? files[0];
-      const url = String(f?.url ?? "");
-      const filename = String(f?.filename ?? "");
-      if (!url.startsWith("https://cdn.modrinth.com/") || !SAFE_JAR.test(filename)) return null;
-      return {
-        projectId, versionId: String(v.id), versionNumber: String(v.version_number ?? ""), filename, url,
-        sha512: String((f.hashes as Record<string, string>)?.sha512 ?? ""), size: Number(f.size ?? 0),
-      };
+      return v ? fileOf(projectId, v) : null;
+    },
+
+    /** 決まった版のファイル(前の版に戻すとき) */
+    async version(projectId: string, versionId: string): Promise<FileChoice | null> {
+      if (!/^[A-Za-z0-9]{8}$/.test(versionId)) return null;
+      const v = await get(`/version/${versionId}`);
+      return v && v.project_id === projectId ? fileOf(projectId, v) : null;
     },
 
     async project(projectId: string) {

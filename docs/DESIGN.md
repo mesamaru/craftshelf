@@ -98,6 +98,8 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 - 権限: 作る・中身を変える・入れるのは `library: ["edit"]`、見るのはメンバー全員。無料の上限は 1 チーム 50 個・1 セット 200 件(`SET_LIMITS`)。
 - サーバーに結び付けるセットは 1 台に 1 つ(表 `server_set`)。「そろえる」(`sync`)は `apply` と同じく種類の合うものだけを扱い、足りないものを入れ、入っているもの(`installed_mod`)に新しい版(`latestFile` の版が記録と違う)があれば入れ直す(= 更新。古いファイルは消す)。セットに無いものは外さない。
 - 「更新を止める」(表 `server_hold`、サーバー × 配布元 × ID)。そろえる・予約・更新の確認では、止めたものを新しい版にしない(画面の「更新」は、その場の操作なので止めない)。
+- 「前の版に戻す」: `installInto` が更新で入れ替えた版を表 `install_history` に残す(1 つにつき 10 件)。`rollback` はいちばん新しい前の版を `fileById`(Modrinth は `/version/<ID>`、CurseForge は `/files/<ID>`、アップロードは版の行)で取り直して入れ、使った記録と戻す前の版の記録を消し、`server_hold` を付ける。SpigotMC は古い版を取ってこられないので戻せない。
+- 前提: Modrinth の版の `dependencies` のうち `required` のものを `FileChoice.deps` で返し、`installInto` がまだ入っていないものを入れる(2 段まで。入れられなくても本体はそのまま)。
 - 「セットに無いものを外す」(`sync` の `removeExtra`)は、`installed_mod` の記録があるもの(このアプリで入れたもの)のうち、セットに無いものだけを外す。手で置いたファイルは記録が無いので触らない。予約では外さない(気づかないうちに消えないように)。
 
 - **SpigotMC**(`src/server/spiget.ts`): Spiget(SpigotMC の公開 API)で探し、Pterodactyl に `https://api.spiget.org/v2/resources/<数字の ID>/download`(Spiget の CDN へ転送される)を取り込ませる。URL はこちらで組み立てるものだけ。SpigotMC の外のサイトで配っているもの(external)・有料のもの(premium)・プラグインではないカテゴリー(Standalone・Web・DataPack)は扱わない。

@@ -162,4 +162,4 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 - 読み取り(`src/server/ports.ts` の `scan`): Pterodactyl の割り当て(`network/allocations`)と、種類ごとの設定ファイルの項目(`files/contents`)を読む。`plugins/*/config.yml` からポートらしい項目(名前に port を含む番号)も探し、「見つかった」として聞く。
 - 重複は**同じマシン(Pterodactyl のノード)の中だけ**で確かめる(`src/lib/ports.ts` の `findProblems`。画面とサーバーで同じものを使う)。
 - 番号を変えると、設定ファイルのその行の番号だけを書き換える(`src/server/port-config.ts`。properties と、字下げで入れ子にする YAML・HOCON・TOML)。割り当てのポートはパネルの「ネットワーク」で変える。
-- 見る: チームのメンバー全員。種類・グループ・ポートを変える(ファイルの書き換えを含む): `server: ["update"]`。
+- 見る: チームのメンバー全員。読み取り直す(再読込。Pterodactyl への問い合わせが多い)・種類・グループ・ポートを変える(ファイルの書き換えを含む): `server: ["update"]`。

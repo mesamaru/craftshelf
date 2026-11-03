@@ -197,6 +197,7 @@ describe("ポート管理(サーバーから読み取る)", () => {
     expect(await code(ports.overview(viewer))).toBe(200);
     expect(await code(ports.savePorts(viewer, s.id, [{ port: 9000 }]))).toBe(403);
     expect(await code(ports.saveRules(viewer, { kinds: [], groups: [] }))).toBe(403);
+    expect(await code(ports.scan(viewer))).toBe(403); // 読み取りは問い合わせが多いので管理者以上
     expect(await code(ports.savePorts(outsider, s.id, [{ port: 9000 }]))).toBe(404); // ほかのチームのサーバーは見つからない
     expect((await ports.overview(outsider)).servers).toEqual([]);
     expect(await code(ports.setServerInfo(outsider, s.id, { groupId: null, memo: "" }))).toBe(404);

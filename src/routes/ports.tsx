@@ -75,7 +75,7 @@ function Ports() {
         <label className="muted"><input type="checkbox" checked={onlyProblems} onChange={(e) => setOnlyProblems(e.target.checked)} /> 問題のあるものだけ</label>
         <span className="spacer" />
         {edit && <button className="capsule" type="button" onClick={() => setPanel({ type: "rules" })}>種類とグループ</button>}
-        <button className="capsule" type="button" onClick={rescan} disabled={busy}>{busy ? "読み取っています…" : "再読込"}</button>
+        {edit && <button className="capsule" type="button" onClick={rescan} disabled={busy}>{busy ? "読み取っています…" : "再読込"}</button>}
       </div>
       {note && <p className="notice" role="status">{note}</p>}
 

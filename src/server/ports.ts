@@ -130,7 +130,8 @@ export function portService(deps: Deps) {
 
     /** 読み取り直す(serverId を渡すとその 1 台、無ければチームの全部)。失敗したサーバーは理由を返し、残りは続ける */
     async scan(headers: Headers, serverId?: string) {
-      const { teamId } = await requireTeam(auth, headers);
+      // 読み取りは Pterodactyl への問い合わせが多い(1 台でプラグインの設定を何十も読む)ので、管理者以上だけ
+      const { teamId } = await requireTeam(auth, headers, { server: ["update"] });
       await ensureKinds(teamId);
       const kinds = await db.select().from(portKind).where(eq(portKind.teamId, teamId));
       const list = await db.select().from(server).where(serverId ? and(eq(server.teamId, teamId), eq(server.id, serverId)) : eq(server.teamId, teamId));

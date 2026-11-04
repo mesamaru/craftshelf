@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ActivityRouteImport } from './routes/activity'
+import { Route as CompareRouteImport } from './routes/compare'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PortsRouteImport } from './routes/ports'
 import { Route as ServersRouteImport } from './routes/servers'
@@ -38,6 +39,11 @@ const IndexRoute = IndexRouteImport.update({
 const ActivityRoute = ActivityRouteImport.update({
   id: '/activity',
   path: '/activity',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CompareRoute = CompareRouteImport.update({
+  id: '/compare',
+  path: '/compare',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -134,6 +140,7 @@ const ApiLibraryFilesIdRoute = ApiLibraryFilesIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/activity': typeof ActivityRoute
+  '/compare': typeof CompareRoute
   '/login': typeof LoginRoute
   '/ports': typeof PortsRoute
   '/servers': typeof ServersRoute
@@ -156,6 +163,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/activity': typeof ActivityRoute
+  '/compare': typeof CompareRoute
   '/login': typeof LoginRoute
   '/ports': typeof PortsRoute
   '/servers': typeof ServersRoute
@@ -179,6 +187,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/activity': typeof ActivityRoute
+  '/compare': typeof CompareRoute
   '/login': typeof LoginRoute
   '/ports': typeof PortsRoute
   '/servers': typeof ServersRoute
@@ -203,6 +212,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/activity'
+    | '/compare'
     | '/login'
     | '/ports'
     | '/servers'
@@ -225,6 +235,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/activity'
+    | '/compare'
     | '/login'
     | '/ports'
     | '/servers'
@@ -247,6 +258,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/activity'
+    | '/compare'
     | '/login'
     | '/ports'
     | '/servers'
@@ -270,6 +282,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ActivityRoute: typeof ActivityRoute
+  CompareRoute: typeof CompareRoute
   LoginRoute: typeof LoginRoute
   PortsRoute: typeof PortsRoute
   ServersRoute: typeof ServersRoute
@@ -304,6 +317,13 @@ declare module '@tanstack/react-router' {
       path: '/activity'
       fullPath: '/activity'
       preLoaderRoute: typeof ActivityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/compare': {
+      id: '/compare'
+      path: '/compare'
+      fullPath: '/compare'
+      preLoaderRoute: typeof CompareRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -438,6 +458,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ActivityRoute: ActivityRoute,
+  CompareRoute: CompareRoute,
   LoginRoute: LoginRoute,
   PortsRoute: PortsRoute,
   ServersRoute: ServersRoute,

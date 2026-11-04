@@ -48,20 +48,26 @@ export function fileStore(deps: Deps) {
     return storeFor(configOf(t), fetch);
   }
 
-  /** このサーバーの種類に合う、いちばん新しい版(無ければ null) */
-  async function pick(teamId: string, projectId: string, platform: Platform) {
+  /** このサーバーの種類に合う版(新しい順) */
+  async function choices(teamId: string, projectId: string, platform: Platform) {
     const [item] = await db.select().from(libraryItem).where(and(eq(libraryItem.teamId, teamId), eq(libraryItem.source, "upload"), eq(libraryItem.projectId, projectId)));
-    if (!item || item.projectType !== PLATFORMS[platform].type) return null;
+    if (!item || item.projectType !== PLATFORMS[platform].type) return { item, files: [] };
     const want = PLATFORMS[platform].loaders as readonly string[];
     const files = (await db.select().from(libraryFile).where(eq(libraryFile.itemId, item.id)).orderBy(desc(libraryFile.createdAt)))
       .map((f) => ({ ...f, loaders: JSON.parse(f.loaders) as string[], date_published: f.createdAt.toISOString() }))
       .filter((f) => !f.loaders.length || f.loaders.some((l) => want.includes(l))); // 調べられなかったものは、種類が合えば使う
-    const f = pickVersion(files, want);
-    return f ? { item, file: f as unknown as FileRow } : null;
+    return { item, files };
+  }
+
+  /** このサーバーの種類に合う、いちばん新しい版(無ければ null) */
+  async function pick(teamId: string, projectId: string, platform: Platform) {
+    const { item, files } = await choices(teamId, projectId, platform);
+    const f = pickVersion(files, PLATFORMS[platform].loaders);
+    return item && f ? { item, file: f as unknown as FileRow } : null;
   }
 
   const read = async (teamId: string, f: FileRow) => fromStorage(async () => (await storeOf(teamId, f.targetId)).get(f.storageKey));
-  return { storeOf, pick, read, configOf, defaultConfig };
+  return { storeOf, pick, choices, read, configOf, defaultConfig };
 }
 
 export function uploadService(deps: Deps) {

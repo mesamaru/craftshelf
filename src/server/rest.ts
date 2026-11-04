@@ -16,7 +16,7 @@ export const ROUTES: Route[] = [
   { method: "POST", path: "/servers/:id/command", summary: "コンソールにコマンドを送る(command)", handler: (s, h, [id], b) => s.files.command(h, id, str(b.command)) },
   { method: "GET", path: "/servers/:id/addons", summary: "入っている Mod・プラグイン", handler: (s, h, [id]) => s.library.installed(h, id) },
   { method: "GET", path: "/servers/:id/updates", summary: "新しい版があるもの", handler: (s, h, [id]) => s.library.updates(h, id) },
-  { method: "POST", path: "/servers/:id/addons", summary: "入れる・更新する(source: modrinth / spigot / curseforge / upload、projectId)", handler: (s, h, [id], b) => s.library.install(h, id, str(b.projectId), str(b.source) || "modrinth") },
+  { method: "POST", path: "/servers/:id/addons", summary: "入れる・更新する(source: modrinth / spigot / curseforge / upload、projectId。versionId で版を選べる)", handler: (s, h, [id], b) => s.library.install(h, id, str(b.projectId), str(b.source) || "modrinth", str(b.versionId) || undefined) },
   { method: "POST", path: "/servers/:id/sync", summary: "結び付けたセットでそろえる(removeExtra: セットに無いものを外す)", handler: (s, h, [id], b) => s.sets.sync(h, id, b.removeExtra === true) },
   { method: "GET", path: "/library", summary: "ライブラリ(チームの Mod・プラグイン)", handler: (s, h) => s.library.catalog(h) },
   { method: "GET", path: "/sets", summary: "セットの一覧", handler: (s, h) => s.sets.list(h) },

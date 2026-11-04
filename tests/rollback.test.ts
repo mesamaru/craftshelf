@@ -11,6 +11,7 @@ const SECRET = "test-secret-0123456789-0123456789-abcd";
 const A = "AAAAAAAA"; // 本体(B を前提にする)
 const B = "BBBBBBBB"; // 前提
 const C = "CCCCCCCC"; // 入れられない前提
+const D = "DDDDDDDD"; // 版を選んで入れるもの
 const files = new Map<string, string[]>([["mods", []]]);
 let aLatest = "1.0";
 
@@ -19,7 +20,7 @@ const ver = (project: string, n: string, deps: string[] = []) => ({
   dependencies: deps.map((d) => ({ project_id: d, dependency_type: "required" })),
   files: [{ primary: true, filename: `${project}-${n}.jar`, url: `https://cdn.modrinth.com/data/${project}/${project}-${n}.jar`, size: 1, hashes: {} }],
 });
-const versions: Record<string, ReturnType<typeof ver>[]> = { [A]: [ver(A, "1.0", [B]), ver(A, "2.0", [B, C])], [B]: [ver(B, "3.0")], [C]: [] };
+const versions: Record<string, ReturnType<typeof ver>[]> = { [A]: [ver(A, "1.0", [B]), ver(A, "2.0", [B, C])], [B]: [ver(B, "3.0")], [C]: [], [D]: [ver(D, "1.0"), ver(D, "2.0")] };
 
 const fake: FetchLike = async (url, init) => {
   const u = new URL(url);
@@ -92,5 +93,21 @@ describe("前の版に戻す", () => {
 
   it("SpigotMC のものは戻せない", async () => {
     expect(await code(lib.rollback(owner, id, "spigot", "28140"))).toBe(400);
+  });
+});
+
+describe("版を選んで入れる", () => {
+  it("合う版を新しい順に出し、選んだ版を入れる。いちばん新しい版でなければ「更新を止める」にする", async () => {
+    const list = await lib.versions(owner, id, "modrinth", D);
+    expect(list.map((v) => v.versionNumber)).toEqual(["2.0", "1.0"]);
+    const r = await lib.install(owner, id, D, "modrinth", list[1].versionId);
+    expect(r).toMatchObject({ versionNumber: "1.0", held: true });
+    expect(await row(D)).toMatchObject({ versionNumber: "1.0", held: true });
+  });
+
+  it("一覧に無い版(ほかのもの・合わないもの)と、SpigotMC の版は受け付けない", async () => {
+    expect(await code(lib.install(owner, id, D, "modrinth", versions[A][0].id))).toBe(400);
+    expect(await code(lib.install(owner, id, "28140", "spigot", "1"))).toBe(400);
+    expect(await lib.versions(owner, id, "spigot", "28140")).toEqual([]);
   });
 });

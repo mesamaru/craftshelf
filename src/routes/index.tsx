@@ -148,7 +148,7 @@ function AddFromSource({ sources, have, onAdded }: { sources: Source[]; have: Se
     setBusy(projectId);
     setError("");
     try {
-      await add({ data: { projectId, source } });
+      await add({ data: { projectId, source, type } });
       onAdded();
     } catch (e) {
       setError(message(e));

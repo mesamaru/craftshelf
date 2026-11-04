@@ -27,6 +27,7 @@ const fake: FetchLike = async (url, init) => {
     }
     if (u.pathname === `/v2/project/${PID}`) return json({ title: "LuckPerms", slug: "luckperms", project_type: "plugin" });
     if (u.pathname === "/v2/project/AANobbMI") return json({ title: "Sodium", slug: "sodium", project_type: "mod", icon_url: "https://cdn.modrinth.com/i.png" });
+    if (u.pathname === "/v2/project/MULTIPLA") return json({ title: "Multi", slug: "multi", project_type: "mod" }); // Fabric にも対応したプラグイン
     if (u.pathname === "/v2/project/RPRPRPRP") return json({ title: "Faithful", slug: "faithful", project_type: "resourcepack" });
     if (u.pathname === `/v2/project/${PID}/version`) {
       return json([{ id: latest.id, version_number: latest.number, version_type: "release", date_published: "2026-01-01",
@@ -178,6 +179,11 @@ describe("ライブラリ(チームの目録)", () => {
     const cat = await lib.catalog(viewer);
     expect(cat.items.map((i) => [i.title, i.projectType, i.iconUrl])).toEqual([
       ["LuckPerms", "plugin", ""], ["Sodium", "mod", "https://cdn.modrinth.com/i.png"]]);
+    // Modrinth が "mod" と返しても、プラグインとして探して足したものはプラグイン
+    await lib.addItem(editor, "MULTIPLA", "modrinth", "plugin");
+    const multi = (await lib.catalog(viewer)).items.find((i) => i.title === "Multi")!;
+    expect(multi.projectType).toBe("plugin");
+    await lib.removeItem(editor, multi.id);
   });
 
   it("ほかのチームからは見えず、外せない。外すのは編集者以上", async () => {

@@ -20,13 +20,15 @@ const mods: Record<number, Record<string, unknown>> = {
   100: { id: 100, name: "Sodium Extra", slug: "sodium-extra", summary: "", downloadCount: 5, classId: 6, allowModDistribution: true, logo: { thumbnailUrl: "https://media.forgecdn.net/a.png" } },
   200: { id: 200, name: "Closed", slug: "closed", summary: "", downloadCount: 9, classId: 6, allowModDistribution: false },
   300: { id: 300, name: "WorldEdit", slug: "worldedit", summary: "", downloadCount: 7, classId: 5, allowModDistribution: true },
+  400: { id: 400, name: "Fabric API", slug: "fabric-api", summary: "", downloadCount: 99, classId: 6, allowModDistribution: true },
 };
 const file = (id: number, name: string, loaders: string[], date: string, extra: Record<string, unknown> = {}) => ({
   id, displayName: name, fileName: `${name}.jar`, downloadUrl: `https://edge.forgecdn.net/files/${id}/${name}.jar`, fileDate: date, releaseType: 1, gameVersions: ["1.21.1", ...loaders], fileLength: 1, ...extra });
 const files: Record<number, unknown[]> = {
-  100: [file(11, "sodium-extra-fabric-0.6", ["Fabric"], "2026-05-02"), file(12, "sodium-extra-forge-0.6", ["Forge"], "2026-05-01"),
+  100: [file(11, "sodium-extra-fabric-0.6", ["Fabric"], "2026-05-02", { dependencies: [{ modId: 400, relationType: 3 }, { modId: 300, relationType: 2 }] }), file(12, "sodium-extra-forge-0.6", ["Forge"], "2026-05-01"),
     file(13, "sodium-extra-beta", ["Fabric"], "2026-06-01", { releaseType: 2 }), file(14, "no-dl", ["Fabric"], "2026-07-01", { downloadUrl: null })],
   300: [file(31, "worldedit-bukkit-7.3", [], "2026-04-01")],
+  400: [file(41, "fabric-api-0.100", ["Fabric"], "2026-04-01")],
 };
 
 const fake: FetchLike = async (url, init) => {
@@ -54,7 +56,7 @@ describe("CurseForge のクライアント", () => {
   const c = curseforgeClient(fake, CF);
 
   it("種類(プラグイン・Mod)・作り・バージョンで探し、外部からのダウンロードを許していないものは出さない", async () => {
-    expect((await c.search("", "fabric", "1.21.1")).map((h) => h.title)).toEqual(["Sodium Extra"]);
+    expect((await c.search("", "fabric", "1.21.1")).map((h) => h.title)).toEqual(["Sodium Extra", "Fabric API"]);
     expect(lastSearch).toContain("classId=6");
     expect(lastSearch).toContain("modLoaderType=4");
     expect(lastSearch).toContain("gameVersion=1.21.1");
@@ -102,8 +104,9 @@ describe("CurseForge をライブラリ・サーバーで使う", () => {
   it("サーバーが CurseForge の CDN から直接取り込み、ライブラリに CurseForge のものとして載る", async () => {
     const r = await lib.install(owner, id, "100", "curseforge");
     expect(r.filename).toBe("sodium-extra-fabric-0.6.jar");
-    expect(pulls.at(-1)?.url).toBe("https://edge.forgecdn.net/files/11/sodium-extra-fabric-0.6.jar");
-    const item = (await lib.catalog(owner)).items[0];
+    expect(r.deps).toEqual([{ title: "Fabric API", ok: true, detail: "fabric-api-0.100" }]); // 必須の前提だけを一緒に入れる(任意のものは入れない)
+    expect(pulls.map((x) => x.url)).toEqual(["https://edge.forgecdn.net/files/11/sodium-extra-fabric-0.6.jar", "https://edge.forgecdn.net/files/41/fabric-api-0.100.jar"]);
+    const item = (await lib.catalog(owner)).items.find((i) => i.title === "Sodium Extra")!;
     expect([item.title, item.source, item.slug]).toEqual(["Sodium Extra", "curseforge", "mc-mods/sodium-extra"]);
     expect(await code(lib.addItem(owner, "200", "curseforge"))).toBe(400);
   });

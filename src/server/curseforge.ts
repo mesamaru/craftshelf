@@ -17,7 +17,10 @@ export const CF_KEY = /^\S{20,120}$/;
 export class CurseForgeError extends Error {}
 
 type Mod = { id: number; name: string; slug: string; summary: string; downloadCount: number; classId: number; logo?: { thumbnailUrl?: string } | null; allowModDistribution?: boolean | null };
-type File = { id: number; displayName: string; fileName: string; downloadUrl: string | null; fileDate: string; releaseType: number; gameVersions: string[]; fileLength: number };
+type File = { id: number; displayName: string; fileName: string; downloadUrl: string | null; fileDate: string; releaseType: number; gameVersions: string[]; fileLength: number;
+  dependencies?: { modId: number; relationType: number }[] };
+const REQUIRED = 3; // relationType: 3 = 必須の前提
+const depsOf = (f: File, self: string) => [...new Set((f.dependencies ?? []).filter((d) => d.relationType === REQUIRED && Number.isInteger(d.modId)).map((d) => String(d.modId)))].filter((d) => d !== self);
 
 const icon = (m: Mod) => {
   const u = m.logo?.thumbnailUrl ?? "";
@@ -79,7 +82,7 @@ export function curseforgeClient(fetch: FetchLike, apiKey: string) {
       const pool = (releases.length ? releases : files).map((f) => ({ ...f, date_published: f.fileDate, loaders: f.gameVersions.map((g) => g.toLowerCase()) }));
       const f = pickVersion(pool, PLATFORMS[platform].type === "mod" ? PLATFORMS[platform].loaders : []);
       if (!f) return null;
-      return { projectId, versionId: String(f.id), versionNumber: f.displayName.replace(/\.jar$/i, "").slice(0, 60), filename: f.fileName, url: f.downloadUrl!, sha512: "", size: f.fileLength };
+      return { projectId, versionId: String(f.id), versionNumber: f.displayName.replace(/\.jar$/i, "").slice(0, 60), filename: f.fileName, url: f.downloadUrl!, sha512: "", size: f.fileLength, deps: depsOf(f, projectId) };
     },
 
     /** 決まったファイル(前の版に戻すとき) */

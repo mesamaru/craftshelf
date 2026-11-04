@@ -153,3 +153,22 @@ describe("SMB の保存先", () => {
     expect((await up.targets(owner)).targets.some((t) => t.kind === "smb")).toBe(false);
   }, 60_000);
 });
+
+describe("保存先のあいだでファイルを移す", () => {
+  it("移した先で中身を確かめてから元を消し、移したあともダウンロード・送るのに使える。移すのは管理者以上", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "cs-up-move-"));
+    await up.addTarget(owner, { name: "移す先", kind: "local", path: folder });
+    const dest = (await up.targets(owner)).targets.find((x) => x.name === "移す先")!;
+    expect(await code(up.moveFiles(viewer, null, dest.id))).toBe(403);
+    expect(await code(up.moveFiles(owner, dest.id, dest.id))).toBe(400);
+    const before = readdirSync(join(dataDir, "v03", "library", "plugin", "MyPlugin")).length;
+    const r = await up.moveFiles(owner, null, dest.id);
+    expect(r.failed).toEqual([]);
+    expect(r.moved).toBeGreaterThanOrEqual(before);
+    expect(readdirSync(join(dataDir, "v03", "library", "plugin", "MyPlugin")).length).toBe(0);
+    expect(readdirSync(join(folder, "plugin", "MyPlugin")).length).toBe(before);
+    const item = (await lib.catalog(owner)).items.find((i) => i.title === "MyPlugin")!;
+    const oldest = (await up.files(owner, item.id)).at(-1)!;
+    expect(Buffer.from((await up.download(owner, oldest.id)).data).toString("latin1")).toContain("class 1.0");
+  });
+});

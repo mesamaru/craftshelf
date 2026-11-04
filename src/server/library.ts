@@ -160,15 +160,15 @@ export function modTools(deps: Deps) {
       projectType: isProjectType(info?.projectType) ? info.projectType : PLATFORMS[p.platform].type,
     });
 
-    // 前提(Modrinth の必須)のうち、このサーバーにまだ無いもの。入れられなくても、もとのものは入れたまま
+    // 前提(Modrinth・CurseForge の必須)のうち、このサーバーにまだ無いもの。入れられなくても、もとのものは入れたまま
     const deps: Installed["deps"] = [];
     const depth = opts.depth ?? 2;
-    if (source === "modrinth" && depth > 0 && file.deps?.length) {
+    if ((source === "modrinth" || source === "curseforge") && depth > 0 && file.deps?.length) {
       const have = new Set((await db.select({ id: installedMod.projectId }).from(installedMod)
-        .where(and(eq(installedMod.serverId, row.id), eq(installedMod.source, "modrinth")))).map((x) => x.id));
+        .where(and(eq(installedMod.serverId, row.id), eq(installedMod.source, source)))).map((x) => x.id));
       for (const dep of file.deps.filter((d) => !have.has(d))) {
         try {
-          const r = await installInto(teamId, userId, target, p, "modrinth", dep, { depth: depth - 1 });
+          const r = await installInto(teamId, userId, target, p, source, dep, { depth: depth - 1 });
           deps.push({ title: r.title, ok: true, detail: r.versionNumber }, ...r.deps);
         } catch (e) {
           if (!(e instanceof HttpError)) throw e;

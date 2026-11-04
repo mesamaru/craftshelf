@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { activateStorageTarget, addStorageTarget, removeStorageTarget, storageTargets } from "~/lib/uploads-api";
+import { activateStorageTarget, addStorageTarget, moveStorageFiles, removeStorageTarget, storageTargets } from "~/lib/uploads-api";
 
 export const Route = createFileRoute("/storage")({
   beforeLoad: ({ context }) => {
@@ -69,6 +69,7 @@ function Storage() {
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
       <p className="foot">これからアップロードするものの置き場所です。切り替えても、いままでのファイルは元の保存先に置いたまま使えます。NAS は、SMB で直接つなぐか、パネルのコンテナにマウントして「フォルダ」として足してください。</p>
+      {data && data.targets.length > 0 && <MoveFiles targets={data.targets} onDone={reload} />}
       <NewTarget onDone={reload} />
     </main>
   );
@@ -130,6 +131,55 @@ function NewTarget({ onDone }: { onDone: () => void }) {
         <button className="row link" type="submit" disabled={busy}>{busy ? "確かめています…" : "書き込めるか確かめて足す"}</button>
       </form>
       <p className="foot">足すと、これからのアップロードの保存先になります。パスワードは暗号化して保存し、画面には出しません。SMB は SMB 2.0・2.1 でつなぎます(通信への署名・SMB 3 を必須にしている NAS や Windows のサーバーには、つながりません。そのときはマウントしてフォルダとして足してください)。</p>
+    </>
+  );
+}
+
+// 保存先のあいだでファイルを移す(移した先で中身を確かめてから、元を消す)
+function MoveFiles({ targets, onDone }: { targets: { id: string; name: string }[]; onDone: () => void }) {
+  const move = useServerFn(moveStorageFiles);
+  const options = [{ id: "", name: "パネルの中(既定)" }, ...targets];
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState(targets[0]?.id ?? "");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const submit = async () => {
+    if (!confirm("ファイルを移しますか?(数が多いと時間がかかります)")) return;
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      const r = await move({ data: { from: from || null, to: to || null } });
+      setNote(`${r.moved} 個を移しました${r.failed.length ? `。移せなかったもの: ${r.failed.map((f) => `${f.filename}(${f.message})`).join("、")}` : ""}`);
+      onDone();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <div className="group-title">ファイルを移す</div>
+      <section className="group form">
+        <div className="row">
+          <span>移す元</span>
+          <select className="trail" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="移す元">
+            {options.map((o) => <option key={o.id} value={o.id} translate="no">{o.name}</option>)}
+          </select>
+        </div>
+        <div className="row">
+          <span>移す先</span>
+          <select className="trail" value={to} onChange={(e) => setTo(e.target.value)} aria-label="移す先">
+            {options.map((o) => <option key={o.id} value={o.id} translate="no">{o.name}</option>)}
+          </select>
+        </div>
+        <button className="row link" type="button" disabled={busy || from === to} onClick={submit}>{busy ? "移しています…" : "移す"}</button>
+        {note && <p className="row muted" role="status" translate="no">{note}</p>}
+        {error && <p className="row error" role="alert">{error}</p>}
+      </section>
+      <p className="foot">1 つずつ、移した先で中身を確かめてから元を消します。移せなかったものは、元の保存先に残ります。</p>
     </>
   );
 }

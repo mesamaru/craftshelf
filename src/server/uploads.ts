@@ -2,7 +2,7 @@
 // サーバーへ送るのは library.ts の installInto(Pterodactyl にはアップロード、フォルダのサーバーにはコピー)
 import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 import { PLATFORMS, type Platform } from "~/lib/platforms";
 import { libraryFile, libraryItem, storageTarget } from "./db/schema";
 import { eventService } from "./events";
@@ -135,6 +135,42 @@ export function uploadService(deps: Deps) {
         if (id) await tx.update(storageTarget).set({ active: true }).where(eq(storageTarget.id, id));
       });
       await record({ teamId, userId: user.id, kind: "admin", action: "保存先を切り替える" });
+    },
+
+    /**
+     * 保存先のファイルを、別の保存先へ移す(null はパネルの中の既定のフォルダ)。1 つずつ、移した先で中身を確かめてから元を消す。
+     * 失敗したものは元の保存先に残し、理由を返す
+     */
+    async moveFiles(headers: Headers, from: string | null, to: string | null) {
+      const { teamId, user } = await requireTeam(auth, headers, { member: ["update"] });
+      needLocal();
+      if (from === to) throw new HttpError(400, "移す先を、移す元と別の保存先にしてください");
+      for (const id of [from, to]) {
+        if (id && !(await db.select({ id: storageTarget.id }).from(storageTarget).where(and(eq(storageTarget.id, id), eq(storageTarget.teamId, teamId)))).length) {
+          throw new HttpError(404, "保存先が見つかりません");
+        }
+      }
+      const rows = await db.select({ f: libraryFile }).from(libraryFile).innerJoin(libraryItem, eq(libraryFile.itemId, libraryItem.id))
+        .where(and(eq(libraryItem.teamId, teamId), from ? eq(libraryFile.targetId, from) : isNull(libraryFile.targetId)));
+      const src = await storeOf(teamId, from);
+      const dst = await storeOf(teamId, to);
+      let moved = 0;
+      const failed: { filename: string; message: string }[] = [];
+      for (const { f } of rows) {
+        try {
+          const data = await src.get(f.storageKey);
+          await dst.put(f.storageKey, data);
+          const back = await dst.get(f.storageKey);
+          if (createHash("sha256").update(back).digest("hex") !== f.sha256) throw new StorageError("移した先の中身が元と違います");
+          await db.update(libraryFile).set({ targetId: to }).where(eq(libraryFile.id, f.id));
+          await src.remove(f.storageKey).catch(() => {}); // 元が消せなくても、移した先は使える
+          moved++;
+        } catch (e) {
+          failed.push({ filename: f.filename, message: e instanceof Error ? e.message : "移せませんでした" });
+        }
+      }
+      await record({ teamId, userId: user.id, kind: "admin", action: "保存先のファイルを移す", detail: `${moved} 個を移しました${failed.length ? `・${failed.length} 個は移せませんでした` : ""}` });
+      return { moved, failed };
     },
 
     /** 保存先を消す(ファイルが残っているものは消せない) */

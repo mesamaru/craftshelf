@@ -118,7 +118,7 @@ function Compare() {
                       return (
                         <td key={s.id}>
                           {p ? <Picked serverId={s.id} item={i} pick={p} onPick={(x) => setPick(key, x)} />
-                            : <button type="button" className="pc add" onClick={() => setPick(key, LATEST)} title="このサーバーに入れる">＋ 導入</button>}
+                            : <button type="button" className="pc add" aria-pressed="false" onClick={() => setPick(key, LATEST)} title="このサーバーに入れる">＋ 導入</button>}
                         </td>
                       );
                     })}
@@ -127,7 +127,7 @@ function Compare() {
               </tbody>
             </table>
           </section>
-          <p className="foot">「導入」を押すと、そのサーバーに入れるものとして選べます(いちばん新しい版。🏷 で別の版も選べます)。入っている版を押すと、版を変える・外すができます。古い版を選んだものは「更新を止める」にします。サーバーの種類に合わないところは「—」です。</p>
+          <p className="foot">「導入」を押すと、そのサーバーに入れるものとして選べます(いちばん新しい版。タグのボタンで別の版も選べます。もう一度押すと選ぶのをやめます)。入っている版を押すと、版を変える・外すができます。古い版を選んだものは「更新を止める」にします。サーバーの種類に合わないところは「—」です。</p>
           {picks.size > 0 && (
             <section className="group">
               <div className="row">
@@ -152,10 +152,12 @@ function Picked({ serverId, item, pick, onPick }: { serverId: string; item: Item
   const [open, setOpen] = useState(false);
   return (
     <span className="port-line">
-      <span className="pc">✓ 導入する</span>
+      {/* もう一度押すと、選ぶのをやめる */}
+      <button type="button" className="pc on" aria-pressed="true" title="もう一度押すと、導入をやめます" onClick={() => onPick(null)}>
+        <svg className="check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>導入
+      </button>
+      <button type="button" className="link small" title="版を選ぶ" aria-label="版を選ぶ" aria-expanded={open} onClick={() => setOpen((x) => !x)}><TagIcon /></button>
       <span className="small mono" translate="no">{pick.versionNumber}</span>
-      <button type="button" className="link small" title="版を選ぶ" aria-label="版を選ぶ" aria-expanded={open} onClick={() => setOpen((x) => !x)}>🏷</button>
-      <button type="button" className="link small" title="導入をやめる" onClick={() => onPick(null)}>✕ 解除</button>
       {open && <VersionSelect serverId={serverId} item={item} pick={pick} onPick={(p) => { onPick(p); setOpen(false); }} />}
     </span>
   );
@@ -227,5 +229,15 @@ function VersionSelect({ serverId, item, pick, onPick }: { serverId: string; ite
       <option value="">いちばん新しい版</option>
       {list.map((v) => <option key={v.versionId} value={v.versionId} translate="no">{v.versionNumber}{v.release ? "" : "(テスト版)"}・{v.date.slice(0, 10)}</option>)}
     </select>
+  );
+}
+
+// 版を選ぶボタンのアイコン(値札の形)
+function TagIcon() {
+  return (
+    <svg className="tag-icon" viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z" />
+      <circle cx="7.5" cy="7.5" r="1.5" />
+    </svg>
   );
 }

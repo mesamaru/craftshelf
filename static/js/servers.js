@@ -875,10 +875,10 @@ function drawCompare() {
       const k = `${s.id}:${r.item_id}`;
       const pick = state.cmpPick.get(k);
       if (!pick) return `<td class="cmp-cell none pickable"><button type="button" class="cmp-add" data-cpick="${k}" aria-pressed="false" title="このサーバーに導入する">${icon("plus")}<span>導入</span></button></td>`;
-      return `<td class="cmp-cell none pickable on"><span class="cmp-add">${icon("check")}<span>導入する</span></span>
-        <div class="cmp-sub" translate="no">${pick === true ? "最新" : esc(pick.version)}</div>
-        <div class="cmp-pick-acts"><button type="button" class="cmp-undo" data-cver="${k}" title="バージョンを選ぶ" aria-label="バージョンを選ぶ">${icon("tag")}</button>
-        <button type="button" class="cmp-undo" data-cpick="${k}" title="導入をやめる">${icon("x")}<span>解除</span></button></div></td>`;
+      // 選んだもの: ✔ 導入(もう一度押すと選ぶのをやめる)と、横にバージョンを選ぶボタン
+      return `<td class="cmp-cell none pickable on"><div class="cmp-pick-acts"><button type="button" class="cmp-add" data-cpick="${k}" aria-pressed="true" title="もう一度押すと、導入をやめます">${icon("check")}<span>導入</span></button>
+        <button type="button" class="cmp-undo" data-cver="${k}" title="バージョンを選ぶ" aria-label="バージョンを選ぶ">${icon("tag")}</button></div>
+        <div class="cmp-sub" translate="no">${pick === true ? "最新" : esc(pick.version)}</div></td>`;
     }
     const cls = f.status === "latest" ? "ok" : f.status === "outdated" ? "upd" : f.status === "unregistered" ? "unk" : f.status === "newer" ? "acc" : "";
     const sub = { outdated: `→ ${esc(r.latest || "")}`, unregistered: "未登録", different: "別のファイル", newer: "サーバーの方が新しい", disabled: "無効" }[f.status] || "最新";
@@ -896,7 +896,7 @@ function drawCompare() {
     <tbody>${list.map((r) => `<tr class="${differs(r) ? "diff" : ""}"><th class="cmp-name">${r.item_id ? `<button class="linkish" type="button" data-open="${r.item_id}">${esc(r.name)}</button>` : esc(r.name)}</th>${sel.map((s) => cell(s, r)).join("")}</tr>`).join("")
       || `<tr><td colspan="${sel.length + 1}"><div class="empty">${state.cmpDiff ? "違いはありません 🎉" : "プラグインがありません"}</div></td></tr>`}</tbody>
   </table></div>
-  <p class="group-foot">「導入」を押すと、そのサーバーに入れるものとして選べます(最新のバージョン。タグのボタンで別のバージョンも選べます)。入っているものを押すと、更新・バージョンの変更・削除などができます。</p>
+  <p class="group-foot">「導入」を押すと、そのサーバーに入れるものとして選べます(最新のバージョン。タグのボタンで別のバージョンも選べます。もう一度押すと選ぶのをやめます)。入っているものを押すと、更新・バージョンの変更・削除などができます。</p>
   ${picks.length ? `<div class="cmp-bar"><span><b>${picks.length} 件</b>を導入します</span><span class="sp"></span>
     <button class="btn small plain" type="button" data-cclear>選択を解除</button><button class="btn small filled" type="button" data-cinstall>${icon("download")}導入する</button></div>` : ""}`;
   box.onclick = cmpClick;

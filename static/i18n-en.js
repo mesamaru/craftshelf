@@ -1426,7 +1426,8 @@ window.CS_EN = {
   "バージョンを選んでください": "Choose a version",
   "今のバージョン": "Current",
   "今のバージョンは退避され、「保存」→「履歴と巻き戻し」から戻せます。": "The current version is backed up and can be restored from Save → History and rollback.",
-  "「導入」を押すと、そのサーバーに入れるものとして選べます(最新のバージョン。タグのボタンで別のバージョンも選べます)。入っているものを押すと、更新・バージョンの変更・削除などができます。": "Press “Install” to pick it for that server (the latest version; use the tag button to choose another). Press an installed one to update, change version, or remove it.",
+  "「導入」を押すと、そのサーバーに入れるものとして選べます(最新のバージョン。タグのボタンで別のバージョンも選べます。もう一度押すと選ぶのをやめます)。入っているものを押すと、更新・バージョンの変更・削除などができます。": "Press “Install” to pick it for that server (the latest version; use the tag button to choose another; press again to cancel). Press an installed one to update, change version, or remove it.",
+  "もう一度押すと、導入をやめます": "Press again to cancel the install",
   "導入をやめる": "Cancel install",
   "ファイルは退避されるので、「履歴」から元に戻せます。反映には再起動が必要です。": "The file is backed up, so you can restore it from History. A restart is needed to apply it.",
   // 01.24: 受け取り先プレビュー・アップデートの前の状態

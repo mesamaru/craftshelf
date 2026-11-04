@@ -4,7 +4,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { and, count, desc, eq, inArray, sql } from "drizzle-orm";
 import { addonSet, installedMod, libraryFile, libraryItem, member, server, shareLink, storageTarget, user } from "./db/schema";
 import { eventService } from "./events";
-import { HttpError, requireTeam } from "./guard";
+import { HttpError, allowed, requireTeam } from "./guard";
 import type { Deps } from "./servers";
 import { fileStore } from "./uploads";
 import { makeZip } from "./zip";
@@ -51,7 +51,7 @@ export function shareService(deps: Deps) {
     /** 共有リンクの一覧(自分が作ったもの。管理者はチームのすべて) */
     async list(headers: Headers) {
       const { teamId, user: me } = await requireTeam(auth, headers);
-      const admin = (await auth.api.hasPermission({ headers, body: { organizationId: teamId, permissions: { member: ["update"] } } })).success;
+      const admin = await allowed(auth, headers, { member: ["update"] });
       const rows = await db.select({ s: shareLink, by: user.name }).from(shareLink).leftJoin(user, eq(shareLink.createdBy, user.id))
         .where(and(eq(shareLink.teamId, teamId), ...(admin ? [] : [eq(shareLink.createdBy, me.id)]))).orderBy(desc(shareLink.createdAt));
       const now = Date.now();
@@ -65,7 +65,7 @@ export function shareService(deps: Deps) {
     async remove(headers: Headers, id: string) {
       const { teamId, user: me } = await requireTeam(auth, headers);
       const [s] = await db.select().from(shareLink).where(and(eq(shareLink.id, id), eq(shareLink.teamId, teamId)));
-      const admin = (await auth.api.hasPermission({ headers, body: { organizationId: teamId, permissions: { member: ["update"] } } })).success;
+      const admin = await allowed(auth, headers, { member: ["update"] });
       if (!s || (s.createdBy !== me.id && !admin)) throw new HttpError(404, "見つかりません");
       await db.delete(shareLink).where(eq(shareLink.id, id));
       await record({ teamId, userId: me.id, kind: "admin", action: "共有リンクを消す", target: s.name });

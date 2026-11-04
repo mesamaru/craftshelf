@@ -26,6 +26,7 @@ import { Route as SSplatRouteImport } from './routes/s.$'
 import { Route as ServersIdRouteImport } from './routes/servers_.$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiLibraryUploadRouteImport } from './routes/api/library/upload'
+import { Route as ApiV1SplatRouteImport } from './routes/api/v1/$'
 import { Route as ServersIdFilesRouteImport } from './routes/servers_.$id_.files'
 import { Route as ApiLibraryFilesIdRouteImport } from './routes/api/library/files.$id'
 
@@ -114,6 +115,11 @@ const ApiLibraryUploadRoute = ApiLibraryUploadRouteImport.update({
   path: '/api/library/upload',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiV1SplatRoute = ApiV1SplatRouteImport.update({
+  id: '/api/v1/$',
+  path: '/api/v1/$',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ServersIdFilesRoute = ServersIdFilesRouteImport.update({
   id: '/servers_/$id_/files',
   path: '/servers/$id/files',
@@ -143,6 +149,7 @@ export interface FileRoutesByFullPath {
   '/servers/$id': typeof ServersIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/library/upload': typeof ApiLibraryUploadRoute
+  '/api/v1/$': typeof ApiV1SplatRoute
   '/servers/$id/files': typeof ServersIdFilesRoute
   '/api/library/files/$id': typeof ApiLibraryFilesIdRoute
 }
@@ -164,6 +171,7 @@ export interface FileRoutesByTo {
   '/servers/$id': typeof ServersIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/library/upload': typeof ApiLibraryUploadRoute
+  '/api/v1/$': typeof ApiV1SplatRoute
   '/servers/$id/files': typeof ServersIdFilesRoute
   '/api/library/files/$id': typeof ApiLibraryFilesIdRoute
 }
@@ -186,6 +194,7 @@ export interface FileRoutesById {
   '/servers_/$id': typeof ServersIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/library/upload': typeof ApiLibraryUploadRoute
+  '/api/v1/$': typeof ApiV1SplatRoute
   '/servers_/$id_/files': typeof ServersIdFilesRoute
   '/api/library/files/$id': typeof ApiLibraryFilesIdRoute
 }
@@ -209,6 +218,7 @@ export interface FileRouteTypes {
     | '/servers/$id'
     | '/api/auth/$'
     | '/api/library/upload'
+    | '/api/v1/$'
     | '/servers/$id/files'
     | '/api/library/files/$id'
   fileRoutesByTo: FileRoutesByTo
@@ -230,6 +240,7 @@ export interface FileRouteTypes {
     | '/servers/$id'
     | '/api/auth/$'
     | '/api/library/upload'
+    | '/api/v1/$'
     | '/servers/$id/files'
     | '/api/library/files/$id'
   id:
@@ -251,6 +262,7 @@ export interface FileRouteTypes {
     | '/servers_/$id'
     | '/api/auth/$'
     | '/api/library/upload'
+    | '/api/v1/$'
     | '/servers_/$id_/files'
     | '/api/library/files/$id'
   fileRoutesById: FileRoutesById
@@ -273,6 +285,7 @@ export interface RootRouteChildren {
   ServersIdRoute: typeof ServersIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiLibraryUploadRoute: typeof ApiLibraryUploadRoute
+  ApiV1SplatRoute: typeof ApiV1SplatRoute
   ServersIdFilesRoute: typeof ServersIdFilesRoute
   ApiLibraryFilesIdRoute: typeof ApiLibraryFilesIdRoute
 }
@@ -398,6 +411,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiLibraryUploadRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/v1/$': {
+      id: '/api/v1/$'
+      path: '/api/v1/$'
+      fullPath: '/api/v1/$'
+      preLoaderRoute: typeof ApiV1SplatRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/servers_/$id_/files': {
       id: '/servers_/$id_/files'
       path: '/servers/$id/files'
@@ -433,6 +453,7 @@ const rootRouteChildren: RootRouteChildren = {
   ServersIdRoute: ServersIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiLibraryUploadRoute: ApiLibraryUploadRoute,
+  ApiV1SplatRoute: ApiV1SplatRoute,
   ServersIdFilesRoute: ServersIdFilesRoute,
   ApiLibraryFilesIdRoute: ApiLibraryFilesIdRoute,
 }

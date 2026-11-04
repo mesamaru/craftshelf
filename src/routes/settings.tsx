@@ -6,6 +6,8 @@ import { errorText } from "~/lib/errors";
 import { getImportReport } from "~/lib/session";
 import { getVersions, installVersion, useImageVersion } from "~/lib/versions-api";
 import { useCan } from "~/lib/use-can";
+import { useServerFn } from "@tanstack/react-start";
+import { createToken, listTokens, removeToken } from "~/lib/tokens-api";
 
 export const Route = createFileRoute("/settings")({
   beforeLoad: ({ context }) => {
@@ -48,6 +50,7 @@ function Settings() {
       <TwoFactor enabled={user.twoFactorEnabled} />
       <Passkeys />
 
+      <ApiTokens />
       <ImportReport userId={user.id} />
       <Versions userId={user.id} />
 
@@ -243,6 +246,74 @@ function Versions({ userId }: { userId: string }) {
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
       <p className="foot">データベースは「足すだけ」で変えていくので、前の版に戻してもデータは読めます。選んだ版が起動できなかったときは、イメージの版に自動で戻ります。</p>
+    </>
+  );
+}
+
+const tokenMessage = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
+
+// API トークン(外から /api/v1 を呼ぶとき)。選んでいるチームのもので、自分の役割のとおりに動く
+function ApiTokens() {
+  const load = useServerFn(listTokens);
+  const create = useServerFn(createToken);
+  const remove = useServerFn(removeToken);
+  const [rows, setRows] = useState<Awaited<ReturnType<typeof listTokens>> | null>(null);
+  const [name, setName] = useState("");
+  const [readOnly, setReadOnly] = useState(true);
+  const [days, setDays] = useState(90);
+  const [made, setMade] = useState("");
+  const [error, setError] = useState("");
+  const reload = () => load().then(setRows, (e) => setError(tokenMessage(e)));
+  useEffect(() => { reload(); }, []);
+
+  const submit = async () => {
+    setError("");
+    try {
+      const r = await create({ data: { name, readOnly, days } });
+      setMade(r.key);
+      setName("");
+      await reload();
+    } catch (e) {
+      setError(tokenMessage(e));
+    }
+  };
+  return (
+    <>
+      <div className="group-title">API トークン</div>
+      <section className="group">
+        {rows?.length === 0 && <div className="row muted">まだありません。</div>}
+        {rows?.map((k) => (
+          <div className="row" key={k.id}>
+            <span className="main">
+              <span translate="no">{k.name}</span>
+              <span className="muted"><span className="codes">{k.start}…</span> · {k.readOnly ? "読み取りだけ" : "役割のとおり"} · {k.expiresAt ? `${new Date(k.expiresAt).toLocaleDateString("ja-JP")} まで` : "期限なし"}{k.lastUsed ? ` · 最後に使った日 ${new Date(k.lastUsed).toLocaleDateString("ja-JP")}` : ""}</span>
+            </span>
+            <button className="trail link danger" type="button"
+              onClick={() => confirm(`トークン「${k.name}」を消しますか?(使っているスクリプトは動かなくなります)`) && remove({ data: { id: k.id } }).then(reload, (e) => setError(tokenMessage(e)))}>消す</button>
+          </div>
+        ))}
+      </section>
+      <form className="group form" onSubmit={(e) => (e.preventDefault(), submit())}>
+        <input className="row" placeholder="名前(使い道。例 毎朝の更新の確認)" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
+        <label className="row"><span>読み取りだけ(入れる・起動などはできない)</span><input className="trail" type="checkbox" checked={readOnly} onChange={(e) => setReadOnly(e.target.checked)} /></label>
+        <div className="row">
+          <span>期限</span>
+          <select className="trail" value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="トークンの期限">
+            <option value={30}>30 日</option><option value={90}>90 日</option><option value={365}>1 年</option><option value={0}>期限なし</option>
+          </select>
+        </div>
+        <button className="row link" type="submit" disabled={!name.trim()}>トークンを作る</button>
+        {made && (
+          <p className="row" role="status">
+            <span className="main">
+              <span>トークンを作りました。いまだけ表示します。</span>
+              <input className="codes share-url" readOnly value={made} onFocus={(e) => e.currentTarget.select()} aria-label="作ったトークン" />
+            </span>
+          </p>
+        )}
+        {error && <p className="row error" role="alert">{error}</p>}
+      </form>
+      <p className="foot">スクリプトなどから CraftShelf を操作するときに使います(<a href="/api/v1" target="_blank" rel="noreferrer">/api/v1</a> に使える API の一覧があります)。トークンは x-api-key か Authorization: Bearer で渡します。選んでいるチームのもので、あなたの役割のとおりに動きます。</p>
     </>
   );
 }

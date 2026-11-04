@@ -42,7 +42,7 @@ docker compose up -d     # docker-compose.yml(イメージ ghcr.io/mesamaru/craf
   - Pterodactyl の設定(家の中のアドレスも)とサーバー、サーバーの種類・Minecraft のバージョン
   - ライブラリ・セットは、配布元が Modrinth・SpigotMC とわかるものと、アップロードしたもの(保存先がパネルの中・WebDAV・SMB のもの)を取り込みます
   - フォルダのサーバーは、このマシンから見えるフォルダのものだけを取り込みます
-  - まだ取り込めないもの: パスキー・API トークン(v03 に機能ができたら取り込みます)
+  - パスキー・API トークンは取り込めません(作りが違うため)。v03 で登録し直してください
   - v02 の `index.db` を `/data` 以外に置いていた(`DB_DIR`・`CONFIG_DIR`)ときは、そのフォルダもつないで `V02_CONFIG_DIR` に書きます
 
 ## サーバー機で動かす(Docker・サービス版)

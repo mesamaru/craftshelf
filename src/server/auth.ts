@@ -143,7 +143,8 @@ export function createAuth(db: Db, opts: Options) {
         ...(mode === "service" ? { membershipLimit: LIMITS.membersPerTeam } : {}),
         cancelPendingInvitationsOnReInvite: true,
       }),
-      apiKey(),
+      // API トークン(cs_…)。チーム(metadata.teamId)ごとに作り、1 分に 120 回まで
+      apiKey({ defaultPrefix: "cs_", enableMetadata: true, rateLimit: { enabled: true, timeWindow: 60_000, maxRequests: 120 } }),
       tanstackStartCookies(), // 最後に置く
     ],
   });

@@ -1143,6 +1143,10 @@ button.fb-row > svg { width: 15px; height: 15px; color: var(--label-3); flex: no
 .cmp-add svg { width: 13px; height: 13px; }
 .cmp-add:hover { color: var(--tint); border-color: var(--tint); }
 .cmp-cell.pickable.on .cmp-add { border-style: solid; border-color: var(--tint); background: var(--tint-soft); color: var(--tint); }
+.cmp-pick-acts { display: inline-flex; align-items: center; gap: 2px; margin-top: 4px; }
+.cmp-undo { display: inline-flex; align-items: center; gap: 2px; border: 0; background: transparent; color: var(--label-3); border-radius: 999px; padding: 3px 8px; font-size: 12px; cursor: pointer; }
+.cmp-undo svg { width: 13px; height: 13px; }
+.cmp-undo:hover { color: var(--tint); background: var(--tint-soft); }
 .cmp-bar { position: sticky; bottom: 92px; z-index: 5; display: flex; align-items: center; gap: 8px; margin-top: 12px; padding: 10px 12px 10px 16px; border-radius: 999px; background: var(--card); box-shadow: 0 8px 26px rgba(0,0,0,.3), 0 0 0 .5px var(--sep); }
 .cmp-bar .sp { flex: 1; }
 @media (max-width: 700px) { .cmp-bar { bottom: calc(env(safe-area-inset-bottom) + 92px); } }

@@ -851,7 +851,7 @@ function drawCompare() {
   const sel = (state.servers || []).filter((s) => (state.cmpSel || []).includes(s.id));
   const box = $("#cmpTable"); if (!box) return;
   if (!sel.length) { box.innerHTML = `<div class="empty">比較するサーバーを選んでください</div>`; return; }
-  state.cmpPick = state.cmpPick || new Map();   // "サーバーID:アイテムID" → 導入する
+  state.cmpPick = state.cmpPick || new Map();   // "サーバーID:アイテムID" → 導入する(true = 最新 / { versionId, version } = 選んだ版)
   state.cmpBusy = state.cmpBusy || new Map();   // "サーバーID:行のキー" → 順番待ち / 処理中
   const rows = new Map();
   for (const s of sel) {
@@ -872,8 +872,13 @@ function drawCompare() {
     if (!f) {
       const can = r.item_id && canEdit(s) && (s.dirs || {})[r.category];
       if (!can) return `<td class="cmp-cell none"><span class="cmp-dash">—</span></td>`;
-      const on = state.cmpPick.has(`${s.id}:${r.item_id}`);
-      return `<td class="cmp-cell none pickable${on ? " on" : ""}"><button type="button" class="cmp-add" data-cpick="${s.id}:${r.item_id}" aria-pressed="${on}" title="このサーバーに導入する">${icon(on ? "check" : "plus")}<span>${on ? "導入する" : "導入"}</span></button></td>`;
+      const k = `${s.id}:${r.item_id}`;
+      const pick = state.cmpPick.get(k);
+      if (!pick) return `<td class="cmp-cell none pickable"><button type="button" class="cmp-add" data-cpick="${k}" aria-pressed="false" title="このサーバーに導入する">${icon("plus")}<span>導入</span></button></td>`;
+      return `<td class="cmp-cell none pickable on"><span class="cmp-add">${icon("check")}<span>導入する</span></span>
+        <div class="cmp-sub" translate="no">${pick === true ? "最新" : esc(pick.version)}</div>
+        <div class="cmp-pick-acts"><button type="button" class="cmp-undo" data-cver="${k}" title="バージョンを選ぶ" aria-label="バージョンを選ぶ">${icon("tag")}</button>
+        <button type="button" class="cmp-undo" data-cpick="${k}" title="導入をやめる">${icon("x")}<span>解除</span></button></div></td>`;
     }
     const cls = f.status === "latest" ? "ok" : f.status === "outdated" ? "upd" : f.status === "unregistered" ? "unk" : f.status === "newer" ? "acc" : "";
     const sub = { outdated: `→ ${esc(r.latest || "")}`, unregistered: "未登録", different: "別のファイル", newer: "サーバーの方が新しい", disabled: "無効" }[f.status] || "最新";
@@ -891,7 +896,7 @@ function drawCompare() {
     <tbody>${list.map((r) => `<tr class="${differs(r) ? "diff" : ""}"><th class="cmp-name">${r.item_id ? `<button class="linkish" type="button" data-open="${r.item_id}">${esc(r.name)}</button>` : esc(r.name)}</th>${sel.map((s) => cell(s, r)).join("")}</tr>`).join("")
       || `<tr><td colspan="${sel.length + 1}"><div class="empty">${state.cmpDiff ? "違いはありません 🎉" : "プラグインがありません"}</div></td></tr>`}</tbody>
   </table></div>
-  <p class="group-foot">「導入」を押すと、そのサーバーに入れるものとして選べます。入っているものを押すと、更新・バージョンの変更・削除などができます。</p>
+  <p class="group-foot">「導入」を押すと、そのサーバーに入れるものとして選べます(最新のバージョン。タグのボタンで別のバージョンも選べます)。入っているものを押すと、更新・バージョンの変更・削除などができます。</p>
   ${picks.length ? `<div class="cmp-bar"><span><b>${picks.length} 件</b>を導入します</span><span class="sp"></span>
     <button class="btn small plain" type="button" data-cclear>選択を解除</button><button class="btn small filled" type="button" data-cinstall>${icon("download")}導入する</button></div>` : ""}`;
   box.onclick = cmpClick;
@@ -925,22 +930,30 @@ function prevVersionOf(it, f) {
 async function changeVersionSheet(s, f, run) {
   const it = state.items.find((i) => i.id === f.item_id);
   if (!it) return;
+  const c = await pickVersionSheet(s, it, f);
+  if (c) await run(() => api(`/api/servers/${s.id}/push`, { json: { item_ids: [c.itemId], version_ids: { [c.itemId]: c.versionId }, force: true } }), `${c.version} に変えました`);
+}
+/* 入れるバージョンを選ぶ(f = サーバーに入っているファイル。まだ入っていなければ null)。
+   配布元のバージョンを選んだときは、ライブラリに取り込んでから返す */
+async function pickVersionSheet(s, it, f) {
+  f = f || {};
+  const fresh = !f.version;
   const so = it.source;
   const local = it.versions;
   const haveVer = new Set(local.map((v) => normVer(v.version)));
   const cur = local.findIndex((v) => isCurVer(v, f));
   let remote = null, picked = null;  // picked = { local: version_id } か { remote: index }
   const latestLocal = local[0] ? verLabel(local[0].version) : "";
-  const choice = await sheet(`${sheetHead(`「${it.name}」のバージョンを変える`)}<div class="db">
+  const choice = await sheet(`${sheetHead(fresh ? `「${it.name}」の入れるバージョンを選ぶ` : `「${it.name}」のバージョンを変える`)}<div class="db">
       <p class="muted small" style="margin-top:0" translate="no">${esc(s.name)}${s.mc_version ? ` · MC ${esc(s.mc_version)}` : ""}</p>
-      <div id="cvNow">${verNowHTML(f.version, latestLocal, so && so.page_url)}</div>
+      <div id="cvNow">${verNowHTML(f.version || "なし", latestLocal, so && so.page_url)}</div>
       <div class="group-title">ライブラリに保存しているバージョン</div>
       <div class="group">${local.map((v, i) => pickRow("cv", `l${v.id}`, `<b translate="no">${esc(verLabel(v.version))}</b>
           ${i === 0 ? ' <span class="badge ok">最新</span>' : ""}${isCurVer(v, f) ? ' <span class="badge">今のバージョン</span>' : ""}
           <small translate="no">${esc(fmtDate(v.added_at || v.created_at || ""))}${v.filename ? ` · ${esc(v.filename)}` : ""}</small>`, { disabled: isCurVer(v, f) })).join("")}</div>
       ${so ? `<div class="group-title">配布元(${esc(PROVIDERS[so.provider] || so.provider)})のバージョン <small>ライブラリに無いもの</small></div>
         <div class="group" id="cvRemote"><div class="empty"><span class="spinner"></span></div></div>` : ""}
-      <p class="muted small">${icon("shield")} 今のバージョンは退避され、「保存」→「履歴と巻き戻し」からいつでも戻せます。反映には再起動が要ります。</p>
+      ${fresh ? "" : `<p class="muted small">${icon("shield")} 今のバージョンは退避され、「保存」→「履歴と巻き戻し」からいつでも戻せます。反映には再起動が要ります。</p>`}
     </div><div class="df row2"><button class="btn" type="button" data-close>キャンセル</button><button class="btn filled" type="button" data-ok>このバージョンにする</button></div>`, (form, done) => {
     const ok = form.querySelector("[data-ok]");
     const label = () => {
@@ -964,7 +977,7 @@ async function changeVersionSheet(s, f, run) {
         const box = $("#cvRemote", form);
         if (!box) return;
         const top = d.versions[0];
-        if (top && !haveVer.has(normVer(top.version))) $("#cvNow", form).innerHTML = verNowHTML(f.version, top.version, so.page_url);
+        if (top && !haveVer.has(normVer(top.version))) $("#cvNow", form).innerHTML = verNowHTML(f.version || "なし", top.version, so.page_url);
         box.innerHTML = remote.length ? remote.slice(0, 30).map((v, i) => pickRow("cv", `r${i}`, `<b translate="no">${esc(v.version)}</b>
             ${v === top ? ' <span class="badge ok">最新</span>' : ""}${v.type && v.type !== "release" ? ` <span class="badge upd">${esc(v.type === "beta" ? "ベータ" : v.type === "alpha" ? "アルファ" : v.type)}</span>` : ""}
             <small>${v.date ? esc(fmtDate(v.date)) : ""}${(v.game_versions || []).length ? ` · MC ${esc(summarizeMc(v.game_versions))}` : ""}</small>`,
@@ -973,18 +986,15 @@ async function changeVersionSheet(s, f, run) {
       }).catch((ex) => { const box = $("#cvRemote", form); if (box) box.innerHTML = `<div class="empty">${esc(ex.message)}</div>`; });
     }
   });
-  if (!choice) return;
-  if (choice.local) {
-    await run(() => api(`/api/servers/${s.id}/push`, { json: { item_ids: [it.id], version_ids: { [it.id]: choice.local }, force: true } }), "バージョンを変えました");
-    return;
-  }
+  if (!choice) return null;
+  if (choice.local) return { itemId: it.id, versionId: choice.local, version: local.find((x) => x.id === choice.local).version };
   const v = remote[choice.remote];
   const t = toastProgress(`${v.version} を取得しています…`);
   try {
     const d = await api("/api/import", { json: { provider: so.provider, project_id: so.project_id, version_id: v.version_id, category: it.category } });
     await refresh();
-    await run(() => api(`/api/servers/${s.id}/push`, { json: { item_ids: [d.item_id], version_ids: { [d.item_id]: d.version_id }, force: true } }), `${v.version} に変えました`);
-  } catch (ex) { toast(ex.message, true); }
+    return { itemId: d.item_id, versionId: d.version_id, version: v.version };
+  } catch (ex) { toast(ex.message, true); return null; }
   finally { t.remove(); }
 }
 async function cmpChooseVersion(s, f) {
@@ -994,12 +1004,36 @@ async function cmpClick(e) {
   const o = e.target.closest("[data-open]"); if (o) { openPanel(Number(o.dataset.open)); return; }
   const pk = e.target.closest("[data-cpick]");
   if (pk) { const k = pk.dataset.cpick; if (state.cmpPick.has(k)) state.cmpPick.delete(k); else state.cmpPick.set(k, true); drawCompare(); return; }
+  const cv = e.target.closest("[data-cver]");
+  if (cv) {
+    const k = cv.dataset.cver;
+    const [sid, iid] = k.split(":").map(Number);
+    const s = state.servers.find((x) => x.id === sid), it = state.items.find((i) => i.id === iid);
+    if (!s || !it) return;
+    const c = await pickVersionSheet(s, it, null);
+    if (c && state.cmpPick.has(k)) {
+      state.cmpPick.delete(k);
+      state.cmpPick.set(`${sid}:${c.itemId}`, { versionId: c.versionId, version: c.version });
+      drawCompare();
+    }
+    return;
+  }
   if (e.target.closest("[data-cclear]")) { state.cmpPick.clear(); drawCompare(); return; }
   if (e.target.closest("[data-cinstall]")) {
-    const by = new Map();
-    for (const k of state.cmpPick.keys()) { const [sid, iid] = k.split(":").map(Number); if (!by.has(sid)) by.set(sid, []); by.get(sid).push(iid); }
+    const by = new Map();  // サーバー → { 最新を入れるもの, 版を選んだもの }
+    for (const [k, pick] of state.cmpPick) {
+      const [sid, iid] = k.split(":").map(Number);
+      if (!by.has(sid)) by.set(sid, { latest: [], chosen: {} });
+      if (pick === true) by.get(sid).latest.push(iid); else by.get(sid).chosen[iid] = pick.versionId;
+    }
     state.cmpPick.clear();
-    for (const [sid, ids] of by) cmpRun(sid, ids.map((i) => `i${i}`), () => api(`/api/servers/${sid}/push`, { json: { item_ids: ids } }), `${(state.servers.find((x) => x.id === sid) || {}).name} に導入しました`);
+    for (const [sid, { latest, chosen }] of by) {
+      const label = `${(state.servers.find((x) => x.id === sid) || {}).name} に導入しました`;
+      if (latest.length) cmpRun(sid, latest.map((i) => `i${i}`), () => api(`/api/servers/${sid}/push`, { json: { item_ids: latest } }), label);
+      const ids = Object.keys(chosen).map(Number);
+      // 選んだバージョンは、見送り・対応の確認より利用者の選択を優先する(「バージョンを変える」と同じ)
+      if (ids.length) cmpRun(sid, ids.map((i) => `i${i}`), () => api(`/api/servers/${sid}/push`, { json: { item_ids: ids, version_ids: chosen, force: true } }), label);
+    }
     return;
   }
   const c = e.target.closest("[data-ccell]"); if (!c) return;

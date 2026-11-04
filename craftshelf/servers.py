@@ -836,6 +836,13 @@ def _clean_dir(d):
     return d
 
 
+def _check_ptero_assigned(ident):
+    """Pterodactyl のサーバーを、管理者から割り当てられているか(割り当てを決めていない人・管理者はすべて可)。"""
+    allowed = ptero_allowed(current_user())
+    if allowed is not None and ident not in allowed:
+        raise ApiError("このサーバーは、管理者から割り当てられていません", 403)
+
+
 @app.post("/api/servers")
 @require("editor")
 def api_servers_create():
@@ -854,9 +861,7 @@ def api_servers_create():
         ident = str(data.get("identifier") or "").strip()
         if not ident:
             raise ApiError("サーバーを選んでください")
-        allowed = ptero_allowed(current_user())
-        if allowed is not None and ident not in allowed:
-            raise ApiError("このサーバーは、管理者から割り当てられていません", 403)
+        _check_ptero_assigned(ident)
         ex = conn.execute("SELECT owner_id FROM servers WHERE identifier=?", (ident,)).fetchone()
         if ex:
             who = conn.execute("SELECT username FROM users WHERE id=?", (ex[0],)).fetchone()
@@ -897,7 +902,9 @@ def api_servers_detect():
             raise ApiError("フォルダでつなぐサーバーは、「パネル全体の設定」の権限がある人だけが扱えます", 403)
         fs = _LocalFiles(_local_root(data.get("root_dir")))
     else:
-        fs = _PteroFiles(str(data.get("identifier") or ""))
+        ident = str(data.get("identifier") or "").strip()
+        _check_ptero_assigned(ident)  # まだ連携していないサーバーも、割り当てられたものだけを読む
+        fs = _PteroFiles(ident)
     jar = Path(str(data.get("jar") or "")).name or None
     return jsonify(detect_server(fs, jar))
 

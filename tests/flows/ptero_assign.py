@@ -5,6 +5,7 @@ os.environ.update(DATA_DIR=tmp + "/data", CONFIG_DIR=tmp + "/config", MCPL_NO_SC
 sys.path.insert(0, sys.argv[1])
 import app as A  # noqa: E402
 import ptero  # noqa: E402
+import craftshelf.servers as S  # noqa: E402
 
 fails = []
 
@@ -18,6 +19,9 @@ def check(c, m):
 # Pterodactyl の代わり: パネルから見えるサーバーは 2 台
 ptero.Ptero.servers = lambda self: [{"identifier": i, "name": n, "node": "n1", "uuid": i, "description": ""}
                                     for i, n in (("aaaa1111", "サバイバル"), ("bbbb2222", "ロビー"))]
+
+S.detect_server = lambda fs, jar=None: {"read": getattr(fs, "ident", None)}
+detect = lambda c, **body: c.post("/api/servers/detect", json=body, headers=H)  # noqa: E731
 
 H = {"X-Requested-With": "mcpl"}
 admin = A.app.test_client()
@@ -53,12 +57,22 @@ r = alice.post("/api/servers", json={"identifier": "aaaa1111", "name": "サバ�
 check(r.status_code == 403, f"割り当てられていないサーバーは連携できない ({r.status_code})")
 check(idents(admin) == ["aaaa1111", "bbbb2222"], "管理者はいつでもすべて見える")
 
+# まだ連携していないサーバーの中身を見る(detect)も、割り当てられたものだけ
+r = detect(alice, identifier="bbbb2222")
+check(r.status_code == 200 and r.get_json()["read"] == "bbbb2222", f"割り当てられたサーバーは detect できる ({r.status_code})")
+r = detect(alice, identifier="aaaa1111")
+check(r.status_code == 403, f"割り当てられていないサーバーは detect できない ({r.status_code})")
+check(detect(admin, identifier="aaaa1111").status_code == 200, "管理者は、どのサーバーも detect できる")
+check(detect(bob, identifier="aaaa1111").status_code == 200, "割り当てを決めていない人は、これまでどおり detect できる")
+
 # 管理者が連携したサーバーでも、割り当てられた人は操作できる
 admin.post("/api/servers", json={"identifier": "bbbb2222", "name": "ロビー"}, headers=H)
 lobby = mine(alice).get("ロビー")
 check(lobby is not None and lobby["access"] == "edit", f"割り当てられたサーバーは、ほかの人が連携していても一覧に出て操作できる ({lobby and lobby['access']})")
 check(alice.patch(f"/api/servers/{lobby['id']}", json={"name": "ロビー2"}, headers=H).status_code == 200, "設定を変えられる")
 check("ロビー2" not in mine(bob), "割り当てられていない人には見えない")
+check(detect(alice, server_id=lobby["id"]).status_code == 200, "連携済みのサーバー(server_id)は、これまでどおり操作できる人だけ detect できる")
+check(detect(bob, server_id=lobby["id"]).status_code in (403, 404), "連携済みのサーバーを操作できない人は detect できない")
 
 # 割り当てをやめると、連携は管理者のまま・アリスからは見えなくなる
 admin.patch(f"/api/users/{uid['alice']}", json={"ptero_servers": None}, headers=H)

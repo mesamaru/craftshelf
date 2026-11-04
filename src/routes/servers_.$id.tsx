@@ -237,7 +237,7 @@ function Search({ id, installed, sources, onInstalled }: { id: string; installed
 
   return (
     <>
-      <div className="group-title">{SOURCE_LABEL[source]} から探す</div>
+      <div className="group-title">{`${SOURCE_LABEL[source]} から探す`}</div>
       <form className="group form" onSubmit={(e) => (e.preventDefault(), find())}>
         {sources.length > 1 && (
           <div className="row">

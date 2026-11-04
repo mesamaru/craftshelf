@@ -11,6 +11,7 @@
 - 版は `03.xx.xx`。タグは `dev-v03.01.02`(リリースの仕組みはまだ無い)。
 
 - 利用者への説明・UI の文言は日本語。利用者が入力した名前・メモなどには `translate="no"` を付ける。
+- 英語表示は `src/lib/i18n-en.ts` の辞書(日本語 → 英語)で画面の文字を置き換える(`src/lib/i18n.ts`)。**画面に新しい日本語の文言を足したら、この辞書にも英訳を足す。** `{n} 件` のように JSX で分かれる文は訳しにくいので、テンプレート文字列 1 つにして `EN_RULES` で訳す。
 - 設計と方針は `docs/DESIGN.md`。構成を変えたらそちらも直す。
 - **変更をコミットするたびに `VERSION` を上げ、`CHANGELOG.md` の先頭に見出しを追加する。** 形式は `00.00.00`(メジャー.マイナー.修正)、見出しは `## 03.01.00 - YYYY-MM-DD タイトル`。
 - 構成: TanStack Start(`src/routes/` がページとサーバーのルート)・Drizzle + PostgreSQL(`src/server/db/`)・Better Auth(`src/server/auth.ts`)。サーバーだけで動く処理は `src/server/` に置き、画面側のファイルから直接 import しない(`createServerFn` の中で動的に import する)。

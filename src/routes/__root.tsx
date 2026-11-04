@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
+import { getLang, startEnglish } from "~/lib/i18n";
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
 import { getAppState } from "~/lib/session";
 import appCss from "~/styles.css?url";
@@ -21,6 +22,9 @@ export const Route = createRootRoute({
 });
 
 function RootDocument({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    if (getLang() === "en") startEnglish();
+  }, []);
   return (
     <html lang="ja">
       <head>

@@ -8,6 +8,7 @@ import { getVersions, installVersion, useImageVersion } from "~/lib/versions-api
 import { useCan } from "~/lib/use-can";
 import { useServerFn } from "@tanstack/react-start";
 import { createToken, listTokens, removeToken } from "~/lib/tokens-api";
+import { getLang, setLang } from "~/lib/i18n";
 
 export const Route = createFileRoute("/settings")({
   beforeLoad: ({ context }) => {
@@ -40,6 +41,17 @@ function Settings() {
         <div className="row"><span>表示名</span><span className="trail" translate="no">{user.name}</span></div>
         <div className="row"><span>メールアドレス</span><span className="trail" translate="no">{user.email.endsWith("@v02.craftshelf.invalid") ? "未設定(v02 から取り込み)" : user.email}</span></div>
       </section>
+
+      <section className="group">
+        <div className="row">
+          <span>表示する言語</span>
+          <select className="trail" defaultValue={typeof window === "undefined" ? "ja" : getLang()} onChange={(e) => setLang(e.target.value === "en" ? "en" : "ja")} aria-label="表示する言語">
+            <option value="ja" translate="no">日本語</option>
+            <option value="en" translate="no">English</option>
+          </select>
+        </div>
+      </section>
+      <p className="foot">このブラウザでの表示だけが変わります。利用者が入力した名前などは訳しません。</p>
 
       <div className="group-title">セキュリティ</div>
       {user.legacyTotp && (

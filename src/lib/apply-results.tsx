@@ -10,7 +10,7 @@ export function ApplyResults({ server, verb, list }: { server: string; verb: str
   return (
     <div className="row">
       <span className="main">
-        <span><span translate="no">{server}</span> に{verb}結果</span>
+        <span>{verb}結果: <span translate="no">{server}</span></span>
         {list.length === 0 && <span className="muted">セットに何も入っていません。</span>}
         {list.map((r) => (
           <span key={r.title} className={r.status === "failed" ? "error" : "muted"}>

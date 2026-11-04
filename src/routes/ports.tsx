@@ -176,7 +176,7 @@ function ProblemList({ data, found, edit, onChange }: { data: Overview; found: {
         <div className="row" key={pr.portId}>
           <span className={`mono ${pr.type}`}>{pr.port}</span>
           <span className="main"><span translate="no">{name(pr.serverId)}</span><span className="muted">{pr.message}</span></span>
-          {edit && pr.fix && <button className="trail capsule small" type="button" onClick={() => run(() => save({ data: { serverId: pr.serverId, changes: [{ id: pr.portId, port: pr.fix! }] } }))}>{pr.fix} に変える</button>}
+          {edit && pr.fix && <button className="trail capsule small" type="button" onClick={() => run(() => save({ data: { serverId: pr.serverId, changes: [{ id: pr.portId, port: pr.fix! }] } }))}>{`${pr.fix} に変える`}</button>}
         </div>
       ))}
       {found.length > 0 && <div className="row"><b>見つかったポート {found.length} 件</b></div>}
@@ -199,7 +199,7 @@ function FoundRow({ server, port, kinds, edit, onAdopt, onIgnore }:
       {edit && (
         <span className="actions">
           <select value={kind} onChange={(e) => setKind(e.target.value)} aria-label="管理する種類">
-            <option value="__new">新しい種類「{port.label}」を作る</option>
+            <option value="__new">{`新しい種類「${port.label}」を作る`}</option>
             {kinds.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
           </select>
           <button className="capsule primary small" type="button" onClick={() => onAdopt(kind === "__new" ? { newKindName: port.label } : { kindId: kind })}>管理する</button>

@@ -130,7 +130,7 @@ describe("保存先", () => {
     const item = (await lib.catalog(owner)).items.find((i) => i.title === "MyPlugin")!;
     const f40 = (await up.files(owner, item.id))[0];
     expect(Buffer.from((await up.download(owner, f40.id)).data).toString("latin1")).toContain("class 4.0");
-    expect(JSON.stringify(await up.targets(owner))).not.toContain("pw");
+    expect(JSON.stringify(await up.targets(owner))).not.toContain("\"pw\""); // パスワードの値そのもの(一時フォルダの名前にたまたま pw が入ることがある)
   });
 
   it("WebDAV の URL にユーザー名を書いたものは断る", () => {

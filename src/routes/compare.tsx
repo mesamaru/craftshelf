@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { installMod, libraryCatalog, modVersions } from "~/lib/library-api";
+import { installMod, libraryCatalog, modVersions, removeMod, setModHold } from "~/lib/library-api";
 import { useCan } from "~/lib/use-can";
 
 export const Route = createFileRoute("/compare")({
@@ -36,7 +36,8 @@ function Compare() {
   const [error, setError] = useState("");
 
   const servers = data.servers.filter((s) => sel.includes(s.id));
-  const verOf = (i: Item, serverId: string) => i.installs.find((x) => x.serverId === serverId)?.versionNumber;
+  const installOf = (i: Item, serverId: string) => i.installs.find((x) => x.serverId === serverId);
+  const verOf = (i: Item, serverId: string) => installOf(i, serverId)?.versionNumber;
   const rows = data.items.filter((i) => !diffOnly || new Set(servers.map((s) => verOf(i, s.id) ?? "")).size > 1);
   const setPick = (key: string, p: Pick | null) => setPicks((m) => {
     const n = new Map(m);
@@ -103,8 +104,15 @@ function Compare() {
                     <td translate="no">{i.title}</td>
                     {servers.map((s) => {
                       const key = `${s.id}:${i.id}`;
-                      const v = verOf(i, s.id);
-                      if (v) return <td key={s.id} className="mono" translate="no">{v}</td>;
+                      const inst = installOf(i, s.id);
+                      if (inst) {
+                        return (
+                          <td key={s.id}>
+                            {edit ? <Installed serverId={s.id} item={i} version={inst.versionNumber} filename={inst.filename} onDone={() => router.invalidate()} />
+                              : <span className="mono" translate="no">{inst.versionNumber}</span>}
+                          </td>
+                        );
+                      }
                       if (!edit || s.type !== i.projectType) return <td key={s.id} className="muted">—</td>;
                       const p = picks.get(key);
                       return (
@@ -119,7 +127,7 @@ function Compare() {
               </tbody>
             </table>
           </section>
-          <p className="foot">「導入」を押すと、そのサーバーに入れるものとして選べます(いちばん新しい版。🏷 で別の版も選べます)。古い版を選んだものは「更新を止める」にします。サーバーの種類に合わないところは「—」です。</p>
+          <p className="foot">「導入」を押すと、そのサーバーに入れるものとして選べます(いちばん新しい版。🏷 で別の版も選べます)。入っている版を押すと、版を変える・外すができます。古い版を選んだものは「更新を止める」にします。サーバーの種類に合わないところは「—」です。</p>
           {picks.size > 0 && (
             <section className="group">
               <div className="row">
@@ -153,7 +161,54 @@ function Picked({ serverId, item, pick, onPick }: { serverId: string; item: Item
   );
 }
 
-function VersionSelect({ serverId, item, pick, onPick }: { serverId: string; item: Item; pick: Pick; onPick: (p: Pick) => void }) {
+// 入っているマス: 版を押すと、版を変える・外す
+function Installed({ serverId, item, version, filename, onDone }: { serverId: string; item: Item; version: string; filename: string; onDone: () => void }) {
+  const install = useServerFn(installMod);
+  const remove = useServerFn(removeMod);
+  const hold = useServerFn(setModHold);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const act = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    setError("");
+    try {
+      await fn();
+      setOpen(false);
+      onDone();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <span className="port-line">
+      <button type="button" className="pc" translate="no" aria-expanded={open} title="版を変える・外す" disabled={busy} onClick={() => setOpen((x) => !x)}>{version}</button>
+      {open && !busy && (
+        <>
+          <VersionSelect serverId={serverId} item={item} pick={null} onPick={(p) => {
+            if (confirm(`${item.title} を ${p.versionNumber} にしますか?(反映にはサーバーの再起動が要ります)`)) {
+              const key = { id: serverId, projectId: item.projectId, source: item.source as never };
+              act(async () => {
+                await install({ data: { ...key, versionId: p.versionId ?? undefined } });
+                if (!p.versionId) await hold({ data: { ...key, hold: false } }); // いちばん新しい版にしたら、止めていた更新も戻す
+              });
+            }
+          }} />
+          <button type="button" className="link small danger" onClick={() => {
+            if (confirm(`${item.title} を外しますか?(サーバーからファイルを消します)`)) act(() => remove({ data: { id: serverId, filename } }));
+          }}>外す</button>
+        </>
+      )}
+      {busy && <span className="small muted">変えています…</span>}
+      {error && <span className="small err" role="alert">{error}</span>}
+    </span>
+  );
+}
+
+// pick が null なら「選んでください」から始め、どれを選んでも onPick を呼ぶ(入っているものの版を変えるとき)
+function VersionSelect({ serverId, item, pick, onPick }: { serverId: string; item: Item; pick: Pick | null; onPick: (p: Pick) => void }) {
   const load = useServerFn(modVersions);
   const [list, setList] = useState<Awaited<ReturnType<typeof modVersions>> | null>(null);
   const [error, setError] = useState("");
@@ -164,10 +219,11 @@ function VersionSelect({ serverId, item, pick, onPick }: { serverId: string; ite
   if (!list) return <span className="small muted">読み込み中…</span>;
   if (!list.length) return <span className="small muted">選べる版がありません(SpigotMC は、いちばん新しい版だけです)</span>;
   return (
-    <select aria-label="入れる版" value={pick.versionId ?? ""} onChange={(e) => {
+    <select aria-label="入れる版" value={pick ? pick.versionId ?? "" : "-"} onChange={(e) => {
       const v = list.find((x) => x.versionId === e.target.value);
-      onPick(v ? { versionId: v.versionId, versionNumber: v.versionNumber } : LATEST);
+      onPick(v ? { versionId: v.versionId, versionNumber: v.versionNumber } : { versionId: null, versionNumber: "いちばん新しい版" });
     }}>
+      {!pick && <option value="-" disabled>版を選んでください…</option>}
       <option value="">いちばん新しい版</option>
       {list.map((v) => <option key={v.versionId} value={v.versionId} translate="no">{v.versionNumber}{v.release ? "" : "(テスト版)"}・{v.date.slice(0, 10)}</option>)}
     </select>

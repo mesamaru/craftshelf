@@ -20,7 +20,10 @@ export const EN: Record<string, string> = {
   "いちばん新しい版": "Newest version",
   "(テスト版)": " (pre-release)",
   "選べる版がありません(SpigotMC は、いちばん新しい版だけです)": "No versions to choose (SpigotMC offers only the newest)",
-  "「導入」を押すと、そのサーバーに入れるものとして選べます(いちばん新しい版。🏷 で別の版も選べます)。古い版を選んだものは「更新を止める」にします。サーバーの種類に合わないところは「—」です。": "Press “Install” to pick it for that server (the newest version; use 🏷 to choose another). Older versions you choose are set to “Pause updates”. “—” means the server type doesn't fit.",
+  "「導入」を押すと、そのサーバーに入れるものとして選べます(いちばん新しい版。🏷 で別の版も選べます)。入っている版を押すと、版を変える・外すができます。古い版を選んだものは「更新を止める」にします。サーバーの種類に合わないところは「—」です。": "Press “Install” to pick it for that server (the newest version; use 🏷 to choose another). Press an installed version to change or remove it. Older versions you choose are set to “Pause updates”. “—” means the server type doesn't fit.",
+  "版を変える・外す": "Change version or remove",
+  "版を選んでください…": "Choose a version…",
+  "変えています…": "Changing…",
   "SpigotMC のものは版を選べません(いちばん新しい版だけを入れられます)": "SpigotMC items have no version choice (only the newest can be installed)",
   "この版は、このサーバーの種類・バージョンに合いません": "This version does not fit this server's type and version",
   "まだセットがありません。": "No sets yet. ",
@@ -711,6 +714,7 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^(.+?) を (.+?) にしますか[?？]\(反映にはサーバーの再起動が要ります\)$/, "Switch $1 to $2? (Restart the server to apply)"],
   [/^(\d+) 件を入れます$/, "Installing $1 items"],
   [/^(\d+) 件を入れました。反映にはサーバーの再起動が要ります$/, "Installed $1 items. Restart the servers to apply"],
   [/^入れられなかったもの: /, "Not installed: "],

@@ -219,7 +219,7 @@ export function libraryService(deps: Deps) {
     async catalog(headers: Headers) {
       const { teamId } = await requireTeam(auth, headers);
       const items = await db.select().from(libraryItem).where(eq(libraryItem.teamId, teamId)).orderBy(asc(libraryItem.title));
-      const installs = await db.select({ serverId: server.id, serverName: server.name, source: installedMod.source, projectId: installedMod.projectId, versionNumber: installedMod.versionNumber })
+      const installs = await db.select({ serverId: server.id, serverName: server.name, source: installedMod.source, projectId: installedMod.projectId, versionNumber: installedMod.versionNumber, filename: installedMod.filename })
         .from(installedMod).innerJoin(server, eq(installedMod.serverId, server.id))
         .where(eq(server.teamId, teamId)).orderBy(asc(server.name));
       const servers = await db.select({ id: server.id, name: server.name, platform: serverProfile.platform })
@@ -227,7 +227,7 @@ export function libraryService(deps: Deps) {
       return {
         items: items.map((i) => ({
           id: i.id, source: i.source, projectId: i.projectId, title: i.title, slug: i.slug, projectType: i.projectType, iconUrl: i.iconUrl,
-          installs: installs.filter((r) => r.source === i.source && r.projectId === i.projectId).map(({ serverId, serverName, versionNumber }) => ({ serverId, serverName, versionNumber })),
+          installs: installs.filter((r) => r.source === i.source && r.projectId === i.projectId).map(({ serverId, serverName, versionNumber, filename }) => ({ serverId, serverName, versionNumber, filename })),
         })),
         // 種類を決めていないサーバーには入れられない(type が null)
         servers: servers.map((x) => ({ id: x.id, name: x.name, type: isPlatform(x.platform) ? PLATFORMS[x.platform].type : null })),

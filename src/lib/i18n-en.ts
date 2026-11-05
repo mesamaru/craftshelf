@@ -1,6 +1,12 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "変更の履歴": "Change history",
+  "元に戻しました": "undone",
+  "外したファイルは消さずに名前を変えて残すので、元に戻せます(1 台につき新しい 30 件まで)。変更はサーバーの再起動で反映されます。": "Removed files are kept under another name so you can undo (newest 30 per server). Changes take effect when the server restarts.",
+  "この変更は、もう元に戻しています": "This change has already been undone",
+  "残していたファイルが見つかりません": "The kept file was not found",
+  "この変更は元に戻せません": "This change cannot be undone",
   "取り込んでいます…": "Importing…",
   "ライブラリに取り込む": "Import to library",
   "ファイルの中身から探しています…": "Searching by file contents…",
@@ -774,6 +780,13 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^ を外した$/, " removed"], [/^ を更新した$/, " updated"], [/^ を入れた$/, " installed"],
+  [/ · 前の版 /, " · previous "],
+  [/^(.+?) を元に戻しますか[?？]\(外したファイルを戻します\)$/, "Undo removing $1? (The removed file is restored)"],
+  [/^(.+?) を外しますか[?？]\(入れる前に戻します\)$/, "Remove $1? (Goes back to before it was installed)"],
+  [/^(.+?) を前の版\((.+?)\)に戻しますか[?？]\(戻したあとは「更新を止める」になります\)$/, "Roll $1 back to the previous version ($2)? (Updates are paused afterwards)"],
+  [/^すべて見る\((\d+) 件\)$/, "Show all ($1)"],
+  [/^(.+?) がもうあります$/, "$1 already exists"],
   [/^配布元を探す\(わからないもの (\d+) 個\)$/, "Find sources ($1 unknown)"],
   [/^(\d+) 個を調べ、(\d+) 個の配布元が見つかりました/, "Checked $1, found sources for $2"],
   [/。見つからなかったもの: /, ". Not found: "],
@@ -816,7 +829,7 @@ export const EN_RULES: [RegExp, To][] = [
   [/^(\d+|\?)\+グループ番号$/, "$1 + group number"],
   [/^(.+?) の範囲 (\d+)–(\d+) の外です$/, "Outside the $1 range $2–$3"],
   [/^範囲 (\d+)–(\d+) の外です$/, "Outside the range $1–$2"],
-  [/^(.+?) を外しますか[?？]\(サーバーからファイルを消します\)$/, "Remove $1? (The file is deleted from the server.)"],
+  [/^(.+?) を外しますか[?？]\(「変更の履歴」から元に戻せます\)$/, "Remove $1? (You can undo it from the change history)"],
   [/^(.+?) を前の版に戻しますか[?？]\(戻したあとは「更新を止める」になります\)$/, "Roll $1 back to the previous version? (Updates are paused afterwards.)"],
   [/^(.+?) さんをチームから外しますか[?？]$/, "Remove $1 from the team?"],
   [/(\d+) 個を移しました/, "Moved $1 files"],

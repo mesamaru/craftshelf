@@ -134,6 +134,13 @@
       "when": 1793877419927,
       "tag": "0018_server_software",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1793878110666,
+      "tag": "0019_server_change",
+      "breakpoints": true
     }
   ]
 }

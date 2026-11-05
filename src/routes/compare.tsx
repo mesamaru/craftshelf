@@ -200,7 +200,7 @@ function Installed({ serverId, item, version, filename, onDone }: { serverId: st
             }
           }} />
           <button type="button" className="link small danger" onClick={() => {
-            if (confirm(`${item.title} を外しますか?(サーバーからファイルを消します)`)) act(() => remove({ data: { id: serverId, filename } }));
+            if (confirm(`${item.title} を外しますか?(「変更の履歴」から元に戻せます)`)) act(() => remove({ data: { id: serverId, filename } }));
           }}>外す</button>
         </>
       )}

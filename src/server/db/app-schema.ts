@@ -373,3 +373,22 @@ export const serverSoftware = pgTable("server_software", {
   backupBuild: text("backup_build").notNull().default(""),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// サーバーのアドオンの変更の履歴(v02 の「履歴と巻き戻し」)。removed は外した・入れ替えたファイルの記録(JSON)、
+// backup は外したファイルを名前を変えて残したもの(元に戻すときに名前を戻す)
+export const serverChange = pgTable(
+  "server_change",
+  {
+    id: text("id").primaryKey(),
+    serverId: text("server_id").notNull().references(() => server.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+    action: text("action").notNull(),
+    title: text("title").notNull(),
+    added: text("added").notNull().default(""),
+    removed: text("removed").notNull().default(""),
+    backup: text("backup").notNull().default(""),
+    undone: boolean("undone").notNull().default(false),
+    at: timestamp("at").defaultNow().notNull(),
+  },
+  (t) => [index("server_change_server_idx").on(t.serverId, t.at)],
+);

@@ -68,6 +68,14 @@ export const identifyMods = createServerFn({ method: "POST" })
   .validator(z.object({ id: sid }))
   .handler(async ({ data }) => (await svc()).identify(headers(), data.id));
 
+export const serverChanges = createServerFn({ method: "GET" })
+  .validator(z.object({ id: sid }))
+  .handler(async ({ data }) => (await svc()).changes(headers(), data.id));
+
+export const undoChange = createServerFn({ method: "POST" })
+  .validator(z.object({ id: sid, changeId: z.string().min(1).max(64) }))
+  .handler(async ({ data }) => (await svc()).undo(headers(), data.id, data.changeId));
+
 export const rollbackMod = createServerFn({ method: "POST" })
   .validator(z.object({ id: sid, projectId: z.string().max(40), source }))
   .handler(async ({ data }) => (await svc()).rollback(headers(), data.id, data.source, data.projectId));

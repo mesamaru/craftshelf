@@ -37,10 +37,15 @@ const fake: FetchLike = async (url, init) => {
   }
   if (u.host !== "panel.example.com") throw new Error("想定外の接続先: " + url);
   if (u.pathname === "/api/client") return json({ data: [{ attributes: { identifier: "abcd1234", name: "Mod のサーバー" } }], meta: { pagination: { total_pages: 1 } } });
-  const m = u.pathname.match(/\/files\/(list|pull|delete)$/);
+  const m = u.pathname.match(/\/files\/(list|pull|delete|rename)$/);
   if (m?.[1] === "list") return json({ data: (files.get(u.searchParams.get("directory")!) ?? []).map((name) => ({ attributes: { name, size: 1, is_file: true } })) });
   const body = init?.body ? JSON.parse(String(init.body)) : {};
   if (m?.[1] === "pull") { files.set(body.directory, [...(files.get(body.directory) ?? []), body.filename]); return new Response(null, { status: 204 }); }
+  if (m?.[1] === "rename") {
+    const r = body.files[0];
+    files.set(body.root, (files.get(body.root) ?? []).map((x) => (x === r.from ? r.to : x)));
+    return new Response(null, { status: 204 });
+  }
   if (m?.[1] === "delete") { files.set(body.root, (files.get(body.root) ?? []).filter((x) => !body.files.includes(x))); return new Response(null, { status: 204 }); }
   return json({}, 404);
 };
@@ -109,5 +114,28 @@ describe("版を選んで入れる", () => {
     expect(await code(lib.install(owner, id, D, "modrinth", versions[A][0].id))).toBe(400);
     expect(await code(lib.install(owner, id, "28140", "spigot", "1"))).toBe(400);
     expect(await lib.versions(owner, id, "spigot", "28140")).toEqual([]);
+  });
+});
+
+describe("変更の履歴と元に戻す", () => {
+  it("入れた・更新した・外したものが新しい順に残る。外したものは名前を変えて残し、元に戻すと戻る", async () => {
+    const list = await lib.changes(owner, id);
+    expect(list.some((c) => c.action === "更新" && c.removed === `${A}-1.0.jar`)).toBe(true);
+    await lib.remove(owner, id, `${B}-3.0.jar`);
+    expect(files.get("mods")).toContain(`${B}-3.0.jar.craftshelf-removed`);
+    const gone = (await lib.changes(owner, id))[0];
+    expect(gone).toMatchObject({ action: "外す", removed: `${B}-3.0.jar`, undoable: true });
+    await lib.undo(owner, id, gone.id);
+    expect(files.get("mods")).toContain(`${B}-3.0.jar`);
+    expect(await row(B)).toMatchObject({ versionNumber: "3.0" });
+    expect((await lib.changes(owner, id))[0]).toMatchObject({ undone: true, undoable: false });
+    expect(await code(lib.undo(owner, id, gone.id))).toBe(400);
+  });
+
+  it("新しく入れたものを元に戻すと、外す", async () => {
+    const add = (await lib.changes(owner, id)).find((c) => c.action === "入れる" && c.title === "ModB")!;
+    await lib.undo(owner, id, add.id);
+    expect(files.get("mods")).not.toContain(`${B}-3.0.jar`);
+    expect(await row(B)).toBeUndefined();
   });
 });

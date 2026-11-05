@@ -38,7 +38,7 @@ const fake: FetchLike = async (url, init) => {
   if (u.host !== "panel.example.com") throw new Error("想定外の接続先");
   if ((init?.headers as Record<string, string>)?.Authorization !== `Bearer ${KEY}`) return json({}, 401);
   if (u.pathname === "/api/client") return json({ data: [{ attributes: { identifier: "abcd1234", name: "サバイバル" } }], meta: { pagination: { total_pages: 1 } } });
-  const m = u.pathname.match(/^\/api\/client\/servers\/abcd1234\/files\/(list|pull|delete)$/);
+  const m = u.pathname.match(/^\/api\/client\/servers\/abcd1234\/files\/(list|pull|delete|rename)$/);
   if (m?.[1] === "list") {
     const dir = u.searchParams.get("directory")!;
     if (!files.has(dir)) return json({}, 404);
@@ -48,6 +48,11 @@ const fake: FetchLike = async (url, init) => {
   if (m?.[1] === "pull") {
     pulls.push(body);
     files.set(body.directory, [...(files.get(body.directory) ?? []), body.filename]);
+    return new Response(null, { status: 204 });
+  }
+  if (m?.[1] === "rename") {
+    const f = body.files[0];
+    files.set(body.root, (files.get(body.root) ?? []).map((x) => (x === f.from ? f.to : x)));
     return new Response(null, { status: 204 });
   }
   if (m?.[1] === "delete") {
@@ -150,7 +155,7 @@ describe("Mod・プラグイン", () => {
     expect(await code(lib.remove(editor, id, "server.properties"))).toBe(400);
     expect(await code(lib.remove(editor, id, "Missing.jar"))).toBe(404);
     await lib.remove(editor, id, "LuckPerms-5.5.0.jar");
-    expect(files.get("plugins")).toEqual(["Other-1.0.jar"]);
+    expect(files.get("plugins")).toEqual(["Other-1.0.jar", "LuckPerms-5.5.0.jar.craftshelf-removed"]); // 消さずに名前を変えて残す
     expect((await lib.installed(viewer, id)).items.map((i) => i.filename)).toEqual(["Other-1.0.jar"]);
   });
 });

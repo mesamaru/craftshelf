@@ -4,13 +4,13 @@ import { createHash, randomUUID } from "node:crypto";
 import { cfFingerprint } from "./fingerprint";
 import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 import { PLATFORMS, MC_VERSION, type Platform, isPlatform } from "~/lib/platforms";
-import { installedMod, libraryItem, server, serverHold, serverProfile } from "./db/schema";
+import { installedMod, libraryItem, server, serverHold, serverProfile, user as userTable } from "./db/schema";
 import { HttpError, requireTeam } from "./guard";
 import { type ItemSource, SOURCE_LABEL, isItemSource } from "~/lib/sources";
 import { ModrinthError, type ProjectType, isProjectType, modrinthClient } from "./modrinth";
 import { SpigetError, spigetClient } from "./spiget";
 import { CF_KEY, CurseForgeError, curseforgeClient } from "./curseforge";
-import { installHistory, libraryFile, teamCurseforge } from "./db/schema";
+import { installHistory, libraryFile, serverChange, teamCurseforge } from "./db/schema";
 import { hint, open, seal } from "./secrets";
 import { fileStore } from "./uploads";
 import { eventService } from "./events";
@@ -21,6 +21,10 @@ export const LIBRARY_LIMITS = { itemsPerTeam: 500 };
 // 配布元を中身から探すとき: 1 回に調べる数と、1 つの大きさの上限
 const IDENTIFY_MAX = 100;
 const IDENTIFY_BYTES = 100 * 1024 * 1024;
+// 変更の履歴は 1 台につき新しい 30 件まで(古いものの、外して残したファイルも消す)
+const CHANGES_KEPT = 30;
+const REMOVED_SUFFIX = ".craftshelf-removed";
+type Removed = { filename: string; source?: string; projectId?: string; versionId?: string; versionNumber?: string; title?: string };
 
 // 配布元からのエラーは、画面に出せる言葉にして返す
 export async function fromSource<T>(fn: () => Promise<T>): Promise<T> {
@@ -120,6 +124,16 @@ export function modTools(deps: Deps) {
     return fromSource(() => (cf ? cf.files(projectId, p.platform, p.mcVersion) : modrinth.versions(projectId, p.platform, p.mcVersion)));
   }
 
+  // 変更の履歴に残す(古いものは消し、外して残したファイルも消す)
+  async function logChange(serverId: string, userId: string | null, c: { action: string; title: string; added?: string; removed?: Removed | null; backup?: string }, target?: Target, dir?: string) {
+    await db.insert(serverChange).values({ id: randomUUID(), serverId, userId, action: c.action, title: c.title, added: c.added ?? "", removed: c.removed ? JSON.stringify(c.removed) : "", backup: c.backup ?? "" });
+    const old = await db.select().from(serverChange).where(eq(serverChange.serverId, serverId)).orderBy(desc(serverChange.at)).offset(CHANGES_KEPT);
+    if (!old.length) return;
+    const backups = old.filter((o) => o.backup && !o.undone).map((o) => o.backup);
+    if (backups.length && target && dir) await remote(() => target.client.deleteFiles(target.remoteId, dir, backups)).catch(() => {});
+    await db.delete(serverChange).where(inArray(serverChange.id, old.map((o) => o.id)));
+  }
+
   type Installed = { title: string; filename: string; versionNumber: string; replaced: string[]; deps: { title: string; ok: boolean; detail: string }[] };
 
   /**
@@ -170,6 +184,11 @@ export function modTools(deps: Deps) {
     };
     const { id: _, ...update } = values;
     await db.insert(installedMod).values(values).onConflictDoUpdate({ target: [installedMod.serverId, installedMod.filename], set: update });
+    const was = stale[0];
+    await logChange(row.id, userId, {
+      action: stale.length ? "更新" : "入れる", title: values.title, added: file.filename,
+      removed: was ? { filename: was.filename, source: was.source, projectId: was.projectId, versionId: was.versionId, versionNumber: was.versionNumber, title: was.title } : null,
+    });
     await remember(teamId, userId, source, projectId, {
       title: values.title, slug: info?.slug ?? "", iconUrl: info?.iconUrl ?? "",
       projectType: PLATFORMS[p.platform].type, // 入れられたサーバーの種類(Modrinth は、プラグインでも Fabric などにも対応したものを "mod" と返す)
@@ -198,13 +217,13 @@ export function modTools(deps: Deps) {
   const holdsOf = async (serverId: string) =>
     new Set((await db.select().from(serverHold).where(eq(serverHold.serverId, serverId))).map((h) => `${h.source}:${h.projectId}`));
 
-  return { modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf };
+  return { modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, logChange };
 }
 
 export function libraryService(deps: Deps) {
   const { db, auth } = deps;
   const { record } = eventService(deps);
-  const { modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf } = modTools(deps);
+  const { modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, logChange } = modTools(deps);
   // このチームで探せる配布元(CurseForge は API キーを設定したときだけ)
   const sourcesOf = async (teamId: string) => ["modrinth", "spigot", ...((await cfKeyOf(teamId)) ? ["curseforge"] : [])];
   const sourceOf = (v: string) => {
@@ -463,6 +482,59 @@ export function libraryService(deps: Deps) {
       return r;
     },
 
+    /** アドオンの変更の履歴(新しい順・30 件まで)。元に戻せるものがわかる */
+    async changes(headers: Headers, id: string) {
+      const who = await requireTeam(auth, headers);
+      const { row } = await serverOf(deps, who, id);
+      const rows = await db.select({ c: serverChange, by: userTable.name }).from(serverChange).leftJoin(userTable, eq(serverChange.userId, userTable.id))
+        .where(eq(serverChange.serverId, row.id)).orderBy(desc(serverChange.at));
+      return rows.map(({ c, by }) => {
+        const removed = c.removed ? (JSON.parse(c.removed) as Removed) : null;
+        return {
+          id: c.id, action: c.action, title: c.title, at: c.at.toISOString(), by: by ?? "", added: c.added, removed: removed?.filename ?? "",
+          version: removed?.versionNumber ?? "", undone: c.undone,
+          // 外したもの・新しく入れたものは戻せる。更新は前の版を取ってこられるもの(SpigotMC 以外)だけ
+          undoable: !c.undone && (c.action === "外す" || (c.action === "入れる" && !!c.added) || (c.action === "更新" && !!removed?.versionId && removed.source !== "spigot")),
+        };
+      });
+    },
+
+    /** 変更を元に戻す(編集者以上): 外したもの → 名前を戻す / 入れたもの → 外す / 更新 → 前の版を入れ直して「更新を止める」にする */
+    async undo(headers: Headers, id: string, changeId: string) {
+      const who = await requireTeam(auth, headers, { library: ["edit"] });
+      const { teamId, user } = who;
+      const target = await serverOf(deps, who, id);
+      const { row, client, remoteId } = target;
+      const [c] = await db.select().from(serverChange).where(and(eq(serverChange.id, changeId), eq(serverChange.serverId, row.id)));
+      if (!c) throw new HttpError(404, "履歴が見つかりません");
+      if (c.undone) throw new HttpError(400, "この変更は、もう元に戻しています");
+      const p = await needProfile(row.id);
+      const dir = PLATFORMS[p.platform].dir;
+      const removed = c.removed ? (JSON.parse(c.removed) as Removed) : null;
+      const files = await remote(() => client.listFiles(remoteId, dir));
+      if (c.action === "外す" && removed) {
+        if (!files.some((f) => f.name === c.backup)) throw new HttpError(404, "残していたファイルが見つかりません");
+        if (files.some((f) => f.name === removed.filename)) throw new HttpError(400, `${removed.filename} がもうあります`);
+        await remote(() => client.rename(remoteId, dir, c.backup, removed.filename));
+        if (removed.source && removed.projectId && removed.versionId) {
+          await db.insert(installedMod).values({ id: randomUUID(), serverId: row.id, source: removed.source, projectId: removed.projectId, versionId: removed.versionId,
+            versionNumber: removed.versionNumber ?? "", title: removed.title ?? removed.filename, filename: removed.filename, installedBy: user.id }).onConflictDoNothing();
+        }
+      } else if (c.action === "入れる" && c.added) {
+        if (files.some((f) => f.name === c.added)) await remote(() => client.deleteFiles(remoteId, dir, [c.added]));
+        await db.delete(installedMod).where(and(eq(installedMod.serverId, row.id), eq(installedMod.filename, c.added)));
+      } else if (c.action === "更新" && removed?.versionId && removed.source && removed.projectId && isItemSource(removed.source) && removed.source !== "spigot") {
+        const file = await fileById(removed.source, removed.projectId, removed.versionId, teamId);
+        if (!file) throw new HttpError(404, "前の版のファイルが、もう取ってこられません");
+        await installInto(teamId, user.id, target, p, removed.source, removed.projectId, { file, depth: 0 });
+        await db.insert(serverHold).values({ serverId: row.id, source: removed.source, projectId: removed.projectId, createdBy: user.id }).onConflictDoNothing();
+      } else {
+        throw new HttpError(400, "この変更は元に戻せません");
+      }
+      await db.update(serverChange).set({ undone: true }).where(eq(serverChange.id, c.id));
+      await record({ teamId, userId: user.id, kind: "changes", action: "変更を元に戻す", target: row.name, detail: `${c.action}: ${c.title}` });
+    },
+
     /** 外す(サーバーのフォルダーからファイルを消す) */
     async remove(headers: Headers, id: string, filename: string) {
       const who = await requireTeam(auth, headers, { library: ["edit"] });
@@ -474,8 +546,18 @@ export function libraryService(deps: Deps) {
       const dir = PLATFORMS[p.platform].dir;
       const present = (await remote(() => client.listFiles(remoteId, dir))).some((f) => f.isFile && f.name === filename);
       if (!present) throw new HttpError(404, "ファイルが見つかりません");
-      await remote(() => client.deleteFiles(remoteId, dir, [filename]));
+      // 消さずに名前を変えて残す(変更の履歴から元に戻せる)。同じ名前で残していたものは消す
+      const backup = filename + REMOVED_SUFFIX;
+      await remote(async () => {
+        await client.deleteFiles(remoteId, dir, [backup]).catch(() => {});
+        await client.rename(remoteId, dir, filename, backup);
+      });
+      const [rec] = await db.select().from(installedMod).where(and(eq(installedMod.serverId, row.id), eq(installedMod.filename, filename)));
       await db.delete(installedMod).where(and(eq(installedMod.serverId, row.id), eq(installedMod.filename, filename)));
+      await logChange(row.id, user.id, {
+        action: "外す", title: rec?.title ?? filename, backup,
+        removed: rec ? { filename, source: rec.source, projectId: rec.projectId, versionId: rec.versionId, versionNumber: rec.versionNumber, title: rec.title } : { filename },
+      }, { row, client, remoteId }, dir);
       await record({ teamId, userId: user.id, kind: "changes", action: "外す", target: row.name, detail: filename });
     },
 

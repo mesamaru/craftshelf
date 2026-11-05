@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { identifyMods, installMod, installedMods, modUpdates, removeMod, rollbackMod, searchMods, serverDetail, setModHold, setProfile } from "~/lib/library-api";
+import { identifyMods, serverChanges, undoChange, installMod, installedMods, modUpdates, removeMod, rollbackMod, searchMods, serverDetail, setModHold, setProfile } from "~/lib/library-api";
 import { importServerFile } from "~/lib/uploads-api";
 import { ApplyResults } from "~/lib/apply-results";
 import { PLATFORMS, PLATFORM_IDS } from "~/lib/platforms";
@@ -58,6 +58,7 @@ function ServerPage() {
           <SetBinding id={server.id} name={server.name} edit={edit} onSynced={reload} />
           <Installed id={server.id} items={items} error={error} edit={edit} local={app.mode === "self"}
             dir={PLATFORMS[server.profile.platform].dir} onChange={reload} />
+          <Changes id={server.id} edit={edit} items={items} onChange={reload} />
           {edit && <Search id={server.id} installed={items ?? []}
             sources={(server.sources as Source[]).filter((s) => s !== "spigot" || PLATFORMS[server.profile!.platform].type === "plugin")} onInstalled={reload} />}
         </>
@@ -190,7 +191,7 @@ function Installed({ id, items, error, edit, local, dir, onChange }:
               )}
               {edit && (
                 <button className={`${u || m.projectId || local ? "" : "trail "}link danger`} type="button" disabled={!!busy}
-                  onClick={() => confirm(`${m.title ?? m.filename} を外しますか?(サーバーからファイルを消します)`) && run(m.filename, () => remove({ data: { id, filename: m.filename } }))}>
+                  onClick={() => confirm(`${m.title ?? m.filename} を外しますか?(「変更の履歴」から元に戻せます)`) && run(m.filename, () => remove({ data: { id, filename: m.filename } }))}>
                   外す
                 </button>
               )}
@@ -485,6 +486,52 @@ function Software({ id, admin }: { id: string; admin: boolean }) {
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
       <p className="foot">入れ替えるときは、サーバーが配布元から直接 jar を取り込みます。入れ替える前の jar は 1 つだけ残し、そこへ戻せます。Paper・Folia・Velocity・Purpur・Fabric は入れ替えられ、Forge などは新しい版があるかだけを確かめます。</p>
+    </>
+  );
+}
+
+// アドオンの変更の履歴(新しい順)。外したもの・入れたもの・更新を元に戻せる(編集者以上)
+function Changes({ id, edit, items, onChange }: { id: string; edit: boolean; items: Installed[] | null; onChange: () => void }) {
+  const load = useServerFn(serverChanges);
+  const undo = useServerFn(undoChange);
+  const [list, setList] = useState<Awaited<ReturnType<typeof serverChanges>> | null>(null);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => { load({ data: { id } }).then(setList, (e) => setError(message(e))); }, [id, items]);
+  if (!list?.length) return null;
+  const shown = open ? list : list.slice(0, 5);
+  return (
+    <>
+      <div className="group-title">変更の履歴</div>
+      <section className="group">
+        {shown.map((c) => (
+          <div className={`row${c.undone ? " faded" : ""}`} key={c.id}>
+            <span className="main">
+              <span><span translate="no">{c.title}</span>{` を${c.action === "外す" ? "外した" : c.action === "更新" ? "更新した" : "入れた"}`}</span>
+              <span className="muted small" translate="no">{new Date(c.at).toLocaleString("ja-JP")}{c.by ? ` · ${c.by}` : ""}{c.action === "更新" && c.version ? ` · 前の版 ${c.version}` : ""}{c.undone ? " · 元に戻しました" : ""}</span>
+            </span>
+            {edit && c.undoable && (
+              <button className="trail link" type="button" disabled={!!busy} onClick={async () => {
+                if (!confirm(c.action === "外す" ? `${c.title} を元に戻しますか?(外したファイルを戻します)` : c.action === "入れる" ? `${c.title} を外しますか?(入れる前に戻します)` : `${c.title} を前の版(${c.version})に戻しますか?(戻したあとは「更新を止める」になります)`)) return;
+                setBusy(c.id);
+                setError("");
+                try {
+                  await undo({ data: { id, changeId: c.id } });
+                  onChange();
+                } catch (e) {
+                  setError(message(e));
+                } finally {
+                  setBusy("");
+                }
+              }}>{busy === c.id ? "戻しています…" : "元に戻す"}</button>
+            )}
+          </div>
+        ))}
+        {list.length > 5 && <button className="row link" type="button" onClick={() => setOpen((x) => !x)}>{open ? "閉じる" : `すべて見る(${list.length} 件)`}</button>}
+        {error && <p className="row error" role="alert">{error}</p>}
+      </section>
+      <p className="foot">外したファイルは消さずに名前を変えて残すので、元に戻せます(1 台につき新しい 30 件まで)。変更はサーバーの再起動で反映されます。</p>
     </>
   );
 }

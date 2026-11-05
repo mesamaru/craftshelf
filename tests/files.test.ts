@@ -16,13 +16,29 @@ const disk = new Map<string, string>([
   ["world/level.dat", "x".repeat(10)],
   ["huge.yml", "y".repeat(600 * 1024)],
 ]);
+const disk2 = new Map<string, string>([
+  ["server.properties", "motd=Hello\nserver-port=25566\n"],
+  ["plugins/LuckPerms/config.yml", "storage: h2\n"],
+]);
 const commands: string[] = [];
 
 const fake: FetchLike = async (url, init) => {
   const u = new URL(url);
   const json = (b: unknown, status = 200) => Response.json(b, { status });
   if (u.host !== "panel.example.com") throw new Error("想定外の接続先: " + url);
-  if (u.pathname === "/api/client") return json({ data: [{ attributes: { identifier: "abcd1234", name: "ロビー" } }], meta: { pagination: { total_pages: 1 } } });
+  if (u.pathname === "/api/client") return json({ data: [{ attributes: { identifier: "abcd1234", name: "ロビー" } }, { attributes: { identifier: "efgh5678", name: "サバイバル" } }], meta: { pagination: { total_pages: 1 } } });
+  const m2 = u.pathname.match(/^\/api\/client\/servers\/efgh5678\/files\/list$/);
+  if (m2) {
+    const dir = (u.searchParams.get("directory") ?? "/").replace(/^\/+|\/+$/g, "");
+    const names = new Map<string, boolean>();
+    for (const p of disk2.keys()) {
+      if (dir && !p.startsWith(dir + "/")) continue;
+      const [first, ...more] = (dir ? p.slice(dir.length + 1) : p).split("/");
+      names.set(first, more.length === 0);
+    }
+    if (dir && !names.size) return json({}, 404);
+    return json({ data: [...names].map(([name, isFile]) => ({ attributes: { name, size: isFile ? disk2.get(dir ? `${dir}/${name}` : name)!.length : 0, is_file: isFile } })) });
+  }
   const m = u.pathname.match(/^\/api\/client\/servers\/abcd1234\/(files\/list|files\/contents|files\/write|command)$/);
   if (m?.[1] === "files/list") {
     const dir = (u.searchParams.get("directory") ?? "/").replace(/^\/+|\/+$/g, "");
@@ -57,6 +73,7 @@ let owner: Headers;
 let editor: Headers;
 let outsider: Headers;
 let id: string;
+let id2: string;
 const code = (p: Promise<unknown>) => p.then(() => 200, (e) => (e instanceof HttpError ? e.status : (console.error(e), 500)));
 
 beforeAll(async () => {
@@ -67,8 +84,10 @@ beforeAll(async () => {
   ev = eventService(deps);
   owner = t.headers(await t.signUp("オーナー", "owner@example.com"));
   const c = await servers.addConnection(owner, { name: "", url: "panel.example.com", apiKey: KEY });
-  await servers.addServers(owner, c.id, ["abcd1234"]);
-  id = (await servers.listServers(owner))[0].id;
+  await servers.addServers(owner, c.id, ["abcd1234", "efgh5678"]);
+  const list = await servers.listServers(owner);
+  id = list.find((s) => s.name === "ロビー")!.id;
+  id2 = list.find((s) => s.name === "サバイバル")!.id;
   const inv = await (await t.call("/organization/invite-member", { email: "editor@example.com", role: "editor" }, owner.get("cookie")!)).json();
   const cookie = await t.signUp("編集者", "editor@example.com");
   await t.call("/organization/accept-invitation", { invitationId: inv.id }, cookie);
@@ -126,5 +145,19 @@ describe("設定ファイル", () => {
     expect(disk.get("server.properties")).toBe("motd=だれかが変えた\n");
     expect(await code(files.save(editor, id, again.path, "x", "y"))).toBe(403);
     expect((await ev.list(owner))[0]).toMatchObject({ action: "設定ファイルを直す", target: "ロビー の server.properties" });
+  });
+});
+
+describe("ファイル比較", () => {
+  it("選んだサーバーの設定ファイルを集め、どこにあるか・同じ大きさかを返す。ワールド・大きすぎるものは入れない。見るのは管理者以上", async () => {
+    expect(await code(files.configs(editor, [id, id2]))).toBe(403);
+    expect(await code(files.configs(owner, [id]))).toBe(400);
+    expect(await code(files.configs(outsider, [id, id2]))).toBe(404);
+    const r = await files.configs(owner, [id, id2]);
+    expect(r.servers.map((s) => [s.name, s.error])).toEqual([["ロビー", ""], ["サバイバル", ""]]);
+    const by = Object.fromEntries(r.files.map((f) => [f.path, f]));
+    expect(Object.keys(by).sort()).toEqual(["plugins/Essentials/config.yml", "plugins/LuckPerms/config.yml", "server.properties"]);
+    expect(by["server.properties"].on).toEqual([id, id2]);
+    expect(by["plugins/LuckPerms/config.yml"]).toMatchObject({ on: [id2], same: false });
   });
 });

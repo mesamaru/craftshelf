@@ -156,3 +156,13 @@ input.memo { width: 100%; }
 .hit .files a { font-weight: 400; color: var(--accent); }
 /* 共有リンクの URL */
 .share-url { width: 100%; font-size: 12px; padding: 4px 6px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; }
+
+/* ファイル比較 */
+.diff-table code { background: none; padding: 0; white-space: pre; font-size: 12.5px; }
+.diff-table td { padding: 2px 10px; }
+.diff-table th small { display: inline; margin-left: 6px; }
+.diff-table th .link { margin-left: 8px; }
+.diff-table td.chg, .diff-table td.base-diff { background: rgba(255, 204, 0, 0.18); }
+.diff-table td.miss { background: rgba(255, 59, 48, 0.12); }
+.diff-table td.extra { background: rgba(52, 199, 89, 0.16); }
+.diff-table td.gap { background: rgba(127, 127, 127, 0.08); }

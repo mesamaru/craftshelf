@@ -76,6 +76,7 @@ function Compare() {
         <Link to="/servers" className="capsule">‹ サーバー</Link>
         <h1>サーバーの比較</h1>
         <span className="spacer" />
+        <Link to="/compare/files" className="capsule small">ファイル比較</Link>
         <label className="capsule small"><input type="checkbox" checked={diffOnly} onChange={(e) => setDiffOnly(e.target.checked)} /> 違いだけ表示</label>
       </header>
 

@@ -8,6 +8,10 @@ const headers = () => getRequest().headers;
 const sid = z.string().min(1).max(64);
 const path = z.string().max(300);
 
+export const configFiles = createServerFn({ method: "GET" })
+  .validator(z.object({ ids: z.array(sid).min(2).max(8) }))
+  .handler(async ({ data }) => (await svc()).configs(headers(), data.ids));
+
 export const sendCommand = createServerFn({ method: "POST" })
   .validator(z.object({ id: sid, command: z.string().max(600) }))
   .handler(async ({ data }) => (await svc()).command(headers(), data.id, data.command));

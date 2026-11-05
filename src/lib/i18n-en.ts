@@ -1,6 +1,26 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "ファイル比較": "File compare",
+  "‹ 比較": "‹ Compare",
+  "‹ ファイルの一覧": "‹ File list",
+  "比べるサーバー": "Servers to compare",
+  "比べるサーバーを 2 台以上選んでください": "Choose 2 or more servers to compare",
+  "比べるサーバーを 2 台以上選んでください(8 台まで)。設定ファイル(server.properties・plugins・config の中など)を並べて見比べ、左のサーバーの中身をほかのサーバーへ写せます。見る・直すのは管理者以上です。": "Choose 2 or more servers (up to 8). Config files (server.properties, files in plugins and config, etc.) are shown side by side, and the left server's content can be copied to the others. Admins and above can view and edit.",
+  "設定ファイルを集めています…": "Collecting config files…",
+  "設定ファイルを集める": "Collect config files",
+  "違うかもしれないものだけ": "Only possibly different",
+  "どのファイルも、すべてのサーバーで同じ大きさです": "Every file has the same size on all servers",
+  "設定ファイルが見つかりませんでした": "No config files were found",
+  "大きさは同じ": "Same size",
+  "違う": "Different",
+  "中身までは読まずに大きさで見ています(大きさが同じでも、開くと違うことがあります)。": "Compared by size without reading the contents (files of the same size may still differ when opened).",
+  "違う行だけ": "Changed lines only",
+  "基準": "Base",
+  "基準と同じにする": "Match the base",
+  "基準のサーバーにこのファイルがありません。基準にしたいサーバーを先に選んでください": "The base server doesn't have this file. Select the server you want as the base first",
+  "このファイルはありません": "No such file",
+  "黄色は違う行、赤は基準にあってこのサーバーに無い行、緑はこのサーバーだけにある行です。基準は、上で最初に選んだサーバーです。": "Yellow lines differ, red lines are in the base but missing here, and green lines exist only on this server. The base is the first server you selected above.",
   "サーバーの比較": "Compare servers",
   "比較": "Compare",
   "違いだけ表示": "Differences only",
@@ -714,6 +734,9 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^「(.+?)」の (.+?) を「(.+?)」と同じ中身にしますか[?？]\(前の中身は履歴に残ります\)$/, "Make $2 on “$1” the same as “$3”? (The previous content is kept in the history)"],
+  [/^「(.+?)」の (.+?) を写しました。反映にはサーバーの再起動が要ります$/, "Copied $2 to “$1”. Restart the server to apply"],
+  [/^(\d+) 台にない$/, "Missing on $1"],
   [/^(.+?) を (.+?) にしますか[?？]\(反映にはサーバーの再起動が要ります\)$/, "Switch $1 to $2? (Restart the server to apply)"],
   [/^(\d+) 件を入れます$/, "Installing $1 items"],
   [/^(\d+) 件を入れました。反映にはサーバーの再起動が要ります$/, "Installed $1 items. Restart the servers to apply"],

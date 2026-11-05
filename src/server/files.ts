@@ -19,6 +19,10 @@ export function cleanPath(input: string) {
   }
   return p;
 }
+// ファイル比較で探す場所と深さ(v02 と同じ)。ワールド・ログなどは見ない
+const CONFIG_SCAN: [string, number][] = [["", 0], ["plugins", 3], ["config", 4], ["mods/config", 3]];
+const CONFIG_SKIP = new Set(["logs", "cache", "libraries", "crash-reports", "versions", "world", "world_nether", "world_the_end"]);
+export const CONFIG_MAX = 400;
 const editable = (path: string) => TEXT_FILE.test(path) || /(^|\/)(eula\.txt|server\.properties|\.env)$/i.test(path);
 
 export function fileService(deps: Deps) {
@@ -58,6 +62,55 @@ export function fileService(deps: Deps) {
         dir: d,
         entries: files.map((f) => ({ name: f.name, isFile: f.isFile, size: f.size, editable: f.isFile && editable(f.name) && f.size <= FILE_LIMITS.maxBytes }))
           .sort((a, b) => Number(a.isFile) - Number(b.isFile) || a.name.localeCompare(b.name)),
+      };
+    },
+
+    /**
+     * ファイル比較: 選んだサーバー(2〜8 台)の設定ファイルの一覧と、どのサーバーにあるか。
+     * 中身までは読まないので、同じかどうかは大きさで見る(違えば確かに違う。同じ大きさでも中身が違うことはある)
+     */
+    async configs(headers: Headers, serverIds: string[]) {
+      const { teamId } = await requireTeam(auth, headers, { server: ["update"] });
+      const ids = [...new Set(serverIds)].slice(0, 8);
+      if (ids.length < 2) throw new HttpError(400, "比べるサーバーを 2 台以上選んでください");
+      const servers: { id: string; name: string; files: Map<string, number>; error: string }[] = [];
+      for (const id of ids) {
+        const target = await serverOf(deps, teamId, id);
+        const found = new Map<string, number>();
+        const walk = async (dir: string, depth: number) => {
+          if (found.size >= CONFIG_MAX) return;
+          let entries;
+          try {
+            entries = await remote(() => target.client.listFiles(target.remoteId, dir || "/"));
+          } catch {
+            return; // 無いフォルダー(mods/config など)は飛ばす
+          }
+          for (const e of [...entries].sort((a, b) => a.name.localeCompare(b.name))) {
+            const p = dir ? `${dir}/${e.name}` : e.name;
+            if (e.isFile) {
+              if (editable(e.name) && e.size <= FILE_LIMITS.maxBytes) found.set(p, e.size);
+            } else if (depth > 0 && !CONFIG_SKIP.has(e.name) && !e.name.startsWith(".")) {
+              await walk(p, depth - 1);
+            }
+            if (found.size >= CONFIG_MAX) return;
+          }
+        };
+        let error = "";
+        try {
+          for (const [dir, depth] of CONFIG_SCAN) await walk(dir, depth);
+        } catch (e) {
+          error = e instanceof HttpError ? e.message : "読めませんでした";
+        }
+        servers.push({ id: target.row.id, name: target.row.name, files: found, error });
+      }
+      const paths = [...new Set(servers.flatMap((s) => [...s.files.keys()]))]
+        .sort((a, b) => a.split("/").length - b.split("/").length || a.toLowerCase().localeCompare(b.toLowerCase()));
+      return {
+        servers: servers.map((s) => ({ id: s.id, name: s.name, count: s.files.size, error: s.error })),
+        files: paths.map((path) => {
+          const have = servers.filter((s) => s.files.has(path));
+          return { path, on: have.map((s) => s.id), same: have.length === servers.length && new Set(have.map((s) => s.files.get(path))).size === 1 };
+        }),
       };
     },
 

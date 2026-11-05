@@ -108,3 +108,14 @@ describe("Discord への通知", () => {
     expect(await t.db.select().from(teamNotify).where(eq(teamNotify.webhookHint, "…6789"))).toEqual([]);
   });
 });
+
+describe("お知らせ", () => {
+  it("管理者以上はすべて、ほかの人はアドオン・セット・予約・起動と停止だけを見る", async () => {
+    const all = await ev.recent(owner);
+    expect(all.some((e) => e.kind === "admin")).toBe(true);
+    const mine = await ev.recent(editor);
+    expect(mine.length).toBeGreaterThan(0);
+    expect(mine.every((e) => ["changes", "sets", "schedule", "power"].includes(e.kind))).toBe(true);
+    expect((await ev.recent(outsider)).length).toBe(0);
+  });
+});

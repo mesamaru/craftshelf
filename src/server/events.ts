@@ -1,8 +1,8 @@
 // 操作の記録と Discord への通知。どの処理も、選んでいるチームの中だけを読み書きする
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, lt } from "drizzle-orm";
-import { auditLog, teamNotify, user } from "./db/schema";
-import { HttpError, requireTeam } from "./guard";
+import { and, desc, eq, lt, inArray } from "drizzle-orm";
+import { auditLog, teamNotify, user, server } from "./db/schema";
+import { HttpError, requireTeam, allowed } from "./guard";
 import type { Deps } from "./servers";
 import { hint, open, seal } from "./secrets";
 
@@ -71,6 +71,28 @@ export function eventService(deps: Deps) {
         .where(and(eq(auditLog.teamId, teamId), ...(at && !Number.isNaN(at.getTime()) ? [lt(auditLog.at, at)] : [])))
         .orderBy(desc(auditLog.at)).limit(100);
       return rows.map((r) => ({ ...r, at: r.at.toISOString(), userName: r.userName ?? "" }));
+    },
+
+    /**
+     * お知らせ: 最近の出来事(新しい順 30 件)。管理者以上はすべて、ほかの人はアドオン・セット・予約・起動と停止だけ。
+     * サーバーを割り当てられている人には、割り当てられたサーバーの名前が入ったもの(と自分の操作)だけを出す
+     */
+    async recent(headers: Headers) {
+      const who = await requireTeam(auth, headers);
+      const admin = await allowed(auth, headers, { member: ["update"] });
+      const kinds = admin ? Object.keys(EVENT_KINDS) : ["changes", "sets", "schedule", "power"];
+      const rows = await db.select({ id: auditLog.id, kind: auditLog.kind, action: auditLog.action, target: auditLog.target, detail: auditLog.detail, at: auditLog.at, userId: auditLog.userId, userName: user.name })
+        .from(auditLog).leftJoin(user, eq(auditLog.userId, user.id))
+        .where(and(eq(auditLog.teamId, who.teamId), inArray(auditLog.kind, kinds)))
+        .orderBy(desc(auditLog.at)).limit(admin ? 30 : 100);
+      const { serverScope } = await import("./servers");
+      const scope = admin ? null : await serverScope(deps as never, who);
+      let names: string[] = [];
+      if (scope) names = (await db.select({ id: server.id, name: server.name }).from(server).where(eq(server.teamId, who.teamId))).filter((s) => scope.has(s.id)).map((s) => s.name);
+      return rows
+        .filter((r) => !scope || r.userId === who.user.id || names.some((n) => r.target.includes(n)))
+        .slice(0, 30)
+        .map(({ userId: _, ...r }) => ({ ...r, at: r.at.toISOString(), userName: r.userName ?? "" }));
     },
 
     /** Discord への通知の設定(URL は最後の 4 文字だけ) */

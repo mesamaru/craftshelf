@@ -1,6 +1,14 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "お知らせはありません": "No notifications",
+  "はじめての設定": "Getting started",
+  "サーバーをつなぐ(Pterodactyl パネル・フォルダ)": "Connect servers (Pterodactyl panel or folder)",
+  "サーバーの種類(Paper・Fabric など)を選ぶ": "Choose server types (Paper, Fabric, etc.)",
+  "ライブラリに Mod・プラグインを足す(下の「配布元から足す」)": "Add mods and plugins to the library (“Add from a source” below)",
+  "セットを作って、まとめて入れる": "Create a set and install it in one go",
+  "チームの人を招待する": "Invite people to the team",
+  "このガイドを閉じる": "Close this guide",
   "開発者への利用状況の送信": "Usage reports to the developer",
   "匿名の利用状況を送る(1 日 1 回)": "Send anonymous usage (once a day)",
   "最後に送った日時": "Last sent",
@@ -823,6 +831,7 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^お知らせ (\d+) 件$/, "$1 notifications"],
   [/^セット「(.+?)」を作りました\((\d+) 件\)/, "Created set “$1” ($2 items)"],
   [/。サーバーでは動かないもの (\d+) 件は飛ばしました/, ". Skipped $1 client-only items"],
   [/^(.+?) から戻しますか[?？]パネルが再起動し、今のデータと入れ替えます(今のデータは消さずに残します)$/, "Restore from $1? The panel restarts and replaces the current data (the current data is kept)"],

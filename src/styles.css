@@ -3,6 +3,7 @@
   color-scheme: light dark;
   --bg: radial-gradient(120% 80% at 10% 0%, #c9e4ff 0%, #eef1f7 55%, #f6efe6 100%);
   --glass: rgba(255, 255, 255, 0.62);
+  --sheet: rgba(250, 250, 252, 0.98); /* 重ねて出すもの(ベルの一覧など)。後ろが透けないように */
   --line: rgba(60, 60, 67, 0.14);
   --text: #1c1c1e;
   --muted: #6c6c70;
@@ -14,6 +15,7 @@
   :root {
     --bg: radial-gradient(120% 80% at 10% 0%, #1b2a44 0%, #111214 60%, #1a1612 100%);
     --glass: rgba(44, 44, 46, 0.6);
+    --sheet: rgba(36, 36, 38, 0.98);
     --line: rgba(235, 235, 245, 0.12);
     --text: #f2f2f7;
     --muted: #98989d;
@@ -170,3 +172,5 @@ input.memo { width: 100%; }
 /* 最近のログ */
 pre.log { display: block; max-height: 420px; overflow: auto; margin: 0; white-space: pre-wrap; word-break: break-all; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 pre.log .err { color: var(--danger); } pre.log .warn { color: #c27c00; }
+
+.bell-pop.group { background: var(--sheet); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); }

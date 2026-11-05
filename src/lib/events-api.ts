@@ -17,3 +17,5 @@ export const setNotify = createServerFn({ method: "POST" })
   .handler(async ({ data }) => (await svc()).setNotify(headers(), data));
 
 export const testNotify = createServerFn({ method: "POST" }).handler(async () => (await svc()).testNotify(headers()));
+
+export const recentEvents = createServerFn({ method: "GET" }).handler(async () => (await svc()).recent(headers()));

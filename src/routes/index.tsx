@@ -8,6 +8,9 @@ import { SOURCE_LABEL, type ItemSource, type Source, isItemSource, pageUrl } fro
 import { removeUploadedFile, uploadedFiles } from "~/lib/uploads-api";
 import { createShare } from "~/lib/shares-api";
 import { useCan } from "~/lib/use-can";
+import { Bell } from "~/lib/bell";
+import { recentEvents } from "~/lib/events-api";
+import { listSets } from "~/lib/sets-api";
 
 export const Route = createFileRoute("/")({
   beforeLoad: ({ context }) => {
@@ -47,7 +50,9 @@ function Home() {
         <Link to="/settings" className="capsule" aria-label="アカウントの設定">
           <span translate="no">{user.name}</span>
         </Link>
+        <Notices />
       </header>
+      {can({ member: ["update"] }) && cat && <Guide cat={cat} members={team?.members.length ?? 1} />}
       <section className="group">
         <Link to="/servers" className="row link">サーバー(起動・停止・パネルの登録)</Link>
         <Link to="/sets" className="row link">セット(まとめてサーバーに入れる)</Link>
@@ -271,6 +276,74 @@ function Upload({ onDone }: { onDone: () => void }) {
         {results.map((r, i) => <p key={i} className={`row ${r.ok ? "muted" : "error"}`} translate="no">{r.name}: {r.ok ? `載せました — ${r.text}` : r.text}</p>)}
       </section>
       <p className="foot">配布元に無いプラグイン・Mod を、jar のままライブラリに載せます。中の plugin.yml・fabric.mod.json などから名前・版・動くサーバーの種類を読み取り、同じ名前のものは新しい版として足します。置き場所は「チーム」→「保存先」で決められます(100 MB まで)。</p>
+    </>
+  );
+}
+
+// お知らせ: 最近の出来事。前に開いたあとのものを数える(ブラウザごと)
+const SEEN = "craftshelf.notices-seen";
+function Notices() {
+  const load = useServerFn(recentEvents);
+  const [list, setList] = useState<Awaited<ReturnType<typeof recentEvents>> | null>(null);
+  const [open, setOpen] = useState(false);
+  const [seen, setSeen] = useState("");
+  useEffect(() => {
+    setSeen(localStorage.getItem(SEEN) ?? "");
+    load().then(setList, () => setList([]));
+  }, []);
+  const unread = (list ?? []).filter((e) => e.at > seen).length;
+  const toggle = (v: boolean) => {
+    setOpen(v);
+    if (v && list?.length) {
+      localStorage.setItem(SEEN, list[0].at);
+      setSeen(list[0].at);
+    }
+  };
+  return (
+    <Bell open={open} setOpen={toggle} count={unread} label={`お知らせ ${unread} 件`}>
+      {!list?.length && <div className="row muted">お知らせはありません</div>}
+      {list?.map((e) => (
+        <div className="row" key={e.id}>
+          <span className="main">
+            <span>{e.action}{e.target ? <>: <span translate="no">{e.target}</span></> : null}</span>
+            <span className="muted small" translate="no">{new Date(e.at).toLocaleString("ja-JP")}{e.userName ? ` · ${e.userName}` : ""}{e.detail ? ` · ${e.detail.split("\n")[0].slice(0, 80)}` : ""}</span>
+          </span>
+        </div>
+      ))}
+    </Bell>
+  );
+}
+
+// はじめての設定(管理者以上)。すべて済んだら・「閉じる」を押したら出さない(ブラウザごと)
+const GUIDE = "craftshelf.guide-hidden";
+function Guide({ cat, members }: { cat: Catalog; members: number }) {
+  const sets = useServerFn(listSets);
+  const [setCount, setSetCount] = useState<number | null>(null);
+  const [hidden, setHidden] = useState(true);
+  useEffect(() => {
+    setHidden(localStorage.getItem(GUIDE) === "1");
+    sets().then((s) => setSetCount(s.length), () => setSetCount(0));
+  }, []);
+  const steps = [
+    { done: cat.servers.length > 0, label: "サーバーをつなぐ(Pterodactyl パネル・フォルダ)", to: "/servers" as const },
+    { done: cat.servers.length > 0 && cat.servers.every((s) => s.type), label: "サーバーの種類(Paper・Fabric など)を選ぶ", to: "/servers" as const },
+    { done: cat.items.length > 0, label: "ライブラリに Mod・プラグインを足す(下の「配布元から足す」)", to: null },
+    { done: (setCount ?? 0) > 0, label: "セットを作って、まとめて入れる", to: "/sets" as const },
+    { done: members > 1, label: "チームの人を招待する", to: "/team" as const },
+  ];
+  if (hidden || setCount === null || steps.every((s) => s.done)) return null;
+  return (
+    <>
+      <div className="group-title">はじめての設定</div>
+      <section className="group">
+        {steps.map((s) => (
+          <div className="row" key={s.label}>
+            <span className={`main${s.done ? " muted" : ""}`}>{s.done ? "✓ " : "・"}{s.label}</span>
+            {!s.done && s.to && <Link to={s.to} className="trail link">開く</Link>}
+          </div>
+        ))}
+        <button className="row link" type="button" onClick={() => { localStorage.setItem(GUIDE, "1"); setHidden(true); }}>このガイドを閉じる</button>
+      </section>
     </>
   );
 }

@@ -9,6 +9,7 @@ import { useCan } from "~/lib/use-can";
 import { useServerFn } from "@tanstack/react-start";
 import { createToken, listTokens, removeToken } from "~/lib/tokens-api";
 import { getLang, setLang } from "~/lib/i18n";
+import { sendFeedback, setTelemetry, telemetryInfo } from "~/lib/telemetry-api";
 
 export const Route = createFileRoute("/settings")({
   beforeLoad: ({ context }) => {
@@ -65,6 +66,8 @@ function Settings() {
       <ApiTokens />
       <ImportReport userId={user.id} />
       <Versions userId={user.id} />
+      <Telemetry userId={user.id} />
+      <Feedback />
 
       <section className="group spaced">
         <button className="row danger" type="button" onClick={logout}>ログアウト</button>
@@ -326,6 +329,90 @@ function ApiTokens() {
         {error && <p className="row error" role="alert">{error}</p>}
       </form>
       <p className="foot">スクリプトなどから CraftShelf を操作するときに使います(<a href="/api/v1" target="_blank" rel="noreferrer">/api/v1</a> に使える API の一覧があります)。トークンは x-api-key か Authorization: Bearer で渡します。選んでいるチームのもので、あなたの役割のとおりに動きます。</p>
+    </>
+  );
+}
+
+// 開発者への匿名の利用状況(自分用の版・管理者以上)。送る内容をそのまま見せる
+function Telemetry({ userId }: { userId: string }) {
+  const { app } = Route.useRouteContext();
+  const { can } = useCan(userId);
+  const admin = app.mode === "self" && can({ member: ["update"] });
+  const set = useServerFn(setTelemetry);
+  const [info, setInfo] = useState<Awaited<ReturnType<typeof telemetryInfo>> | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => { if (admin) telemetryInfo().then(setInfo, (e) => setError(e instanceof Error ? e.message : String(e))); }, [admin]);
+  if (!admin || !info?.available) return null;
+  const change = async (enabled: boolean) => {
+    setError("");
+    try {
+      await set({ data: { enabled } });
+      setInfo(await telemetryInfo());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+  return (
+    <>
+      <div className="group-title">開発者への利用状況の送信</div>
+      <section className="group">
+        <label className="row"><span>匿名の利用状況を送る(1 日 1 回)</span><input className="trail" type="checkbox" checked={info.enabled} onChange={(e) => change(e.target.checked)} /></label>
+        {info.lastSent && <div className="row"><span>最後に送った日時</span><span className="trail">{new Date(info.lastSent).toLocaleString("ja-JP")}</span></div>}
+        <details className="row column">
+          <summary>送る内容を見る</summary>
+          <pre className="log" translate="no">{JSON.stringify(info.preview, null, 2)}</pre>
+        </details>
+        {error && <p className="row error" role="alert">{error}</p>}
+      </section>
+      <p className="foot">開発の参考にするため、版・OS・使っている機能・登録数(おおまかな範囲)だけを送ります。名前・ファイル名・アドレス・IP アドレスなどは送りません。送るのは、ここをオンにしたときだけです。</p>
+    </>
+  );
+}
+
+// お問い合わせ・要望を開発者に送る
+function Feedback() {
+  const send = useServerFn(sendFeedback);
+  const [kind, setKind] = useState<"request" | "bug" | "question" | "other">("request");
+  const [message, setMessage] = useState("");
+  const [contact, setContact] = useState("");
+  const [includeEnv, setIncludeEnv] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const submit = async () => {
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      await send({ data: { kind, message, contact, includeEnv } });
+      setNote("送りました。ありがとうございます");
+      setMessage("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <div className="group-title">お問い合わせ・要望</div>
+      <form className="group form" onSubmit={(e) => (e.preventDefault(), submit())}>
+        <div className="row">
+          <span>種類</span>
+          <select className="trail" value={kind} onChange={(e) => setKind(e.target.value as typeof kind)} aria-label="お問い合わせの種類">
+            <option value="request">要望</option>
+            <option value="bug">不具合</option>
+            <option value="question">質問</option>
+            <option value="other">その他</option>
+          </select>
+        </div>
+        <textarea className="row" rows={4} placeholder="内容" value={message} maxLength={4000} onChange={(e) => setMessage(e.target.value)} aria-label="内容" />
+        <input className="row" placeholder="返事の宛先(任意。Discord の名前・メールアドレスなど)" value={contact} maxLength={200} onChange={(e) => setContact(e.target.value)} />
+        <label className="row"><span>版と OS も送る</span><input className="trail" type="checkbox" checked={includeEnv} onChange={(e) => setIncludeEnv(e.target.checked)} /></label>
+        <button className="row link" type="submit" disabled={busy || message.trim().length < 2}>{busy ? "送っています…" : "開発者に送る"}</button>
+        {note && <p className="row muted" role="status">{note}</p>}
+        {error && <p className="row error" role="alert">{error}</p>}
+      </form>
     </>
   );
 }

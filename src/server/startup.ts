@@ -2,7 +2,11 @@
 // 最初のリクエストを待つと、だれも開かないうちの再起動で「起動できなかった」と見なされてしまうため。
 // あわせて、予約を 1 分ごとに確かめる(前の回が終わっていなければ、その回は飛ばす)
 export default function startup() {
-  import("./instance").then(({ schedules }) => {
+  import("./instance").then(({ schedules, telemetry }) => {
+    // 利用状況の送信(同意したパネルだけ。1 時間ごとに確かめ、前に送ってから 1 日たっていれば送る)
+    const tele = setInterval(() => { telemetry.sendIfDue().catch(() => {}); }, 60 * 60_000);
+    tele.unref?.();
+    setTimeout(() => { telemetry.sendIfDue().catch(() => {}); }, 60_000).unref?.();
     let busy = false;
     const timer = setInterval(() => {
       if (busy) return;

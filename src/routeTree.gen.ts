@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ActivityRouteImport } from './routes/activity'
+import { Route as BackupRouteImport } from './routes/backup'
 import { Route as CompareRouteImport } from './routes/compare'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PortsRouteImport } from './routes/ports'
@@ -27,6 +28,8 @@ import { Route as InviteIdRouteImport } from './routes/invite.$id'
 import { Route as SSplatRouteImport } from './routes/s.$'
 import { Route as ServersIdRouteImport } from './routes/servers_.$id'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as ApiBackupNameRouteImport } from './routes/api/backup/$name'
+import { Route as ApiBackupRestoreRouteImport } from './routes/api/backup/restore'
 import { Route as ApiLibraryUploadRouteImport } from './routes/api/library/upload'
 import { Route as ApiV1SplatRouteImport } from './routes/api/v1/$'
 import { Route as ServersIdFilesRouteImport } from './routes/servers_.$id_.files'
@@ -40,6 +43,11 @@ const IndexRoute = IndexRouteImport.update({
 const ActivityRoute = ActivityRouteImport.update({
   id: '/activity',
   path: '/activity',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const BackupRoute = BackupRouteImport.update({
+  id: '/backup',
+  path: '/backup',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CompareRoute = CompareRouteImport.update({
@@ -122,6 +130,16 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiBackupNameRoute = ApiBackupNameRouteImport.update({
+  id: '/api/backup/$name',
+  path: '/api/backup/$name',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiBackupRestoreRoute = ApiBackupRestoreRouteImport.update({
+  id: '/api/backup/restore',
+  path: '/api/backup/restore',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiLibraryUploadRoute = ApiLibraryUploadRouteImport.update({
   id: '/api/library/upload',
   path: '/api/library/upload',
@@ -146,6 +164,7 @@ const ApiLibraryFilesIdRoute = ApiLibraryFilesIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/activity': typeof ActivityRoute
+  '/backup': typeof BackupRoute
   '/compare': typeof CompareRoute
   '/login': typeof LoginRoute
   '/ports': typeof PortsRoute
@@ -162,6 +181,8 @@ export interface FileRoutesByFullPath {
   '/s/$': typeof SSplatRoute
   '/servers/$id': typeof ServersIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/backup/$name': typeof ApiBackupNameRoute
+  '/api/backup/restore': typeof ApiBackupRestoreRoute
   '/api/library/upload': typeof ApiLibraryUploadRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/servers/$id/files': typeof ServersIdFilesRoute
@@ -170,6 +191,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/activity': typeof ActivityRoute
+  '/backup': typeof BackupRoute
   '/compare': typeof CompareRoute
   '/login': typeof LoginRoute
   '/ports': typeof PortsRoute
@@ -186,6 +208,8 @@ export interface FileRoutesByTo {
   '/s/$': typeof SSplatRoute
   '/servers/$id': typeof ServersIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/backup/$name': typeof ApiBackupNameRoute
+  '/api/backup/restore': typeof ApiBackupRestoreRoute
   '/api/library/upload': typeof ApiLibraryUploadRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/servers/$id/files': typeof ServersIdFilesRoute
@@ -195,6 +219,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/activity': typeof ActivityRoute
+  '/backup': typeof BackupRoute
   '/compare': typeof CompareRoute
   '/login': typeof LoginRoute
   '/ports': typeof PortsRoute
@@ -211,6 +236,8 @@ export interface FileRoutesById {
   '/s/$': typeof SSplatRoute
   '/servers_/$id': typeof ServersIdRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
+  '/api/backup/$name': typeof ApiBackupNameRoute
+  '/api/backup/restore': typeof ApiBackupRestoreRoute
   '/api/library/upload': typeof ApiLibraryUploadRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/servers_/$id_/files': typeof ServersIdFilesRoute
@@ -221,6 +248,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/activity'
+    | '/backup'
     | '/compare'
     | '/login'
     | '/ports'
@@ -237,6 +265,8 @@ export interface FileRouteTypes {
     | '/s/$'
     | '/servers/$id'
     | '/api/auth/$'
+    | '/api/backup/$name'
+    | '/api/backup/restore'
     | '/api/library/upload'
     | '/api/v1/$'
     | '/servers/$id/files'
@@ -245,6 +275,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/activity'
+    | '/backup'
     | '/compare'
     | '/login'
     | '/ports'
@@ -261,6 +292,8 @@ export interface FileRouteTypes {
     | '/s/$'
     | '/servers/$id'
     | '/api/auth/$'
+    | '/api/backup/$name'
+    | '/api/backup/restore'
     | '/api/library/upload'
     | '/api/v1/$'
     | '/servers/$id/files'
@@ -269,6 +302,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/activity'
+    | '/backup'
     | '/compare'
     | '/login'
     | '/ports'
@@ -285,6 +319,8 @@ export interface FileRouteTypes {
     | '/s/$'
     | '/servers_/$id'
     | '/api/auth/$'
+    | '/api/backup/$name'
+    | '/api/backup/restore'
     | '/api/library/upload'
     | '/api/v1/$'
     | '/servers_/$id_/files'
@@ -294,6 +330,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ActivityRoute: typeof ActivityRoute
+  BackupRoute: typeof BackupRoute
   CompareRoute: typeof CompareRoute
   LoginRoute: typeof LoginRoute
   PortsRoute: typeof PortsRoute
@@ -310,6 +347,8 @@ export interface RootRouteChildren {
   SSplatRoute: typeof SSplatRoute
   ServersIdRoute: typeof ServersIdRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
+  ApiBackupNameRoute: typeof ApiBackupNameRoute
+  ApiBackupRestoreRoute: typeof ApiBackupRestoreRoute
   ApiLibraryUploadRoute: typeof ApiLibraryUploadRoute
   ApiV1SplatRoute: typeof ApiV1SplatRoute
   ServersIdFilesRoute: typeof ServersIdFilesRoute
@@ -330,6 +369,13 @@ declare module '@tanstack/react-router' {
       path: '/activity'
       fullPath: '/activity'
       preLoaderRoute: typeof ActivityRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/backup': {
+      id: '/backup'
+      path: '/backup'
+      fullPath: '/backup'
+      preLoaderRoute: typeof BackupRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/compare': {
@@ -444,6 +490,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/backup/$name': {
+      id: '/api/backup/$name'
+      path: '/api/backup/$name'
+      fullPath: '/api/backup/$name'
+      preLoaderRoute: typeof ApiBackupNameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/backup/restore': {
+      id: '/api/backup/restore'
+      path: '/api/backup/restore'
+      fullPath: '/api/backup/restore'
+      preLoaderRoute: typeof ApiBackupRestoreRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/library/upload': {
       id: '/api/library/upload'
       path: '/api/library/upload'
@@ -478,6 +538,7 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ActivityRoute: ActivityRoute,
+  BackupRoute: BackupRoute,
   CompareRoute: CompareRoute,
   LoginRoute: LoginRoute,
   PortsRoute: PortsRoute,
@@ -494,6 +555,8 @@ const rootRouteChildren: RootRouteChildren = {
   SSplatRoute: SSplatRoute,
   ServersIdRoute: ServersIdRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
+  ApiBackupNameRoute: ApiBackupNameRoute,
+  ApiBackupRestoreRoute: ApiBackupRestoreRoute,
   ApiLibraryUploadRoute: ApiLibraryUploadRoute,
   ApiV1SplatRoute: ApiV1SplatRoute,
   ServersIdFilesRoute: ServersIdFilesRoute,

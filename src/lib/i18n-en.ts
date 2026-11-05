@@ -1,6 +1,23 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "バックアップ": "Backup",
+  "次の起動でバックアップと入れ替えます。": "The backup will replace the data on the next start. ",
+  "やめています…": "Cancelling…",
+  "作っています…": "Creating…",
+  "今のデータのバックアップを作る": "Back up the current data",
+  "パネルの中のバックアップ(新しい 5 個)": "Backups in the panel (newest 5)",
+  "手元のファイルから戻す": "Restore from a file",
+  "バックアップのファイル(.tar.gz)を選ぶ": "Choose a backup file (.tar.gz)",
+  "このバックアップから戻しますか?パネルが再起動し、今のデータと入れ替えます(今のデータは消さずに残します)": "Restore this backup? The panel restarts and replaces the current data (the current data is kept, not deleted)",
+  "バックアップには、データベース(チーム・サーバー・ライブラリ・設定)、保存したパスワードなどを解く鍵、パネルの中に置いたアドオンが入ります(NAS などほかの保存先のファイルと、サーバーのファイルは入りません)。鍵が入るので、ダウンロードしたものは大切に保管してください。戻すときは、今のデータを before-restore-… のフォルダに移して残します。": "A backup contains the database (teams, servers, library, settings), the key that decrypts stored passwords, and add-ons kept inside the panel (files in other storage such as a NAS, and server files, are not included). Because it contains the key, keep downloaded backups safe. When restoring, the current data is moved to a before-restore-… folder and kept.",
+  "バックアップは、自分用の版だけで使えます": "Backups are available only in the self-hosted edition",
+  "バックアップの名前が正しくありません": "Invalid backup name",
+  "バックアップが見つかりません": "Backup not found",
+  "このデータベースはここではバックアップできません(PostgreSQL は、そちらのバックアップを使ってください)": "This database can't be backed up here (use PostgreSQL's own backups)",
+  "CraftShelf v03 のバックアップではありません(db.tar.gz がありません)": "Not a CraftShelf v03 backup (no db.tar.gz)",
+  "バックアップのファイルとして読めません": "Can't read this as a backup file",
+  "戻せませんでした": "Could not restore",
   "変更の履歴": "Change history",
   "元に戻しました": "undone",
   "外したファイルは消さずに名前を変えて残すので、元に戻せます(1 台につき新しい 30 件まで)。変更はサーバーの再起動で反映されます。": "Removed files are kept under another name so you can undo (newest 30 per server). Changes take effect when the server restarts.",
@@ -780,6 +797,7 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^(.+?) から戻しますか[?？]パネルが再起動し、今のデータと入れ替えます(今のデータは消さずに残します)$/, "Restore from $1? The panel restarts and replaces the current data (the current data is kept)"],
   [/^ を外した$/, " removed"], [/^ を更新した$/, " updated"], [/^ を入れた$/, " installed"],
   [/ · 前の版 /, " · previous "],
   [/^(.+?) を元に戻しますか[?？]\(外したファイルを戻します\)$/, "Undo removing $1? (The removed file is restored)"],

@@ -15,7 +15,21 @@ import { shareService } from "./shares";
 import { tokenService } from "./tokens";
 import { versionService } from "./versions";
 import { softwareService } from "./software";
+import { backupService } from "./backup";
 
+// 置いてあるバックアップで入れ替える(データベースを開く前・鍵を読む前。自分用の版だけ)
+{
+  const first = readEnv();
+  if (first.mode === "self") {
+    const { applyPendingRestore } = await import("./backup");
+    try {
+      const aside = await applyPendingRestore(first.v03Dir, first.databaseUrl);
+      if (aside) console.log(`[復元] バックアップから戻しました(前のデータは ${aside})`);
+    } catch (e) {
+      console.error("[復元] 戻せませんでした(前のデータのまま起動します):", e);
+    }
+  }
+}
 export const env = readEnv();
 export const db = await createDb(env.databaseUrl, env.migrationsDir);
 // 自分用の版が v02 と同じ /data で初めて起動したら、v02 のデータを取り込む(v02 のデータには書き込まない)
@@ -46,6 +60,7 @@ export const events = eventService(deps);
 export const schedules = scheduleService(deps, sets);
 export const files = fileService(deps);
 export const software = softwareService(deps);
+export const backups = backupService(deps);
 export const uploads = uploadService(deps);
 export const shares = shareService(deps);
 export const tokens = tokenService(deps);

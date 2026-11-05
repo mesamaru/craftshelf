@@ -57,6 +57,7 @@ function Team() {
               <Link to="/activity" className="row link">操作の記録と Discord への通知</Link>
               {app.mode === "self" && <Link to="/storage" className="row link">保存先(アップロードしたアドオンの置き場所)</Link>}
               <Link to="/usage" className="row link">利用状況</Link>
+              {app.mode === "self" && <Link to="/backup" className="row link">バックアップ</Link>}
             </section>
           )}
           {app.mode === "self" && <section className="group"><Link to="/shares" className="row link">共有リンク</Link></section>}

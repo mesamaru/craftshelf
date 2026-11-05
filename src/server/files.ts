@@ -9,7 +9,8 @@ import { type Deps, remote, serverOf } from "./servers";
 
 // 開いて直せるファイル(テキストの設定ファイルだけ)。大きすぎるものは開かない
 const TEXT_FILE = /\.(properties|ya?ml|json|json5|toml|conf|cfg|ini|txt|hocon|sk|lang|md|csv|sh|env)$/i;
-export const FILE_LIMITS = { maxBytes: 512 * 1024, historyPerFile: 30, commandLength: 500 };
+export const FILE_LIMITS = { maxBytes: 512 * 1024, historyPerFile: 30, commandLength: 500, logLines: 1000, logBytes: 20 * 1024 * 1024 };
+export const LOG_FILE = "logs/latest.log";
 
 /** サーバーのフォルダーの中の相対パスだけ(.. や先頭の / は認めない)。空は一番上のフォルダー */
 export function cleanPath(input: string) {
@@ -50,6 +51,22 @@ export function fileService(deps: Deps) {
       const target = await serverOf(deps, teamId, serverId);
       await remote(() => target.client.command(target.remoteId, cmd));
       await record({ teamId, userId: me.id, kind: "power", action: "コマンドを送る", target: target.row.name, detail: cmd });
+    },
+
+    /** 最近のログ(logs/latest.log の最後の lines 行。編集者以上)。ファイルが無ければ found: false */
+    async logs(headers: Headers, serverId: string, lines = 400) {
+      const { teamId } = await requireTeam(auth, headers, { server: ["control"] });
+      const target = await serverOf(deps, teamId, serverId);
+      const n = Math.max(20, Math.min(FILE_LIMITS.logLines, Math.floor(lines) || 400));
+      const entry = (await remote(() => target.client.listFiles(target.remoteId, "logs")).catch(() => [])).find((f) => f.name === "latest.log" && f.isFile);
+      if (!entry) return { file: LOG_FILE, found: false, lines: [] as string[] };
+      // 大きすぎるログは取り寄せない(Pterodactyl はファイル全体を返すため)
+      if (entry.size > FILE_LIMITS.logBytes) throw new HttpError(400, "ログが大きすぎて読めません(サーバーを再起動すると新しいログになります)");
+      const text = (await remote(() => target.client.readFile(target.remoteId, LOG_FILE))) ?? "";
+      // eslint-disable-next-line no-control-regex
+      const all = text.replace(/\r\n/g, "\n").replace(/\x1b\[[0-9;]*m/g, "").split("\n");
+      while (all.length && !all[all.length - 1].trim()) all.pop();
+      return { file: LOG_FILE, found: true, lines: all.slice(-n) };
     },
 
     /** フォルダーの中身(フォルダーと、開けるファイルが分かるように) */

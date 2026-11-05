@@ -12,6 +12,10 @@ export const configFiles = createServerFn({ method: "GET" })
   .validator(z.object({ ids: z.array(sid).min(2).max(8) }))
   .handler(async ({ data }) => (await svc()).configs(headers(), data.ids));
 
+export const serverLogs = createServerFn({ method: "GET" })
+  .validator(z.object({ id: sid, lines: z.number().int().min(20).max(1000).optional() }))
+  .handler(async ({ data }) => (await svc()).logs(headers(), data.id, data.lines));
+
 export const sendCommand = createServerFn({ method: "POST" })
   .validator(z.object({ id: sid, command: z.string().max(600) }))
   .handler(async ({ data }) => (await svc()).command(headers(), data.id, data.command));

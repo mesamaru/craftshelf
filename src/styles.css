@@ -166,3 +166,7 @@ input.memo { width: 100%; }
 .diff-table td.miss { background: rgba(255, 59, 48, 0.12); }
 .diff-table td.extra { background: rgba(52, 199, 89, 0.16); }
 .diff-table td.gap { background: rgba(127, 127, 127, 0.08); }
+
+/* 最近のログ */
+pre.log { display: block; max-height: 420px; overflow: auto; margin: 0; white-space: pre-wrap; word-break: break-all; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+pre.log .err { color: var(--danger); } pre.log .warn { color: #c27c00; }

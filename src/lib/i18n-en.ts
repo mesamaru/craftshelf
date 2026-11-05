@@ -1,6 +1,16 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "最近のログ": "Recent log",
+  "絞り込み(例 ERROR)": "Filter (e.g. ERROR)",
+  "ログの絞り込み": "Filter the log",
+  "自動で読み直す": "Auto refresh",
+  "読み直す": "Reload",
+  "ログのファイルが見つかりません。サーバーを一度起動すると作られます。": "Log file not found. It is created once the server starts.",
+  "一致する行はありません": "No matching lines",
+  "ログはまだありません": "No log yet",
+  "ログが大きすぎて読めません(サーバーを再起動すると新しいログになります)": "The log is too large to read (restart the server to start a new log)",
+  "サーバーが動いているときだけ送れます。結果は上のログに出ます(少し遅れて読み直します)。": "Commands can be sent only while the server is running. The result appears in the log above (after a short delay).",
   "ファイル比較": "File compare",
   "‹ 比較": "‹ Compare",
   "‹ ファイルの一覧": "‹ File list",

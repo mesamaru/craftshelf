@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { fileHistory, listFiles, readServerFile, saveServerFile, sendCommand } from "~/lib/files-api";
+import { fileHistory, listFiles, readServerFile, saveServerFile, sendCommand, serverLogs } from "~/lib/files-api";
 import { serverDetail } from "~/lib/library-api";
 import { useCan } from "~/lib/use-can";
 
@@ -27,10 +27,53 @@ function FilesPage() {
         <Link to="/servers/$id" params={{ id: server.id }} className="capsule">‹ <span translate="no">{server.name}</span></Link>
         <h1>ファイルとコマンド</h1>
       </header>
+      {me && can({ server: ["control"] }) && <Logs id={server.id} local={server.kind === "local"} />}
       {me && can({ server: ["control"] }) && <Command id={server.id} />}
       {me && (can({ server: ["update"] }) ? <Files id={server.id} />
         : <section className="group"><div className="row muted">設定ファイルを見る・直すのは、チームの管理者とオーナーだけです。</div></section>)}
     </main>
+  );
+}
+
+// 最近のログ。「自動で読み直す」のあいだは、Pterodactyl は 15 秒・フォルダのサーバーは 4 秒ごとに読み直す
+function Logs({ id, local }: { id: string; local: boolean }) {
+  const load = useServerFn(serverLogs);
+  const [data, setData] = useState<Awaited<ReturnType<typeof serverLogs>> | null>(null);
+  const [filter, setFilter] = useState("");
+  const [follow, setFollow] = useState(true);
+  const [error, setError] = useState("");
+  const box = useRef<HTMLPreElement>(null);
+  const reload = () => load({ data: { id } }).then((d) => { setData(d); setError(""); }, (e) => setError(message(e)));
+  useEffect(() => {
+    reload();
+    if (!follow) return;
+    const t = setInterval(() => { if (!document.hidden) reload(); }, local ? 4000 : 15000);
+    return () => clearInterval(t);
+  }, [id, follow]);
+  useEffect(() => {
+    const el = box.current;
+    if (el && follow) el.scrollTop = el.scrollHeight;
+  }, [data, follow]);
+  const q = filter.trim().toLowerCase();
+  const lines = (data?.lines ?? []).filter((l) => !q || l.toLowerCase().includes(q));
+  return (
+    <>
+      <div className="group-title">最近のログ <span className="muted small" translate="no">{data?.file ?? "logs/latest.log"}</span></div>
+      <section className="group form">
+        <div className="row">
+          <input className="main" placeholder="絞り込み(例 ERROR)" value={filter} onChange={(e) => setFilter(e.target.value)} aria-label="ログの絞り込み" />
+          <label className="trail small"><input type="checkbox" checked={follow} onChange={(e) => setFollow(e.target.checked)} /> 自動で読み直す</label>
+          <button className="trail link" type="button" onClick={reload}>読み直す</button>
+        </div>
+        <pre className="row log" ref={box} translate="no" tabIndex={0}>
+          {error ? <span className="err">{error}</span>
+            : !data ? <span className="muted">読み込み中…</span>
+            : !data.found ? <span className="muted">ログのファイルが見つかりません。サーバーを一度起動すると作られます。</span>
+            : lines.length === 0 ? <span className="muted">{q ? "一致する行はありません" : "ログはまだありません"}</span>
+            : lines.map((l, i) => <span key={i} className={/\b(ERROR|SEVERE|FATAL)\b|Exception/.test(l) ? "err" : /\bWARN(ING)?\b/.test(l) ? "warn" : ""}>{l + "\n"}</span>)}
+        </pre>
+      </section>
+    </>
   );
 }
 
@@ -63,7 +106,7 @@ function Command({ id }: { id: string }) {
         {note && <p className="row muted" role="status" translate="no">{note}</p>}
         {error && <p className="row error" role="alert">{error}</p>}
       </form>
-      <p className="foot">サーバーが動いているときだけ送れます。結果は Pterodactyl のパネルのコンソールで見てください。</p>
+      <p className="foot">サーバーが動いているときだけ送れます。結果は上のログに出ます(少し遅れて読み直します)。</p>
     </>
   );
 }

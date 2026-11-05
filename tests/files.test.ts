@@ -161,3 +161,15 @@ describe("ファイル比較", () => {
     expect(by["plugins/LuckPerms/config.yml"]).toMatchObject({ on: [id2], same: false });
   });
 });
+
+describe("最近のログ", () => {
+  it("最後の行を返す(色の記号と終わりの空行は外す)。無ければ found: false。ほかのチームは断る", async () => {
+    expect((await files.logs(editor, id)).found).toBe(false);
+    disk.set("logs/latest.log", Array.from({ length: 30 }, (_, i) => `\x1b[32mline ${i}\x1b[0m`).join("\r\n") + "\r\n\r\n");
+    const r = await files.logs(editor, id, 20);
+    expect(r).toMatchObject({ found: true, file: "logs/latest.log" });
+    expect(r.lines).toHaveLength(20);
+    expect(r.lines.at(-1)).toBe("line 29");
+    expect(await code(files.logs(outsider, id))).toBe(404);
+  });
+});

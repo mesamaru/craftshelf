@@ -1,6 +1,12 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "取り込んでいます…": "Importing…",
+  "ライブラリに取り込む": "Import to library",
+  "ファイルの中身から探しています…": "Searching by file contents…",
+  "(CurseForge は、API キーを設定すると探せます)": " (Set a CurseForge API key to search CurseForge too)",
+  "Modrinth・SpigotMC から入れたものは、版と更新がわかります。それ以外のファイルは名前だけを表示します(「配布元を探す」で、ファイルの中身から Modrinth・CurseForge のものかを確かめられます)。「更新を止める」にしたものは、セットでそろえる・予約・更新の確認で新しい版にしません。変更はサーバーの再起動で反映されます。": "Versions and updates are known for anything installed from Modrinth or SpigotMC. Other files show only their names (use “Find sources” to check by file contents whether they come from Modrinth or CurseForge). Items set to “Pause updates” are not updated by set sync, schedules or update checks. Changes take effect when the server restarts.",
+  "Pterodactyl からダウンロード先を受け取れませんでした": "Could not get a download URL from Pterodactyl",
   "jar がわかりません": "Jar unknown",
   "今のビルド": "Current build",
   "わかりません": "Unknown",
@@ -768,6 +774,9 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^配布元を探す\(わからないもの (\d+) 個\)$/, "Find sources ($1 unknown)"],
+  [/^(\d+) 個を調べ、(\d+) 個の配布元が見つかりました/, "Checked $1, found sources for $2"],
+  [/。見つからなかったもの: /, ". Not found: "],
   [/^(.+?) を (.+?) に入れ替えますか[?？]\(今の jar は残し、あとで戻せます\)$/, "Replace $1 with $2? (The current jar is kept so you can go back)"],
   [/^(.+?) に入れ替えました。再起動しています$/, "Replaced with $1. Restarting"],
   [/^(.+?) に入れ替えました。サーバーを再起動すると新しい jar で動きます$/, "Replaced with $1. Restart the server to run the new jar"],

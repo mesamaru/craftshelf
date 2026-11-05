@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { installMod, installedMods, modUpdates, removeMod, rollbackMod, searchMods, serverDetail, setModHold, setProfile } from "~/lib/library-api";
+import { identifyMods, installMod, installedMods, modUpdates, removeMod, rollbackMod, searchMods, serverDetail, setModHold, setProfile } from "~/lib/library-api";
+import { importServerFile } from "~/lib/uploads-api";
 import { ApplyResults } from "~/lib/apply-results";
 import { PLATFORMS, PLATFORM_IDS } from "~/lib/platforms";
 import { localSettings, setLocalSettings } from "~/lib/servers-api";
@@ -26,7 +27,7 @@ type Update = Awaited<ReturnType<typeof modUpdates>>[number];
 
 // サーバーの Mod・プラグイン(種類の設定・入っているもの・Modrinth / SpigotMC から探して入れる)
 function ServerPage() {
-  const { user } = Route.useRouteContext();
+  const { user, app } = Route.useRouteContext();
   const server = Route.useLoaderData();
   const { can } = useCan(user.id);
   const list = useServerFn(installedMods);
@@ -55,7 +56,7 @@ function ServerPage() {
         <>
           <Software id={server.id} admin={can({ server: ["update"] })} />
           <SetBinding id={server.id} name={server.name} edit={edit} onSynced={reload} />
-          <Installed id={server.id} items={items} error={error} edit={edit}
+          <Installed id={server.id} items={items} error={error} edit={edit} local={app.mode === "self"}
             dir={PLATFORMS[server.profile.platform].dir} onChange={reload} />
           {edit && <Search id={server.id} installed={items ?? []}
             sources={(server.sources as Source[]).filter((s) => s !== "spigot" || PLATFORMS[server.profile!.platform].type === "plugin")} onInstalled={reload} />}
@@ -112,8 +113,11 @@ function Profile({ id, profile, editable }:
   );
 }
 
-function Installed({ id, items, error, edit, dir, onChange }:
-  { id: string; items: Installed[] | null; error: string; edit: boolean; dir: string; onChange: () => void }) {
+function Installed({ id, items, error, edit, local, dir, onChange }:
+  { id: string; items: Installed[] | null; error: string; edit: boolean; local: boolean; dir: string; onChange: () => void }) {
+  const identify = useServerFn(identifyMods);
+  const importFile = useServerFn(importServerFile);
+  const [found, setFound] = useState("");
   const check = useServerFn(modUpdates);
   const install = useServerFn(installMod);
   const remove = useServerFn(removeMod);
@@ -178,8 +182,14 @@ function Installed({ id, items, error, edit, dir, onChange }:
                   {m.held ? "止めるのをやめる" : "更新を止める"}
                 </button>
               )}
+              {edit && local && !m.projectId && (
+                <button className="trail link" type="button" disabled={!!busy}
+                  onClick={() => run(`imp:${m.filename}`, () => importFile({ data: { id, filename: m.filename } }))}>
+                  {busy === `imp:${m.filename}` ? "取り込んでいます…" : "ライブラリに取り込む"}
+                </button>
+              )}
               {edit && (
-                <button className={`${u || m.projectId ? "" : "trail "}link danger`} type="button" disabled={!!busy}
+                <button className={`${u || m.projectId || local ? "" : "trail "}link danger`} type="button" disabled={!!busy}
                   onClick={() => confirm(`${m.title ?? m.filename} を外しますか?(サーバーからファイルを消します)`) && run(m.filename, () => remove({ data: { id, filename: m.filename } }))}>
                   外す
                 </button>
@@ -187,6 +197,15 @@ function Installed({ id, items, error, edit, dir, onChange }:
             </div>
           );
         })}
+        {edit && items && items.some((m) => !m.projectId) && (
+          <button className="row link" type="button" disabled={!!busy} onClick={() => run("identify", async () => {
+            const r = await identify({ data: { id } });
+            setFound(`${r.checked} 個を調べ、${r.found.length} 個の配布元が見つかりました${r.missing.length ? `。見つからなかったもの: ${r.missing.join("、")}` : ""}${r.curseforge ? "" : "(CurseForge は、API キーを設定すると探せます)"}`);
+          })}>
+            {busy === "identify" ? "ファイルの中身から探しています…" : `配布元を探す(わからないもの ${items.filter((m) => !m.projectId).length} 個)`}
+          </button>
+        )}
+        {found && <p className="row muted" role="status" translate="no">{found}</p>}
         {items && items.some((m) => m.projectId) && (
           <button className="row link" type="button" onClick={checkUpdates} disabled={!!busy}>
             {busy === "check" ? "確かめています…" : updates ? `更新を確かめる(${updates.size} 件あり)` : "更新を確かめる"}
@@ -194,7 +213,7 @@ function Installed({ id, items, error, edit, dir, onChange }:
         )}
         {(error || err) && <p className="row error" role="alert">{error || err}</p>}
       </section>
-      <p className="foot">Modrinth・SpigotMC から入れたものは、版と更新がわかります。それ以外のファイルは名前だけを表示します。「更新を止める」にしたものは、セットでそろえる・予約・更新の確認で新しい版にしません。変更はサーバーの再起動で反映されます。</p>
+      <p className="foot">Modrinth・SpigotMC から入れたものは、版と更新がわかります。それ以外のファイルは名前だけを表示します(「配布元を探す」で、ファイルの中身から Modrinth・CurseForge のものかを確かめられます)。「更新を止める」にしたものは、セットでそろえる・予約・更新の確認で新しい版にしません。変更はサーバーの再起動で反映されます。</p>
     </>
   );
 }

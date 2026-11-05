@@ -121,6 +121,8 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 
 - サーバー本体(`software.ts`、表 `server_software`): 今のビルドは「入れ替えた記録(jar の大きさが同じなら)→ version_history.json → jar の名前」の順に読む。入れ替えは、今の jar を `<jar>.craftshelf-old` に名前を変えてから、同じ名前で配布元(`BUILD_HOSTS` の公式の取得先だけ)から取り込ませる。取り込めなければ名前を戻す。戻すときは 2 つの名前を入れ替える(もう一度押すと元に戻る)。
 
+- 配布元を探す(`library.identify`): このアプリの記録が無い jar を 1 回に 100 個まで読み(Pterodactyl はダウンロード用の URL から)、Modrinth の `version_files`(SHA-1)・CurseForge の `fingerprints`(`fingerprint.ts`、v02 と同じ MurmurHash2)で探す。見つかったものは `installed_mod` に記録し、ライブラリにも載せる(種類はサーバーの種類)。見つからないものは `uploads.fromServer` でアップロードしたものとして取り込める。
+
 ## 予約
 
 - チームごとに 1 つ(表 `team_schedule`)。曜日・時刻(`tz`、いまは日本時間)・すること(`check` = 確かめるだけ / `sync` = そろえる)。決めるのは `server: ["update"]`。

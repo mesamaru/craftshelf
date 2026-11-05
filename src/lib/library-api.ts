@@ -64,6 +64,10 @@ export const setCurseforgeKey = createServerFn({ method: "POST" })
   .validator(z.object({ key: z.string().max(200).nullable() }))
   .handler(async ({ data }) => (await svc()).setCurseforgeKey(headers(), data.key));
 
+export const identifyMods = createServerFn({ method: "POST" })
+  .validator(z.object({ id: sid }))
+  .handler(async ({ data }) => (await svc()).identify(headers(), data.id));
+
 export const rollbackMod = createServerFn({ method: "POST" })
   .validator(z.object({ id: sid, projectId: z.string().max(40), source }))
   .handler(async ({ data }) => (await svc()).rollback(headers(), data.id, data.source, data.projectId));

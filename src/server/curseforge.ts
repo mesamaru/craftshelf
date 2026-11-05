@@ -31,10 +31,13 @@ const kind = (classId: number) => (classId === CLASS.mod ? "mod" : classId === C
 const pathOf = (m: Mod) => `${m.classId === CLASS.plugin ? "bukkit-plugins" : "mc-mods"}/${m.slug}`;
 
 export function curseforgeClient(fetch: FetchLike, apiKey: string) {
-  async function get(path: string) {
+  async function get(path: string, body?: unknown) {
     let res: Response;
     try {
-      res = await fetch(API + path, { headers: { "x-api-key": apiKey, Accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
+      res = await fetch(API + path, {
+        method: body ? "POST" : "GET", body: body ? JSON.stringify(body) : undefined,
+        headers: { "x-api-key": apiKey, Accept: "application/json", ...(body ? { "Content-Type": "application/json" } : {}) }, signal: AbortSignal.timeout(15_000),
+      });
     } catch {
       throw new CurseForgeError("CurseForge に接続できません。しばらくしてからお試しください");
     }
@@ -96,6 +99,17 @@ export function curseforgeClient(fetch: FetchLike, apiKey: string) {
       const files = await rawFiles(projectId, platform, mcVersion);
       return files.sort((a, b) => Date.parse(b.fileDate) - Date.parse(a.fileDate)).slice(0, 30)
         .map((f) => ({ ...choiceOf(projectId, f), date: f.fileDate, release: f.releaseType === 1 }));
+    },
+
+    /** ファイルのフィンガープリントから探す(見つかったものだけ。フィンガープリント → ファイル) */
+    async byFingerprints(fps: number[]): Promise<Map<number, { projectId: string; versionId: string; versionNumber: string }>> {
+      const out = new Map<number, { projectId: string; versionId: string; versionNumber: string }>();
+      if (!fps.length) return out;
+      const d = (await get("/fingerprints", { fingerprints: fps }))?.data;
+      for (const m of (d?.exactMatches ?? []) as { file: File & { modId: number; fileFingerprint: number } }[]) {
+        out.set(m.file.fileFingerprint, { projectId: String(m.file.modId), versionId: String(m.file.id), versionNumber: m.file.displayName.replace(/\.jar$/i, "").slice(0, 60) });
+      }
+      return out;
     },
 
     /** 決まったファイル(前の版に戻すとき) */

@@ -40,10 +40,13 @@ export type VersionChoice = FileChoice & { date: string; release: boolean };
 const VERSIONS_SHOWN = 30;
 
 export function modrinthClient(fetch: FetchLike) {
-  async function get(path: string) {
+  async function get(path: string, body?: unknown) {
     let res: Response;
     try {
-      res = await fetch(API + path, { headers: { "User-Agent": UA, Accept: "application/json" }, signal: AbortSignal.timeout(15_000) });
+      res = await fetch(API + path, {
+        method: body ? "POST" : "GET", body: body ? JSON.stringify(body) : undefined,
+        headers: { "User-Agent": UA, Accept: "application/json", ...(body ? { "Content-Type": "application/json" } : {}) }, signal: AbortSignal.timeout(15_000),
+      });
     } catch {
       throw new ModrinthError("Modrinth に接続できません。しばらくしてからお試しください");
     }
@@ -99,6 +102,17 @@ export function modrinthClient(fetch: FetchLike) {
         const f = fileOf(projectId, v);
         return f ? [{ ...f, date: String(v.date_published ?? ""), release: v.version_type === "release" }] : [];
       }).slice(0, VERSIONS_SHOWN);
+    },
+
+    /** ファイルの SHA-1 から、Modrinth の版を探す(見つかったものだけ。SHA-1 → 版) */
+    async byHashes(sha1s: string[]): Promise<Map<string, { projectId: string; versionId: string; versionNumber: string }>> {
+      const out = new Map<string, { projectId: string; versionId: string; versionNumber: string }>();
+      if (!sha1s.length) return out;
+      const r = ((await get("/version_files", { hashes: sha1s, algorithm: "sha1" })) ?? {}) as Record<string, Record<string, unknown>>;
+      for (const [h, v] of Object.entries(r)) {
+        if (typeof v?.project_id === "string" && PROJECT_ID.test(v.project_id)) out.set(h, { projectId: v.project_id, versionId: String(v.id), versionNumber: String(v.version_number ?? "") });
+      }
+      return out;
     },
 
     /** 決まった版のファイル(前の版に戻すとき) */

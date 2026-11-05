@@ -262,6 +262,14 @@ export function localClient(root: string, fetch: FetchLike, control: Control): P
       await rename(tmp, full);
     },
 
+    async readBytes(_ident: string, file: string, maxBytes: number): Promise<Uint8Array> {
+      const full = inside(root, file);
+      const s = await stat(full).catch(() => null);
+      if (!s?.isFile()) throw new PteroError("ファイルが見つかりません");
+      if (s.size > maxBytes) throw new PteroError("ファイルが大きすぎます");
+      return new Uint8Array(await readFile(full));
+    },
+
     async rename(_ident: string, dirRel: string, from: string, to: string) {
       const dir = inside(root, dirRel);
       for (const f of [from, to]) if (/[\\/]/.test(f) || f === "." || f === "..") throw new PteroError("ファイルの名前が正しくありません");

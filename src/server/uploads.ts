@@ -3,10 +3,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { and, desc, eq, isNull } from "drizzle-orm";
-import { PLATFORMS, type Platform } from "~/lib/platforms";
-import { libraryFile, libraryItem, storageTarget } from "./db/schema";
+import { PLATFORMS, type Platform, isPlatform } from "~/lib/platforms";
+import { libraryFile, libraryItem, storageTarget, installedMod, serverProfile } from "./db/schema";
 import { eventService } from "./events";
 import { HttpError, requireTeam } from "./guard";
+import { remote, serverOf } from "./servers";
 import { analyzeJar } from "./jar";
 import { SAFE_JAR, pickVersion } from "./modrinth";
 import { open, seal } from "./secrets";
@@ -221,7 +222,26 @@ export function uploadService(deps: Deps) {
         version: info.version, loaders: JSON.stringify(info.loaders), mcVersions: JSON.stringify(info.mcVersions), uploadedBy: user.id,
       });
       await record({ teamId, userId: user.id, kind: "changes", action: "アップロード", target: info.name, detail: `${info.version || filename}(${info.loaders.join("・") || "種類不明"})` });
-      return { itemId: item.id, title: info.name, version: info.version, projectType: info.projectType, loaders: info.loaders };
+      return { itemId: item.id, projectId: item.projectId, fileId, title: info.name, version: info.version, projectType: info.projectType, loaders: info.loaders };
+    },
+
+    /**
+     * サーバーにある jar(配布元のわからないもの)を、アップロードしたものとしてライブラリに取り込み、
+     * このアプリで入れたものとして記録する(編集者以上・自分用の版だけ)
+     */
+    async fromServer(headers: Headers, serverId: string, filename: string) {
+      const who = await requireTeam(auth, headers, { library: ["edit"] });
+      needLocal();
+      if (/[\\/]/.test(filename) || !/\.jar$/i.test(filename)) throw new HttpError(400, "ファイルの名前が正しくありません");
+      const { row, client, remoteId } = await serverOf(deps, who, serverId);
+      const [p] = await db.select().from(serverProfile).where(eq(serverProfile.serverId, row.id));
+      if (!p || !isPlatform(p.platform)) throw new HttpError(400, "先にサーバーの種類を選んでください");
+      const dir = PLATFORMS[p.platform].dir;
+      const data = await remote(() => client.readBytes(remoteId, `${dir}/${filename}`, UPLOAD_LIMITS.fileBytes));
+      const r = await this.ingest(headers, filename, data);
+      const values = { serverId: row.id, source: "upload", projectId: r.projectId, versionId: r.fileId, versionNumber: r.version || filename, title: r.title, filename, installedBy: who.user.id, installedAt: new Date() };
+      await db.insert(installedMod).values({ id: randomUUID(), ...values }).onConflictDoUpdate({ target: [installedMod.serverId, installedMod.filename], set: values });
+      return r;
     },
 
     /** アップロードしたものの版の一覧 */

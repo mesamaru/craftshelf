@@ -20,6 +20,10 @@ export const activateStorageTarget = createServerFn({ method: "POST" })
   .validator(z.object({ id: sid.nullable() }))
   .handler(async ({ data }) => (await svc()).activate(headers(), data.id));
 
+export const importServerFile = createServerFn({ method: "POST" })
+  .validator(z.object({ id: sid, filename: z.string().min(1).max(200) }))
+  .handler(async ({ data }) => (await svc()).fromServer(headers(), data.id, data.filename));
+
 export const moveStorageFiles = createServerFn({ method: "POST" })
   .validator(z.object({ from: sid.nullable(), to: sid.nullable() }))
   .handler(async ({ data }) => (await svc()).moveFiles(headers(), data.from, data.to));

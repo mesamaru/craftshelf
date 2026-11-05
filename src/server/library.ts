@@ -1,6 +1,7 @@
 // サーバーの Mod・プラグイン: 一覧・配布元(Modrinth・SpigotMC)での検索・入れる(更新を含む)・外す。
 // ファイルはこのアプリを通さず、Pterodactyl に配布元から直接取り込ませる
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
+import { cfFingerprint } from "./fingerprint";
 import { and, asc, count, desc, eq, inArray } from "drizzle-orm";
 import { PLATFORMS, MC_VERSION, type Platform, isPlatform } from "~/lib/platforms";
 import { installedMod, libraryItem, server, serverHold, serverProfile } from "./db/schema";
@@ -17,6 +18,9 @@ import { type Deps, remote, serverOf, serverScope } from "./servers";
 
 // 無料で使える範囲
 export const LIBRARY_LIMITS = { itemsPerTeam: 500 };
+// 配布元を中身から探すとき: 1 回に調べる数と、1 つの大きさの上限
+const IDENTIFY_MAX = 100;
+const IDENTIFY_BYTES = 100 * 1024 * 1024;
 
 // 配布元からのエラーは、画面に出せる言葉にして返す
 export async function fromSource<T>(fn: () => Promise<T>): Promise<T> {
@@ -344,6 +348,45 @@ export function libraryService(deps: Deps) {
           };
         }).sort((a, b) => (a.title ?? a.filename).localeCompare(b.title ?? b.filename)),
       };
+    },
+
+    /**
+     * このアプリで入れていない jar の配布元を、中身から探す(Modrinth は SHA-1、CurseForge はフィンガープリント。1 回に ${IDENTIFY_MAX} 個まで)。
+     * 見つかったものは、このアプリで入れたものとして記録し、ライブラリにも載せる(編集者以上)
+     */
+    async identify(headers: Headers, id: string) {
+      const who = await requireTeam(auth, headers, { library: ["edit"] });
+      const { teamId, user } = who;
+      const { row, client, remoteId } = await serverOf(deps, who, id);
+      const p = await needProfile(row.id);
+      const dir = PLATFORMS[p.platform].dir;
+      const known = new Set((await db.select({ f: installedMod.filename }).from(installedMod).where(eq(installedMod.serverId, row.id))).map((r) => r.f));
+      const unknown = (await remote(() => client.listFiles(remoteId, dir)))
+        .filter((f) => f.isFile && f.name.toLowerCase().endsWith(".jar") && !known.has(f.name)).slice(0, IDENTIFY_MAX);
+      const hashes: { filename: string; sha1: string; fp: number }[] = [];
+      for (const f of unknown) {
+        const data = await remote(() => client.readBytes(remoteId, `${dir}/${f.name}`, IDENTIFY_BYTES));
+        hashes.push({ filename: f.name, sha1: createHash("sha1").update(data).digest("hex"), fp: cfFingerprint(data) });
+      }
+      const mr = await fromSource(() => modrinth.byHashes(hashes.map((h) => h.sha1)));
+      const key = await cfKeyOf(teamId);
+      const rest = hashes.filter((h) => !mr.has(h.sha1)).map((h) => h.fp);
+      const cf = key && rest.length ? await fromSource(() => curseforgeClient(deps.fetch, key).byFingerprints(rest)) : new Map();
+      const found: { filename: string; title: string; source: ItemSource; versionNumber: string }[] = [];
+      for (const h of hashes) {
+        const m = mr.get(h.sha1);
+        const c = cf.get(h.fp);
+        const hit = m ? { source: "modrinth" as const, ...m } : c ? { source: "curseforge" as const, ...c } : null;
+        if (!hit) continue;
+        const info = await project(hit.source, hit.projectId, teamId).catch(() => null);
+        const title = info?.title || h.filename;
+        const values = { serverId: row.id, source: hit.source, projectId: hit.projectId, versionId: hit.versionId, versionNumber: hit.versionNumber, title, filename: h.filename, installedBy: user.id, installedAt: new Date() };
+        await db.insert(installedMod).values({ id: randomUUID(), ...values }).onConflictDoUpdate({ target: [installedMod.serverId, installedMod.filename], set: values });
+        await remember(teamId, user.id, hit.source, hit.projectId, { title, slug: info?.slug ?? "", iconUrl: info?.iconUrl ?? "", projectType: PLATFORMS[p.platform].type });
+        found.push({ filename: h.filename, title, source: hit.source, versionNumber: hit.versionNumber });
+      }
+      if (found.length) await record({ teamId, userId: user.id, kind: "changes", action: "配布元を見つける", target: row.name, detail: found.map((f) => `${f.title} ${f.versionNumber}(${SOURCE_LABEL[f.source]})`).join("、") });
+      return { checked: hashes.length, found, missing: hashes.filter((h) => !found.some((f) => f.filename === h.filename)).map((h) => h.filename), curseforge: !!key };
     },
 
     /** 配布元で、このサーバーの種類とバージョンに合うものを探す */

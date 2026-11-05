@@ -131,6 +131,21 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
       }
       if (!res.ok) throw new PteroError(`ファイルを送れませんでした(HTTP ${res.status})`);
     },
+    // ファイルの中身(jar などのバイナリ)。ダウンロード用の URL を受け取り、Wings から読む
+    async readBytes(ident: string, file: string, maxBytes: number): Promise<Uint8Array> {
+      const d = await (await req("GET", srv(ident) + "/files/download?file=" + encodeURIComponent(file))).json();
+      const url = String(d?.attributes?.url ?? "");
+      if (!/^https?:\/\//.test(url)) throw new PteroError("Pterodactyl からダウンロード先を受け取れませんでした");
+      let res: Response;
+      try {
+        res = await fetch(url, { signal: AbortSignal.timeout(300_000) });
+      } catch {
+        throw new PteroError("Pterodactyl のノード(Wings)に接続できません");
+      }
+      if (!res.ok) throw new PteroError(`ファイルを取ってこられませんでした(HTTP ${res.status})`);
+      if (Number(res.headers.get("content-length") ?? 0) > maxBytes) throw new PteroError("ファイルが大きすぎます");
+      return new Uint8Array(await res.arrayBuffer());
+    },
     async deleteFiles(ident: string, root: string, files: string[]) {
       if (files.length) await req("POST", srv(ident) + "/files/delete", { root, files });
     },

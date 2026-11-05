@@ -1,6 +1,13 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "サーバーの割り当て": "Server assignment",
+  "すべてのサーバーを使える": "Can use all servers",
+  "サーバーがありません": "No servers",
+  "オフにすると、その人は下で選んだサーバーだけを見る・操作できます(一覧・比較・セット・ポートにも、選んだサーバーだけが出ます)。管理者とオーナーは、いつでもすべてのサーバーを使えます。": "When off, this person can see and operate only the servers selected below (lists, compare, sets and ports show only those). Admins and the owner can always use every server.",
+  "このサーバーは、管理者から割り当てられていません": "This server has not been assigned to you by an administrator",
+  "管理者とオーナーは、いつでもすべてのサーバーを使えます": "Admins and the owner can always use every server",
+  "メンバーが見つかりません": "Member not found",
   "最近のログ": "Recent log",
   "絞り込み(例 ERROR)": "Filter (e.g. ERROR)",
   "ログの絞り込み": "Filter the log",

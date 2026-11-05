@@ -338,3 +338,25 @@ export const shareLink = pgTable(
   },
   (t) => [uniqueIndex("share_link_token_uq").on(t.tokenHash), index("share_link_team_idx").on(t.teamId)],
 );
+
+// ユーザーごとのサーバーの割り当て(v02 の 02.23)。member_server_limit に行がある人(閲覧者・編集者)は、
+// member_server で割り当てられたサーバーだけを見る・使える。管理者・オーナーはいつでもすべて
+export const memberServerLimit = pgTable(
+  "member_server_limit",
+  {
+    teamId: text("team_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.teamId, t.userId] })],
+);
+
+export const memberServer = pgTable(
+  "member_server",
+  {
+    teamId: text("team_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    serverId: text("server_id").notNull().references(() => server.id, { onDelete: "cascade" }),
+  },
+  (t) => [primaryKey({ columns: [t.teamId, t.userId, t.serverId] })],
+);

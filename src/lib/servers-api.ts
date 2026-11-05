@@ -7,6 +7,12 @@ const svc = async () => (await import("~/server/instance")).servers;
 const headers = () => getRequest().headers;
 const id = z.object({ id: z.string().min(1).max(64) });
 
+export const serverAssignments = createServerFn({ method: "GET" }).handler(async () => (await svc()).assignments(headers()));
+
+export const setServerAssignment = createServerFn({ method: "POST" })
+  .validator(z.object({ userId: z.string().min(1).max(64), limited: z.boolean(), serverIds: z.array(z.string().min(1).max(64)).max(200) }))
+  .handler(async ({ data }) => (await svc()).setAssignment(headers(), data.userId, data.limited, data.serverIds));
+
 export const listServers = createServerFn({ method: "GET" }).handler(async () => (await svc()).listServers(headers()));
 
 export const listConnections = createServerFn({ method: "GET" }).handler(async () => (await svc()).listConnections(headers()));

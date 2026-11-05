@@ -85,6 +85,9 @@ export async function importFrom(db: Db, v02: DatabaseSync, opts: { secret: stri
     const teamId = randomUUID();
     await tx.insert(schema.organization).values({ id: teamId, name: APP_NAME, slug: `t-${randomBytes(6).toString("hex")}`, createdAt: now });
 
+    // v02 で Pterodactyl のサーバーを割り当てていた人(ptero_servers が null でない閲覧者・編集者)
+    const serverIds = new Map<string, string>(); // v02 の identifier → v03 のサーバー
+    const limits: { userId: string; idents: Set<string> }[] = [];
     for (const u of users) {
       const id = randomUUID();
       const name = str(u.username);
@@ -99,6 +102,13 @@ export async function importFrom(db: Db, v02: DatabaseSync, opts: { secret: stri
       });
       const role = u === ownerRow ? "owner" : ROLE[str(u.role)] ?? "viewer";
       await tx.insert(schema.member).values({ id: randomUUID(), organizationId: teamId, userId: id, role, createdAt: when });
+      if (u.ptero_servers != null && role !== "owner" && role !== "admin") {
+        let list: unknown = [];
+        try {
+          list = JSON.parse(str(u.ptero_servers));
+        } catch { /* 読めないときは、どれも割り当てない(v02 と同じ) */ }
+        limits.push({ userId: id, idents: new Set(Array.isArray(list) ? list.map(String) : []) });
+      }
       const twoFactor = Number(u.totp_enabled) === 1 && !!str(u.totp_secret);
       if (twoFactor) {
         await tx.insert(schema.legacyTotp).values({ userId: id, secretSealed: seal(opts.secret, str(u.totp_secret), legacyTotpContext(id)) });
@@ -146,6 +156,7 @@ export async function importFrom(db: Db, v02: DatabaseSync, opts: { secret: stri
         continue;
       }
       const serverId = randomUUID();
+      serverIds.set(str(s.identifier), serverId);
       await tx.insert(schema.server).values({
         id: serverId, teamId, kind: "ptero", name: str(s.name) || str(s.identifier), pteroConnectionId: connectionId, remoteId: str(s.identifier),
       });
@@ -159,6 +170,11 @@ export async function importFrom(db: Db, v02: DatabaseSync, opts: { secret: stri
       }
     }
     if (folders.length) report.notes.push(`フォルダのサーバー(${folders.length} 台)は、ライブラリと一緒に取り込みます`);
+    for (const l of limits) {
+      await tx.insert(schema.memberServerLimit).values({ teamId, userId: l.userId });
+      const ids = [...l.idents].map((x) => serverIds.get(x)).filter((x): x is string => !!x);
+      if (ids.length) await tx.insert(schema.memberServer).values(ids.map((serverId) => ({ teamId, userId: l.userId, serverId })));
+    }
   });
 
   // v03 にまだ無いもの(v02 のデータはそのまま残る)

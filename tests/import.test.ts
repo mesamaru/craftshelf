@@ -8,6 +8,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { signupOpen } from "~/server/auth";
 import { addonSet, addonSetItem, libraryFile, libraryItem, localServer, pteroConnection, server, serverProfile, storageTarget } from "~/server/db/schema";
+import * as schema from "~/server/db/schema";
 import { maybeImportV02, maybeImportV02Library, type ImportReport } from "~/server/import-v02";
 import { totpCode } from "~/server/legacy";
 import { open } from "~/server/secrets";
@@ -42,6 +43,8 @@ function makeV02(dir: string) {
   user.run("Owner", V02.scrypt, "admin", "2025-01-02T03:04:05Z", "[]", "", 0);
   user.run("編集者", V02.pbkdf2, "editor", "2025-02-01T00:00:00Z", "[\"storage\"]", TOTP, 1);
   user.run("viewer", V02.scrypt, "viewer", "2025-03-01T00:00:00Z", "[]", "", 0);
+  d.exec("ALTER TABLE users ADD COLUMN ptero_servers TEXT");
+  d.prepare("UPDATE users SET ptero_servers=? WHERE username='viewer'").run(JSON.stringify(["abcd1234"])); // v02.23 の割り当て
   const set = d.prepare("INSERT INTO settings (key, value) VALUES (?,?)");
   set.run("ptero_url", "http://192.168.1.20");
   set.run("ptero_key", V02.fernetToken);
@@ -142,6 +145,13 @@ describe("v02 のデータの取り込み", () => {
     const skipped = report!.skipped.map((s) => s.what);
     expect(report!.notes).toContain("フォルダのサーバー(2 台)は、ライブラリと一緒に取り込みます");
     expect(skipped).toContain("パスキー");
+  });
+
+  it("v02 で割り当てていたサーバーを、v03 の割り当てにする(割り当てていない人は、すべて使える)", async () => {
+    const limited = await t.db.select({ name: schema.user.name }).from(schema.memberServerLimit).innerJoin(schema.user, eq(schema.memberServerLimit.userId, schema.user.id));
+    expect(limited.map((x) => x.name)).toEqual(["viewer"]);
+    const given = await t.db.select({ name: server.name }).from(schema.memberServer).innerJoin(server, eq(schema.memberServer.serverId, server.id));
+    expect(given.map((x) => x.name)).toEqual(["サバイバル"]);
   });
 
   it("v02 のデータには書き込まない。二度目は取り込まない。そのあとの登録は招待された人だけ", async () => {

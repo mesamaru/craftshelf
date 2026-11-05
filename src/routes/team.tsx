@@ -6,6 +6,7 @@ import { curseforgeKey, setCurseforgeKey } from "~/lib/library-api";
 import { useCan } from "~/lib/use-can";
 import { useServerFn } from "@tanstack/react-start";
 import { ASSIGNABLE_ROLES, type RoleName, roleLabel } from "~/lib/permissions";
+import { serverAssignments, setServerAssignment } from "~/lib/servers-api";
 
 export const Route = createFileRoute("/team")({
   beforeLoad: ({ context }) => {
@@ -38,6 +39,7 @@ function Team() {
                 removable={m.role !== "owner" && m.userId !== user.id && can({ member: ["delete"] })} onDone={refetch} />
             ))}
           </section>
+          {can({ member: ["update"] }) && <Assignments key={team.members.map((m) => m.role).join()} />}
           {can({ invitation: ["create"] }) && <Invite onDone={refetch} />}
           {team.invitations.some((i) => i.status === "pending") && (
             <>
@@ -271,6 +273,51 @@ function CurseForgeKey() {
         {error && <p className="row error" role="alert">{error}</p>}
       </form>
       <p className="foot">設定すると、サーバーの画面とライブラリで CurseForge からも探して入れられます。作者が外部からのダウンロードを許していないものは入れられません。キーは暗号化して保存し、画面には最後の 4 文字だけを出します。</p>
+    </>
+  );
+}
+
+// サーバーの割り当て(管理者以上): 閲覧者・編集者ごとに、使えるサーバーを決める。管理者・オーナーはいつでもすべて
+function Assignments() {
+  const load = useServerFn(serverAssignments);
+  const save = useServerFn(setServerAssignment);
+  const [data, setData] = useState<Awaited<ReturnType<typeof serverAssignments>> | null>(null);
+  const [error, setError] = useState("");
+  const reload = () => load().then(setData, (e) => setError(e instanceof Error ? e.message : "読み込めませんでした"));
+  useEffect(() => { reload(); }, []);
+  if (!data || (!data.members.length && !error)) return null;
+  const change = async (userId: string, limited: boolean, serverIds: string[]) => {
+    setError("");
+    setData((d) => d && { ...d, members: d.members.map((x) => (x.userId === userId ? { ...x, limited, serverIds } : x)) }); // 先に画面を変える
+    try {
+      await save({ data: { userId, limited, serverIds } });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "うまくいきませんでした");
+      await reload();
+    }
+  };
+  return (
+    <>
+      <div className="group-title">サーバーの割り当て</div>
+      {data.members.map((m) => (
+        <section className="group" key={m.userId}>
+          <label className="row">
+            <span className="main"><span translate="no">{m.name}</span><span className="muted small">{roleLabel(m.role)}</span></span>
+            <span className="trail small">すべてのサーバーを使える</span>
+            <input className="trail" type="checkbox" checked={!m.limited} onChange={(e) => change(m.userId, !e.target.checked, m.serverIds)} />
+          </label>
+          {m.limited && data.servers.map((s) => (
+            <label className="row" key={s.id}>
+              <span className="main" translate="no">{s.name}</span>
+              <input className="trail" type="checkbox" checked={m.serverIds.includes(s.id)}
+                onChange={(e) => change(m.userId, true, e.target.checked ? [...m.serverIds, s.id] : m.serverIds.filter((x) => x !== s.id))} />
+            </label>
+          ))}
+          {m.limited && !data.servers.length && <div className="row muted">サーバーがありません</div>}
+        </section>
+      ))}
+      {error && <p className="error" role="alert">{error}</p>}
+      <p className="foot">オフにすると、その人は下で選んだサーバーだけを見る・操作できます(一覧・比較・セット・ポートにも、選んだサーバーだけが出ます)。管理者とオーナーは、いつでもすべてのサーバーを使えます。</p>
     </>
   );
 }

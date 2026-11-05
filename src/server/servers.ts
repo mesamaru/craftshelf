@@ -5,7 +5,7 @@ import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { and, asc, count, eq } from "drizzle-orm";
 import type { Auth } from "./auth";
 import type { Db } from "./db";
-import { localServer, pteroConnection, server, serverProfile } from "./db/schema";
+import { localServer, member, memberServer, memberServerLimit, pteroConnection, server, serverProfile, user as userTable } from "./db/schema";
 import { HttpError, requireTeam } from "./guard";
 import { type FetchLike, UnsafeUrlError, checkPublicUrl } from "./net";
 import { POWER_SIGNALS, type PowerSignal, PteroError, pteroClient } from "./ptero";
@@ -46,9 +46,35 @@ async function connectionOf({ db, secret, fetch }: Deps, teamId: string, id: str
 }
 
 // チームのサーバーと、それを操作する Pterodactyl のクライアント(ほかのチームのものは 404)
-export async function serverOf(deps: Deps, teamId: string, id: string) {
+// 操作する人(requireTeam の結果)。役割は API トークンならトークンの、そうでなければチームでのもの
+export type Who = { teamId: string; user: { id: string }; apiKey?: { role: string } | null };
+
+/** 割り当てで使えるサーバーの ID(すべて使えるなら null)。管理者・オーナーは制限しない */
+export async function serverScope(deps: Deps, who: Who): Promise<Set<string> | null> {
+  const role = who.apiKey?.role ?? (await deps.db.select({ role: member.role }).from(member)
+    .where(and(eq(member.organizationId, who.teamId), eq(member.userId, who.user.id))))[0]?.role ?? "";
+  if (role.split(",").some((r) => r === "owner" || r === "admin")) return null;
+  const [limit] = await deps.db.select().from(memberServerLimit).where(and(eq(memberServerLimit.teamId, who.teamId), eq(memberServerLimit.userId, who.user.id)));
+  if (!limit) return null;
+  return new Set((await deps.db.select({ id: memberServer.serverId }).from(memberServer)
+    .where(and(eq(memberServer.teamId, who.teamId), eq(memberServer.userId, who.user.id)))).map((r) => r.id));
+}
+
+/** 割り当てられていないサーバーなら断る */
+export async function needServerAccess(deps: Deps, who: Who, serverId: string) {
+  const scope = await serverScope(deps, who);
+  if (scope && !scope.has(serverId)) throw new HttpError(403, "このサーバーは、管理者から割り当てられていません");
+}
+
+/**
+ * チームのサーバーと、操作するためのクライアント。who(操作する人)を渡すと、割り当てられたサーバーかも確かめる。
+ * チームの ID だけを渡すのは、人の操作ではないとき(予約・まとめての読み取り)だけ
+ */
+export async function serverOf(deps: Deps, who: Who | string, id: string) {
+  const teamId = typeof who === "string" ? who : who.teamId;
   const [s] = await deps.db.select().from(server).where(and(eq(server.id, id), eq(server.teamId, teamId)));
   if (!s) throw new HttpError(404, "サーバーが見つかりません");
+  if (typeof who !== "string") await needServerAccess(deps, who, s.id);
   if (s.kind === "local") {
     if (!deps.local) throw new HttpError(400, "フォルダのサーバーは、自分用の版だけで使えます");
     const [l] = await deps.db.select().from(localServer).where(eq(localServer.serverId, s.id));
@@ -141,11 +167,47 @@ export function serverService(deps: Deps) {
     },
 
     async listServers(headers: Headers) {
-      const { teamId } = await requireTeam(auth, headers);
+      const who = await requireTeam(auth, headers);
+      const scope = await serverScope(deps, who);
       const rows = await db.select({ id: server.id, name: server.name, kind: server.kind, connection: pteroConnection.name })
         .from(server).leftJoin(pteroConnection, eq(server.pteroConnectionId, pteroConnection.id))
-        .where(eq(server.teamId, teamId)).orderBy(asc(server.createdAt));
-      return rows.map((r) => (r.kind === "local" ? { ...r, connection: "フォルダ" } : r));
+        .where(eq(server.teamId, who.teamId)).orderBy(asc(server.createdAt));
+      return rows.filter((r) => !scope || scope.has(r.id)).map((r) => (r.kind === "local" ? { ...r, connection: "フォルダ" } : r));
+    },
+
+    /** サーバーの割り当て(管理者以上): 閲覧者・編集者ごとに、すべてのサーバーを使えるか・使えるサーバー */
+    async assignments(headers: Headers) {
+      const { teamId } = await requireTeam(auth, headers, { member: ["update"] });
+      const servers = await db.select({ id: server.id, name: server.name }).from(server).where(eq(server.teamId, teamId)).orderBy(asc(server.name));
+      const members = await db.select({ userId: member.userId, role: member.role, name: userTable.name }).from(member)
+        .innerJoin(userTable, eq(member.userId, userTable.id)).where(eq(member.organizationId, teamId)).orderBy(asc(userTable.name));
+      const limited = new Set((await db.select({ u: memberServerLimit.userId }).from(memberServerLimit).where(eq(memberServerLimit.teamId, teamId))).map((r) => r.u));
+      const given = await db.select().from(memberServer).where(eq(memberServer.teamId, teamId));
+      return {
+        servers,
+        members: members.filter((m) => !m.role.split(",").some((r) => r === "owner" || r === "admin")).map((m) => ({
+          userId: m.userId, name: m.name, role: m.role, limited: limited.has(m.userId), serverIds: given.filter((g) => g.userId === m.userId).map((g) => g.serverId),
+        })),
+      };
+    },
+
+    /** 割り当てを決める(管理者以上)。limited が false なら、すべてのサーバーを使える */
+    async setAssignment(headers: Headers, userId: string, limited: boolean, serverIds: string[]) {
+      const { teamId, user: me } = await requireTeam(auth, headers, { member: ["update"] });
+      const [m] = await db.select({ role: member.role, name: userTable.name }).from(member).innerJoin(userTable, eq(member.userId, userTable.id))
+        .where(and(eq(member.organizationId, teamId), eq(member.userId, userId)));
+      if (!m) throw new HttpError(404, "メンバーが見つかりません");
+      if (m.role.split(",").some((r) => r === "owner" || r === "admin")) throw new HttpError(400, "管理者とオーナーは、いつでもすべてのサーバーを使えます");
+      const mine = new Set((await db.select({ id: server.id }).from(server).where(eq(server.teamId, teamId))).map((r) => r.id));
+      const ids = [...new Set(serverIds)].filter((id) => mine.has(id));
+      await db.transaction(async (tx) => {
+        await tx.delete(memberServer).where(and(eq(memberServer.teamId, teamId), eq(memberServer.userId, userId)));
+        await tx.delete(memberServerLimit).where(and(eq(memberServerLimit.teamId, teamId), eq(memberServerLimit.userId, userId)));
+        if (!limited) return;
+        await tx.insert(memberServerLimit).values({ teamId, userId });
+        if (ids.length) await tx.insert(memberServer).values(ids.map((serverId) => ({ teamId, userId, serverId })));
+      });
+      await record({ teamId, userId: me.id, kind: "admin", action: "サーバーの割り当て", target: m.name, detail: limited ? `割り当てたサーバー ${ids.length} 台` : "すべてのサーバー" });
     },
 
     /** フォルダのサーバーを使えるか(自分用の版だけ) */
@@ -225,15 +287,17 @@ export function serverService(deps: Deps) {
     },
 
     async status(headers: Headers, id: string) {
-      const { teamId } = await requireTeam(auth, headers);
-      const { client, remoteId } = await serverOf(deps, teamId, id);
+      const who = await requireTeam(auth, headers);
+      const { teamId } = who;
+      const { client, remoteId } = await serverOf(deps, who, id);
       return remote(() => client.resources(remoteId));
     },
 
     async power(headers: Headers, id: string, signal: PowerSignal) {
       if (!POWER_SIGNALS.includes(signal)) throw new HttpError(400, "不正な操作です");
-      const { teamId, user } = await requireTeam(auth, headers, { server: ["control"] });
-      const { row, client, remoteId } = await serverOf(deps, teamId, id);
+      const who = await requireTeam(auth, headers, { server: ["control"] });
+      const { teamId, user } = who;
+      const { row, client, remoteId } = await serverOf(deps, who, id);
       await remote(() => client.power(remoteId, signal));
       await record({ teamId, userId: user.id, kind: "power", action: POWER_LABEL[signal], target: row.name });
     },

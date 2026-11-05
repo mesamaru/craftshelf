@@ -117,6 +117,8 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 
 - ファイル比較(`/compare/files`、`files.configs`): v02 と同じ場所(一番上・plugins は 3 段・config は 4 段・mods/config は 3 段)から、開ける設定ファイルを 1 台 400 個まで集める。一覧では中身を読まず大きさで見る。開いたら全部を読み、行の差分(`src/lib/diff.ts`、Myers の方法)で基準にそろえて並べる。写すのは `files.save`(履歴に残る)。
 
+- サーバーの割り当て(表 `member_server_limit`・`member_server`): `member_server_limit` に行がある閲覧者・編集者は、`member_server` のサーバーだけを使える。確かめるのは `serverOf(deps, who, id)`(`who` は `requireTeam` の結果。チームの ID だけを渡すのは予約などの人でない操作だけ)と `needServerAccess`、一覧は `serverScope` で絞る。管理者・オーナーは制限しない。
+
 ## 予約
 
 - チームごとに 1 つ(表 `team_schedule`)。曜日・時刻(`tz`、いまは日本時間)・すること(`check` = 確かめるだけ / `sync` = そろえる)。決めるのは `server: ["update"]`。

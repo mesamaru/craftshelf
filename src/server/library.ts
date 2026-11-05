@@ -13,7 +13,7 @@ import { installHistory, libraryFile, teamCurseforge } from "./db/schema";
 import { hint, open, seal } from "./secrets";
 import { fileStore } from "./uploads";
 import { eventService } from "./events";
-import { type Deps, remote, serverOf } from "./servers";
+import { type Deps, remote, serverOf, serverScope } from "./servers";
 
 // 無料で使える範囲
 export const LIBRARY_LIMITS = { itemsPerTeam: 500 };
@@ -217,7 +217,10 @@ export function libraryService(deps: Deps) {
   return {
     /** チームのライブラリ: 登録したもの・それぞれが入っているサーバーと版・入れられるサーバー */
     async catalog(headers: Headers) {
-      const { teamId } = await requireTeam(auth, headers);
+      const who = await requireTeam(auth, headers);
+      const { teamId } = who;
+      const scope = await serverScope(deps, who);
+      const mine = (id: string) => !scope || scope.has(id);
       const items = await db.select().from(libraryItem).where(eq(libraryItem.teamId, teamId)).orderBy(asc(libraryItem.title));
       const installs = await db.select({ serverId: server.id, serverName: server.name, source: installedMod.source, projectId: installedMod.projectId, versionNumber: installedMod.versionNumber, filename: installedMod.filename })
         .from(installedMod).innerJoin(server, eq(installedMod.serverId, server.id))
@@ -227,10 +230,10 @@ export function libraryService(deps: Deps) {
       return {
         items: items.map((i) => ({
           id: i.id, source: i.source, projectId: i.projectId, title: i.title, slug: i.slug, projectType: i.projectType, iconUrl: i.iconUrl,
-          installs: installs.filter((r) => r.source === i.source && r.projectId === i.projectId).map(({ serverId, serverName, versionNumber, filename }) => ({ serverId, serverName, versionNumber, filename })),
+          installs: installs.filter((r) => r.source === i.source && r.projectId === i.projectId && mine(r.serverId)).map(({ serverId, serverName, versionNumber, filename }) => ({ serverId, serverName, versionNumber, filename })),
         })),
         // 種類を決めていないサーバーには入れられない(type が null)
-        servers: servers.map((x) => ({ id: x.id, name: x.name, type: isPlatform(x.platform) ? PLATFORMS[x.platform].type : null })),
+        servers: servers.filter((x) => mine(x.id)).map((x) => ({ id: x.id, name: x.name, type: isPlatform(x.platform) ? PLATFORMS[x.platform].type : null })),
         sources: await sourcesOf(teamId),
       };
     },
@@ -300,15 +303,17 @@ export function libraryService(deps: Deps) {
 
     /** サーバーの名前・種類・バージョン */
     async detail(headers: Headers, id: string) {
-      const { teamId } = await requireTeam(auth, headers);
-      const { row } = await serverOf(deps, teamId, id);
+      const who = await requireTeam(auth, headers);
+      const { teamId } = who;
+      const { row } = await serverOf(deps, who, id);
       return { id: row.id, name: row.name, kind: row.kind, profile: await profileOf(row.id), sources: await sourcesOf(teamId) };
     },
 
     /** サーバーの種類(paper・fabric など)とバージョンを決める */
     async setProfile(headers: Headers, id: string, input: { platform: string; mcVersion: string }) {
-      const { teamId, user } = await requireTeam(auth, headers, { server: ["update"] });
-      const { row } = await serverOf(deps, teamId, id);
+      const who = await requireTeam(auth, headers, { server: ["update"] });
+      const { teamId, user } = who;
+      const { row } = await serverOf(deps, who, id);
       if (!isPlatform(input.platform)) throw new HttpError(400, "サーバーの種類を選んでください");
       const mcVersion = input.mcVersion.trim() || null;
       if (mcVersion && !MC_VERSION.test(mcVersion)) throw new HttpError(400, "バージョンは 1.21.1 や 26.3 のように入力してください");
@@ -319,8 +324,9 @@ export function libraryService(deps: Deps) {
 
     /** 入っている Mod・プラグイン(サーバーのフォルダーの中身と、このアプリで入れた記録を合わせる) */
     async installed(headers: Headers, id: string) {
-      const { teamId } = await requireTeam(auth, headers);
-      const { row, client, remoteId } = await serverOf(deps, teamId, id);
+      const who = await requireTeam(auth, headers);
+      const { teamId } = who;
+      const { row, client, remoteId } = await serverOf(deps, who, id);
       const profile = await needProfile(row.id);
       const dir = PLATFORMS[profile.platform].dir;
       const files = (await remote(() => client.listFiles(remoteId, dir))).filter((f) => f.isFile && f.name.toLowerCase().endsWith(".jar"));
@@ -342,8 +348,9 @@ export function libraryService(deps: Deps) {
 
     /** 配布元で、このサーバーの種類とバージョンに合うものを探す */
     async search(headers: Headers, id: string, query: string, source = "modrinth") {
-      const { teamId } = await requireTeam(auth, headers);
-      const { row } = await serverOf(deps, teamId, id);
+      const who = await requireTeam(auth, headers);
+      const { teamId } = who;
+      const { row } = await serverOf(deps, who, id);
       const p = await needProfile(row.id);
       const src = searchable(source);
       if (src === "spigot" && PLATFORMS[p.platform].type !== "plugin") throw new HttpError(400, "SpigotMC にあるのはプラグインだけです");
@@ -353,8 +360,9 @@ export function libraryService(deps: Deps) {
 
     /** このサーバーに入れられる版(新しい順・30 個まで)。SpigotMC は、いちばん新しい版しか取ってこられないので空 */
     async versions(headers: Headers, id: string, source: string, projectId: string) {
-      const { teamId } = await requireTeam(auth, headers);
-      const { row } = await serverOf(deps, teamId, id);
+      const who = await requireTeam(auth, headers);
+      const { teamId } = who;
+      const { row } = await serverOf(deps, who, id);
       const p = await needProfile(row.id);
       return (await versionsOf(sourceOf(source), projectId, p, teamId))
         .map(({ versionId, versionNumber, date, release }) => ({ versionId, versionNumber, date, release }));
@@ -366,8 +374,9 @@ export function libraryService(deps: Deps) {
      */
     async install(headers: Headers, id: string, projectId: string, source = "modrinth", versionId?: string) {
       const src = sourceOf(source);
-      const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
-      const { row, client, remoteId } = await serverOf(deps, teamId, id);
+      const who = await requireTeam(auth, headers, { library: ["edit"] });
+      const { teamId, user } = who;
+      const { row, client, remoteId } = await serverOf(deps, who, id);
       const p = await needProfile(row.id);
       let file: Awaited<ReturnType<typeof fileById>> = null;
       let hold = false;
@@ -388,8 +397,9 @@ export function libraryService(deps: Deps) {
 
     /** 前の版に戻す(更新で入れ替えた、いちばん新しい前の版を入れ直す)。戻したものは「更新を止める」にする */
     async rollback(headers: Headers, id: string, source: string, projectId: string) {
-      const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
-      const target = await serverOf(deps, teamId, id);
+      const who = await requireTeam(auth, headers, { library: ["edit"] });
+      const { teamId, user } = who;
+      const target = await serverOf(deps, who, id);
       const src = sourceOf(source);
       if (src === "spigot") throw new HttpError(400, "SpigotMC のものは、前の版を取ってこられないので戻せません");
       const p = await needProfile(target.row.id);
@@ -412,8 +422,9 @@ export function libraryService(deps: Deps) {
 
     /** 外す(サーバーのフォルダーからファイルを消す) */
     async remove(headers: Headers, id: string, filename: string) {
-      const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
-      const { row, client, remoteId } = await serverOf(deps, teamId, id);
+      const who = await requireTeam(auth, headers, { library: ["edit"] });
+      const { teamId, user } = who;
+      const { row, client, remoteId } = await serverOf(deps, who, id);
       // フォルダーをまたぐ名前は受け付けず、いまフォルダーにある .jar だけを消す
       if (/[\\/]|^\.\.?$/.test(filename) || !filename.toLowerCase().endsWith(".jar")) throw new HttpError(400, "ファイルの名前が正しくありません");
       const p = await needProfile(row.id);
@@ -427,8 +438,9 @@ export function libraryService(deps: Deps) {
 
     /** 更新を止める・止めるのをやめる(そろえる・予約・更新の確認で、新しい版にしない) */
     async setHold(headers: Headers, id: string, source: string, projectId: string, hold: boolean) {
-      const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
-      const { row } = await serverOf(deps, teamId, id);
+      const who = await requireTeam(auth, headers, { library: ["edit"] });
+      const { teamId, user } = who;
+      const { row } = await serverOf(deps, who, id);
       const src = sourceOf(source);
       const [rec] = await db.select({ title: installedMod.title, versionNumber: installedMod.versionNumber }).from(installedMod)
         .where(and(eq(installedMod.serverId, row.id), eq(installedMod.source, src), eq(installedMod.projectId, projectId)));
@@ -440,8 +452,9 @@ export function libraryService(deps: Deps) {
 
     /** このアプリで入れたものに、新しい版があるか */
     async updates(headers: Headers, id: string) {
-      const { teamId } = await requireTeam(auth, headers);
-      const { row } = await serverOf(deps, teamId, id);
+      const who = await requireTeam(auth, headers);
+      const { teamId } = who;
+      const { row } = await serverOf(deps, who, id);
       const p = await needProfile(row.id);
       const records = await db.select().from(installedMod).where(eq(installedMod.serverId, row.id));
       const holds = await holdsOf(row.id);

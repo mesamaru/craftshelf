@@ -7,7 +7,7 @@ import { portGroup, portKind, server, serverPort, serverPortInfo } from "./db/sc
 import { HttpError, requireTeam } from "./guard";
 import { eventService } from "./events";
 import { portLike, readPort, writePort } from "./port-config";
-import { type Deps, remote, serverOf } from "./servers";
+import { type Deps, remote, serverOf, serverScope } from "./servers";
 
 export const PORT_LIMITS = { kindsPerTeam: 30, groupsPerTeam: 50, manualPerServer: 30, scanPluginFolders: 40 };
 
@@ -124,14 +124,17 @@ export function portService(deps: Deps) {
   return {
     /** 表に出すもの: 種類・グループ・サーバーごとのポート・問題 */
     async overview(headers: Headers) {
-      const { teamId } = await requireTeam(auth, headers);
-      return overviewOf(teamId);
+      const who = await requireTeam(auth, headers);
+      const scope = await serverScope(deps, who);
+      const ov = await overviewOf(who.teamId);
+      return scope ? { ...ov, servers: ov.servers.filter((s) => scope.has(s.id)) } : ov;
     },
 
     /** 読み取り直す(serverId を渡すとその 1 台、無ければチームの全部)。失敗したサーバーは理由を返し、残りは続ける */
     async scan(headers: Headers, serverId?: string) {
       // 読み取りは Pterodactyl への問い合わせが多い(1 台でプラグインの設定を何十も読む)ので、管理者以上だけ
-      const { teamId } = await requireTeam(auth, headers, { server: ["update"] });
+      const who = await requireTeam(auth, headers, { server: ["update"] });
+      const { teamId } = who;
       await ensureKinds(teamId);
       const kinds = await db.select().from(portKind).where(eq(portKind.teamId, teamId));
       const list = await db.select().from(server).where(serverId ? and(eq(server.teamId, teamId), eq(server.id, serverId)) : eq(server.teamId, teamId));
@@ -141,7 +144,7 @@ export function portService(deps: Deps) {
       for (const connId of new Set(list.map((s) => s.pteroConnectionId).filter((x): x is string => !!x))) {
         const any = list.find((s) => s.pteroConnectionId === connId)!;
         try {
-          const { client } = await serverOf(deps, teamId, any.id);
+          const { client } = await serverOf(deps, who, any.id);
           for (const r of await client.servers()) nodes.set(r.identifier, `${connId}/${r.node}`);
         } catch { /* ノードが分からなくても読み取りは続ける(同じマシンとみなす) */ }
       }
@@ -212,7 +215,8 @@ export function portService(deps: Deps) {
      * (動いているサーバーは、再起動すると新しい番号になる)。同じマシンで重複する番号にはしない
      */
     async savePorts(headers: Headers, serverId: string, changes: PortChange[]) {
-      const { teamId, user } = await requireTeam(auth, headers, { server: ["update"] });
+      const who = await requireTeam(auth, headers, { server: ["update"] });
+      const { teamId, user } = who;
       await serverInTeam(teamId, serverId);
       const ov = await overviewOf(teamId);
       const me = ov.servers.find((s) => s.id === serverId)!;
@@ -256,7 +260,7 @@ export function portService(deps: Deps) {
       }
 
       if (writes.length) {
-        const { client, remoteId } = await serverOf(deps, teamId, serverId);
+        const { client, remoteId } = await serverOf(deps, who, serverId);
         await remote(async () => {
           for (const w of writes) {
             const text = await client.readFile(remoteId, w.file);

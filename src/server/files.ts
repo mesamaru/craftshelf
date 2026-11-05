@@ -44,19 +44,21 @@ export function fileService(deps: Deps) {
   return {
     /** コンソールにコマンドを送る(編集者以上)。結果はコンソールに出る(ここでは受け取らない) */
     async command(headers: Headers, serverId: string, command: string) {
-      const { teamId, user: me } = await requireTeam(auth, headers, { server: ["control"] });
+      const who = await requireTeam(auth, headers, { server: ["control"] });
+      const { teamId, user: me } = who;
       const cmd = String(command ?? "").trim().replace(/^\//, "");
       if (!cmd) throw new HttpError(400, "コマンドを入力してください");
       if (cmd.length > FILE_LIMITS.commandLength || /[\r\n]/.test(cmd)) throw new HttpError(400, `コマンドは 1 行・${FILE_LIMITS.commandLength} 文字までです`);
-      const target = await serverOf(deps, teamId, serverId);
+      const target = await serverOf(deps, who, serverId);
       await remote(() => target.client.command(target.remoteId, cmd));
       await record({ teamId, userId: me.id, kind: "power", action: "コマンドを送る", target: target.row.name, detail: cmd });
     },
 
     /** 最近のログ(logs/latest.log の最後の lines 行。編集者以上)。ファイルが無ければ found: false */
     async logs(headers: Headers, serverId: string, lines = 400) {
-      const { teamId } = await requireTeam(auth, headers, { server: ["control"] });
-      const target = await serverOf(deps, teamId, serverId);
+      const who = await requireTeam(auth, headers, { server: ["control"] });
+      const { teamId } = who;
+      const target = await serverOf(deps, who, serverId);
       const n = Math.max(20, Math.min(FILE_LIMITS.logLines, Math.floor(lines) || 400));
       const entry = (await remote(() => target.client.listFiles(target.remoteId, "logs")).catch(() => [])).find((f) => f.name === "latest.log" && f.isFile);
       if (!entry) return { file: LOG_FILE, found: false, lines: [] as string[] };
@@ -71,8 +73,9 @@ export function fileService(deps: Deps) {
 
     /** フォルダーの中身(フォルダーと、開けるファイルが分かるように) */
     async list(headers: Headers, serverId: string, dir: string) {
-      const { teamId } = await requireTeam(auth, headers, { server: ["update"] });
-      const target = await serverOf(deps, teamId, serverId);
+      const who = await requireTeam(auth, headers, { server: ["update"] });
+      const { teamId } = who;
+      const target = await serverOf(deps, who, serverId);
       const d = cleanPath(dir);
       const files = await remote(() => target.client.listFiles(target.remoteId, d || "/"));
       return {
@@ -87,12 +90,13 @@ export function fileService(deps: Deps) {
      * 中身までは読まないので、同じかどうかは大きさで見る(違えば確かに違う。同じ大きさでも中身が違うことはある)
      */
     async configs(headers: Headers, serverIds: string[]) {
-      const { teamId } = await requireTeam(auth, headers, { server: ["update"] });
+      const who = await requireTeam(auth, headers, { server: ["update"] });
+      const { teamId } = who;
       const ids = [...new Set(serverIds)].slice(0, 8);
       if (ids.length < 2) throw new HttpError(400, "比べるサーバーを 2 台以上選んでください");
       const servers: { id: string; name: string; files: Map<string, number>; error: string }[] = [];
       for (const id of ids) {
-        const target = await serverOf(deps, teamId, id);
+        const target = await serverOf(deps, who, id);
         const found = new Map<string, number>();
         const walk = async (dir: string, depth: number) => {
           if (found.size >= CONFIG_MAX) return;
@@ -133,10 +137,11 @@ export function fileService(deps: Deps) {
 
     /** ファイルを開く(と、その履歴) */
     async read(headers: Headers, serverId: string, path: string) {
-      const { teamId } = await requireTeam(auth, headers, { server: ["update"] });
+      const who = await requireTeam(auth, headers, { server: ["update"] });
+      const { teamId } = who;
       const p = cleanPath(path);
       if (!p || !editable(p)) throw new HttpError(400, "ここで開けるのは、テキストの設定ファイルだけです");
-      const target = await serverOf(deps, teamId, serverId);
+      const target = await serverOf(deps, who, serverId);
       const content = await readText(target, p);
       const history = await db.select({ id: serverFileHistory.id, savedAt: serverFileHistory.savedAt, savedBy: user.name })
         .from(serverFileHistory).leftJoin(user, eq(serverFileHistory.savedBy, user.id))
@@ -149,11 +154,12 @@ export function fileService(deps: Deps) {
      * 保存する前の中身は履歴に残す(1 つのファイルにつき新しい 30 件)
      */
     async save(headers: Headers, serverId: string, path: string, content: string, base: string) {
-      const { teamId, user: me } = await requireTeam(auth, headers, { server: ["update"] });
+      const who = await requireTeam(auth, headers, { server: ["update"] });
+      const { teamId, user: me } = who;
       const p = cleanPath(path);
       if (!p || !editable(p)) throw new HttpError(400, "ここで直せるのは、テキストの設定ファイルだけです");
       if (Buffer.byteLength(content) > FILE_LIMITS.maxBytes) throw new HttpError(400, "大きすぎます");
-      const target = await serverOf(deps, teamId, serverId);
+      const target = await serverOf(deps, who, serverId);
       const now = await readText(target, p);
       if (now !== base) throw new HttpError(409, "開いたあとで、ファイルが書き換えられています。開き直してから直してください");
       if (now === content) return { saved: false };
@@ -168,8 +174,9 @@ export function fileService(deps: Deps) {
 
     /** 履歴の中身(戻す前に見る) */
     async historyContent(headers: Headers, serverId: string, historyId: string) {
-      const { teamId } = await requireTeam(auth, headers, { server: ["update"] });
-      await serverOf(deps, teamId, serverId); // ほかのチームのサーバーは「見つからない」
+      const who = await requireTeam(auth, headers, { server: ["update"] });
+      const { teamId } = who;
+      await serverOf(deps, who, serverId); // ほかのチームのサーバーは「見つからない」
       const [h] = await db.select().from(serverFileHistory).where(and(eq(serverFileHistory.id, historyId), eq(serverFileHistory.serverId, serverId)));
       if (!h) throw new HttpError(404, "履歴が見つかりません");
       return { path: h.path, content: h.content, savedAt: h.savedAt.toISOString() };

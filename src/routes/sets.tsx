@@ -46,6 +46,7 @@ function Sets() {
       {sets.map((s) => <SetCard key={s.id} set={s} catalog={catalog} edit={edit} onChange={reload} />)}
       <p className="foot">セットは、ライブラリから選んだ Mod・プラグインの組み合わせです。「サーバーに入れる」で、サーバーの種類に合うもののうち、まだ入っていないものをまとめて入れます(Paper のサーバーに Mod は入れません)。</p>
       {edit && <NewSet onCreated={reload} />}
+      {edit && <FromModpack onCreated={reload} />}
     </main>
   );
 }
@@ -227,6 +228,43 @@ function Schedule({ editable }: { editable: boolean }) {
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
       <p className="foot">決めた曜日・時刻に、セットを結び付けたすべてのサーバーをそろえる(足りないものを入れ、新しい版があれば更新する)か、何も変えずに更新があるかを確かめます。結果は「チーム」→「操作の記録と Discord への通知」に残り、Discord の「予約の結果」を選んでいれば知らせます。決められるのは管理者以上です。</p>
+    </>
+  );
+}
+
+// Modpack(.mrpack・CurseForge の zip)から、ライブラリとセットを作る
+function FromModpack({ onCreated }: { onCreated: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const send = async (file: File) => {
+    setBusy(true);
+    setNote("");
+    setError("");
+    try {
+      const res = await fetch(`/api/modpack?filename=${encodeURIComponent(file.name)}`, { method: "POST", body: file });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.message ?? "読み込めませんでした");
+      setNote(`セット「${j.name}」を作りました(${j.added} 件)${j.skipped ? `。サーバーでは動かないもの ${j.skipped} 件は飛ばしました` : ""}${j.missing.length ? `。見つからなかったもの: ${j.missing.join("、")}` : ""}`);
+      onCreated();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <div className="group-title">Modpack から作る</div>
+      <section className="group">
+        <label className="row link">
+          {busy ? "読み込んでいます…" : "Modpack のファイル(.mrpack・CurseForge の zip)を選ぶ"}
+          <input type="file" accept=".mrpack,.zip" hidden disabled={busy} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) send(f); }} />
+        </label>
+        {note && <p className="row muted" role="status" translate="no">{note}</p>}
+        {error && <p className="row error" role="alert">{error}</p>}
+      </section>
+      <p className="foot">Modpack に入っている Mod をライブラリに載せ、Modpack の名前のセットを作ります。Modrinth のものはファイルの中身(SHA-1)で探し、CurseForge のものは「チーム」で API キーを設定すると読めます。設定ファイル(overrides)は取り込みません。</p>
     </>
   );
 }

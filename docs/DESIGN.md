@@ -127,6 +127,8 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 
 - バックアップ(`backup.ts`、自分用の版・PGlite だけ): PGlite の `dumpDataDir`・`secret`・`library` を `tar` でまとめ、`/data/v03/backups` に新しい 5 個を残す。戻すときは `restore-pending.tar.gz` を置いて終了し、次の起動で(データベースを開く前・鍵を読む前に)`applyPendingRestore` が入れ替える。今のデータは `before-restore-<日時>` に移し、失敗したら元に戻して `restore-failed-…` に名前を変える。
 
+- Modpack(`modpack.ts`): ファイルを持たないので、.mrpack は `modrinth.index.json` の mods/ の SHA-1 で Modrinth の版を探し(env.server が unsupported のものは飛ばす)、CurseForge は `manifest.json` の projectID を使う。名前はまとめて取り(Modrinth `/projects`・CurseForge `POST /mods`)、ライブラリに Mod として載せ、同じ名前のセットを作る。overrides は取り込まない。
+
 ## 予約
 
 - チームごとに 1 つ(表 `team_schedule`)。曜日・時刻(`tz`、いまは日本時間)・すること(`check` = 確かめるだけ / `sync` = そろえる)。決めるのは `server: ["update"]`。

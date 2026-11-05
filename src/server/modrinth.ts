@@ -104,6 +104,19 @@ export function modrinthClient(fetch: FetchLike) {
       }).slice(0, VERSIONS_SHOWN);
     },
 
+    /** プロジェクトの名前などを、まとめて取る(ID → 中身) */
+    async projects(ids: string[]): Promise<Map<string, { title: string; slug: string; iconUrl: string }>> {
+      const out = new Map<string, { title: string; slug: string; iconUrl: string }>();
+      for (let i = 0; i < ids.length; i += 100) {
+        const part = ids.slice(i, i + 100).filter((x) => PROJECT_ID.test(x));
+        if (!part.length) continue;
+        for (const p of ((await get(`/projects?ids=${encodeURIComponent(JSON.stringify(part))}`)) ?? []) as Record<string, unknown>[]) {
+          out.set(String(p.id), { title: String(p.title ?? ""), slug: String(p.slug ?? ""), iconUrl: icon(p.icon_url) });
+        }
+      }
+      return out;
+    },
+
     /** ファイルの SHA-1 から、Modrinth の版を探す(見つかったものだけ。SHA-1 → 版) */
     async byHashes(sha1s: string[]): Promise<Map<string, { projectId: string; versionId: string; versionNumber: string }>> {
       const out = new Map<string, { projectId: string; versionId: string; versionNumber: string }>();

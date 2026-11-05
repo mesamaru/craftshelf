@@ -23,6 +23,7 @@ import { Route as SignupRouteImport } from './routes/signup'
 import { Route as StorageRouteImport } from './routes/storage'
 import { Route as TeamRouteImport } from './routes/team'
 import { Route as UsageRouteImport } from './routes/usage'
+import { Route as ApiModpackRouteImport } from './routes/api/modpack'
 import { Route as CompareFilesRouteImport } from './routes/compare_.files'
 import { Route as InviteIdRouteImport } from './routes/invite.$id'
 import { Route as SSplatRouteImport } from './routes/s.$'
@@ -105,6 +106,11 @@ const UsageRoute = UsageRouteImport.update({
   path: '/usage',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiModpackRoute = ApiModpackRouteImport.update({
+  id: '/api/modpack',
+  path: '/api/modpack',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CompareFilesRoute = CompareFilesRouteImport.update({
   id: '/compare_/files',
   path: '/compare/files',
@@ -176,6 +182,7 @@ export interface FileRoutesByFullPath {
   '/storage': typeof StorageRoute
   '/team': typeof TeamRoute
   '/usage': typeof UsageRoute
+  '/api/modpack': typeof ApiModpackRoute
   '/compare/files': typeof CompareFilesRoute
   '/invite/$id': typeof InviteIdRoute
   '/s/$': typeof SSplatRoute
@@ -203,6 +210,7 @@ export interface FileRoutesByTo {
   '/storage': typeof StorageRoute
   '/team': typeof TeamRoute
   '/usage': typeof UsageRoute
+  '/api/modpack': typeof ApiModpackRoute
   '/compare/files': typeof CompareFilesRoute
   '/invite/$id': typeof InviteIdRoute
   '/s/$': typeof SSplatRoute
@@ -231,6 +239,7 @@ export interface FileRoutesById {
   '/storage': typeof StorageRoute
   '/team': typeof TeamRoute
   '/usage': typeof UsageRoute
+  '/api/modpack': typeof ApiModpackRoute
   '/compare_/files': typeof CompareFilesRoute
   '/invite/$id': typeof InviteIdRoute
   '/s/$': typeof SSplatRoute
@@ -260,6 +269,7 @@ export interface FileRouteTypes {
     | '/storage'
     | '/team'
     | '/usage'
+    | '/api/modpack'
     | '/compare/files'
     | '/invite/$id'
     | '/s/$'
@@ -287,6 +297,7 @@ export interface FileRouteTypes {
     | '/storage'
     | '/team'
     | '/usage'
+    | '/api/modpack'
     | '/compare/files'
     | '/invite/$id'
     | '/s/$'
@@ -314,6 +325,7 @@ export interface FileRouteTypes {
     | '/storage'
     | '/team'
     | '/usage'
+    | '/api/modpack'
     | '/compare_/files'
     | '/invite/$id'
     | '/s/$'
@@ -342,6 +354,7 @@ export interface RootRouteChildren {
   StorageRoute: typeof StorageRoute
   TeamRoute: typeof TeamRoute
   UsageRoute: typeof UsageRoute
+  ApiModpackRoute: typeof ApiModpackRoute
   CompareFilesRoute: typeof CompareFilesRoute
   InviteIdRoute: typeof InviteIdRoute
   SSplatRoute: typeof SSplatRoute
@@ -455,6 +468,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof UsageRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/modpack': {
+      id: '/api/modpack'
+      path: '/api/modpack'
+      fullPath: '/api/modpack'
+      preLoaderRoute: typeof ApiModpackRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/compare_/files': {
       id: '/compare_/files'
       path: '/compare/files'
@@ -550,6 +570,7 @@ const rootRouteChildren: RootRouteChildren = {
   StorageRoute: StorageRoute,
   TeamRoute: TeamRoute,
   UsageRoute: UsageRoute,
+  ApiModpackRoute: ApiModpackRoute,
   CompareFilesRoute: CompareFilesRoute,
   InviteIdRoute: InviteIdRoute,
   SSplatRoute: SSplatRoute,

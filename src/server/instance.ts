@@ -16,6 +16,7 @@ import { tokenService } from "./tokens";
 import { versionService } from "./versions";
 import { softwareService } from "./software";
 import { backupService } from "./backup";
+import { modpackService } from "./modpack";
 
 // 置いてあるバックアップで入れ替える(データベースを開く前・鍵を読む前。自分用の版だけ)
 {
@@ -61,6 +62,7 @@ export const schedules = scheduleService(deps, sets);
 export const files = fileService(deps);
 export const software = softwareService(deps);
 export const backups = backupService(deps);
+export const modpacks = modpackService(deps);
 export const uploads = uploadService(deps);
 export const shares = shareService(deps);
 export const tokens = tokenService(deps);

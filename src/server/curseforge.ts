@@ -120,6 +120,18 @@ export function curseforgeClient(fetch: FetchLike, apiKey: string) {
       return { projectId, versionId: String(f.id), versionNumber: f.displayName.replace(/\.jar$/i, "").slice(0, 60), filename: f.fileName, url: f.downloadUrl, sha512: "", size: f.fileLength };
     },
 
+    /** プロジェクトの名前などを、まとめて取る(ID → 中身) */
+    async projects(ids: string[]): Promise<Map<string, { title: string; slug: string; iconUrl: string }>> {
+      const out = new Map<string, { title: string; slug: string; iconUrl: string }>();
+      const modIds = ids.filter((x) => CF_ID.test(x)).map(Number);
+      for (let i = 0; i < modIds.length; i += 100) {
+        for (const m of ((await get("/mods", { modIds: modIds.slice(i, i + 100) }))?.data ?? []) as Mod[]) {
+          out.set(String(m.id), { title: m.name, slug: pathOf(m), iconUrl: icon(m) });
+        }
+      }
+      return out;
+    },
+
     async project(projectId: string) {
       if (!CF_ID.test(projectId)) return null;
       const m = (await get(`/mods/${projectId}`))?.data as Mod | undefined;

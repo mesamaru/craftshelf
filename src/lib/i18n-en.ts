@@ -1,6 +1,13 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "Modpack から作る": "Create from a modpack",
+  "Modpack のファイル(.mrpack・CurseForge の zip)を選ぶ": "Choose a modpack file (.mrpack or CurseForge zip)",
+  "Modpack に入っている Mod をライブラリに載せ、Modpack の名前のセットを作ります。Modrinth のものはファイルの中身(SHA-1)で探し、CurseForge のものは「チーム」で API キーを設定すると読めます。設定ファイル(overrides)は取り込みません。": "Adds the modpack's mods to the library and creates a set named after the modpack. Modrinth mods are found by file contents (SHA-1); CurseForge modpacks need an API key set under “Team”. Config files (overrides) are not imported.",
+  ".mrpack か、CurseForge の Modpack(manifest.json が入った zip)を選んでください": "Choose a .mrpack or a CurseForge modpack (zip with manifest.json)",
+  "Modpack の中身が読めませんでした": "Could not read the modpack",
+  "ライブラリに載せられる Mod がありませんでした": "No mods could be added to the library",
+  "CurseForge の Modpack を読むには、「チーム」で CurseForge の API キーを設定してください": "To read CurseForge modpacks, set a CurseForge API key under “Team”",
   "バックアップ": "Backup",
   "次の起動でバックアップと入れ替えます。": "The backup will replace the data on the next start. ",
   "やめています…": "Cancelling…",
@@ -797,6 +804,8 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^セット「(.+?)」を作りました\((\d+) 件\)/, "Created set “$1” ($2 items)"],
+  [/。サーバーでは動かないもの (\d+) 件は飛ばしました/, ". Skipped $1 client-only items"],
   [/^(.+?) から戻しますか[?？]パネルが再起動し、今のデータと入れ替えます(今のデータは消さずに残します)$/, "Restore from $1? The panel restarts and replaces the current data (the current data is kept)"],
   [/^ を外した$/, " removed"], [/^ を更新した$/, " updated"], [/^ を入れた$/, " installed"],
   [/ · 前の版 /, " · previous "],

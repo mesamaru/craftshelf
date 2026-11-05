@@ -134,6 +134,10 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
     async deleteFiles(ident: string, root: string, files: string[]) {
       if (files.length) await req("POST", srv(ident) + "/files/delete", { root, files });
     },
+    // 同じフォルダの中で、ファイルの名前を変える
+    async rename(ident: string, root: string, from: string, to: string) {
+      await req("PUT", srv(ident) + "/files/rename", { root, files: [{ from, to }] });
+    },
   };
 }
 

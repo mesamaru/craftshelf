@@ -1,6 +1,23 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "jar がわかりません": "Jar unknown",
+  "今のビルド": "Current build",
+  "わかりません": "Unknown",
+  "いちばん新しいビルド": "Newest build",
+  "確かめられません": "Can't check",
+  "新しいビルドがあります": "A new build is available",
+  "配布ページで確かめる": "Check the download page",
+  "入れ替えたら再起動する": "Restart after replacing",
+  "入れ替えています…": "Replacing…",
+  "いちばん新しいビルドに入れ替える": "Replace with the newest build",
+  "ビルド不明": "build unknown",
+  "入れ替えるときは、サーバーが配布元から直接 jar を取り込みます。入れ替える前の jar は 1 つだけ残し、そこへ戻せます。Paper・Folia・Velocity・Purpur・Fabric は入れ替えられ、Forge などは新しい版があるかだけを確かめます。": "When replacing, the server downloads the jar directly from the official source. The previous jar is kept (one only) so you can go back. Paper, Folia, Velocity, Purpur and Fabric can be replaced; for Forge and others, only new versions are checked.",
+  "入れ替える前の jar がありません": "There is no previous jar",
+  "配布元に接続できません。しばらくしてからお試しください": "Cannot connect to the download source. Try again later",
+  "サーバー本体の jar が分かりません(サーバーのフォルダに jar が 1 つだけになるようにしてください)": "Cannot tell which jar is the server (keep only one jar in the server folder)",
+  "新しいビルドが見つかりません(Minecraft のバージョンを設定してください)": "No new build found (set the Minecraft version)",
+  "配布元の外の URL なので、取り込みませんでした": "Not fetched because the URL is outside the official source",
   "サーバーの割り当て": "Server assignment",
   "すべてのサーバーを使える": "Can use all servers",
   "サーバーがありません": "No servers",
@@ -751,6 +768,15 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^(.+?) を (.+?) に入れ替えますか[?？]\(今の jar は残し、あとで戻せます\)$/, "Replace $1 with $2? (The current jar is kept so you can go back)"],
+  [/^(.+?) に入れ替えました。再起動しています$/, "Replaced with $1. Restarting"],
+  [/^(.+?) に入れ替えました。サーバーを再起動すると新しい jar で動きます$/, "Replaced with $1. Restart the server to run the new jar"],
+  [/^入れ替える前の jar\((.+?)\)に戻しますか[?？]$/, "Go back to the previous jar ($1)?"],
+  [/^(.+?) に戻しました。サーバーを再起動すると戻した jar で動きます$/, "Went back to $1. Restart the server to run it"],
+  [/^入れ替える前の jar に戻す\((.+?)\)$/, "Go back to the previous jar ($1)"],
+  [/^(.+?) は自動で入れ替えられません\(配布ページで確かめてください\)$/, "$1 can't be replaced automatically (check the download page)"],
+  [/^配布元からエラーが返りました\(HTTP (\d+)\)$/, "The download source returned an error (HTTP $1)"],
+  [/^(.+?) の名前を変えられませんでした$/, "Could not rename $1"],
   [/^「(.+?)」の (.+?) を「(.+?)」と同じ中身にしますか[?？]\(前の中身は履歴に残ります\)$/, "Make $2 on “$1” the same as “$3”? (The previous content is kept in the history)"],
   [/^「(.+?)」の (.+?) を写しました。反映にはサーバーの再起動が要ります$/, "Copied $2 to “$1”. Restart the server to apply"],
   [/^(\d+) 台にない$/, "Missing on $1"],

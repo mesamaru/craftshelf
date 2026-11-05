@@ -119,6 +119,8 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 
 - サーバーの割り当て(表 `member_server_limit`・`member_server`): `member_server_limit` に行がある閲覧者・編集者は、`member_server` のサーバーだけを使える。確かめるのは `serverOf(deps, who, id)`(`who` は `requireTeam` の結果。チームの ID だけを渡すのは予約などの人でない操作だけ)と `needServerAccess`、一覧は `serverScope` で絞る。管理者・オーナーは制限しない。
 
+- サーバー本体(`software.ts`、表 `server_software`): 今のビルドは「入れ替えた記録(jar の大きさが同じなら)→ version_history.json → jar の名前」の順に読む。入れ替えは、今の jar を `<jar>.craftshelf-old` に名前を変えてから、同じ名前で配布元(`BUILD_HOSTS` の公式の取得先だけ)から取り込ませる。取り込めなければ名前を戻す。戻すときは 2 つの名前を入れ替える(もう一度押すと元に戻る)。
+
 ## 予約
 
 - チームごとに 1 つ(表 `team_schedule`)。曜日・時刻(`tz`、いまは日本時間)・すること(`check` = 確かめるだけ / `sync` = そろえる)。決めるのは `server: ["update"]`。

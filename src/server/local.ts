@@ -262,6 +262,12 @@ export function localClient(root: string, fetch: FetchLike, control: Control): P
       await rename(tmp, full);
     },
 
+    async rename(_ident: string, dirRel: string, from: string, to: string) {
+      const dir = inside(root, dirRel);
+      for (const f of [from, to]) if (/[\\/]/.test(f) || f === "." || f === "..") throw new PteroError("ファイルの名前が正しくありません");
+      await rename(join(dir, from), join(dir, to)).catch(() => { throw new PteroError(`${from} の名前を変えられませんでした`); });
+    },
+
     async deleteFiles(_ident: string, dirRel: string, files: string[]) {
       const dir = inside(root, dirRel);
       for (const f of files) {

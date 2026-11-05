@@ -360,3 +360,16 @@ export const memberServer = pgTable(
   },
   (t) => [primaryKey({ columns: [t.teamId, t.userId, t.serverId] })],
 );
+
+// サーバー本体(jar)を入れ替えた記録。入れ替える前の jar は backup_jar の名前で 1 つだけ残し、そこへ戻せる。
+// size は入れ替えたときの jar の大きさ(同じなら、入れ替えたビルドのまま。サーバーを再起動するまで version_history.json は古いため)
+export const serverSoftware = pgTable("server_software", {
+  serverId: text("server_id").primaryKey().references(() => server.id, { onDelete: "cascade" }),
+  jar: text("jar").notNull(),
+  build: text("build").notNull().default(""),
+  mc: text("mc").notNull().default(""),
+  size: integer("size").notNull().default(0),
+  backupJar: text("backup_jar").notNull().default(""),
+  backupBuild: text("backup_build").notNull().default(""),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});

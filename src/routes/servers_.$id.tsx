@@ -8,6 +8,7 @@ import { localSettings, setLocalSettings } from "~/lib/servers-api";
 import { bindServerSet, listSets, syncServerSet } from "~/lib/sets-api";
 import { SOURCE_LABEL, type Source, pageUrl } from "~/lib/sources";
 import { useCan } from "~/lib/use-can";
+import { rollbackSoftware, softwareInfo, updateSoftware } from "~/lib/software-api";
 
 export const Route = createFileRoute("/servers_/$id")({
   beforeLoad: ({ context, params }) => {
@@ -52,6 +53,7 @@ function ServerPage() {
 
       {server.profile && (
         <>
+          <Software id={server.id} admin={can({ server: ["update"] })} />
           <SetBinding id={server.id} name={server.name} edit={edit} onSynced={reload} />
           <Installed id={server.id} items={items} error={error} edit={edit}
             dir={PLATFORMS[server.profile.platform].dir} onChange={reload} />
@@ -398,6 +400,72 @@ function LocalControl({ id }: { id: string }) {
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
       <p className="foot">コマンドは、パネルを動かしている PC の、サーバーのフォルダで実行します。Docker のコンテナを使うときは、パネルのコンテナに /var/run/docker.sock をマウントしてください(ほかのコンテナも操作できるようになるので、要るときだけ)。RCON は server.properties で enable-rcon=true にしてください。</p>
+    </>
+  );
+}
+
+// サーバー本体(jar): 今のビルドといちばん新しいビルド。入れ替える・入れ替える前に戻すのは管理者以上
+function Software({ id, admin }: { id: string; admin: boolean }) {
+  const load = useServerFn(softwareInfo);
+  const update = useServerFn(updateSoftware);
+  const back = useServerFn(rollbackSoftware);
+  const [info, setInfo] = useState<Awaited<ReturnType<typeof softwareInfo>> | null>(null);
+  const [restart, setRestart] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const reload = () => load({ data: { id } }).then((d) => { setInfo(d); setError(""); }, (e) => setError(message(e)));
+  useEffect(() => { reload(); }, [id]);
+  const run = async (ask: string, fn: () => Promise<string>) => {
+    if (!confirm(ask)) return;
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      setNote(await fn());
+      await reload();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <div className="group-title">サーバー本体</div>
+      <section className="group">
+        {!info && !error && <div className="row muted">確かめています…</div>}
+        {info && (
+          <>
+            <div className="row"><span>{info.label}</span><span className="trail muted" translate="no">{info.jar || "jar がわかりません"}</span></div>
+            <div className="row"><span>今のビルド</span><span className="trail" translate="no">{info.build ? `${info.mc ? `${info.mc} · ` : ""}${info.build}` : "わかりません"}</span></div>
+            <div className="row">
+              <span>いちばん新しいビルド</span>
+              <span className="trail" translate="no">{info.latest ? info.latest.build : "確かめられません"}</span>
+            </div>
+            {info.update && <div className="row"><span className="notice small">新しいビルドがあります</span></div>}
+            {info.latest && !info.latest.auto && <a className="row link" href={info.page} target="_blank" rel="noopener noreferrer">配布ページで確かめる</a>}
+            {admin && info.update && info.latest?.auto && (
+              <>
+                <label className="row"><span>入れ替えたら再起動する</span><input className="trail" type="checkbox" checked={restart} onChange={(e) => setRestart(e.target.checked)} /></label>
+                <button className="row link" type="button" disabled={busy || !info.jar} onClick={() => run(
+                  `${info.jar} を ${info.latest!.build} に入れ替えますか?(今の jar は残し、あとで戻せます)`,
+                  async () => { const r = await update({ data: { id, restart } }); return `${r.build} に入れ替えました${r.restarted ? "。再起動しています" : "。サーバーを再起動すると新しい jar で動きます"}`; },
+                )}>{busy ? "入れ替えています…" : "いちばん新しいビルドに入れ替える"}</button>
+              </>
+            )}
+            {admin && info.backup && (
+              <button className="row link" type="button" disabled={busy} onClick={() => run(
+                `入れ替える前の jar(${info.backup!.build || "ビルド不明"})に戻しますか?`,
+                async () => { const r = await back({ data: { id } }); return `${r.build || "前の jar"} に戻しました。サーバーを再起動すると戻した jar で動きます`; },
+              )}>{`入れ替える前の jar に戻す(${info.backup.build || "ビルド不明"})`}</button>
+            )}
+          </>
+        )}
+        {note && <p className="row muted" role="status">{note}</p>}
+        {error && <p className="row error" role="alert">{error}</p>}
+      </section>
+      <p className="foot">入れ替えるときは、サーバーが配布元から直接 jar を取り込みます。入れ替える前の jar は 1 つだけ残し、そこへ戻せます。Paper・Folia・Velocity・Purpur・Fabric は入れ替えられ、Forge などは新しい版があるかだけを確かめます。</p>
     </>
   );
 }

@@ -14,6 +14,7 @@ import { uploadService } from "./uploads";
 import { shareService } from "./shares";
 import { tokenService } from "./tokens";
 import { versionService } from "./versions";
+import { softwareService } from "./software";
 
 export const env = readEnv();
 export const db = await createDb(env.databaseUrl, env.migrationsDir);
@@ -44,6 +45,7 @@ export const sets = setService(deps);
 export const events = eventService(deps);
 export const schedules = scheduleService(deps, sets);
 export const files = fileService(deps);
+export const software = softwareService(deps);
 export const uploads = uploadService(deps);
 export const shares = shareService(deps);
 export const tokens = tokenService(deps);

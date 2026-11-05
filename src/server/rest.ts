@@ -13,6 +13,8 @@ export const ROUTES: Route[] = [
   { method: "GET", path: "/servers/:id", summary: "サーバーの名前・種類・バージョン", handler: (s, h, [id]) => s.library.detail(h, id) },
   { method: "GET", path: "/servers/:id/status", summary: "サーバーの状態(動いているか・CPU・メモリ)", handler: (s, h, [id]) => s.servers.status(h, id) },
   { method: "POST", path: "/servers/:id/power", summary: "起動・停止・再起動・強制停止(signal: start / stop / restart / kill)", handler: (s, h, [id], b) => s.servers.power(h, id, str(b.signal) as never) },
+  { method: "GET", path: "/servers/:id/software", summary: "サーバー本体の今のビルドと、いちばん新しいビルド", handler: (s, h, [id]) => s.software.info(h, id) },
+  { method: "POST", path: "/servers/:id/software", summary: "サーバー本体をいちばん新しいビルドに入れ替える(restart: true で再起動も)", handler: (s, h, [id], b) => s.software.update(h, id, b.restart === true) },
   { method: "GET", path: "/servers/:id/logs", summary: "最近のログ(logs/latest.log の最後の 400 行)", handler: (s, h, [id]) => s.files.logs(h, id) },
   { method: "POST", path: "/servers/:id/command", summary: "コンソールにコマンドを送る(command)", handler: (s, h, [id], b) => s.files.command(h, id, str(b.command)) },
   { method: "GET", path: "/servers/:id/addons", summary: "入っている Mod・プラグイン", handler: (s, h, [id]) => s.library.installed(h, id) },

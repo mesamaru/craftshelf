@@ -1,6 +1,18 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "見た目": "Appearance",
+  "明るさ": "Brightness",
+  "端末に合わせる": "Match the device",
+  "ライト": "Light",
+  "ダーク": "Dark",
+  "アクセントの色": "Accent color",
+  "背景画像を変える": "Change background image",
+  "背景画像を選ぶ": "Choose a background image",
+  "背景画像を外す": "Remove background image",
+  "画像を読めませんでした": "Could not read the image",
+  "背景画像が大きすぎて保存できませんでした。小さい画像を選んでください": "The background image is too large to save. Choose a smaller image",
+  "見た目は、このブラウザだけに保存します(背景画像はサーバーに送りません)。": "Appearance is saved only in this browser (background images are not sent to the server).",
   "Ctrl+K でも開けます": "You can also press Ctrl+K",
   "画面・サーバー・セット・ライブラリを探す": "Search pages, servers, sets and the library",
   "↑↓ で選び、Enter で開きます。Esc で閉じます。": "Use ↑↓ to choose and Enter to open. Esc closes.",
@@ -810,6 +822,11 @@ export const EN: Record<string, string> = {
 };
 /** 1 文字だけのもの(曜日など)。文全体が一致したときだけ置き換える */
 export const EN_WHOLE: Record<string, string> = {
+  "青": "Blue",
+  "緑": "Green",
+  "紫": "Purple",
+  "オレンジ": "Orange",
+  "ピンク": "Pink",
   "画面": "Page",
   "検索": "Search",
   "内容": "Message",

@@ -9,6 +9,7 @@ import { useCan } from "~/lib/use-can";
 import { useServerFn } from "@tanstack/react-start";
 import { createToken, listTokens, removeToken } from "~/lib/tokens-api";
 import { getLang, setLang } from "~/lib/i18n";
+import { ACCENTS, ACCENT_LABELS, type Accent, type Mode, backgroundFrom, getTheme, saveTheme } from "~/lib/theme";
 import { sendFeedback, setTelemetry, telemetryInfo } from "~/lib/telemetry-api";
 
 export const Route = createFileRoute("/settings")({
@@ -53,6 +54,7 @@ function Settings() {
         </div>
       </section>
       <p className="foot">このブラウザでの表示だけが変わります。利用者が入力した名前などは訳しません。</p>
+      <Appearance />
 
       <div className="group-title">セキュリティ</div>
       {user.legacyTotp && (
@@ -413,6 +415,62 @@ function Feedback() {
         {note && <p className="row muted" role="status">{note}</p>}
         {error && <p className="row error" role="alert">{error}</p>}
       </form>
+    </>
+  );
+}
+
+// 見た目(このブラウザだけ): ライト・ダーク・自動、アクセントの色、背景画像
+function Appearance() {
+  const [t, setT] = useState({ mode: "auto" as Mode, accent: "blue" as Accent, background: "" });
+  useEffect(() => { setT(getTheme()); }, []); // 保存した見た目は、読み込んだあとで読む(サーバーで作った画面と合わせるため)
+  const [error, setError] = useState("");
+  const save = (next: typeof t) => {
+    setError("");
+    try {
+      saveTheme(next);
+      setT(next);
+    } catch {
+      setError("背景画像が大きすぎて保存できませんでした。小さい画像を選んでください");
+    }
+  };
+  return (
+    <>
+      <div className="group-title">見た目</div>
+      <section className="group">
+        <div className="row">
+          <span>明るさ</span>
+          <select className="trail" value={t.mode} onChange={(e) => save({ ...t, mode: e.target.value as Mode })} aria-label="明るさ">
+            <option value="auto">端末に合わせる</option>
+            <option value="light">ライト</option>
+            <option value="dark">ダーク</option>
+          </select>
+        </div>
+        <div className="row">
+          <span>アクセントの色</span>
+          <span className="trail seg" role="group" aria-label="アクセントの色">
+            {(Object.keys(ACCENTS) as Accent[]).map((a) => (
+              <button key={a} type="button" className={t.accent === a ? "on" : ""} aria-pressed={t.accent === a} onClick={() => save({ ...t, accent: a })}
+                style={{ borderColor: ACCENTS[a], ...(t.accent === a ? { background: ACCENTS[a] } : { color: ACCENTS[a] }) }}>{ACCENT_LABELS[a]}</button>
+            ))}
+          </span>
+        </div>
+        <label className="row link">
+          {t.background ? "背景画像を変える" : "背景画像を選ぶ"}
+          <input type="file" accept="image/*" hidden onChange={async (e) => {
+            const f = e.target.files?.[0];
+            e.target.value = "";
+            if (!f) return;
+            try {
+              save({ ...t, background: await backgroundFrom(f) });
+            } catch {
+              setError("画像を読めませんでした");
+            }
+          }} />
+        </label>
+        {t.background && <button className="row link danger" type="button" onClick={() => save({ ...t, background: "" })}>背景画像を外す</button>}
+        {error && <p className="row error" role="alert">{error}</p>}
+      </section>
+      <p className="foot">見た目は、このブラウザだけに保存します(背景画像はサーバーに送りません)。</p>
     </>
   );
 }

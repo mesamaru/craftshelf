@@ -174,3 +174,13 @@ pre.log { display: block; max-height: 420px; overflow: auto; margin: 0; white-sp
 pre.log .err { color: var(--danger); } pre.log .warn { color: #c27c00; }
 
 .bell-pop.group { background: var(--sheet); backdrop-filter: blur(30px); -webkit-backdrop-filter: blur(30px); }
+
+/* 検索(Ctrl+K) */
+.palette-scrim { display: flex; justify-content: center; align-items: flex-start; padding-top: 12vh; }
+.palette { width: min(560px, calc(100vw - 24px)); max-height: 70vh; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--sheet); backdrop-filter: blur(30px) saturate(1.6); -webkit-backdrop-filter: blur(30px) saturate(1.6); border: 1px solid var(--line); border-radius: 18px; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.25); }
+.palette-input { font: inherit; font-size: 17px; padding: 14px 16px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: inherit; outline: none; }
+.palette-list { overflow: auto; }
+.palette-hit { width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.palette-hit.on { background: rgba(10, 132, 255, 0.12); }
+.palette .foot { margin: 6px 12px 10px; }

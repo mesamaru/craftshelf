@@ -1,6 +1,9 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "Ctrl+K でも開けます": "You can also press Ctrl+K",
+  "画面・サーバー・セット・ライブラリを探す": "Search pages, servers, sets and the library",
+  "↑↓ で選び、Enter で開きます。Esc で閉じます。": "Use ↑↓ to choose and Enter to open. Esc closes.",
   "お知らせはありません": "No notifications",
   "はじめての設定": "Getting started",
   "サーバーをつなぐ(Pterodactyl パネル・フォルダ)": "Connect servers (Pterodactyl panel or folder)",
@@ -16,10 +19,6 @@ export const EN: Record<string, string> = {
   "開発の参考にするため、版・OS・使っている機能・登録数(おおまかな範囲)だけを送ります。名前・ファイル名・アドレス・IP アドレスなどは送りません。送るのは、ここをオンにしたときだけです。": "To help development, only the version, OS, features in use and rough counts are sent. Names, file names, addresses and IP addresses are never sent. Nothing is sent unless this is turned on.",
   "お問い合わせ・要望": "Contact and requests",
   "お問い合わせの種類": "Type of inquiry",
-  "要望": "Request",
-  "不具合": "Bug",
-  "質問": "Question",
-  "内容": "Message",
   "返事の宛先(任意。Discord の名前・メールアドレスなど)": "Where to reply (optional: Discord name, email, etc.)",
   "版と OS も送る": "Include version and OS",
   "開発者に送る": "Send to the developer",
@@ -811,6 +810,12 @@ export const EN: Record<string, string> = {
 };
 /** 1 文字だけのもの(曜日など)。文全体が一致したときだけ置き換える */
 export const EN_WHOLE: Record<string, string> = {
+  "画面": "Page",
+  "検索": "Search",
+  "内容": "Message",
+  "要望": "Request",
+  "不具合": "Bug",
+  "質問": "Question",
   "件": "items",
   "台": "servers",
   "人": "people",
@@ -831,6 +836,7 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^ライブラリ · /, "Library · "],
   [/^お知らせ (\d+) 件$/, "$1 notifications"],
   [/^セット「(.+?)」を作りました\((\d+) 件\)/, "Created set “$1” ($2 items)"],
   [/。サーバーでは動かないもの (\d+) 件は飛ばしました/, ". Skipped $1 client-only items"],

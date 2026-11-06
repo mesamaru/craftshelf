@@ -9,6 +9,7 @@ import { removeUploadedFile, uploadedFiles } from "~/lib/uploads-api";
 import { createShare } from "~/lib/shares-api";
 import { useCan } from "~/lib/use-can";
 import { Bell } from "~/lib/bell";
+import { OPEN_PALETTE } from "~/lib/palette";
 import { recentEvents } from "~/lib/events-api";
 import { listSets } from "~/lib/sets-api";
 
@@ -44,6 +45,7 @@ function Home() {
     <main className="page narrow">
       <header className="bar">
         <h1>ライブラリ</h1>
+        <button type="button" className="capsule small" onClick={() => window.dispatchEvent(new Event(OPEN_PALETTE))} title="Ctrl+K でも開けます">検索</button>
         <Link to="/team" className="capsule" aria-label="チーム">
           <span translate="no">{team?.name ?? "チーム"}</span>
         </Link>

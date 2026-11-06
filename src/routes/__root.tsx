@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect } from "react";
 import { getLang, startEnglish } from "~/lib/i18n";
+import { Palette } from "~/lib/palette";
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
 import { getAppState } from "~/lib/session";
 import appCss from "~/styles.css?url";
@@ -22,6 +23,7 @@ export const Route = createRootRoute({
 });
 
 function RootDocument({ children }: { children: ReactNode }) {
+  const ctx = Route.useRouteContext() as { user?: unknown };
   useEffect(() => {
     if (getLang() === "en") startEnglish();
   }, []);
@@ -32,6 +34,7 @@ function RootDocument({ children }: { children: ReactNode }) {
       </head>
       <body>
         {children}
+        {ctx.user ? <Palette /> : null}
         <Scripts />
       </body>
     </html>

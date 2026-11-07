@@ -1,6 +1,8 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "配布元がわからないもの(手で置いた jar など)": "Unknown origin (jars placed by hand, etc.)",
+  "配布元がわからないものを、ファイルの中身から探す": "Find the sources of unknown items by file contents",
   "見た目": "Appearance",
   "明るさ": "Brightness",
   "端末に合わせる": "Match the device",
@@ -853,6 +855,7 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^(\d+) 個の配布元が見つかりました$/, "Found sources for $1"],
   [/^ライブラリ · /, "Library · "],
   [/^お知らせ (\d+) 件$/, "$1 notifications"],
   [/^セット「(.+?)」を作りました\((\d+) 件\)/, "Created set “$1” ($2 items)"],

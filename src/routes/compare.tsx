@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { installMod, libraryCatalog, modVersions, removeMod, setModHold } from "~/lib/library-api";
+import { identifyMods, installMod, installedMods, libraryCatalog, modVersions, removeMod, setModHold } from "~/lib/library-api";
 import { useCan } from "~/lib/use-can";
 
 export const Route = createFileRoute("/compare")({
@@ -36,6 +36,23 @@ function Compare() {
   const [error, setError] = useState("");
 
   const servers = data.servers.filter((s) => sel.includes(s.id));
+  // サーバーにある、配布元のわからない jar(このアプリの記録が無いもの)。選んだサーバーごとに読む
+  const listFiles = useServerFn(installedMods);
+  const identify = useServerFn(identifyMods);
+  const [unknown, setUnknown] = useState<Record<string, string[]>>({});
+  const [tick, setTick] = useState(0); // 増やすと、読み直す
+  useEffect(() => {
+    for (const id of sel) {
+      if (id in unknown) continue;
+      listFiles({ data: { id } }).then(
+        (r) => setUnknown((u) => ({ ...u, [id]: r.items.filter((i) => !i.projectId).map((i) => i.filename) })),
+        () => setUnknown((u) => ({ ...u, [id]: [] })), // 種類を決めていない・つながらないサーバーは出さない
+      );
+    }
+  }, [sel.join(), tick]);
+  const unknownRows = [...new Set(servers.flatMap((s) => (unknown[s.id] ?? []).map(baseName)))].sort((a, b) => a.localeCompare(b))
+    .map((name) => ({ name, files: Object.fromEntries(servers.map((s) => [s.id, (unknown[s.id] ?? []).find((f) => baseName(f) === name) ?? ""])) }))
+    .filter((r) => !diffOnly || new Set(servers.map((s) => r.files[s.id])).size > 1);
   const installOf = (i: Item, serverId: string) => i.installs.find((x) => x.serverId === serverId);
   const verOf = (i: Item, serverId: string) => installOf(i, serverId)?.versionNumber;
   const rows = data.items.filter((i) => !diffOnly || new Set(servers.map((s) => verOf(i, s.id) ?? "")).size > 1);
@@ -99,7 +116,7 @@ function Compare() {
                 </tr>
               </thead>
               <tbody>
-                {rows.length === 0 && <tr><td colSpan={servers.length + 1} className="muted">{diffOnly ? "違いはありません" : "ライブラリに何もありません"}</td></tr>}
+                {rows.length === 0 && unknownRows.length === 0 && <tr><td colSpan={servers.length + 1} className="muted">{diffOnly ? "違いはありません" : "ライブラリに何もありません"}</td></tr>}
                 {rows.map((i) => (
                   <tr key={i.id}>
                     <td translate="no">{i.title}</td>
@@ -125,9 +142,39 @@ function Compare() {
                     })}
                   </tr>
                 ))}
+                {unknownRows.length > 0 && <tr className="grp"><td colSpan={servers.length + 1}>配布元がわからないもの(手で置いた jar など)</td></tr>}
+                {unknownRows.map((r) => (
+                  <tr key={`n:${r.name}`}>
+                    <td translate="no">{r.name}</td>
+                    {servers.map((s) => (
+                      <td key={s.id} className={r.files[s.id] ? "small mono" : "muted"} translate="no">{r.files[s.id] || "—"}</td>
+                    ))}
+                  </tr>
+                ))}
               </tbody>
             </table>
           </section>
+          {edit && unknownRows.length > 0 && (
+            <section className="group">
+              <button className="row link" type="button" disabled={busy} onClick={async () => {
+                setBusy(true);
+                setError("");
+                setNote("");
+                try {
+                  let found = 0;
+                  for (const s of servers.filter((x) => (unknown[x.id] ?? []).length)) found += (await identify({ data: { id: s.id } })).found.length;
+                  setNote(`${found} 個の配布元が見つかりました`);
+                  setUnknown({});
+                  setTick((x) => x + 1);
+                  await router.invalidate();
+                } catch (e) {
+                  setError(message(e));
+                } finally {
+                  setBusy(false);
+                }
+              }}>{busy ? "ファイルの中身から探しています…" : "配布元がわからないものを、ファイルの中身から探す"}</button>
+            </section>
+          )}
           <p className="foot">「導入」を押すと、そのサーバーに入れるものとして選べます(いちばん新しい版。タグのボタンで別の版も選べます。もう一度押すと選ぶのをやめます)。入っている版を押すと、版を変える・外すができます。古い版を選んだものは「更新を止める」にします。サーバーの種類に合わないところは「—」です。</p>
           {picks.size > 0 && (
             <section className="group">
@@ -241,4 +288,9 @@ function TagIcon() {
       <circle cx="7.5" cy="7.5" r="1.5" />
     </svg>
   );
+}
+
+// jar の名前から版を除いた名前(サーバーどうしで同じものを並べるため。例 LuckPerms-Bukkit-5.5.71.jar → LuckPerms-Bukkit)
+function baseName(filename: string) {
+  return filename.replace(/\.jar$/i, "").replace(/[-_ ]v?\d+(\.\d+)*([-+.][\w.]*)?$/i, "") || filename;
 }

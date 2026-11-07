@@ -3,28 +3,68 @@
 // CurseForge の Modpack(manifest.json)はプロジェクトの ID を、ライブラリに載せる。サーバーでは動かないもの(env.server が unsupported)は飛ばす
 import { randomUUID } from "node:crypto";
 import { count, eq } from "drizzle-orm";
-import { addonSet, addonSetItem, libraryItem } from "./db/schema";
+import { addonSet, addonSetItem, libraryItem, serverFileHistory } from "./db/schema";
+import { FILE_LIMITS, cleanPath, editable } from "./files";
 import { eventService } from "./events";
 import { HttpError, requireTeam } from "./guard";
 import { readZipTexts } from "./jar";
 import { LIBRARY_LIMITS, fromSource, modTools } from "./library";
 import { curseforgeClient } from "./curseforge";
 import { SET_LIMITS } from "./sets";
-import type { Deps } from "./servers";
+import { type Deps, remote, serverOf } from "./servers";
 
 export const MODPACK_MAX_BYTES = 100 * 1024 * 1024;
+// overrides から書き込むもの: テキストの設定ファイルだけ・300 個まで
+const OVERRIDES_MAX = 300;
 
 type Entry = { source: "modrinth" | "curseforge"; projectId: string };
 
 export function modpackService(deps: Deps) {
   const { db, auth } = deps;
+
+  /**
+   * Modpack の overrides(.mrpack は overrides と server-overrides。server-overrides を優先)のテキストの設定ファイルを、サーバーに書き込む。
+   * 上書きする前の中身は、設定ファイルの履歴に残す
+   */
+  async function writeOverrides(target: Awaited<ReturnType<typeof serverOf>>, data: Uint8Array, cfDir: string | null, userId: string) {
+    const prefixes = cfDir ? [`${cfDir.replace(/\/+$/, "")}/`] : ["overrides/", "server-overrides/"];
+    const all = readZipTexts(data, (n) => prefixes.some((p) => n.startsWith(p)) && !n.endsWith("/")) ?? new Map<string, string>();
+    const files = new Map<string, string>();
+    let skipped = 0;
+    for (const p of prefixes) {
+      for (const [n, text] of all) {
+        if (!n.startsWith(p)) continue;
+        let rel: string;
+        try {
+          rel = cleanPath(n.slice(p.length));
+        } catch {
+          skipped++;
+          continue;
+        }
+        if (!rel || !editable(rel) || Buffer.byteLength(text) > FILE_LIMITS.maxBytes) { skipped++; continue; }
+        files.set(rel, text); // 後の(server-overrides の)ものを優先
+      }
+    }
+    let written = 0;
+    for (const [rel, text] of [...files].slice(0, OVERRIDES_MAX)) {
+      const before = await remote(() => target.client.readFile(target.remoteId, rel)).catch(() => null);
+      if (before === text) continue;
+      await remote(() => target.client.writeFile(target.remoteId, rel, text));
+      if (before !== null) await db.insert(serverFileHistory).values({ id: randomUUID(), serverId: target.row.id, path: rel, content: before, savedBy: userId });
+      written++;
+    }
+    return { written, skipped: skipped + Math.max(0, files.size - OVERRIDES_MAX) };
+  }
   const tools = modTools(deps);
   const { record } = eventService(deps);
 
   return {
     /** Modpack(.mrpack・CurseForge の zip)を読み、入っている Mod をライブラリに載せて、同じ名前のセットを作る(編集者以上) */
-    async import(headers: Headers, filename: string, data: Uint8Array) {
-      const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
+    async import(headers: Headers, filename: string, data: Uint8Array, serverId?: string) {
+      const who = await requireTeam(auth, headers, { library: ["edit"] });
+      const { teamId, user } = who;
+      // 設定ファイルを書き込むのは管理者以上(設定ファイルを直すのと同じ)。先に確かめる
+      const target = serverId ? (await requireTeam(auth, headers, { server: ["update"] }), await serverOf(deps, who, serverId)) : null;
       if (data.byteLength > MODPACK_MAX_BYTES) throw new HttpError(400, "ファイルが大きすぎます");
       const texts = readZipTexts(data, ["modrinth.index.json", "manifest.json"]);
       if (!texts || (!texts.has("modrinth.index.json") && !texts.has("manifest.json"))) {
@@ -91,7 +131,13 @@ export function modpackService(deps: Deps) {
       if (inSet.length) await db.insert(addonSetItem).values(inSet.map((itemId) => ({ setId, itemId })));
       // 取り込んだあとは、ライブラリの同じ名前の項目がそのまま使われる(足しただけ)
       await record({ teamId, userId: user.id, kind: "sets", action: "Modpack から作る", target: name, detail: `${inSet.length} 件${missing.length ? `・見つからないもの ${missing.length} 件` : ""}` });
-      return { name, setId, added: inSet.length, missing, skipped };
+      const overrides = target ? await writeOverrides(target, data, texts.has("modrinth.index.json") ? null : (() => {
+        try { return String(JSON.parse(texts.get("manifest.json")!).overrides || "overrides"); } catch { return "overrides"; }
+      })(), user.id) : null;
+      if (overrides && target) {
+        await record({ teamId, userId: user.id, kind: "admin", action: "Modpack の設定ファイルを書き込む", target: target.row.name, detail: `${name}・${overrides.written} 個` });
+      }
+      return { name, setId, added: inSet.length, missing, skipped, overrides };
     },
   };
 }

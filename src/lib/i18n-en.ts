@@ -61,7 +61,10 @@ export const EN: Record<string, string> = {
   "自分用の版だけで使えます": "Available only in the self-hosted edition",
   "Modpack から作る": "Create from a modpack",
   "Modpack のファイル(.mrpack・CurseForge の zip)を選ぶ": "Choose a modpack file (.mrpack or CurseForge zip)",
-  "Modpack に入っている Mod をライブラリに載せ、Modpack の名前のセットを作ります。Modrinth のものはファイルの中身(SHA-1)で探し、CurseForge のものは「チーム」で API キーを設定すると読めます。設定ファイル(overrides)は取り込みません。": "Adds the modpack's mods to the library and creates a set named after the modpack. Modrinth mods are found by file contents (SHA-1); CurseForge modpacks need an API key set under “Team”. Config files (overrides) are not imported.",
+  "Modpack に入っている Mod をライブラリに載せ、Modpack の名前のセットを作ります。Modrinth のものはファイルの中身(SHA-1)で探し、CurseForge のものは「チーム」で API キーを設定すると読めます。設定ファイル(overrides)は、サーバーを選んだときだけ、そのサーバーに書き込みます(テキストの設定ファイルだけ。上書きする前の中身は履歴に残ります。管理者以上)。": "Adds the modpack's mods to the library and creates a set named after the modpack. Modrinth mods are found by file contents (SHA-1); CurseForge modpacks need an API key set under “Team”. Config files (overrides) are written only when you choose a server (text config files only; previous content is kept in the history; admins and above).",
+  "設定ファイル(overrides)も書き込むサーバー": "Also write config files (overrides) to",
+  "設定ファイルも書き込むサーバー": "Server to write config files to",
+  "書き込まない": "Don't write",
   ".mrpack か、CurseForge の Modpack(manifest.json が入った zip)を選んでください": "Choose a .mrpack or a CurseForge modpack (zip with manifest.json)",
   "Modpack の中身が読めませんでした": "Could not read the modpack",
   "ライブラリに載せられる Mod がありませんでした": "No mods could be added to the library",
@@ -873,6 +876,7 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/。設定ファイルを (\d+) 個書き込みました/, ". Wrote $1 config files"],
   [/^「(.+?)」の (.+?) を保存しました。反映にはサーバーの再起動が要ります$/, "Saved $2 on “$1”. Restart the server to apply"],
   [/^Minecraft を (.+?) から (.+?) に上げますか[?？]ワールドは新しいバージョンに変換され、元のバージョンには戻せません。先にワールドのバックアップを取り、プラグイン・Mod が (.+?) に対応しているかも確かめてください。$/, "Upgrade Minecraft from $1 to $2? The world is converted to the new version and cannot go back. Back up the world first, and check that plugins and mods support $3."],
   [/^(.+?)\(ビルド (.+?)\)に入れ替えました/, "Replaced with $1 (build $2)"],

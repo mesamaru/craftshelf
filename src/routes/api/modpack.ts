@@ -12,7 +12,8 @@ export const Route = createFileRoute("/api/modpack")({
           const filename = new URL(request.url).searchParams.get("filename") ?? "";
           if (!filename || filename.length > 200 || /[\\/]/.test(filename)) throw new HttpError(400, "ファイルの名前が正しくありません");
           if (Number(request.headers.get("content-length") ?? 0) > MODPACK_MAX_BYTES) throw new HttpError(400, "ファイルが大きすぎます");
-          return Response.json(await modpacks.import(request.headers, filename, new Uint8Array(await request.arrayBuffer())));
+          const server = new URL(request.url).searchParams.get("server") || undefined;
+          return Response.json(await modpacks.import(request.headers, filename, new Uint8Array(await request.arrayBuffer()), server));
         } catch (e) {
           if (e instanceof HttpError) return Response.json({ message: e.message }, { status: e.status });
           throw e;

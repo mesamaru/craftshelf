@@ -59,3 +59,35 @@ describe("Modpack", () => {
     expect(await code(packs.import(owner, "x.zip", new TextEncoder().encode("not zip")))).toBe(400);
   });
 });
+
+describe("Modpack の設定ファイル(overrides)", () => {
+  it("選んだサーバーに、テキストの設定ファイルだけを書き込む(server-overrides を優先。上書きした前の中身は履歴に残す)", async () => {
+    const { mkdtempSync, mkdirSync, readFileSync, writeFileSync, existsSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const { serverService } = await import("~/server/servers");
+    const { fileService } = await import("~/server/files");
+    const dataDir = mkdtempSync(join(tmpdir(), "cs-mp-data-"));
+    const root = mkdtempSync(join(tmpdir(), "cs-mp-srv-"));
+    writeFileSync(join(root, "fabric-server-mc.1.21.1-loader.0.16.9-launcher.1.0.1.jar"), "x");
+    writeFileSync(join(root, "server.properties"), "motd=old\n");
+    mkdirSync(join(root, "mods"));
+    const deps = { db: t.db, auth: t.auth, secret: SECRET, fetch: fake, local: { dataDir } };
+    await serverService(deps).addLocal(owner, { rootDir: root, name: "Fabric" });
+    const id = (await serverService(deps).listServers(owner)).find((s) => s.name === "Fabric")!.id;
+    const pack = makeZip({
+      "modrinth.index.json": JSON.stringify({ name: "Cfg Pack", versionId: "2", files: [{ path: "mods/sodium.jar", hashes: { sha1: "a".repeat(40) } }] }),
+      "overrides/config/sodium.json": "{\"a\":1}",
+      "server-overrides/config/sodium.json": "{\"a\":2}",
+      "overrides/server.properties": "motd=pack\n",
+      "overrides/options.dat": "binary",
+    });
+    const r = await modpackService(deps).import(owner, "cfg.mrpack", pack, id);
+    expect(r.overrides).toEqual({ written: 2, skipped: 1 });
+    expect(readFileSync(join(root, "config", "sodium.json"), "utf8")).toBe("{\"a\":2}");
+    expect(readFileSync(join(root, "server.properties"), "utf8")).toBe("motd=pack\n");
+    expect(existsSync(join(root, "options.dat"))).toBe(false);
+    const f = await fileService(deps).read(owner, id, "server.properties");
+    expect((await fileService(deps).historyContent(owner, id, f.history[0].id)).content).toBe("motd=old\n");
+  });
+});

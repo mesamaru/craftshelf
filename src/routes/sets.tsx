@@ -46,7 +46,7 @@ function Sets() {
       {sets.map((s) => <SetCard key={s.id} set={s} catalog={catalog} edit={edit} onChange={reload} />)}
       <p className="foot">セットは、ライブラリから選んだ Mod・プラグインの組み合わせです。「サーバーに入れる」で、サーバーの種類に合うもののうち、まだ入っていないものをまとめて入れます(Paper のサーバーに Mod は入れません)。</p>
       {edit && <NewSet onCreated={reload} />}
-      {edit && <FromModpack onCreated={reload} />}
+      {edit && <FromModpack onCreated={reload} servers={can({ server: ["update"] }) ? catalog.servers : []} />}
     </main>
   );
 }
@@ -233,7 +233,8 @@ function Schedule({ editable }: { editable: boolean }) {
 }
 
 // Modpack(.mrpack・CurseForge の zip)から、ライブラリとセットを作る
-function FromModpack({ onCreated }: { onCreated: () => void }) {
+function FromModpack({ onCreated, servers }: { onCreated: () => void; servers: { id: string; name: string }[] }) {
+  const [server, setServer] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
@@ -242,10 +243,10 @@ function FromModpack({ onCreated }: { onCreated: () => void }) {
     setNote("");
     setError("");
     try {
-      const res = await fetch(`/api/modpack?filename=${encodeURIComponent(file.name)}`, { method: "POST", body: file });
+      const res = await fetch(`/api/modpack?filename=${encodeURIComponent(file.name)}${server ? `&server=${encodeURIComponent(server)}` : ""}`, { method: "POST", body: file });
       const j = await res.json();
       if (!res.ok) throw new Error(j.message ?? "読み込めませんでした");
-      setNote(`セット「${j.name}」を作りました(${j.added} 件)${j.skipped ? `。サーバーでは動かないもの ${j.skipped} 件は飛ばしました` : ""}${j.missing.length ? `。見つからなかったもの: ${j.missing.join("、")}` : ""}`);
+      setNote(`セット「${j.name}」を作りました(${j.added} 件)${j.skipped ? `。サーバーでは動かないもの ${j.skipped} 件は飛ばしました` : ""}${j.missing.length ? `。見つからなかったもの: ${j.missing.join("、")}` : ""}${j.overrides ? `。設定ファイルを ${j.overrides.written} 個書き込みました` : ""}`);
       onCreated();
     } catch (e) {
       setError(message(e));
@@ -257,6 +258,15 @@ function FromModpack({ onCreated }: { onCreated: () => void }) {
     <>
       <div className="group-title">Modpack から作る</div>
       <section className="group">
+        {servers.length > 0 && (
+          <div className="row">
+            <span>設定ファイル(overrides)も書き込むサーバー</span>
+            <select className="trail" value={server} onChange={(e) => setServer(e.target.value)} aria-label="設定ファイルも書き込むサーバー">
+              <option value="">書き込まない</option>
+              {servers.map((s) => <option key={s.id} value={s.id} translate="no">{s.name}</option>)}
+            </select>
+          </div>
+        )}
         <label className="row link">
           {busy ? "読み込んでいます…" : "Modpack のファイル(.mrpack・CurseForge の zip)を選ぶ"}
           <input type="file" accept=".mrpack,.zip" hidden disabled={busy} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) send(f); }} />
@@ -264,7 +274,7 @@ function FromModpack({ onCreated }: { onCreated: () => void }) {
         {note && <p className="row muted" role="status" translate="no">{note}</p>}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">Modpack に入っている Mod をライブラリに載せ、Modpack の名前のセットを作ります。Modrinth のものはファイルの中身(SHA-1)で探し、CurseForge のものは「チーム」で API キーを設定すると読めます。設定ファイル(overrides)は取り込みません。</p>
+      <p className="foot">Modpack に入っている Mod をライブラリに載せ、Modpack の名前のセットを作ります。Modrinth のものはファイルの中身(SHA-1)で探し、CurseForge のものは「チーム」で API キーを設定すると読めます。設定ファイル(overrides)は、サーバーを選んだときだけ、そのサーバーに書き込みます(テキストの設定ファイルだけ。上書きする前の中身は履歴に残ります。管理者以上)。</p>
     </>
   );
 }

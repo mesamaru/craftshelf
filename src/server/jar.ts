@@ -8,7 +8,8 @@ const MAX_ENTRY = 1024 * 1024; // 説明ファイルは 1 MB まで
 const WANTED = ["plugin.yml", "paper-plugin.yml", "bungee.yml", "velocity-plugin.json", "fabric.mod.json", "quilt.mod.json", "META-INF/mods.toml", "META-INF/neoforge.mods.toml"];
 
 /** zip から、名前の決まったファイルの中身(テキスト)を取り出す。zip でなければ null */
-export function readZipTexts(buf: Uint8Array, names: string[] = WANTED): Map<string, string> | null {
+export function readZipTexts(buf: Uint8Array, names: string[] | ((name: string) => boolean) = WANTED): Map<string, string> | null {
+  const want = typeof names === "function" ? names : (n: string) => names.includes(n);
   const b = Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength);
   // 目次の終わり(EOCD)を後ろから探す
   let eocd = -1;
@@ -28,7 +29,7 @@ export function readZipTexts(buf: Uint8Array, names: string[] = WANTED): Map<str
     const local = b.readUInt32LE(p + 42);
     const name = b.subarray(p + 46, p + 46 + nlen).toString("utf8");
     p += 46 + nlen + xlen + clen;
-    if (!names.includes(name) || usize > MAX_ENTRY || local + 30 > b.length || b.readUInt32LE(local) !== 0x04034b50) continue;
+    if (!want(name) || usize > MAX_ENTRY || local + 30 > b.length || b.readUInt32LE(local) !== 0x04034b50) continue;
     const start = local + 30 + b.readUInt16LE(local + 26) + b.readUInt16LE(local + 28);
     const data = b.subarray(start, start + csize);
     try {

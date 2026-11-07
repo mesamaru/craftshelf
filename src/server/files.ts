@@ -24,7 +24,7 @@ export function cleanPath(input: string) {
 const CONFIG_SCAN: [string, number][] = [["", 0], ["plugins", 3], ["config", 4], ["mods/config", 3]];
 const CONFIG_SKIP = new Set(["logs", "cache", "libraries", "crash-reports", "versions", "world", "world_nether", "world_the_end"]);
 export const CONFIG_MAX = 400;
-const editable = (path: string) => TEXT_FILE.test(path) || /(^|\/)(eula\.txt|server\.properties|\.env)$/i.test(path);
+export const editable = (path: string) => TEXT_FILE.test(path) || /(^|\/)(eula\.txt|server\.properties|\.env)$/i.test(path);
 
 export function fileService(deps: Deps) {
   const { db, auth } = deps;

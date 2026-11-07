@@ -5,7 +5,7 @@ import { createWriteStream, existsSync, realpathSync, statSync } from "node:fs";
 import { mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
 import { request } from "node:http";
 import { Socket } from "node:net";
-import { isAbsolute, join, resolve, sep } from "node:path";
+import { isAbsolute, join, resolve, sep, dirname } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { MC_VERSION, type Platform } from "~/lib/platforms";
@@ -258,6 +258,7 @@ export function localClient(root: string, fetch: FetchLike, control: Control): P
     async writeFile(_ident: string, file: string, text: string) {
       const full = inside(root, file);
       const tmp = `${full}.craftshelf-tmp`;
+      await mkdir(dirname(full), { recursive: true });
       await writeFile(tmp, text, "utf8");
       await rename(tmp, full);
     },

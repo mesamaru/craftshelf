@@ -234,7 +234,7 @@ def api_system_update_apply():
 @app.get("/api/system/v03")
 @require_perm("system")
 def api_system_v03():
-    """v03(開発版)に切り替えられるか・GitHub にある v03 の版。"""
+    """v03 に切り替えられるか・GitHub にある v03 の版(安定版と開発版)・移るときに引き継がないもの。"""
     reason = v03switch.unsupported()
     if reason:
         return jsonify(unsupported=reason, releases=[])
@@ -242,7 +242,8 @@ def api_system_v03():
         rels = v03switch.releases()[:5]
     except v03switch.SwitchError as e:
         raise ApiError(e.message, 502)
-    return jsonify(unsupported=None, releases=[{k: r[k] for k in ("version", "notes", "published_at")} for r in rels])
+    return jsonify(unsupported=None, releases=[{k: r[k] for k in ("version", "stable", "notes", "published_at")} for r in rels],
+                   preflight=v03switch.preflight(db()))
 
 
 def _v03_job(job, version):
@@ -255,7 +256,7 @@ def _v03_job(job, version):
         v03switch.install(version, note=job.note)
     except v03switch.SwitchError as e:
         raise ApiError(e.message, 502) from e
-    audit("v03(開発版)に切り替え", f"v{version}", "", user=job.user)
+    audit("v03 に切り替え", f"v{version}", "", user=job.user)
     job.note(f"v{version} に切り替えます。再起動します(数十秒で画面が v03 に切り替わります)")
     threading.Timer(1.5, v03switch.restart).start()
 
@@ -263,14 +264,14 @@ def _v03_job(job, version):
 @app.post("/api/system/v03")
 @require_perm("system")
 def api_system_v03_switch():
-    """v03(開発版)の指定した版に切り替える(ダウンロードして確かめ、再起動する)。"""
+    """v03 の指定した版に切り替える(ダウンロードして確かめ、再起動する)。"""
     version = str((request.get_json(silent=True) or {}).get("version") or "")
     if not re.fullmatch(r"03\.\d{2}\.\d{2}", version):
         raise ApiError("版の形が違います")
     reason = v03switch.unsupported()
     if reason:
         raise ApiError(reason, 409)
-    job = start_job("v03", f"v03(開発版)v{version} への切り替え", _v03_job, version, user=current_user()["username"])
+    job = start_job("v03", f"v03 v{version} への切り替え", _v03_job, version, user=current_user()["username"])
     return jsonify(job.public())
 
 

@@ -150,3 +150,34 @@ def test_gunicorn_hands_over_to_v03(tmp_path):
     env = {**os.environ, "DATA_DIR": str(tmp_path), "MCPL_NO_SCHEDULER": "1", "CRAFTSHELF_TELEMETRY_URL": ""}
     subprocess.run([sys.executable, "-m", "gunicorn", "-b", "127.0.0.1:0", "app:app"], cwd=repo, env=env, timeout=60)
     assert (tmp_path / "ran").read_text().split() == ["8080", "self", str(app)]
+
+
+def test_pick_releases_stable_and_dev():
+    """安定版(v03.xx.xx)と開発版(dev-v03.xx.xx)の両方を拾い、同じ版なら安定版を使う。"""
+    def rel(tag, v):
+        return {"tag_name": tag, "assets": [{"name": f"craftshelf-v03-{v}.tar.gz", "browser_download_url": f"https://x/{tag}.tgz"},
+                                            {"name": "SHA256SUMS", "browser_download_url": "https://x/s"}]}
+    got = v03switch.pick_releases([rel("dev-v03.40.00", "03.40.00"), rel("v03.40.00", "03.40.00"), rel("dev-v03.41.00", "03.41.00"), rel("v02.24.00", "02.24.00")])
+    assert [(r["version"], r["stable"]) for r in got] == [("03.41.00", False), ("03.40.00", True)]
+    assert got[1]["url"] == "https://x/v03.40.00.tgz"
+
+
+def test_preflight_lists_what_is_not_carried_over():
+    import sqlite3
+    conn = sqlite3.connect(":memory:")
+    conn.executescript("""
+        CREATE TABLE items (id INTEGER PRIMARY KEY, category TEXT);
+        INSERT INTO items (category) VALUES ('plugin'), ('datapack'), ('resourcepack');
+        CREATE TABLE passkeys (id INTEGER PRIMARY KEY);
+        INSERT INTO passkeys VALUES (1);
+        CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
+        INSERT INTO settings VALUES ('discord_webhook', 'https://discord.com/api/webhooks/x');
+        CREATE TABLE users (id INTEGER PRIMARY KEY, perms TEXT, totp_enabled INTEGER);
+        INSERT INTO users (perms, totp_enabled) VALUES ('[]', 0);
+    """)
+    notes = v03switch.preflight(conn)
+    assert any("データパック・リソースパックなど 2 件" in x for x in notes)
+    assert any(x.startswith("パスキー") for x in notes)
+    assert any(x.startswith("Discord") for x in notes)
+    assert not any(x.startswith("API トークン") for x in notes)  # 表が無ければ数えない
+    assert not any("個別に付けた権限" in x for x in notes)

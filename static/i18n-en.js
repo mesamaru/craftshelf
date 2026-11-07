@@ -3,6 +3,20 @@
    画面の文字は日本語で書き、英語表示のときにこの辞書で置き換える。長い語句から順に置き換えるので、
    文の一部だけが一致する短い語句は、長い文で先に置き換えられる。新しい文言を足したらここにも追加する。 */
 window.CS_EN = {
+  "移るときに引き継がないもの": "Not carried over when moving",
+  "v03 に移る": "Move to v03",
+  "移り方の案内": "migration guide",
+  "次の大きなバージョン(v03)の開発版です。": "This is a development build of the next major version (v03). ",
+  "次の大きなバージョン(v03)です。": "This is the next major version (v03). ",
+  "利用者・パスワード・二段階認証・Pterodactyl の設定とサーバー・ライブラリ・セット・フォルダのサーバー・保存先を取り込みます。v02 のデータは書き換えないので、v03 の「アカウント」→「パネルのバージョン」→「イメージの版に戻す」で v02 に戻れます(v03 で変えたことは v02 には入りません)。Docker は restart の設定(unless-stopped など)が要ります。詳しくは": "Users, passwords, two-factor authentication, Pterodactyl settings and servers, library, sets, folder servers and storage are imported. v02's data is not changed, so you can go back to v02 with v03's Account → Panel version → Use the image version (changes made in v03 are not carried back to v02). Docker needs a restart policy (unless-stopped, etc.). See the",
+  "パスキー(移ったあとで登録し直してください)": "Passkeys (register them again after moving)",
+  "API トークン(v03 で作り直してください)": "API tokens (create them again in v03)",
+  "共有リンク(v03 で作り直してください)": "Share links (create them again in v03)",
+  "Discord への通知の設定(v03 の「チーム」で設定し直してください)": "Discord notification settings (set them again under v03's Team)",
+  "セットの版の固定(v03 はいつもサーバーに合う新しい版を入れます)": "Pinned versions in sets (v03 always installs the newest version that fits the server)",
+  "ユーザーに個別に付けた権限(v03 の役割に置き換わります)": "Per-user permissions (replaced by v03 roles)",
+  "二段階認証の予備のコード(認証アプリのコードはそのまま使えます)": "Two-factor backup codes (authenticator app codes keep working)",
+  "切り替える前にいまのデータを退避し、ダウンロード(約 60 MB)のあと再起動します。v02 のデータは書き換えません。": "The current data is backed up first; after downloading (about 60 MB) the panel restarts. v02's data is not changed.",
   "Pterodactyl のサーバー": "Pterodactyl servers",
   "すべてのサーバーを使える": "Can use all servers",
   "オフにすると、下で選んだサーバーだけを連携・操作できます": "When off, they can link and operate only the servers selected below",
@@ -1882,6 +1896,8 @@ window.CS_EN = {
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [
+  [/データパック・リソースパックなど (\d+) 件\(v03 はプラグインと Mod だけを扱います\)/g, "$1 data packs, resource packs, etc. (v03 handles only plugins and mods)"],
+  [/v03 v([\d.]+) に移りますか[?？]/g, "Move to v03 v$1?"],
   [/「(.+?)」さんが連携$/g, "linked by $1"],
   [/v03.開発版.v([\d.]+) に切り替えますか[?？]/g, "Switch to v03 (development) v$1?"],
   [/v([\d.]+) は作りが新しくなったため、このパネルの自動更新では切り替えられません。いまのパネルはそのまま使えます\(移る方法は、v03 の公開に合わせて案内します\)/g, "v$1 is rebuilt from scratch, so this panel cannot update to it automatically. You can keep using this panel (we will explain how to move when v03 is released)"],

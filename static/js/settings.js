@@ -990,7 +990,7 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
         <div class="group-title">受け取るアップデート</div>
         <div class="group">${Object.entries(CH).map(([k, [n, tag, desc]]) => `<label class="toggle-row ch-row"><span class="main">${n}${tag ? ` <span class="badge${k === "preview" ? " upd" : " ok"}">${tag}</span>` : ""}<small>${desc}</small></span>
           <input type="radio" class="switch" name="update_channel" value="${k}"${k === ch ? " checked" : ""}></label>`).join("")}</div>
-        <div class="group-title">v03(開発版)</div>
+        <div class="group-title">v03</div>
         <div id="suV03"><div class="empty"><span class="spinner"></span></div></div>
         ${d.blocked ? `<div class="result warn">${esc(d.blocked)}</div>` : ""}
         ${d.major_up && d.update_available && !d.blocked ? `<div class="result">${icon("shield")} v${esc(d.current)} → v${esc(d.latest)} は大きなアップデートです。インストールの前に、いまのデータを自動で退避します(下の「アップデートの前の状態」からいつでも戻せます)。</div>` : ""}
@@ -1023,18 +1023,23 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
       const loadV03 = async () => {
         let v;
         try { v = await api("/api/system/v03"); } catch (ex) { $("#suV03", body).innerHTML = `<div class="result err">${esc(ex.message)}</div>`; return; }
-        const top = v.releases[0];
+        // 安定版があればそれを、無ければいちばん新しい開発版を出す
+        const top = v.releases.find((r) => r.stable) || v.releases[0];
+        const pre = (v.preflight || []).length ? `<div class="group-title">移るときに引き継がないもの</div><div class="group">${v.preflight.map((x) => `<div class="row"><span class="main">${esc(x)}</span></div>`).join("")}</div>` : "";
         $("#suV03", body).innerHTML = v.unsupported ? `<div class="group-foot">${esc(v.unsupported)}</div>`
           : !top ? `<div class="group-foot">GitHub に v03 の版がまだありません</div>`
           : `<div class="group"><div class="row"><span class="cicon sm c-mod">${icon("sparkle")}</span>
-              <span class="main"><span class="title">v${esc(top.version)}</span><span class="subtitle">${esc(top.published_at ? fmtDateTime(top.published_at) : "")}</span></span>
-              <span class="trail"><button class="btn small tinted" type="button" data-v03="${esc(top.version)}">切り替える</button></span></div></div>
-            <div class="group-foot">次の大きなバージョン(v03)の開発版です。利用者・パスワード・二段階認証・Pterodactyl の設定とサーバーを取り込みます(ライブラリ・セット・フォルダのサーバーはまだです)。v02 のデータは書き換えないので、v03 の「アカウント」→「パネルのバージョン」→「イメージの版に戻す」で v02 に戻れます。Docker は restart の設定(unless-stopped など)が要ります。</div>`;
+              <span class="main"><span class="title">v${esc(top.version)}${top.stable ? "" : ' <span class="badge upd">開発版</span>'}</span><span class="subtitle">${esc(top.published_at ? fmtDateTime(top.published_at) : "")}</span></span>
+              <span class="trail"><button class="btn small tinted" type="button" data-v03="${esc(top.version)}" data-stable="${top.stable ? 1 : 0}">${top.stable ? "v03 に移る" : "切り替える"}</button></span></div></div>
+            ${pre}
+            <div class="group-foot">次の大きなバージョン(v03)${top.stable ? "" : "の開発版"}です。利用者・パスワード・二段階認証・Pterodactyl の設定とサーバー・ライブラリ・セット・フォルダのサーバー・保存先を取り込みます。v02 のデータは書き換えないので、v03 の「アカウント」→「パネルのバージョン」→「イメージの版に戻す」で v02 に戻れます(v03 で変えたことは v02 には入りません)。Docker は restart の設定(unless-stopped など)が要ります。詳しくは <a href="https://github.com/mesamaru/craftshelf/blob/main/MIGRATION.md" target="_blank" rel="noopener noreferrer">移り方の案内</a>。</div>`;
       };
       loadV03();
       $("#suV03", body).addEventListener("click", (e) => {
         const b = e.target.closest("[data-v03]"); if (!b) return;
-        if (!(cfm([`v03(開発版)v${b.dataset.v03} に切り替えますか?`, "開発中の版なので、使えない機能や不具合があります。切り替える前にいまのデータを退避し、ダウンロード(約 60 MB)のあと再起動します。v02 のデータは書き換えません。"].join("\n\n")))) return;
+        const stable = b.dataset.stable === "1";
+        if (!(cfm([stable ? `v03 v${b.dataset.v03} に移りますか?` : `v03(開発版)v${b.dataset.v03} に切り替えますか?`,
+          `${stable ? "" : "開発中の版なので、使えない機能や不具合があります。"}切り替える前にいまのデータを退避し、ダウンロード(約 60 MB)のあと再起動します。v02 のデータは書き換えません。`].join("\n\n")))) return;
         busy(b, () => startSelfUpdate({ ...d, latest: b.dataset.v03 }, { start: () => api("/api/system/v03", { json: { version: b.dataset.v03 } }), v03: true }), "開始しています…");
       });
       $("#suSnaps", body).addEventListener("click", async (e) => {

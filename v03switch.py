@@ -20,7 +20,7 @@ import requests
 
 REPO = "mesamaru/craftshelf"
 NODE_INDEX = "https://nodejs.org/dist/latest-v24.x/"
-_TAG = re.compile(r"^dev-v(03\.\d{2}\.\d{2})$")
+_TAG = re.compile(r"^(dev-)?v(03\.\d{2}\.\d{2})$")  # v03.xx.xx = 安定版 / dev-v03.xx.xx = 開発版
 _UA = {"User-Agent": "craftshelf"}
 
 
@@ -79,12 +79,54 @@ def pick_releases(items):
         m = _TAG.match(str((r or {}).get("tag_name") or ""))
         if not m:
             continue
+        version, stable = m.group(2), not m.group(1)
         assets = {a.get("name"): a.get("browser_download_url") for a in r.get("assets") or [] if isinstance(a, dict)}
-        url, sums = assets.get(f"craftshelf-v03-{m.group(1)}.tar.gz"), assets.get("SHA256SUMS")
+        url, sums = assets.get(f"craftshelf-v03-{version}.tar.gz"), assets.get("SHA256SUMS")
         if url and sums:
-            out.append({"version": m.group(1), "url": url, "sums_url": sums, "notes": str(r.get("body") or "")[:2000],
+            out.append({"version": version, "stable": stable, "url": url, "sums_url": sums, "notes": str(r.get("body") or "")[:2000],
                         "published_at": r.get("published_at") or ""})
-    return sorted(out, key=lambda x: x["version"], reverse=True)
+    # 同じ版が安定版と開発版の両方にあれば、安定版を使う
+    best = {}
+    for r in out:
+        if r["version"] not in best or r["stable"]:
+            best[r["version"]] = r
+    return sorted(best.values(), key=lambda x: x["version"], reverse=True)
+
+
+def preflight(conn):
+    """v03 に移るときに引き継がないもの(画面で先に知らせる)。v03 の取り込み(import-v02.ts)に合わせる。"""
+    def n(sql):
+        try:
+            return conn.execute(sql).fetchone()[0] or 0
+        except Exception:  # noqa: BLE001  古い版のデータで表が無いとき
+            return 0
+
+    def setting(key):
+        try:
+            r = conn.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+            return r[0] if r else ""
+        except Exception:  # noqa: BLE001
+            return ""
+
+    out = []
+    other = n("SELECT COUNT(*) FROM items WHERE category NOT IN ('plugin', 'mod')")
+    if other:
+        out.append(f"データパック・リソースパックなど {other} 件(v03 はプラグインと Mod だけを扱います)")
+    if n("SELECT COUNT(*) FROM passkeys"):
+        out.append("パスキー(移ったあとで登録し直してください)")
+    if n("SELECT COUNT(*) FROM api_tokens"):
+        out.append("API トークン(v03 で作り直してください)")
+    if n("SELECT COUNT(*) FROM shares"):
+        out.append("共有リンク(v03 で作り直してください)")
+    if setting("discord_webhook"):
+        out.append("Discord への通知の設定(v03 の「チーム」で設定し直してください)")
+    if n("SELECT COUNT(*) FROM set_items WHERE version_id IS NOT NULL"):
+        out.append("セットの版の固定(v03 はいつもサーバーに合う新しい版を入れます)")
+    if n("SELECT COUNT(*) FROM users WHERE perms IS NOT NULL AND perms != '' AND perms != '[]'"):
+        out.append("ユーザーに個別に付けた権限(v03 の役割に置き換わります)")
+    if n("SELECT COUNT(*) FROM users WHERE totp_enabled=1"):
+        out.append("二段階認証の予備のコード(認証アプリのコードはそのまま使えます)")
+    return out
 
 
 def releases():

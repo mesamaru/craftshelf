@@ -1,6 +1,16 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "Minecraft のバージョンを上げる": "Upgrade Minecraft",
+  "上げる Minecraft のバージョン": "Minecraft version to upgrade to",
+  "上げる": "Upgrade",
+  "本体": "Software",
+  "新しいビルド": "New build",
+  "入れ替える": "Replace",
+  "入れ替えました。サーバーを再起動すると新しい jar で動きます": "Replaced. Restart the servers to run the new jars",
+  "Paper・Folia・Velocity・Purpur・Fabric は入れ替えられます。Minecraft のバージョンを上げるのと、入れ替える前の jar に戻すのは、それぞれのサーバーの画面からできます。": "Paper, Folia, Velocity, Purpur and Fabric can be replaced. Upgrading Minecraft and going back to the previous jar are done on each server's page.",
+  "この Minecraft のバージョンには上げられません": "Can't upgrade to this Minecraft version",
+  "まだサーバーがありません。": "No servers yet.",
   "配布元がわからないもの(手で置いた jar など)": "Unknown origin (jars placed by hand, etc.)",
   "配布元がわからないものを、ファイルの中身から探す": "Find the sources of unknown items by file contents",
   "見た目": "Appearance",
@@ -855,6 +865,11 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^Minecraft を (.+?) から (.+?) に上げますか[?？]ワールドは新しいバージョンに変換され、元のバージョンには戻せません。先にワールドのバックアップを取り、プラグイン・Mod が (.+?) に対応しているかも確かめてください。$/, "Upgrade Minecraft from $1 to $2? The world is converted to the new version and cannot go back. Back up the world first, and check that plugins and mods support $3."],
+  [/^(.+?)\(ビルド (.+?)\)に入れ替えました/, "Replaced with $1 (build $2)"],
+  [/^(\d+) 台のサーバー本体を、いちばん新しいビルドに入れ替えますか[?？]/, "Replace the server software of $1 servers with the newest builds?"],
+  [/^新しいビルドがある (\d+) 台をまとめて入れ替える$/, "Replace all $1 servers with new builds"],
+  [/ · Minecraft (.+?) あり/, " · Minecraft $1 available"],
   [/^(\d+) 個の配布元が見つかりました$/, "Found sources for $1"],
   [/^ライブラリ · /, "Library · "],
   [/^お知らせ (\d+) 件$/, "$1 notifications"],

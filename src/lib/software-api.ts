@@ -12,8 +12,8 @@ export const softwareInfo = createServerFn({ method: "GET" })
   .handler(async ({ data }) => (await svc()).info(headers(), data.id));
 
 export const updateSoftware = createServerFn({ method: "POST" })
-  .validator(z.object({ id: sid, restart: z.boolean() }))
-  .handler(async ({ data }) => (await svc()).update(headers(), data.id, data.restart));
+  .validator(z.object({ id: sid, restart: z.boolean(), mc: z.string().max(10).optional() }))
+  .handler(async ({ data }) => (await svc()).update(headers(), data.id, data.restart, data.mc));
 
 export const rollbackSoftware = createServerFn({ method: "POST" })
   .validator(z.object({ id: sid }))

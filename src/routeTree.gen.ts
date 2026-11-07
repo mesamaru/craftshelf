@@ -20,6 +20,7 @@ import { Route as SetsRouteImport } from './routes/sets'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as SharesRouteImport } from './routes/shares'
 import { Route as SignupRouteImport } from './routes/signup'
+import { Route as SoftwareRouteImport } from './routes/software'
 import { Route as StorageRouteImport } from './routes/storage'
 import { Route as TeamRouteImport } from './routes/team'
 import { Route as UsageRouteImport } from './routes/usage'
@@ -89,6 +90,11 @@ const SharesRoute = SharesRouteImport.update({
 const SignupRoute = SignupRouteImport.update({
   id: '/signup',
   path: '/signup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SoftwareRoute = SoftwareRouteImport.update({
+  id: '/software',
+  path: '/software',
   getParentRoute: () => rootRouteImport,
 } as any)
 const StorageRoute = StorageRouteImport.update({
@@ -179,6 +185,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/shares': typeof SharesRoute
   '/signup': typeof SignupRoute
+  '/software': typeof SoftwareRoute
   '/storage': typeof StorageRoute
   '/team': typeof TeamRoute
   '/usage': typeof UsageRoute
@@ -207,6 +214,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/shares': typeof SharesRoute
   '/signup': typeof SignupRoute
+  '/software': typeof SoftwareRoute
   '/storage': typeof StorageRoute
   '/team': typeof TeamRoute
   '/usage': typeof UsageRoute
@@ -236,6 +244,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/shares': typeof SharesRoute
   '/signup': typeof SignupRoute
+  '/software': typeof SoftwareRoute
   '/storage': typeof StorageRoute
   '/team': typeof TeamRoute
   '/usage': typeof UsageRoute
@@ -266,6 +275,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/shares'
     | '/signup'
+    | '/software'
     | '/storage'
     | '/team'
     | '/usage'
@@ -294,6 +304,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/shares'
     | '/signup'
+    | '/software'
     | '/storage'
     | '/team'
     | '/usage'
@@ -322,6 +333,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/shares'
     | '/signup'
+    | '/software'
     | '/storage'
     | '/team'
     | '/usage'
@@ -351,6 +363,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   SharesRoute: typeof SharesRoute
   SignupRoute: typeof SignupRoute
+  SoftwareRoute: typeof SoftwareRoute
   StorageRoute: typeof StorageRoute
   TeamRoute: typeof TeamRoute
   UsageRoute: typeof UsageRoute
@@ -445,6 +458,13 @@ declare module '@tanstack/react-router' {
       path: '/signup'
       fullPath: '/signup'
       preLoaderRoute: typeof SignupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/software': {
+      id: '/software'
+      path: '/software'
+      fullPath: '/software'
+      preLoaderRoute: typeof SoftwareRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/storage': {
@@ -567,6 +587,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   SharesRoute: SharesRoute,
   SignupRoute: SignupRoute,
+  SoftwareRoute: SoftwareRoute,
   StorageRoute: StorageRoute,
   TeamRoute: TeamRoute,
   UsageRoute: UsageRoute,

@@ -1,7 +1,7 @@
 // サーバー本体(jar)の版の確認と入れ替え(v02 の「サーバー本体」)。jar はこのアプリを通さず、サーバーに配布元から直接取り込ませる。
 // 入れ替える前の jar は名前を変えて 1 つだけ残し、そこへ戻せる。入れ替えたあとは、サーバーを再起動すると新しい jar で動く
 import { eq } from "drizzle-orm";
-import { PLATFORMS, type Platform, isPlatform } from "~/lib/platforms";
+import { MC_VERSION, PLATFORMS, type Platform, isPlatform } from "~/lib/platforms";
 import { serverProfile, serverSoftware } from "./db/schema";
 import { eventService } from "./events";
 import { HttpError, requireTeam } from "./guard";
@@ -60,6 +60,19 @@ export function softwareClient(fetch: FetchLike) {
     return res.json();
   }
   return {
+    /** そのサーバーの種類で選べる Minecraft のバージョン(正式版だけ・新しい順)。プロキシ・わからないものは空 */
+    async mcVersions(platform: Platform): Promise<string[]> {
+      let list: string[] = [];
+      if (platform === "paper" || platform === "folia") {
+        list = (Object.values((await get(`${FILL}/${platform}`))?.versions ?? {}) as string[][]).flat();
+      } else if (platform === "purpur") {
+        list = ((await get("https://api.purpurmc.org/v2/purpur"))?.versions ?? []) as string[];
+      } else if (platform === "fabric") {
+        list = (((await get("https://meta.fabricmc.net/v2/versions/game")) ?? []) as { version: string; stable: boolean }[]).filter((v) => v.stable).map((v) => v.version);
+      }
+      return [...new Set(list.filter((v) => MC_VERSION.test(v)))].sort((a, b) => (newer(a, b) ? -1 : newer(b, a) ? 1 : 0));
+    },
+
     /** そのサーバーの種類・バージョンのいちばん新しいビルド(わからなければ null) */
     async latest(platform: Platform, mc: string): Promise<Build | null> {
       const project = FILL_PROJECT[platform];
@@ -145,8 +158,9 @@ export function softwareService(deps: Deps) {
       const who = await requireTeam(auth, headers);
       const l = await look(who, serverId);
       const latest = await client.latest(l.platform, l.now.mc);
+      const mcNewer = l.now.mc ? (await client.mcVersions(l.platform)).filter((v) => newer(v, l.now.mc)).slice(0, 10) : [];
       return {
-        platform: l.platform, label: PLATFORMS[l.platform].label, page: SOFTWARE_PAGES[l.platform],
+        platform: l.platform, label: PLATFORMS[l.platform].label, page: SOFTWARE_PAGES[l.platform], mcNewer,
         jar: l.jar, mc: l.now.mc, build: l.now.build, latest,
         update: !!(latest && latest.build && latest.build !== l.now.build && (!l.now.build || newer(latest.build, l.now.build))),
         backup: l.backup,
@@ -157,12 +171,13 @@ export function softwareService(deps: Deps) {
      * いちばん新しいビルドに入れ替える(管理者以上)。今の jar は名前を変えて残し(前に残したものは消す)、
      * 新しい jar を同じ名前で取り込ませる。取り込めなければ元に戻す。restart なら最後に再起動する
      */
-    async update(headers: Headers, serverId: string, restart = false) {
+    async update(headers: Headers, serverId: string, restart = false, mc?: string) {
       const who = await requireTeam(auth, headers, { server: ["update"] });
       const l = await look(who, serverId);
       const { client: c, remoteId, row } = l.target;
       if (!l.jar) throw new HttpError(400, "サーバー本体の jar が分かりません(サーバーのフォルダに jar が 1 つだけになるようにしてください)");
-      const latest = await client.latest(l.platform, l.now.mc);
+      if (mc && !(await client.mcVersions(l.platform)).includes(mc)) throw new HttpError(400, "この Minecraft のバージョンには上げられません");
+      const latest = await client.latest(l.platform, mc || l.now.mc);
       if (!latest) throw new HttpError(404, "新しいビルドが見つかりません(Minecraft のバージョンを設定してください)");
       if (!latest.auto || !latest.url) throw new HttpError(400, `${PLATFORMS[l.platform].label} は自動で入れ替えられません(配布ページで確かめてください)`);
       if (!BUILD_HOSTS.includes(new URL(latest.url).host)) throw new HttpError(400, "配布元の外の URL なので、取り込みませんでした");
@@ -180,7 +195,9 @@ export function softwareService(deps: Deps) {
       const size = (await remote(() => c.listFiles(remoteId, "/"))).find((f) => f.name === l.jar)?.size ?? 0;
       const values = { serverId: row.id, jar: l.jar, build: latest.build, mc: latest.mc, size, backupJar, backupBuild: l.now.build, updatedAt: new Date() };
       await db.insert(serverSoftware).values(values).onConflictDoUpdate({ target: serverSoftware.serverId, set: values });
-      await record({ teamId: who.teamId, userId: who.user.id, kind: "changes", action: "サーバー本体を更新", target: row.name, detail: `${l.now.build || "?"} → ${latest.build}` });
+      if (mc && mc !== l.now.mc) await db.update(serverProfile).set({ mcVersion: mc, updatedAt: new Date() }).where(eq(serverProfile.serverId, row.id));
+      await record({ teamId: who.teamId, userId: who.user.id, kind: "changes", action: mc && mc !== l.now.mc ? "Minecraft のバージョンを上げる" : "サーバー本体を更新", target: row.name,
+        detail: `${l.now.mc && mc && mc !== l.now.mc ? `${l.now.mc} → ${mc}・` : ""}${l.now.build || "?"} → ${latest.build}` });
       if (restart) await remote(() => c.power(remoteId, "restart"));
       return { build: latest.build, restarted: restart };
     },

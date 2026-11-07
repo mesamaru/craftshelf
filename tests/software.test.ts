@@ -21,6 +21,10 @@ const fake: FetchLike = async (url, init) => {
     if (u.pathname === "/v3/projects/paper/versions/1.21.4/builds/latest") {
       return json({ id: 232, downloads: { "server:default": { name: "paper-1.21.4-232.jar", url: latestUrl } } });
     }
+    if (u.pathname === "/v3/projects/paper/versions/1.21.5/builds/latest") {
+      return json({ id: 10, downloads: { "server:default": { name: "paper-1.21.5-10.jar", url: "https://fill-data.papermc.io/v1/objects/def/paper-1.21.5-10.jar" } } });
+    }
+    if (u.pathname === "/v3/projects/paper") return json({ versions: { "1.21": ["1.21.5", "1.21.5-rc1", "1.21.4", "1.21.3"] } });
     return json({}, 404);
   }
   if (u.host !== "panel.example.com") throw new Error("想定外の接続先: " + url);
@@ -105,5 +109,14 @@ describe("サーバー本体", () => {
     expect(await sw.info(owner, id)).toMatchObject({ build: "230", backup: { build: "232" } });
     await sw.rollback(owner, id);
     expect(root.get("server.jar")).toBe(200);
+  });
+});
+
+describe("Minecraft のバージョンを上げる", () => {
+  it("上げられるバージョン(正式版だけ)がわかり、選んだバージョンのビルドに入れ替えて、サーバーの種類のバージョンも変える", async () => {
+    expect((await sw.info(owner, id)).mcNewer).toEqual(["1.21.5"]);
+    expect(await code(sw.update(owner, id, false, "1.30.0"))).toBe(400);
+    expect(await sw.update(owner, id, false, "1.21.5")).toMatchObject({ build: "10" });
+    expect(await sw.info(owner, id)).toMatchObject({ mc: "1.21.5", build: "10", mcNewer: [] });
   });
 });

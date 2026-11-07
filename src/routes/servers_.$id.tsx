@@ -431,6 +431,7 @@ function Software({ id, admin }: { id: string; admin: boolean }) {
   const back = useServerFn(rollbackSoftware);
   const [info, setInfo] = useState<Awaited<ReturnType<typeof softwareInfo>> | null>(null);
   const [restart, setRestart] = useState(false);
+  const [mc, setMc] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
@@ -473,6 +474,19 @@ function Software({ id, admin }: { id: string; admin: boolean }) {
                   async () => { const r = await update({ data: { id, restart } }); return `${r.build} に入れ替えました${r.restarted ? "。再起動しています" : "。サーバーを再起動すると新しい jar で動きます"}`; },
                 )}>{busy ? "入れ替えています…" : "いちばん新しいビルドに入れ替える"}</button>
               </>
+            )}
+            {admin && info.mcNewer.length > 0 && (
+              <div className="row">
+                <span>Minecraft のバージョンを上げる</span>
+                <select className="trail" value={mc} onChange={(e) => setMc(e.target.value)} aria-label="上げる Minecraft のバージョン">
+                  <option value="">選んでください…</option>
+                  {info.mcNewer.map((v) => <option key={v} value={v} translate="no">{v}</option>)}
+                </select>
+                <button className="trail link" type="button" disabled={busy || !mc || !info.jar} onClick={() => run(
+                  `Minecraft を ${info.mc} から ${mc} に上げますか?ワールドは新しいバージョンに変換され、元のバージョンには戻せません。先にワールドのバックアップを取り、プラグイン・Mod が ${mc} に対応しているかも確かめてください。`,
+                  async () => { const r = await update({ data: { id, restart, mc } }); setMc(""); return `${mc}(ビルド ${r.build})に入れ替えました${r.restarted ? "。再起動しています" : "。サーバーを再起動すると新しい jar で動きます"}`; },
+                )}>上げる</button>
+              </div>
             )}
             {admin && info.backup && (
               <button className="row link" type="button" disabled={busy} onClick={() => run(

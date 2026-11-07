@@ -200,3 +200,5 @@ pre.log .err { color: var(--danger); } pre.log .warn { color: #c27c00; }
 .palette-hit { width: 100%; border: 0; background: none; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .palette-hit.on { background: rgba(10, 132, 255, 0.12); }
 .palette .foot { margin: 6px 12px 10px; }
+.diff-table .take { border: 1px solid var(--line); background: var(--glass); color: var(--accent); border-radius: 6px; font: 600 11px/1 system-ui, sans-serif; padding: 2px 5px; margin-right: 6px; cursor: pointer; }
+.diff-table .take:hover { border-color: var(--accent); }

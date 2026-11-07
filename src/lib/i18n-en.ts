@@ -1,6 +1,14 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "直す": "Edit",
+  "直すのをやめる": "Stop editing",
+  "変更あり": "changed",
+  "この行を消す": "Delete this line",
+  "基準の行にする": "Use the base line",
+  "を直しています(下の表にもすぐに出ます)": " — editing (shown in the table below right away)",
+  "ファイルの中身": "File contents",
+  "黄色は違う行、赤は基準にあってこのサーバーに無い行、緑はこのサーバーだけにある行です。「←」で基準の行にし(緑の行は「×」で消し)、「直す」でその場で書き換えられます。「保存」を押すまでサーバーは変わりません(保存する前の中身は履歴に残ります)。基準は、上で最初に選んだサーバーです。": "Yellow lines differ, red lines are in the base but missing here, and green lines exist only on this server. Use “←” to take the base line (or “×” to delete a green line), and “Edit” to change the file in place. Servers aren't changed until you press “Save” (the previous content is kept in the history). The base is the first server you selected above.",
   "Minecraft のバージョンを上げる": "Upgrade Minecraft",
   "上げる Minecraft のバージョン": "Minecraft version to upgrade to",
   "上げる": "Upgrade",
@@ -865,6 +873,7 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^「(.+?)」の (.+?) を保存しました。反映にはサーバーの再起動が要ります$/, "Saved $2 on “$1”. Restart the server to apply"],
   [/^Minecraft を (.+?) から (.+?) に上げますか[?？]ワールドは新しいバージョンに変換され、元のバージョンには戻せません。先にワールドのバックアップを取り、プラグイン・Mod が (.+?) に対応しているかも確かめてください。$/, "Upgrade Minecraft from $1 to $2? The world is converted to the new version and cannot go back. Back up the world first, and check that plugins and mods support $3."],
   [/^(.+?)\(ビルド (.+?)\)に入れ替えました/, "Replaced with $1 (build $2)"],
   [/^(\d+) 台のサーバー本体を、いちばん新しいビルドに入れ替えますか[?？]/, "Replace the server software of $1 servers with the newest builds?"],

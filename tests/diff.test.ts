@@ -1,6 +1,6 @@
 // ファイル比較の行の並べ方
 import { describe, expect, it } from "vitest";
-import { alignAll, splitLines } from "~/lib/diff";
+import { alignAll, splitLines, takeBase } from "~/lib/diff";
 
 describe("行の差分", () => {
   it("基準にそろえて、違う行・無い行・こちらだけの行を並べる", () => {
@@ -23,5 +23,20 @@ describe("行の差分", () => {
   it("同じ中身なら違いは無い。空のファイルも扱える", () => {
     expect(alignAll(["x"], [["x"]]).every((r) => !r.diff)).toBe(true);
     expect(alignAll([], [["y"]])).toEqual([{ base: null, cells: [{ i: 0, kind: "extra" }], diff: true }]);
+  });
+});
+
+describe("基準の行にする", () => {
+  it("違う行は書き換え、無い行は入れ、こちらだけの行は消す。全部そうすると基準と同じになる", () => {
+    const base = ["a=1", "b=2", "c=3"];
+    let other = ["a=1", "b=9", "x=0", "c=3"];
+    for (let n = 0; n < 5; n++) {
+      const rows = alignAll(base, [other]);
+      const idx = rows.findIndex((r) => r.diff);
+      if (idx < 0) break;
+      other = takeBase(base, other, rows, idx, 0);
+    }
+    expect(other).toEqual(base);
+    expect(takeBase(base, ["a=1", "c=3"], alignAll(base, [["a=1", "c=3"]]), 1, 0)).toEqual(["a=1", "b=2", "c=3"]);
   });
 });

@@ -1,7 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { alignAll, splitLines } from "~/lib/diff";
+import { alignAll, splitLines, takeBase } from "~/lib/diff";
 import { configFiles, readServerFile, saveServerFile } from "~/lib/files-api";
 import { listServers } from "~/lib/servers-api";
 
@@ -84,13 +84,11 @@ function FileCompare() {
       {list && !opened && <FileList list={list} onlyDiff={onlyDiff} setOnlyDiff={setOnlyDiff} busy={busy} onOpen={(p) => { setNote(""); open(p); }} />}
       {opened && (
         <Compare opened={opened} onlyDiff={onlyDiff} setOnlyDiff={setOnlyDiff} busy={busy} note={note} onBack={() => setOpened(null)}
-          onCopy={(to) => run(async () => {
-            const base = opened.servers[0];
+          onSave={(to, content) => run(async () => {
             const target = opened.servers.find((s) => s.id === to)!;
-            if (base.content === null || target.content === null) return;
-            if (!confirm(`「${target.name}」の ${opened.path} を「${base.name}」と同じ中身にしますか?(前の中身は履歴に残ります)`)) return;
-            await save({ data: { id: to, path: opened.path, content: base.content, base: target.content } });
-            setNote(`「${target.name}」の ${opened.path} を写しました。反映にはサーバーの再起動が要ります`);
+            if (target.content === null) return;
+            await save({ data: { id: to, path: opened.path, content, base: target.content } });
+            setNote(`「${target.name}」の ${opened.path} を保存しました。反映にはサーバーの再起動が要ります`);
             await open(opened.path);
           })} />
       )}
@@ -120,12 +118,45 @@ function FileList({ list, onlyDiff, setOnlyDiff, busy, onOpen }:
   );
 }
 
-function Compare({ opened, onlyDiff, setOnlyDiff, busy, note, onBack, onCopy }:
-  { opened: Opened; onlyDiff: boolean; setOnlyDiff: (v: boolean) => void; busy: boolean; note: string; onBack: () => void; onCopy: (id: string) => void }) {
+// 行をつなぐ(元のファイルの改行コードと、最後の改行を保つ)
+function joinLines(lines: string[], original: string) {
+  const eol = original.includes("\r\n") ? "\r\n" : "\n";
+  const last = original === "" || original.endsWith("\n");
+  return lines.join(eol) + (lines.length && last ? eol : "");
+}
+
+// 並べて比べる。違う行の「←」で基準の行にし、「直す」でその場で書き換える。変えたサーバーだけ「保存」を出す
+function Compare({ opened, onlyDiff, setOnlyDiff, busy, note, onBack, onSave }:
+  { opened: Opened; onlyDiff: boolean; setOnlyDiff: (v: boolean) => void; busy: boolean; note: string; onBack: () => void; onSave: (id: string, content: string) => void }) {
+  const [drafts, setDrafts] = useState<(string | null)[]>(() => opened.servers.map((s) => s.content));
+  const [editing, setEditing] = useState<number | null>(null);
+  useEffect(() => { setDrafts(opened.servers.map((s) => s.content)); setEditing(null); }, [opened]);
   const [base, ...others] = opened.servers;
-  const lines = useMemo(() => opened.servers.map((s) => splitLines(s.content ?? "")), [opened]);
-  const rows = useMemo(() => alignAll(lines[0], lines.slice(1)), [lines]);
+  const lines = useMemo(() => drafts.map((d) => splitLines(d ?? "")), [drafts]);
+  const rows = useMemo(() => alignAll(lines[0], lines.slice(1)).map((r, idx) => ({ ...r, idx })), [lines]);
   const shown = onlyDiff ? rows.filter((r) => r.diff) : rows;
+  const setCol = (col: number, text: string) => setDrafts((d) => d.map((x, i) => (i === col ? text : x)));
+  const changed = (col: number) => drafts[col] !== null && drafts[col] !== opened.servers[col].content;
+  // ほかのサーバー(k)の、その行を基準の行にする: 違う → 書き換える / 無い → 入れる / そのサーバーだけ → 消す
+  const take = (idx: number, k: number) => setCol(k + 1, joinLines(takeBase(lines[0], lines[k + 1], rows, idx, k), opened.servers[k + 1].content ?? ""));
+  const head = (col: number) => {
+    const s = opened.servers[col];
+    if (s.content === null) return null;
+    return (
+      <>
+        <button type="button" className="link small" disabled={busy} onClick={() => setEditing(editing === col ? null : col)}>{editing === col ? "直すのをやめる" : "直す"}</button>
+        {col > 0 && drafts[0] !== null && drafts[col] !== drafts[0] && (
+          <button type="button" className="link small" disabled={busy} onClick={() => setCol(col, drafts[0]!)}>基準と同じにする</button>
+        )}
+        {changed(col) && (
+          <>
+            <button type="button" className="link small" disabled={busy} onClick={() => onSave(s.id, drafts[col]!)}>保存</button>
+            <button type="button" className="link small" disabled={busy} onClick={() => setCol(col, s.content!)}>取り消す</button>
+          </>
+        )}
+      </>
+    );
+  };
   return (
     <>
       <div className="bar wrap">
@@ -135,30 +166,36 @@ function Compare({ opened, onlyDiff, setOnlyDiff, busy, note, onBack, onCopy }:
         <label className="capsule small"><input type="checkbox" checked={onlyDiff} onChange={(e) => setOnlyDiff(e.target.checked)} /> 違う行だけ</label>
       </div>
       {note && <p className="notice" role="status">{note}</p>}
+      {editing !== null && drafts[editing] !== null && (
+        <section className="group form">
+          <div className="row"><span translate="no">{opened.servers[editing].name}</span><span className="trail muted small">を直しています(下の表にもすぐに出ます)</span></div>
+          <textarea className="row codes" rows={14} spellCheck={false} value={drafts[editing]!} onChange={(e) => setCol(editing, e.target.value)} aria-label="ファイルの中身" translate="no" />
+        </section>
+      )}
       <section className="group ports-table diff-table">
         <table>
           <thead>
             <tr>
-              <th translate="no">{base.name}<small>基準</small></th>
-              {others.map((s) => (
-                <th key={s.id}>
-                  <span translate="no">{s.name}</span>
-                  {s.content !== null && base.content !== null && s.content !== base.content && (
-                    <button type="button" className="link small" disabled={busy} onClick={() => onCopy(s.id)}>基準と同じにする</button>
-                  )}
-                </th>
-              ))}
+              <th><span translate="no">{base.name}</span><small>基準</small>{head(0)}</th>
+              {others.map((s, k) => <th key={s.id}><span translate="no">{s.name}</span>{changed(k + 1) && <small>変更あり</small>}{head(k + 1)}</th>)}
             </tr>
           </thead>
           <tbody>
             {base.content === null && <tr><td colSpan={opened.servers.length} className="muted">{base.error || "基準のサーバーにこのファイルがありません。基準にしたいサーバーを先に選んでください"}</td></tr>}
             {shown.length === 0 && base.content !== null && <tr><td colSpan={opened.servers.length} className="muted">違いはありません</td></tr>}
-            {base.content !== null && shown.map((r, n) => (
-              <tr key={n}>
+            {base.content !== null && shown.map((r) => (
+              <tr key={r.idx}>
                 <td className={r.base === null ? "gap" : r.diff ? "base-diff" : ""} translate="no"><code>{r.base === null ? "" : lines[0][r.base]}</code></td>
                 {r.cells.map((c, k) => (
                   <td key={k} className={c.kind} translate="no">
-                    {others[k].content === null ? <span className="muted small">{others[k].error || "このファイルはありません"}</span> : <code>{c.i === null ? "" : lines[k + 1][c.i]}</code>}
+                    {others[k].content === null ? <span className="muted small">{others[k].error || "このファイルはありません"}</span> : (
+                      <>
+                        {(c.kind === "chg" || c.kind === "miss" || c.kind === "extra") && (
+                          <button type="button" className="take" disabled={busy} title={c.kind === "extra" ? "この行を消す" : "基準の行にする"} aria-label={c.kind === "extra" ? "この行を消す" : "基準の行にする"} onClick={() => take(r.idx, k)}>{c.kind === "extra" ? "×" : "←"}</button>
+                        )}
+                        <code>{c.i === null ? "" : lines[k + 1][c.i]}</code>
+                      </>
+                    )}
                   </td>
                 ))}
               </tr>
@@ -166,7 +203,7 @@ function Compare({ opened, onlyDiff, setOnlyDiff, busy, note, onBack, onCopy }:
           </tbody>
         </table>
       </section>
-      <p className="foot">黄色は違う行、赤は基準にあってこのサーバーに無い行、緑はこのサーバーだけにある行です。基準は、上で最初に選んだサーバーです。</p>
+      <p className="foot">黄色は違う行、赤は基準にあってこのサーバーに無い行、緑はこのサーバーだけにある行です。「←」で基準の行にし(緑の行は「×」で消し)、「直す」でその場で書き換えられます。「保存」を押すまでサーバーは変わりません(保存する前の中身は履歴に残ります)。基準は、上で最初に選んだサーバーです。</p>
     </>
   );
 }

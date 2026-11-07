@@ -79,3 +79,26 @@ export const splitLines = (text: string) => {
   if (t === "") return [];
   return (t.endsWith("\n") ? t.slice(0, -1) : t).split("\n");
 };
+
+/**
+ * ほかのファイル(k 番目)の、その行(rows[idx])を基準の行にした結果の行。
+ * 違う → 書き換える / 基準にあってこちらに無い → 次にある行の前に入れる / こちらだけにある → 消す
+ */
+export function takeBase(base: string[], other: string[], rows: Row[], idx: number, k: number): string[] {
+  const r = rows[idx];
+  const c = r.cells[k];
+  const out = other.slice();
+  if (r.base === null) {
+    if (c.i !== null) out.splice(c.i, 1);
+  } else if (c.i !== null) {
+    out[c.i] = base[r.base];
+  } else {
+    let at = out.length;
+    for (let j = idx + 1; j < rows.length; j++) {
+      const next = rows[j].cells[k].i;
+      if (next !== null) { at = next; break; }
+    }
+    out.splice(at, 0, base[r.base]);
+  }
+  return out;
+}

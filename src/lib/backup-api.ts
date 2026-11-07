@@ -20,4 +20,9 @@ export const restoreBackup = createServerFn({ method: "POST" })
     restartSoon();
   });
 
+export const reimportV02 = createServerFn({ method: "POST" }).handler(async () => {
+  await (await svc()).reimport(headers());
+  restartSoon();
+});
+
 export const cancelRestore = createServerFn({ method: "POST" }).handler(async () => (await svc()).cancel(headers()));

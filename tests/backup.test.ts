@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFil
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
-import { applyPendingRestore, backupService } from "~/server/backup";
+import { applyPendingReimport, applyPendingRestore, backupService } from "~/server/backup";
 import { HttpError } from "~/server/guard";
 import { setup } from "./helpers";
 
@@ -62,5 +62,24 @@ describe("バックアップ", () => {
     expect(r.rows.map((x) => x.name)).toEqual(["オーナー", "閲覧者"]);
     await db.close();
     expect(readdirSync(v03).some((n) => n.startsWith("restore-failed"))).toBe(false);
+  });
+});
+
+describe("v02 から取り込み直す", () => {
+  it("v02 のデータが無ければ断る。あれば次の起動の前に、v03 のデータ・取り込みの結果・アドオンを移して、取り込み直せるようにする", async () => {
+    expect((await svc.list(owner)).v02).toBe(false);
+    expect(await code(svc.reimport(owner))).toBe(404);
+    writeFileSync(join(dataDir, "index.db"), "");
+    expect(await code(svc.reimport(viewer))).toBe(403);
+    await svc.reimport(owner);
+    expect((await svc.list(owner))).toMatchObject({ v02: true, reimport: true });
+    writeFileSync(join(v03, "import-v02.json"), "{}");
+    const pg = join(v03, "pg");
+    const aside = applyPendingReimport(v03, `pglite:${pg}`)!;
+    expect(existsSync(join(aside, "pg"))).toBe(true);
+    expect(existsSync(join(aside, "import-v02.json"))).toBe(true);
+    expect(existsSync(join(aside, "library", "plugin", "a.jar"))).toBe(true);
+    expect(existsSync(pg) || existsSync(join(v03, "import-v02.json"))).toBe(false);
+    expect(applyPendingReimport(v03, `pglite:${pg}`)).toBeNull(); // 一度だけ
   });
 });

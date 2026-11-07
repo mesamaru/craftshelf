@@ -23,12 +23,18 @@ import { telemetryService } from "./telemetry";
 {
   const first = readEnv();
   if (first.mode === "self") {
-    const { applyPendingRestore } = await import("./backup");
+    const { applyPendingReimport, applyPendingRestore } = await import("./backup");
     try {
       const aside = await applyPendingRestore(first.v03Dir, first.databaseUrl);
       if (aside) console.log(`[復元] バックアップから戻しました(前のデータは ${aside})`);
     } catch (e) {
       console.error("[復元] 戻せませんでした(前のデータのまま起動します):", e);
+    }
+    try {
+      const aside = applyPendingReimport(first.v03Dir, first.databaseUrl);
+      if (aside) console.log(`[v02] 取り込み直します(v03 の前のデータは ${aside})`);
+    } catch (e) {
+      console.error("[v02] 取り込み直す用意ができませんでした:", e);
     }
   }
 }

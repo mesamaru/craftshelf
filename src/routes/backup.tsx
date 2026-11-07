@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { cancelRestore, createBackup, listBackups, restoreBackup } from "~/lib/backup-api";
+import { cancelRestore, createBackup, listBackups, reimportV02, restoreBackup } from "~/lib/backup-api";
 
 export const Route = createFileRoute("/backup")({
   beforeLoad: ({ context }) => {
@@ -20,6 +20,7 @@ function Backup() {
   const create = useServerFn(createBackup);
   const restore = useServerFn(restoreBackup);
   const cancel = useServerFn(cancelRestore);
+  const reimport = useServerFn(reimportV02);
   const [data, setData] = useState<Awaited<ReturnType<typeof listBackups>> | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -68,9 +69,9 @@ function Backup() {
         <Link to="/team" className="capsule">‹ チーム</Link>
         <h1>バックアップ</h1>
       </header>
-      {data?.pending && (
+      {(data?.pending || data?.reimport) && (
         <p className="notice" role="status">
-          次の起動でバックアップと入れ替えます。<button type="button" className="link" disabled={!!busy} onClick={() => run("やめています…", () => cancel())}>やめる</button>
+          {data.reimport ? "次の起動で v02 から取り込み直します。" : "次の起動でバックアップと入れ替えます。"}<button type="button" className="link" disabled={!!busy} onClick={() => run("やめています…", () => cancel())}>やめる</button>
         </p>
       )}
       <section className="group">
@@ -106,6 +107,26 @@ function Backup() {
           <input type="file" accept=".gz,application/gzip" hidden disabled={!!busy} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) upload(f); }} />
         </label>
       </section>
+      {data?.v02 && (
+        <>
+          <div className="group-title">v02 から取り込み直す</div>
+          <section className="group">
+            <button className="row link danger" type="button" disabled={!!busy} onClick={async () => {
+              if (!confirm("v02 のデータを取り込み直しますか?パネルが再起動し、v03 の今のデータ(v03 で変えたこと)を before-reimport-… のフォルダに移して、v02 のデータを取り込み直します。")) return;
+              setBusy("切り替えています…");
+              setError("");
+              try {
+                await reimport();
+                await waitRestart();
+              } catch (e) {
+                setBusy("");
+                setError(message(e));
+              }
+            }}>v02 のデータを取り込み直す</button>
+          </section>
+          <p className="foot">v03 を試したあと v02 に戻って使い続け、もう一度 v03 に移るときに使います。取り込み直したあとは、ログインし直してください(v02 のユーザー名とパスワード)。</p>
+        </>
+      )}
       {busy && busy !== "作っています…" && <p className="notice" role="status">{busy}</p>}
       {error && <p className="error" role="alert">{error}</p>}
       <p className="foot">バックアップには、データベース(チーム・サーバー・ライブラリ・設定)、保存したパスワードなどを解く鍵、パネルの中に置いたアドオンが入ります(NAS などほかの保存先のファイルと、サーバーのファイルは入りません)。鍵が入るので、ダウンロードしたものは大切に保管してください。戻すときは、今のデータを before-restore-… のフォルダに移して残します。</p>

@@ -8,11 +8,11 @@ import { promisify } from "node:util";
 import type { FetchLike } from "./net";
 
 const REPO = "mesamaru/craftshelf";
-const TAG = /^dev-v(03\.\d{2}\.\d{2})$/;
+const TAG = /^(dev-)?v(03\.\d{2}\.\d{2})$/; // v03.xx.xx = 安定版 / dev-v03.xx.xx = 開発版
 const VERSION = /^\d{2}\.\d{2}\.\d{2}$/;
 const MAX_BYTES = 300 * 1024 * 1024;
 
-export type Release = { version: string; publishedAt: string; notes: string; url: string; sumsUrl: string };
+export type Release = { version: string; stable: boolean; publishedAt: string; notes: string; url: string; sumsUrl: string };
 
 export const assetName = (v: string) => `craftshelf-v03-${v}.tar.gz`;
 
@@ -24,11 +24,13 @@ export function pickReleases(list: unknown): Release[] {
     if (!m) continue;
     const assets = Array.isArray(r.assets) ? r.assets : [];
     const find = (name: string) => assets.find((a: { name?: string }) => a?.name === name)?.browser_download_url;
-    const url = find(assetName(m[1]));
+    const url = find(assetName(m[2]));
     const sumsUrl = find("SHA256SUMS");
-    if (url && sumsUrl) out.push({ version: m[1], publishedAt: String(r.published_at ?? ""), notes: String(r.body ?? "").slice(0, 2000), url, sumsUrl });
+    if (url && sumsUrl) out.push({ version: m[2], stable: !m[1], publishedAt: String(r.published_at ?? ""), notes: String(r.body ?? "").slice(0, 2000), url, sumsUrl });
   }
-  return out.sort((a, b) => b.version.localeCompare(a.version));
+  const best = new Map<string, Release>();
+  for (const r of out) if (!best.has(r.version) || r.stable) best.set(r.version, r);
+  return [...best.values()].sort((a, b) => b.version.localeCompare(a.version));
 }
 
 // SHA256SUMS(sha256sum の形)から、そのファイルの値

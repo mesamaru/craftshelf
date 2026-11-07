@@ -8,12 +8,14 @@ import { promisify } from "node:util";
 import { eventService } from "./events";
 import { HttpError, requireTeam } from "./guard";
 import type { Deps } from "./servers";
+import { v02DirOf } from "./env";
 
 const run = promisify(execFile);
 export const BACKUP_KEEP = 5;
 export const BACKUP_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 const NAME = /^craftshelf-v03-\d{8}-\d{6}\.tar\.gz$/;
 const PENDING = "restore-pending.tar.gz";
+const REIMPORT = "reimport-pending"; // 置いておくと、次の起動で v02 から取り込み直す
 const stampOf = (d = new Date()) => d.toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
 
 type Dumpable = { dumpDataDir?: (c: "gzip") => Promise<Blob> };
@@ -36,10 +38,24 @@ export function backupService(deps: Deps) {
     .map((name) => { const s = statSync(join(backupsDir(), name)); return { name, size: s.size, at: s.mtime.toISOString() }; });
 
   return {
-    /** パネルの中にあるバックアップ(新しい順)と、次の起動で戻すものがあるか */
+    /** パネルの中にあるバックアップ(新しい順)と、次の起動で戻すもの・取り込み直すものがあるか */
     async list(headers: Headers) {
       await admin(headers);
-      return { backups: listOf(), pending: existsSync(join(v03Dir(), PENDING)) };
+      return {
+        backups: listOf(), pending: existsSync(join(v03Dir(), PENDING)), reimport: existsSync(join(v03Dir(), REIMPORT)),
+        v02: existsSync(join(v02DirOf(deps.local!.dataDir), "index.db")),
+      };
+    },
+
+    /**
+     * 次の起動で、v02 のデータを取り込み直す(再起動は呼ぶ側で)。v03 の今のデータは before-reimport-… に移して残す。
+     * v03 を試したあと v02 に戻って使い続け、もう一度 v03 に移るときに使う
+     */
+    async reimport(headers: Headers) {
+      const who = await admin(headers);
+      if (!existsSync(join(v02DirOf(deps.local!.dataDir), "index.db"))) throw new HttpError(404, "v02 のデータが見つかりません");
+      writeFileSync(join(v03Dir(), REIMPORT), new Date().toISOString());
+      await record({ teamId: who.teamId, userId: who.user.id, kind: "admin", action: "v02 から取り込み直す" });
     },
 
     /** 今のデータのバックアップを作る(新しい 5 個を残す) */
@@ -97,10 +113,11 @@ export function backupService(deps: Deps) {
       await record({ teamId: who.teamId, userId: who.user.id, kind: "admin", action: "バックアップから戻す", target: "手元のファイル" });
     },
 
-    /** 次の起動で戻すのをやめる */
+    /** 次の起動で戻す・取り込み直すのをやめる */
     async cancel(headers: Headers) {
       await admin(headers);
       rmSync(join(v03Dir(), PENDING), { force: true });
+      rmSync(join(v03Dir(), REIMPORT), { force: true });
     },
   };
 }
@@ -150,4 +167,21 @@ export async function applyPendingRestore(v03Dir: string, databaseUrl: string): 
   } finally {
     rmSync(work, { recursive: true, force: true });
   }
+}
+
+/**
+ * 起動のはじめに、取り込み直す用意をする(データベースを開く前)。v03 のデータ・取り込みの結果・パネルの中のアドオンを
+ * before-reimport-<日時> に移すので、そのあとの起動はデータベースが空になり、いつもどおり v02 から取り込む
+ */
+export function applyPendingReimport(v03Dir: string, databaseUrl: string): string | null {
+  const marker = join(v03Dir, REIMPORT);
+  if (!existsSync(marker) || !databaseUrl.startsWith("pglite:")) return null;
+  const aside = join(v03Dir, `before-reimport-${stampOf()}`);
+  mkdirSync(aside, { recursive: true });
+  const pgDir = databaseUrl.slice("pglite:".length);
+  for (const [from, name] of [[pgDir, "pg"], [join(v03Dir, "import-v02.json"), "import-v02.json"], [join(v03Dir, "import-v02-library.json"), "import-v02-library.json"], [join(v03Dir, "library"), "library"]]) {
+    if (existsSync(from)) renameSync(from, join(aside, name));
+  }
+  rmSync(marker, { force: true });
+  return aside;
 }

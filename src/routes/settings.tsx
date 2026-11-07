@@ -247,7 +247,7 @@ function Versions({ userId }: { userId: string }) {
         {info?.releases.map((r) => (
           <div className="row" key={r.version}>
             <span className="main">
-              <span>v{r.version}{r.version === info.current ? "(いまの版)" : ""}</span>
+              <span>v{r.version}{r.stable ? "" : "(開発版)"}{r.version === info.current ? "(いまの版)" : ""}</span>
               <span className="muted">{r.publishedAt ? new Date(r.publishedAt).toLocaleString("ja-JP") : ""}</span>
             </span>
             {r.version !== info.current && (

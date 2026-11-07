@@ -1,6 +1,13 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "v02 から取り込み直す": "Re-import from v02",
+  "v02 のデータを取り込み直す": "Re-import v02 data",
+  "次の起動で v02 から取り込み直します。": "v02 data will be re-imported on the next start. ",
+  "v02 のデータが見つかりません": "v02 data was not found",
+  "v02 のデータを取り込み直しますか?パネルが再起動し、v03 の今のデータ(v03 で変えたこと)を before-reimport-… のフォルダに移して、v02 のデータを取り込み直します。": "Re-import v02 data? The panel restarts, moves v03's current data (changes made in v03) to a before-reimport-… folder, and imports the v02 data again.",
+  "v03 を試したあと v02 に戻って使い続け、もう一度 v03 に移るときに使います。取り込み直したあとは、ログインし直してください(v02 のユーザー名とパスワード)。": "Use this when you tried v03, went back to v02 for a while, and are moving to v03 again. Sign in again afterwards (with your v02 username and password).",
+  "(開発版)": " (development)",
   "直す": "Edit",
   "直すのをやめる": "Stop editing",
   "変更あり": "changed",

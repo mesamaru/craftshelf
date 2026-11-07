@@ -84,3 +84,12 @@ describe("版の切り替え", () => {
     expect(existsSync(join(dir, ".starting"))).toBe(false);
   });
 });
+
+describe("安定版と開発版", () => {
+  it("v03.xx.xx は安定版、dev-v03.xx.xx は開発版。同じ版なら安定版を使う", () => {
+    const rel = (tag: string, v: string) => ({ tag_name: tag, assets: [{ name: assetName(v), browser_download_url: `https://x/${tag}` }, { name: "SHA256SUMS", browser_download_url: "https://x/s" }] });
+    const got = pickReleases([rel("dev-v03.40.00", "03.40.00"), rel("v03.40.00", "03.40.00"), rel("dev-v03.41.00", "03.41.00"), rel("v02.24.00", "02.24.00")]);
+    expect(got.map((r) => [r.version, r.stable])).toEqual([["03.41.00", false], ["03.40.00", true]]);
+    expect(got[1].url).toBe("https://x/v03.40.00");
+  });
+});

@@ -25,7 +25,7 @@ const cleanName = (name: string) => {
 
 export function setService(deps: Deps) {
   const { db, auth } = deps;
-  const { latestFile, needProfile, installInto, holdsOf } = modTools(deps);
+  const { latestFile, needProfile, installInto, holdsOf, logChange } = modTools(deps);
   const { record } = eventService(deps);
   // 結果のまとめ(通知・記録に使う)。変わったもの・失敗したものだけを並べる
   const summary = (list: ApplyResult[]) => {
@@ -90,14 +90,24 @@ export function setService(deps: Deps) {
     if (removeExtra && mode === "sync") {
       const keep = new Set(items.map((it) => `${it.source}:${it.projectId}`));
       const extra = records.filter((r) => !keep.has(`${r.source}:${r.projectId}`));
-      if (extra.length) {
+      const dir = PLATFORMS[p.platform].dir;
+      // 1 つずつ、消さずに名前を変えて残す(変更の履歴から元に戻せる)
+      for (const r of extra) {
+        const backup = r.filename + ".craftshelf-removed";
         try {
-          await remote(() => target.client.deleteFiles(target.remoteId, PLATFORMS[p.platform].dir, extra.map((r) => r.filename)));
-          await db.delete(installedMod).where(inArray(installedMod.id, extra.map((r) => r.id)));
-          for (const r of extra) out.push({ title: r.title, status: "removed", detail: r.filename });
+          await remote(async () => {
+            await target.client.deleteFiles(target.remoteId, dir, [backup]).catch(() => {});
+            await target.client.rename(target.remoteId, dir, r.filename, backup);
+          });
+          await db.delete(installedMod).where(eq(installedMod.id, r.id));
+          await logChange(target.row.id, userId, {
+            action: "外す", title: r.title, backup,
+            removed: { filename: r.filename, source: r.source, projectId: r.projectId, versionId: r.versionId, versionNumber: r.versionNumber, title: r.title },
+          }, target, dir);
+          out.push({ title: r.title, status: "removed", detail: r.filename });
         } catch (e) {
           if (!(e instanceof HttpError)) throw e;
-          for (const r of extra) out.push({ title: r.title, status: "failed", detail: `外せませんでした(${e.message})` });
+          out.push({ title: r.title, status: "failed", detail: `外せませんでした(${e.message})` });
         }
       }
     }

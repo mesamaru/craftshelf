@@ -123,7 +123,7 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 
 - 配布元を探す(`library.identify`): このアプリの記録が無い jar を 1 回に 100 個まで読み(Pterodactyl はダウンロード用の URL から)、Modrinth の `version_files`(SHA-1)・CurseForge の `fingerprints`(`fingerprint.ts`、v02 と同じ MurmurHash2)で探す。見つかったものは `installed_mod` に記録し、ライブラリにも載せる(種類はサーバーの種類)。見つからないものは `uploads.fromServer` でアップロードしたものとして取り込める。
 
-- 変更の履歴(表 `server_change`): `installInto` が入れる・更新を、`remove` が外すを残す。外すときは消さずに `<名前>.craftshelf-removed` に名前を変える(元に戻すと名前を戻す)。更新を元に戻すのは `fileById` で前の版を取り直す(SpigotMC はできない)。1 台につき新しい 30 件までで、古いものの残したファイルも消す。セットの「セットに無いものを外す」は残さない。
+- 変更の履歴(表 `server_change`): `installInto` が入れる・更新を、`remove` が外すを残す。外すときは消さずに `<名前>.craftshelf-removed` に名前を変える(元に戻すと名前を戻す)。更新を元に戻すのは `fileById` で前の版を取り直す(SpigotMC はできない)。1 台につき新しい 30 件までで、古いものの残したファイルも消す。セットの「セットに無いものを外す」も同じように残す。
 
 - バックアップ(`backup.ts`、自分用の版・PGlite だけ): PGlite の `dumpDataDir`・`secret`・`library` を `tar` でまとめ、`/data/v03/backups` に新しい 5 個を残す。戻すときは `restore-pending.tar.gz` を置いて終了し、次の起動で(データベースを開く前・鍵を読む前に)`applyPendingRestore` が入れ替える。今のデータは `before-restore-<日時>` に移し、失敗したら元に戻して `restore-failed-…` に名前を変える。
 

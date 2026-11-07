@@ -39,12 +39,18 @@ const fake: FetchLike = async (url, init) => {
   if (u.host !== "panel.example.com") throw new Error("想定外の接続先");
   if ((init?.headers as Record<string, string>)?.Authorization !== `Bearer ${KEY}`) return json({}, 401);
   if (u.pathname === "/api/client") return json({ data: [{ attributes: { identifier: "abcd1234", name: "ロビー" } }], meta: { pagination: { total_pages: 1 } } });
-  const m = u.pathname.match(/^\/api\/client\/servers\/abcd1234\/files\/(list|pull|delete)$/);
+  const m = u.pathname.match(/^\/api\/client\/servers\/abcd1234\/files\/(list|pull|delete|rename)$/);
   if (m?.[1] === "list") return json({ data: (files.get(u.searchParams.get("directory")!) ?? []).map((name) => ({ attributes: { name, size: 1, is_file: true } })) });
   if (m?.[1] === "pull") {
     const body = JSON.parse(String(init?.body));
     pulls.push(body.filename);
     files.set(body.directory, [...(files.get(body.directory) ?? []), body.filename]);
+    return new Response(null, { status: 204 });
+  }
+  if (m?.[1] === "rename") {
+    const body = JSON.parse(String(init?.body));
+    const r = body.files[0];
+    files.set(body.root, (files.get(body.root) ?? []).map((x) => (x === r.from ? r.to : x)));
     return new Response(null, { status: 204 });
   }
   if (m?.[1] === "delete") {
@@ -193,6 +199,11 @@ describe("更新を止める・セットに無いものを外す", () => {
     expect((await sets.sync(owner, serverId)).map((x) => x.status)).toEqual([]); // 外す指定が無ければ何もしない
     const r = await sets.sync(owner, serverId, true);
     expect(r).toEqual([{ title: "LuckPerms", status: "removed", detail: "LuckPerms-5.6.0.jar" }]);
-    expect(files.get("plugins")).toEqual(["Manual.jar"]);
+    expect(files.get("plugins")?.sort()).toEqual(["LuckPerms-5.6.0.jar.craftshelf-removed", "Manual.jar"]); // 消さずに名前を変えて残す
+    // 変更の履歴から元に戻せる
+    const gone = (await lib.changes(owner, serverId))[0];
+    expect(gone).toMatchObject({ action: "外す", removed: "LuckPerms-5.6.0.jar", undoable: true });
+    await lib.undo(owner, serverId, gone.id);
+    expect(files.get("plugins")?.sort()).toEqual(["LuckPerms-5.6.0.jar", "Manual.jar"]);
   });
 });

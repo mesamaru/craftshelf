@@ -2,12 +2,14 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { applyPendingReimport, applyPendingRestore, backupService } from "~/server/backup";
 import { HttpError } from "~/server/guard";
 import { setup } from "./helpers";
 
 const SECRET = "test-secret-0123456789-0123456789-abcd";
+// tar とデータベースの書き出し・読み込みは、ほかのテストと並べて動かすと遅くなるので、長めに待つ
+vi.setConfig({ testTimeout: 60_000 });
 const dataDir = mkdtempSync(join(tmpdir(), "cs-backup-"));
 const v03 = join(dataDir, "v03");
 let t: Awaited<ReturnType<typeof setup>>;

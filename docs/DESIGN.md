@@ -133,6 +133,8 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 
 - メール(`mail.ts`、Resend): `RESEND_API_KEY`・`MAIL_FROM` があるときだけ送る。サービス版はメールアドレスの確認を必須にする(`requireEmailVerification`。確かめていない人がログインしようとしたら、確認のメールを送り直す)。パスワードの再設定・招待(URL を決めているとき)も送る。送れなくても、処理は止めない(記録に残す)。
 
+- エージェント(`agent-hub.ts`・`agents.ts`・`src/agent/main.ts`、表 `agent`・`agent_server`): 家の中から外向きにロングポーリングで取りに来る。頼めるのは `AGENT_METHODS` だけで、エージェントも同じ一覧で確かめる。フォルダの操作は `local.ts` をそのまま使い、取り込む URL は最初から配布元の公式の取得先だけに絞る。サーバーは `kind = "agent"` で、`serverOf` が `agentClient`(Pterodactyl と同じ形)を返す。詳しくは docs/AGENT.md。
+
 ## 予約
 
 - チームごとに 1 つ(表 `team_schedule`)。曜日・時刻(`tz`、いまは日本時間)・すること(`check` = 確かめるだけ / `sync` = そろえる)。決めるのは `server: ["update"]`。

@@ -5,20 +5,22 @@ import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { and, asc, count, eq } from "drizzle-orm";
 import type { Auth } from "./auth";
 import type { Db } from "./db";
-import { localServer, member, memberServer, memberServerLimit, pteroConnection, server, serverProfile, user as userTable } from "./db/schema";
+import { agentServer, localServer, member, memberServer, memberServerLimit, pteroConnection, server, serverProfile, user as userTable } from "./db/schema";
 import { HttpError, requireTeam } from "./guard";
 import { type FetchLike, UnsafeUrlError, checkPublicUrl } from "./net";
 import { POWER_SIGNALS, type PowerSignal, PteroError, pteroClient } from "./ptero";
 import { eventService } from "./events";
 import { checkRoot, detectFromJar, localClient } from "./local";
 import { hint, open, seal } from "./secrets";
+import { type AgentHub, agentClient } from "./agent-hub";
+import type { PteroClient } from "./ptero";
 
 // 無料で使える範囲
 export const SERVER_LIMITS = { connectionsPerTeam: 5, serversPerTeam: 20 };
 
 // allowPrivate: 自分用の版では、家の中のアドレス・http のパネルも登録できる
 // local: 自分用の版だけ。フォルダでつなぐサーバーを使えるようにする(dataDir はパネルのデータの場所。サーバーにはできない)
-export type Deps = { db: Db; auth: Auth; secret: string; fetch: FetchLike; allowPrivate?: boolean; local?: { dataDir: string } };
+export type Deps = { db: Db; auth: Auth; secret: string; fetch: FetchLike; allowPrivate?: boolean; local?: { dataDir: string }; agents?: AgentHub };
 
 // Pterodactyl からのエラーは、画面に出せる言葉にして返す
 export async function remote<T>(fn: () => Promise<T>): Promise<T> {
@@ -88,6 +90,11 @@ export async function serverOf(deps: Deps, who: Who | string, id: string) {
     const rconPassword = l.rconPasswordSealed ? open(deps.secret, l.rconPasswordSealed, rconContext(s.id)) : "";
     const client = localClient(root, deps.fetch, { control: l.control, startCmd: l.startCmd, stopCmd: l.stopCmd, container: l.container, rconPort: l.rconPort, rconPassword });
     return { row: s, client, remoteId: s.id };
+  }
+  if (s.kind === "agent") {
+    const [a] = await deps.db.select().from(agentServer).where(eq(agentServer.serverId, s.id));
+    if (!a || !deps.agents) throw new HttpError(404, "エージェントのサーバーの設定が見つかりません");
+    return { row: s, client: agentClient(deps.agents, a.agentId, a.key) as unknown as PteroClient, remoteId: s.id };
   }
   if (s.kind !== "ptero" || !s.pteroConnectionId || !s.remoteId) throw new HttpError(400, "このサーバーはまだ操作できません");
   const { client } = await connectionOf(deps, teamId, s.pteroConnectionId);
@@ -172,7 +179,7 @@ export function serverService(deps: Deps) {
       const rows = await db.select({ id: server.id, name: server.name, kind: server.kind, connection: pteroConnection.name })
         .from(server).leftJoin(pteroConnection, eq(server.pteroConnectionId, pteroConnection.id))
         .where(eq(server.teamId, who.teamId)).orderBy(asc(server.createdAt));
-      return rows.filter((r) => !scope || scope.has(r.id)).map((r) => (r.kind === "local" ? { ...r, connection: "フォルダ" } : r));
+      return rows.filter((r) => !scope || scope.has(r.id)).map((r) => (r.kind === "local" ? { ...r, connection: "フォルダ" } : r.kind === "agent" ? { ...r, connection: "エージェント" } : r));
     },
 
     /** サーバーの割り当て(管理者以上): 閲覧者・編集者ごとに、すべてのサーバーを使えるか・使えるサーバー */

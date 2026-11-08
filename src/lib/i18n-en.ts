@@ -1,6 +1,25 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "エージェント(家の中のサーバー)": "Agents (servers at home)",
+  "つながっています": "Connected",
+  "まだつながっていません": "Not connected yet",
+  "追加済み": "Added",
+  "エージェントがつながると、設定ファイルに書いたサーバーがここに出ます。": "Once the agent connects, the servers in its config file appear here.",
+  "エージェントを登録しました。トークンはいまだけ表示します。": "Agent registered. The token is shown only now.",
+  "家のサーバー機で、上の内容を craftshelf-agent.json として保存し(servers は自分のサーバーに合わせて書き換える)、Node.js 22 以上で次のように動かします。": "On your home server machine, save the above as craftshelf-agent.json (edit servers to match your servers) and run it with Node.js 22 or later:",
+  "エージェントの名前(例 家のサーバー機)": "Agent name (e.g. Home server machine)",
+  "エージェントを登録": "Register agent",
+  "エージェントは、家の中のサーバー機から CraftShelf へ外向きにつなぐので、家のポートを開けずに使えます。CraftShelf から操作できるのは、エージェントの設定ファイルに書いたサーバーのフォルダと、そこに書いた起動・停止の方法だけです。詳しくは": "The agent connects outward from your home server machine to CraftShelf, so no ports need to be opened at home. CraftShelf can only operate the server folders and the start/stop methods written in the agent's config file. See",
+  "エージェントの使い方": "how to use the agent",
+  "エージェント": "Agent",
+  "エージェントの名前を入力してください": "Enter an agent name",
+  "エージェントが見つかりません": "Agent not found",
+  "エージェントがこのサーバーを知らせてきていません(エージェントの設定ファイルを確かめてください)": "The agent hasn't reported this server (check the agent's config file)",
+  "エージェントにつながっていません(家のサーバー機でエージェントが動いているか確かめてください)": "Not connected to the agent (check that the agent is running on your home server machine)",
+  "エージェントから返事がありませんでした": "The agent did not respond",
+  "エージェントへの頼みごとが多すぎます。しばらく待ってからお試しください": "Too many requests to the agent. Try again shortly",
+  "エージェントのサーバーの設定が見つかりません": "Agent server settings not found",
   "オーナーを譲る": "Transfer ownership",
   "オーナーを譲る相手": "New owner",
   "譲る": "Transfer",
@@ -920,6 +939,9 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^最後につながった日時 /, "Last connected "],
+  [/^エージェント「(.+?)」を消しますか[?？]\(このエージェントのサーバーも一覧から外れます。家のサーバーのファイルは消えません\)$/, "Delete agent “$1”? (Its servers are removed from the list. Files on your home servers are not deleted)"],
+  [/^エージェントは (\d+) 個までです$/, "Up to $1 agents"],
   [/^(.+?) さんにオーナーを譲りますか[?？]\(あなたは管理者になります\)$/, "Transfer ownership to $1? (You become an admin)"],
   [/^消すときは、チームの名前\((.+?)\)を入力$/, "To delete, type the team name ($1)"],
   [/^チーム「(.+?)」には、ほかのメンバーがいます。先にオーナーを譲るか、チームを消してください$/, "Team “$1” has other members. Transfer ownership or delete the team first"],

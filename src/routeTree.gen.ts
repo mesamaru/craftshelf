@@ -34,6 +34,8 @@ import { Route as CompareFilesRouteImport } from './routes/compare_.files'
 import { Route as InviteIdRouteImport } from './routes/invite.$id'
 import { Route as SSplatRouteImport } from './routes/s.$'
 import { Route as ServersIdRouteImport } from './routes/servers_.$id'
+import { Route as ApiAgentPollRouteImport } from './routes/api/agent/poll'
+import { Route as ApiAgentResultRouteImport } from './routes/api/agent/result'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiBackupNameRouteImport } from './routes/api/backup/$name'
 import { Route as ApiBackupRestoreRouteImport } from './routes/api/backup/restore'
@@ -167,6 +169,16 @@ const ServersIdRoute = ServersIdRouteImport.update({
   path: '/servers/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiAgentPollRoute = ApiAgentPollRouteImport.update({
+  id: '/api/agent/poll',
+  path: '/api/agent/poll',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAgentResultRoute = ApiAgentResultRouteImport.update({
+  id: '/api/agent/result',
+  path: '/api/agent/result',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -229,6 +241,8 @@ export interface FileRoutesByFullPath {
   '/invite/$id': typeof InviteIdRoute
   '/s/$': typeof SSplatRoute
   '/servers/$id': typeof ServersIdRoute
+  '/api/agent/poll': typeof ApiAgentPollRoute
+  '/api/agent/result': typeof ApiAgentResultRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/backup/$name': typeof ApiBackupNameRoute
   '/api/backup/restore': typeof ApiBackupRestoreRoute
@@ -263,6 +277,8 @@ export interface FileRoutesByTo {
   '/invite/$id': typeof InviteIdRoute
   '/s/$': typeof SSplatRoute
   '/servers/$id': typeof ServersIdRoute
+  '/api/agent/poll': typeof ApiAgentPollRoute
+  '/api/agent/result': typeof ApiAgentResultRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/backup/$name': typeof ApiBackupNameRoute
   '/api/backup/restore': typeof ApiBackupRestoreRoute
@@ -298,6 +314,8 @@ export interface FileRoutesById {
   '/invite/$id': typeof InviteIdRoute
   '/s/$': typeof SSplatRoute
   '/servers_/$id': typeof ServersIdRoute
+  '/api/agent/poll': typeof ApiAgentPollRoute
+  '/api/agent/result': typeof ApiAgentResultRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/api/backup/$name': typeof ApiBackupNameRoute
   '/api/backup/restore': typeof ApiBackupRestoreRoute
@@ -334,6 +352,8 @@ export interface FileRouteTypes {
     | '/invite/$id'
     | '/s/$'
     | '/servers/$id'
+    | '/api/agent/poll'
+    | '/api/agent/result'
     | '/api/auth/$'
     | '/api/backup/$name'
     | '/api/backup/restore'
@@ -368,6 +388,8 @@ export interface FileRouteTypes {
     | '/invite/$id'
     | '/s/$'
     | '/servers/$id'
+    | '/api/agent/poll'
+    | '/api/agent/result'
     | '/api/auth/$'
     | '/api/backup/$name'
     | '/api/backup/restore'
@@ -402,6 +424,8 @@ export interface FileRouteTypes {
     | '/invite/$id'
     | '/s/$'
     | '/servers_/$id'
+    | '/api/agent/poll'
+    | '/api/agent/result'
     | '/api/auth/$'
     | '/api/backup/$name'
     | '/api/backup/restore'
@@ -437,6 +461,8 @@ export interface RootRouteChildren {
   InviteIdRoute: typeof InviteIdRoute
   SSplatRoute: typeof SSplatRoute
   ServersIdRoute: typeof ServersIdRoute
+  ApiAgentPollRoute: typeof ApiAgentPollRoute
+  ApiAgentResultRoute: typeof ApiAgentResultRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
   ApiBackupNameRoute: typeof ApiBackupNameRoute
   ApiBackupRestoreRoute: typeof ApiBackupRestoreRoute
@@ -623,6 +649,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ServersIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/agent/poll': {
+      id: '/api/agent/poll'
+      path: '/api/agent/poll'
+      fullPath: '/api/agent/poll'
+      preLoaderRoute: typeof ApiAgentPollRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/agent/result': {
+      id: '/api/agent/result'
+      path: '/api/agent/result'
+      fullPath: '/api/agent/result'
+      preLoaderRoute: typeof ApiAgentResultRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -701,6 +741,8 @@ const rootRouteChildren: RootRouteChildren = {
   InviteIdRoute: InviteIdRoute,
   SSplatRoute: SSplatRoute,
   ServersIdRoute: ServersIdRoute,
+  ApiAgentPollRoute: ApiAgentPollRoute,
+  ApiAgentResultRoute: ApiAgentResultRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
   ApiBackupNameRoute: ApiBackupNameRoute,
   ApiBackupRestoreRoute: ApiBackupRestoreRoute,

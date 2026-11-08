@@ -392,3 +392,29 @@ export const serverChange = pgTable(
   },
   (t) => [index("server_change_server_idx").on(t.serverId, t.at)],
 );
+
+// エージェント(家の中のサーバー機で動かし、外向きにつないでくる小さなプログラム)。トークンはハッシュだけを残す。
+// servers はエージェントが知らせてきた、扱えるサーバー(JSON: [{ key, name, platform, mcVersion }])
+export const agent = pgTable(
+  "agent",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    tokenHash: text("token_hash").notNull(),
+    tokenHint: text("token_hint").notNull(),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    lastSeenAt: timestamp("last_seen_at"),
+    version: text("version").notNull().default(""),
+    servers: text("servers").notNull().default("[]"),
+  },
+  (t) => [uniqueIndex("agent_token_uq").on(t.tokenHash), index("agent_team_idx").on(t.teamId)],
+);
+
+// エージェントのサーバー(server.kind = "agent")。key はエージェントの設定ファイルに書いたサーバーの名前
+export const agentServer = pgTable("agent_server", {
+  serverId: text("server_id").primaryKey().references(() => server.id, { onDelete: "cascade" }),
+  agentId: text("agent_id").notNull().references(() => agent.id, { onDelete: "cascade" }),
+  key: text("key").notNull(),
+});

@@ -4,13 +4,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite dev --port 3000",
-    "build": "vite build",
+    "build": "node scripts/build-agent.mjs && vite build",
     "start": "node .output/server/index.mjs",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:generate": "drizzle-kit generate",
     "auth:schema": "auth generate --config scripts/auth-cli.ts --output src/server/db/auth-schema.ts --yes",
-    "e2e": "node scripts/e2e.mjs"
+    "e2e": "node scripts/e2e.mjs",
+    "build:agent": "node scripts/build-agent.mjs"
   },
   "dependencies": {
     "@better-auth/api-key": "^1.7.12",

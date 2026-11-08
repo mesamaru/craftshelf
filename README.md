@@ -47,6 +47,10 @@ docker compose up -d     # docker-compose.yml(イメージ ghcr.io/mesamaru/craf
   - パスキー・API トークンは取り込めません(作りが違うため)。v03 で登録し直してください
   - v02 の `index.db` を `/data` 以外に置いていた(`DB_DIR`・`CONFIG_DIR`)ときは、そのフォルダもつないで `V02_CONFIG_DIR` に書きます
 
+## 家の中のサーバーをつなぐ(エージェント)
+
+Pterodactyl が無い・外から届かない家の中のサーバーは、**エージェント**でつなげます。家のサーバー機から CraftShelf へ外向きにつなぐので、家のポートは開けません。使い方は [docs/AGENT.md](docs/AGENT.md)。
+
 ## サーバー機で動かす(Docker・サービス版)
 
 多くの人が使うサービスとして動かすときの構成です(PostgreSQL・Cloudflare Tunnel・バックアップ)。普段の作業は [mesamaru/craftshelf-server](https://github.com/mesamaru/craftshelf-server) で行います。

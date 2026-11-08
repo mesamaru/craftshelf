@@ -5,6 +5,7 @@ import {
   addConnection, addLocalServer, addServers, browseHost, listConnections, listServers, localEnabled, powerServer, remoteServers, removeConnection, removeServer, serverStatus,
 } from "~/lib/servers-api";
 import { useCan } from "~/lib/use-can";
+import { addAgentServer, createAgent, listAgents, removeAgent } from "~/lib/agents-api";
 
 export const Route = createFileRoute("/servers")({
   beforeLoad: ({ context }) => {
@@ -49,6 +50,7 @@ function Servers() {
       ))}
       {can({ server: ["create"] }) && <NewConnection onDone={reload} />}
       {local && can({ server: ["create"] }) && <NewLocal onDone={reload} />}
+      {can({ server: ["create"] }) && <Agents onDone={reload} />}
     </main>
   );
 }
@@ -308,6 +310,79 @@ function NewLocal({ onDone }: { onDone: () => void }) {
         <button className="row link" type="button" onClick={() => setOpen(false)}>やめる</button>
       </section>
       <p className="foot">サーバーの jar(例 paper-1.21.4.jar)を選ぶと、そのフォルダをサーバーにして、名前から種類と Minecraft のバージョンを決めます。Docker で動かしている場合は、サーバーのフォルダをパネルのコンテナにマウントしてください。</p>
+    </>
+  );
+}
+
+// エージェント: 家の中のサーバー機で動かし、外向きにつないでくる小さなプログラム(家のポートは開けない)
+function Agents({ onDone }: { onDone: () => void }) {
+  const load = useServerFn(listAgents);
+  const create = useServerFn(createAgent);
+  const remove = useServerFn(removeAgent);
+  const add = useServerFn(addAgentServer);
+  const [list, setList] = useState<Awaited<ReturnType<typeof listAgents>> | null>(null);
+  const [name, setName] = useState("");
+  const [made, setMade] = useState<{ token: string } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const reload = () => load().then(setList, (e) => setError(message(e)));
+  useEffect(() => {
+    reload();
+    const t = setInterval(reload, 15_000); // つながったかを見られるように
+    return () => clearInterval(t);
+  }, []);
+  const run = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    setError("");
+    try {
+      await fn();
+      await reload();
+      onDone();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const origin = typeof location === "undefined" ? "" : location.origin;
+  return (
+    <>
+      <div className="group-title">エージェント(家の中のサーバー)</div>
+      {list?.map((a) => (
+        <section className="group" key={a.id}>
+          <div className="row">
+            <span className="main"><span translate="no">{a.name}</span>
+              <span className="muted small">{a.online ? "つながっています" : a.lastSeenAt ? `最後につながった日時 ${new Date(a.lastSeenAt).toLocaleString("ja-JP")}` : "まだつながっていません"}{a.version ? ` · v${a.version}` : ""} · トークン …{a.tokenHint}</span>
+            </span>
+            <button className="trail link danger" type="button" disabled={busy}
+              onClick={() => confirm(`エージェント「${a.name}」を消しますか?(このエージェントのサーバーも一覧から外れます。家のサーバーのファイルは消えません)`) && run(() => remove({ data: { id: a.id } }))}>消す</button>
+          </div>
+          {a.servers.map((s) => (
+            <div className="row" key={s.key}>
+              <span className="main"><span translate="no">{s.name}</span><span className="muted small" translate="no">{s.key}{s.platform ? ` · ${s.platform}${s.mcVersion ? ` ${s.mcVersion}` : ""}` : ""}</span></span>
+              {s.added ? <span className="trail muted small">追加済み</span>
+                : <button className="trail link" type="button" disabled={busy} onClick={() => run(() => add({ data: { agentId: a.id, key: s.key } }))}>追加</button>}
+            </div>
+          ))}
+          {a.servers.length === 0 && <div className="row muted small">エージェントがつながると、設定ファイルに書いたサーバーがここに出ます。</div>}
+        </section>
+      ))}
+      {made ? (
+        <section className="group">
+          <p className="row" role="status">エージェントを登録しました。トークンはいまだけ表示します。</p>
+          <pre className="row log" translate="no">{JSON.stringify({ url: origin, token: made.token, servers: [{ key: "lobby", name: "ロビー", root: "/srv/minecraft/lobby", control: "none" }] }, null, 2)}</pre>
+          <p className="row muted small">家のサーバー機で、上の内容を craftshelf-agent.json として保存し(servers は自分のサーバーに合わせて書き換える)、Node.js 22 以上で次のように動かします。</p>
+          <pre className="row log" translate="no">{`curl -O ${origin}/agent/craftshelf-agent.mjs\nnode craftshelf-agent.mjs craftshelf-agent.json`}</pre>
+          <button className="row link" type="button" onClick={() => setMade(null)}>閉じる</button>
+        </section>
+      ) : (
+        <form className="group form" onSubmit={(e) => { e.preventDefault(); run(async () => { setMade(await create({ data: { name } })); setName(""); }); }}>
+          <input className="row" placeholder="エージェントの名前(例 家のサーバー機)" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
+          <button className="row link" type="submit" disabled={busy || !name.trim()}>エージェントを登録</button>
+        </form>
+      )}
+      {error && <p className="error" role="alert">{error}</p>}
+      <p className="foot">エージェントは、家の中のサーバー機から CraftShelf へ外向きにつなぐので、家のポートを開けずに使えます。CraftShelf から操作できるのは、エージェントの設定ファイルに書いたサーバーのフォルダと、そこに書いた起動・停止の方法だけです。詳しくは <a href="https://github.com/mesamaru/craftshelf/blob/dev/docs/AGENT.md" target="_blank" rel="noopener noreferrer">エージェントの使い方</a>。</p>
     </>
   );
 }

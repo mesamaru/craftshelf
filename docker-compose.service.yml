@@ -13,6 +13,9 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET:?BETTER_AUTH_SECRET を設定してください}
       DATABASE_URL: postgres://craftshelf:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD を設定してください}@postgres:5432/craftshelf
       CLIENT_IP_HEADER: cf-connecting-ip
+      # メール(メールアドレスの確認・パスワードの再設定・招待)。両方あるときだけ送る
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      MAIL_FROM: ${MAIL_FROM:-}
     depends_on:
       postgres: { condition: service_healthy }
     read_only: true

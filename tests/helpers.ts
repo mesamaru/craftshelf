@@ -5,10 +5,10 @@ import { createDb } from "~/server/db";
 export const APP_URL = "http://localhost:3000";
 export const TEST_SECRET = "test-secret-0123456789-0123456789-abcd";
 
-export async function setup(opts: { mode?: "self" | "service"; appUrl?: string | null } = {}) {
+export async function setup(opts: { mode?: "self" | "service"; appUrl?: string | null; mailer?: import("~/server/mail").Mailer } = {}) {
   const db = await createDb("pglite:", "drizzle");
   // 利用者の IP は x-test-ip で渡す(登録ごとに変えて、回数制限にかからないようにする)
-  const auth = createAuth(db, { appUrl: opts.appUrl === undefined ? APP_URL : opts.appUrl, secret: TEST_SECRET, clientIpHeader: "x-test-ip", mode: opts.mode });
+  const auth = createAuth(db, { appUrl: opts.appUrl === undefined ? APP_URL : opts.appUrl, secret: TEST_SECRET, clientIpHeader: "x-test-ip", mode: opts.mode, mailer: opts.mailer });
   let ipSeq = 0;
 
   const headers = (cookie = "", ip = "198.51.100.1") => new Headers({ origin: APP_URL, cookie, "x-test-ip": ip });

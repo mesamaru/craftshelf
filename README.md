@@ -56,9 +56,13 @@ docker compose up -d     # docker-compose.yml(イメージ ghcr.io/mesamaru/craf
    - `BETTER_AUTH_SECRET`: `openssl rand -base64 32` で作った文字列
    - `POSTGRES_PASSWORD`: データベースのパスワード
    - `TUNNEL_TOKEN`: Cloudflare Zero Trust →「Networks」→「Tunnels」で作ったトンネルのトークン。トンネルの公開先は `http://app:3000` にします
+   - `RESEND_API_KEY`・`MAIL_FROM`(任意): メールの送信(Resend)。設定すると、登録した人はメールアドレスを確かめるまでログインできず、パスワードの再設定・招待のメールも送ります。公開するときは設定してください(確かめないと、他人のメールアドレスで登録・招待の受け取りができてしまうため)
 2. `docker compose -f docker-compose.service.yml up -d --build`
 
 app のポートは外に出しません。入口は Cloudflare Tunnel だけです(家のポートを開けず、IP も知られません)。
+
+- **見張り**: `GET /api/health` が、データベースまで答えられるかを返します(`{"ok":true}`。ログインは要りません)。外からの見張り(Uptime Kuma・Cloudflare の Health Checks など)に使えます
+- **利用規約・プライバシーポリシー**: `/terms`・`/privacy`(`src/routes/terms.tsx`・`privacy.tsx`)は、ひな形です。公開する前に、運営者が中身を確かめて直してください
 
 ## バックアップ(サービス版)
 

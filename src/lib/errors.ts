@@ -1,6 +1,8 @@
 // Better Auth のエラーを画面向けの日本語にする
 const MESSAGES: Record<string, string> = {
   INVALID_EMAIL_OR_PASSWORD: "メールアドレスかパスワードが違います",
+  EMAIL_NOT_VERIFIED: "メールアドレスの確認がまだです。届いたメールのリンクを開いてください(確認のメールをもう一度送りました)",
+  INVALID_TOKEN: "リンクが使えません(期限切れか、もう使ったもの)。もう一度やり直してください",
   USER_ALREADY_EXISTS: "このメールアドレスはすでに登録されています",
   USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL: "このメールアドレスはすでに登録されています",
   PASSWORD_TOO_SHORT: "パスワードは 10 文字以上にしてください",

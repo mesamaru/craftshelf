@@ -92,6 +92,7 @@ function Login() {
             <button className="capsule primary" disabled={busy}>ログイン</button>
           </form>
           <button className="capsule" type="button" onClick={withPasskey} disabled={busy}>パスキーでログイン</button>
+          {app.mail && <p className="foot"><Link to="/forgot">パスワードを忘れたとき</Link></p>}
           {app.mode === "self" && app.signupOpen ? (
             <p className="foot">はじめて使うときは <Link to="/signup" search={{ next }}>最初の管理者を作る</Link></p>
           ) : (
@@ -99,6 +100,7 @@ function Login() {
           )}
         </>
       )}
+      {app.mode === "service" && <p className="foot"><Link to="/terms">利用規約</Link> · <Link to="/privacy">プライバシーポリシー</Link></p>}
     </main>
   );
 }

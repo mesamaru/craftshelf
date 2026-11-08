@@ -202,3 +202,9 @@ pre.log .err { color: var(--danger); } pre.log .warn { color: #c27c00; }
 .palette .foot { margin: 6px 12px 10px; }
 .diff-table .take { border: 1px solid var(--line); background: var(--glass); color: var(--accent); border-radius: 6px; font: 600 11px/1 system-ui, sans-serif; padding: 2px 5px; margin-right: 6px; cursor: pointer; }
 .diff-table .take:hover { border-color: var(--accent); }
+
+/* 利用規約・プライバシーポリシー */
+.doc .row.column { gap: 4px; line-height: 1.7; font-size: 14px; }
+.doc h2 { font-size: 15px; margin: 14px 0 2px; }
+.doc ul { margin: 0; padding-left: 1.3em; }
+.doc p { margin: 0; }

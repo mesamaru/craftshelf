@@ -21,6 +21,7 @@ function Signup() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [sent, setSent] = useState(false);
 
   const submit = async () => {
     setBusy(true);
@@ -28,6 +29,7 @@ function Signup() {
     const { error } = await authClient.signUp.email({ name, email, password });
     setBusy(false);
     if (error) return setError(errorText(error));
+    if (app.verifyEmail) return setSent(true); // 確かめるまではログインできない
     await router.invalidate();
     await router.navigate({ href: safeNext(next) });
   };
@@ -36,6 +38,9 @@ function Signup() {
     <main className="page narrow">
       <h1 className="title">{app.mode === "self" && app.signupOpen ? "最初の管理者を作る" : "アカウントを作る"}</h1>
       {app.mode === "self" && !app.signupOpen && <p className="foot">招待されたメールアドレスで登録してください。</p>}
+      {sent ? (
+        <section className="group"><p className="row" role="status">{`${email} に確認のメールを送りました。メールのリンクを開くと登録が終わり、ログインできます(24 時間有効)。`}</p></section>
+      ) : (
       <form className="group form" onSubmit={(e) => (e.preventDefault(), submit())}>
         <input className="row" autoComplete="nickname" placeholder="表示名" translate="no"
           value={name} onChange={(e) => setName(e.target.value)} required />
@@ -46,6 +51,8 @@ function Signup() {
         {error && <p className="row error" role="alert">{error}</p>}
         <button className="capsule primary" disabled={busy}>作成</button>
       </form>
+      )}
+      {app.mode === "service" && <p className="foot">登録すると、<Link to="/terms">利用規約</Link>と<Link to="/privacy">プライバシーポリシー</Link>に同意したものとします。</p>}
       <p className="foot">アカウントがある場合は <Link to="/login" search={{ next }}>ログイン</Link></p>
     </main>
   );

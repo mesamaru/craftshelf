@@ -14,6 +14,7 @@ import * as schema from "./db/schema";
 import type { Mode } from "./env";
 import { verifyV02Totp, verifyWerkzeug } from "./legacy";
 import { open } from "./secrets";
+import { MAILS, type Mailer } from "./mail";
 
 // v02 のユーザー名の決まり(英数字・日本語などの文字と . _ - @、40 文字まで)
 export const USERNAME_RE = /^[\p{L}\p{N}_.@-]{1,40}$/u;
@@ -32,7 +33,7 @@ export function sameHostOrigins(req?: Request): string[] {
   return hosts.flatMap((h) => [`https://${h}`, `http://${h}`]);
 }
 
-type Options = { appUrl: string | null; secret: string; clientIpHeader?: string; mode?: Mode };
+type Options = { appUrl: string | null; secret: string; clientIpHeader?: string; mode?: Mode; mailer?: Mailer | null };
 
 export function createAuth(db: Db, opts: Options) {
   const mode = opts.mode ?? "service";
@@ -46,6 +47,10 @@ export function createAuth(db: Db, opts: Options) {
     return m?.id ?? null;
   };
   const userCount = async () => (await db.select({ n: count() }).from(schema.user))[0].n;
+  // メール: 送れるとき(と、リンクに使う URL がわかるとき)だけ。メールアドレスの確認はサービス版だけ(自分用の版は招待した人だけが登録する)
+  const mailer = opts.mailer ?? null;
+  const verify = !!mailer && mode === "service";
+  const send = (to: string, m: { subject: string; text: string }) => mailer!.send({ to, ...m }).catch((e) => console.error("[メール] 送れませんでした:", e));
 
   const auth = betterAuth({
     appName: APP_NAME,
@@ -55,6 +60,8 @@ export function createAuth(db: Db, opts: Options) {
     emailAndPassword: {
       enabled: true,
       minPasswordLength: 10,
+      requireEmailVerification: verify,
+      ...(mailer ? { sendResetPassword: async ({ user, url: link }: { user: { email: string }; url: string }) => send(user.email, MAILS.reset(link)) } : {}),
       // v02 から取り込んだパスワード(Werkzeug の形)もそのまま使えるようにする
       password: { hash: hashPassword, verify: async ({ hash, password }) => verifyWerkzeug(hash, password) ?? verifyPassword({ hash, password }) },
     },
@@ -87,6 +94,12 @@ export function createAuth(db: Db, opts: Options) {
         }
       }),
     },
+    ...(verify ? {
+      emailVerification: {
+        sendOnSignUp: true, sendOnSignIn: true, autoSignInAfterVerification: true, expiresIn: 60 * 60 * 24,
+        sendVerificationEmail: async ({ user, url: link }: { user: { email: string }; url: string }) => send(user.email, MAILS.verify(link)),
+      },
+    } : {}),
     session: { expiresIn: 60 * 60 * 24 * 14, updateAge: 60 * 60 * 24 },
     // ログインなどの回数制限。複数のプロセスでも効くよう、データベースに数える
     rateLimit: { enabled: true, storage: "database" },
@@ -142,6 +155,11 @@ export function createAuth(db: Db, opts: Options) {
         organizationLimit: mode === "self" ? 1 : LIMITS.teamsPerUser,
         ...(mode === "service" ? { membershipLimit: LIMITS.membersPerTeam } : {}),
         cancelPendingInvitationsOnReInvite: true,
+        // 招待のリンクをメールでも送る(URL を決めているときだけ。画面のリンクはいつもどおり出す)
+        ...(mailer && url ? {
+          sendInvitationEmail: async (d: { id: string; email: string; organization: { name: string }; inviter: { user: { name: string } } }) =>
+            send(d.email, MAILS.invite(d.inviter.user.name, d.organization.name, `${url.origin}/invite/${d.id}`)),
+        } : {}),
       }),
       // API トークン(cs_…)。チーム(metadata.teamId)ごとに作り、1 分に 120 回まで
       apiKey({ defaultPrefix: "cs_", enableMetadata: true, rateLimit: { enabled: true, timeWindow: 60_000, maxRequests: 120 } }),

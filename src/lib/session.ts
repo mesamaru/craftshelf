@@ -6,7 +6,7 @@ export const getAppState = createServerFn({ method: "GET" }).handler(async () =>
   const { auth, db, env } = await import("~/server/instance");
   const { signupOpen } = await import("~/server/auth");
   const s = await auth.api.getSession({ headers: getRequest().headers });
-  const app = { mode: env.mode, signupOpen: await signupOpen(db, env.mode) };
+  const app = { mode: env.mode, signupOpen: await signupOpen(db, env.mode), mail: !!env.mail, verifyEmail: !!env.mail && env.mode === "service" };
   if (!s) return { user: null, app };
   const { eq } = await import("drizzle-orm");
   const { legacyTotp } = await import("~/server/db/schema");

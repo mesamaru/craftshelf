@@ -1,6 +1,24 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "パスワードを忘れたとき": "Forgot your password?",
+  "利用規約": "Terms of Service",
+  "プライバシーポリシー": "Privacy Policy",
+  "登録すると、": "By signing up, you agree to the ",
+  "に同意したものとします。": ".",
+  "パスワードの再設定": "Reset your password",
+  "登録したメールアドレス": "Registered email address",
+  "再設定のリンクを送る": "Send a reset link",
+  "登録されていれば、再設定のリンクをメールで送りました(1 時間有効)。メールが届かないときは、迷惑メールのフォルダも見てください。": "If the address is registered, a reset link has been emailed (valid for 1 hour). If it doesn't arrive, check your spam folder.",
+  "ログインに戻る": "Back to sign in",
+  "新しいパスワード": "New password",
+  "新しいパスワード(10 文字以上)": "New password (10+ characters)",
+  "パスワードを変える": "Change password",
+  "パスワードを変えました。新しいパスワードでログインしてください。": "Your password has been changed. Sign in with the new password.",
+  "リンクが使えません(期限切れか、もう使ったもの)。もう一度やり直してください": "This link can't be used (expired or already used). Please try again",
+  "ログインへ": "To sign in",
+  "もう一度送る": "Send again",
+  "メールアドレスの確認がまだです。届いたメールのリンクを開いてください(確認のメールをもう一度送りました)": "Your email address isn't verified yet. Open the link in the email (we sent it again)",
   "v02 から取り込み直す": "Re-import from v02",
   "v02 のデータを取り込み直す": "Re-import v02 data",
   "次の起動で v02 から取り込み直します。": "v02 data will be re-imported on the next start. ",
@@ -852,6 +870,7 @@ export const EN: Record<string, string> = {
 };
 /** 1 文字だけのもの(曜日など)。文全体が一致したときだけ置き換える */
 export const EN_WHOLE: Record<string, string> = {
+  "と": " and the ",
   "青": "Blue",
   "緑": "Green",
   "紫": "Purple",
@@ -883,6 +902,7 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^(.+?) に確認のメールを送りました。メールのリンクを開くと登録が終わり、ログインできます\(24 時間有効\)。$/, "A confirmation email has been sent to $1. Open the link in it to finish signing up and sign in (valid for 24 hours)."],
   [/。設定ファイルを (\d+) 個書き込みました/, ". Wrote $1 config files"],
   [/^「(.+?)」の (.+?) を保存しました。反映にはサーバーの再起動が要ります$/, "Saved $2 on “$1”. Restart the server to apply"],
   [/^Minecraft を (.+?) から (.+?) に上げますか[?？]ワールドは新しいバージョンに変換され、元のバージョンには戻せません。先にワールドのバックアップを取り、プラグイン・Mod が (.+?) に対応しているかも確かめてください。$/, "Upgrade Minecraft from $1 to $2? The world is converted to the new version and cannot go back. Back up the world first, and check that plugins and mods support $3."],

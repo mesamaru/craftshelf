@@ -57,7 +57,9 @@ if (env.mode === "self") {
     console.error("[v02] ライブラリの取り込みに失敗しました(v02 のデータはそのままです):", e);
   }
 }
-export const auth = createAuth(db, env);
+const { resendMailer } = await import("./mail");
+export const mailer = env.mail ? resendMailer(safeFetch, env.mail.resendKey, env.mail.from) : null;
+export const auth = createAuth(db, { ...env, mailer });
 // 自分用の版は家の中のアドレスにもつなぐ。サービス版は公開されたアドレスだけ(SSRF 対策)
 const deps = { db, auth, secret: env.secret, fetch: env.mode === "self" ? lanFetch : safeFetch, allowPrivate: env.mode === "self",
   ...(env.mode === "self" ? { local: { dataDir: env.dataDir } } : {}) };

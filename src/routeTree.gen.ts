@@ -13,8 +13,11 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ActivityRouteImport } from './routes/activity'
 import { Route as BackupRouteImport } from './routes/backup'
 import { Route as CompareRouteImport } from './routes/compare'
+import { Route as ForgotRouteImport } from './routes/forgot'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PortsRouteImport } from './routes/ports'
+import { Route as PrivacyRouteImport } from './routes/privacy'
+import { Route as ResetRouteImport } from './routes/reset'
 import { Route as ServersRouteImport } from './routes/servers'
 import { Route as SetsRouteImport } from './routes/sets'
 import { Route as SettingsRouteImport } from './routes/settings'
@@ -23,7 +26,9 @@ import { Route as SignupRouteImport } from './routes/signup'
 import { Route as SoftwareRouteImport } from './routes/software'
 import { Route as StorageRouteImport } from './routes/storage'
 import { Route as TeamRouteImport } from './routes/team'
+import { Route as TermsRouteImport } from './routes/terms'
 import { Route as UsageRouteImport } from './routes/usage'
+import { Route as ApiHealthRouteImport } from './routes/api/health'
 import { Route as ApiModpackRouteImport } from './routes/api/modpack'
 import { Route as CompareFilesRouteImport } from './routes/compare_.files'
 import { Route as InviteIdRouteImport } from './routes/invite.$id'
@@ -57,6 +62,11 @@ const CompareRoute = CompareRouteImport.update({
   path: '/compare',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ForgotRoute = ForgotRouteImport.update({
+  id: '/forgot',
+  path: '/forgot',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
@@ -65,6 +75,16 @@ const LoginRoute = LoginRouteImport.update({
 const PortsRoute = PortsRouteImport.update({
   id: '/ports',
   path: '/ports',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ResetRoute = ResetRouteImport.update({
+  id: '/reset',
+  path: '/reset',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ServersRoute = ServersRouteImport.update({
@@ -107,9 +127,19 @@ const TeamRoute = TeamRouteImport.update({
   path: '/team',
   getParentRoute: () => rootRouteImport,
 } as any)
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const UsageRoute = UsageRouteImport.update({
   id: '/usage',
   path: '/usage',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiHealthRoute = ApiHealthRouteImport.update({
+  id: '/api/health',
+  path: '/api/health',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiModpackRoute = ApiModpackRouteImport.update({
@@ -178,8 +208,11 @@ export interface FileRoutesByFullPath {
   '/activity': typeof ActivityRoute
   '/backup': typeof BackupRoute
   '/compare': typeof CompareRoute
+  '/forgot': typeof ForgotRoute
   '/login': typeof LoginRoute
   '/ports': typeof PortsRoute
+  '/privacy': typeof PrivacyRoute
+  '/reset': typeof ResetRoute
   '/servers': typeof ServersRoute
   '/sets': typeof SetsRoute
   '/settings': typeof SettingsRoute
@@ -188,7 +221,9 @@ export interface FileRoutesByFullPath {
   '/software': typeof SoftwareRoute
   '/storage': typeof StorageRoute
   '/team': typeof TeamRoute
+  '/terms': typeof TermsRoute
   '/usage': typeof UsageRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/modpack': typeof ApiModpackRoute
   '/compare/files': typeof CompareFilesRoute
   '/invite/$id': typeof InviteIdRoute
@@ -207,8 +242,11 @@ export interface FileRoutesByTo {
   '/activity': typeof ActivityRoute
   '/backup': typeof BackupRoute
   '/compare': typeof CompareRoute
+  '/forgot': typeof ForgotRoute
   '/login': typeof LoginRoute
   '/ports': typeof PortsRoute
+  '/privacy': typeof PrivacyRoute
+  '/reset': typeof ResetRoute
   '/servers': typeof ServersRoute
   '/sets': typeof SetsRoute
   '/settings': typeof SettingsRoute
@@ -217,7 +255,9 @@ export interface FileRoutesByTo {
   '/software': typeof SoftwareRoute
   '/storage': typeof StorageRoute
   '/team': typeof TeamRoute
+  '/terms': typeof TermsRoute
   '/usage': typeof UsageRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/modpack': typeof ApiModpackRoute
   '/compare/files': typeof CompareFilesRoute
   '/invite/$id': typeof InviteIdRoute
@@ -237,8 +277,11 @@ export interface FileRoutesById {
   '/activity': typeof ActivityRoute
   '/backup': typeof BackupRoute
   '/compare': typeof CompareRoute
+  '/forgot': typeof ForgotRoute
   '/login': typeof LoginRoute
   '/ports': typeof PortsRoute
+  '/privacy': typeof PrivacyRoute
+  '/reset': typeof ResetRoute
   '/servers': typeof ServersRoute
   '/sets': typeof SetsRoute
   '/settings': typeof SettingsRoute
@@ -247,7 +290,9 @@ export interface FileRoutesById {
   '/software': typeof SoftwareRoute
   '/storage': typeof StorageRoute
   '/team': typeof TeamRoute
+  '/terms': typeof TermsRoute
   '/usage': typeof UsageRoute
+  '/api/health': typeof ApiHealthRoute
   '/api/modpack': typeof ApiModpackRoute
   '/compare_/files': typeof CompareFilesRoute
   '/invite/$id': typeof InviteIdRoute
@@ -268,8 +313,11 @@ export interface FileRouteTypes {
     | '/activity'
     | '/backup'
     | '/compare'
+    | '/forgot'
     | '/login'
     | '/ports'
+    | '/privacy'
+    | '/reset'
     | '/servers'
     | '/sets'
     | '/settings'
@@ -278,7 +326,9 @@ export interface FileRouteTypes {
     | '/software'
     | '/storage'
     | '/team'
+    | '/terms'
     | '/usage'
+    | '/api/health'
     | '/api/modpack'
     | '/compare/files'
     | '/invite/$id'
@@ -297,8 +347,11 @@ export interface FileRouteTypes {
     | '/activity'
     | '/backup'
     | '/compare'
+    | '/forgot'
     | '/login'
     | '/ports'
+    | '/privacy'
+    | '/reset'
     | '/servers'
     | '/sets'
     | '/settings'
@@ -307,7 +360,9 @@ export interface FileRouteTypes {
     | '/software'
     | '/storage'
     | '/team'
+    | '/terms'
     | '/usage'
+    | '/api/health'
     | '/api/modpack'
     | '/compare/files'
     | '/invite/$id'
@@ -326,8 +381,11 @@ export interface FileRouteTypes {
     | '/activity'
     | '/backup'
     | '/compare'
+    | '/forgot'
     | '/login'
     | '/ports'
+    | '/privacy'
+    | '/reset'
     | '/servers'
     | '/sets'
     | '/settings'
@@ -336,7 +394,9 @@ export interface FileRouteTypes {
     | '/software'
     | '/storage'
     | '/team'
+    | '/terms'
     | '/usage'
+    | '/api/health'
     | '/api/modpack'
     | '/compare_/files'
     | '/invite/$id'
@@ -356,8 +416,11 @@ export interface RootRouteChildren {
   ActivityRoute: typeof ActivityRoute
   BackupRoute: typeof BackupRoute
   CompareRoute: typeof CompareRoute
+  ForgotRoute: typeof ForgotRoute
   LoginRoute: typeof LoginRoute
   PortsRoute: typeof PortsRoute
+  PrivacyRoute: typeof PrivacyRoute
+  ResetRoute: typeof ResetRoute
   ServersRoute: typeof ServersRoute
   SetsRoute: typeof SetsRoute
   SettingsRoute: typeof SettingsRoute
@@ -366,7 +429,9 @@ export interface RootRouteChildren {
   SoftwareRoute: typeof SoftwareRoute
   StorageRoute: typeof StorageRoute
   TeamRoute: typeof TeamRoute
+  TermsRoute: typeof TermsRoute
   UsageRoute: typeof UsageRoute
+  ApiHealthRoute: typeof ApiHealthRoute
   ApiModpackRoute: typeof ApiModpackRoute
   CompareFilesRoute: typeof CompareFilesRoute
   InviteIdRoute: typeof InviteIdRoute
@@ -411,6 +476,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CompareRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/forgot': {
+      id: '/forgot'
+      path: '/forgot'
+      fullPath: '/forgot'
+      preLoaderRoute: typeof ForgotRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -423,6 +495,20 @@ declare module '@tanstack/react-router' {
       path: '/ports'
       fullPath: '/ports'
       preLoaderRoute: typeof PortsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/reset': {
+      id: '/reset'
+      path: '/reset'
+      fullPath: '/reset'
+      preLoaderRoute: typeof ResetRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/servers': {
@@ -481,11 +567,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TeamRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/usage': {
       id: '/usage'
       path: '/usage'
       fullPath: '/usage'
       preLoaderRoute: typeof UsageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/health': {
+      id: '/api/health'
+      path: '/api/health'
+      fullPath: '/api/health'
+      preLoaderRoute: typeof ApiHealthRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/modpack': {
@@ -580,8 +680,11 @@ const rootRouteChildren: RootRouteChildren = {
   ActivityRoute: ActivityRoute,
   BackupRoute: BackupRoute,
   CompareRoute: CompareRoute,
+  ForgotRoute: ForgotRoute,
   LoginRoute: LoginRoute,
   PortsRoute: PortsRoute,
+  PrivacyRoute: PrivacyRoute,
+  ResetRoute: ResetRoute,
   ServersRoute: ServersRoute,
   SetsRoute: SetsRoute,
   SettingsRoute: SettingsRoute,
@@ -590,7 +693,9 @@ const rootRouteChildren: RootRouteChildren = {
   SoftwareRoute: SoftwareRoute,
   StorageRoute: StorageRoute,
   TeamRoute: TeamRoute,
+  TermsRoute: TermsRoute,
   UsageRoute: UsageRoute,
+  ApiHealthRoute: ApiHealthRoute,
   ApiModpackRoute: ApiModpackRoute,
   CompareFilesRoute: CompareFilesRoute,
   InviteIdRoute: InviteIdRoute,

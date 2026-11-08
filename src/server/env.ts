@@ -56,6 +56,8 @@ export function readEnv() {
     // 利用者の IP を入れてくるヘッダー(Cloudflare Tunnel なら cf-connecting-ip)。
     // アプリに直接つなげない構成のときだけ設定する(直接つなげると書き換えられる)
     clientIpHeader: process.env.CLIENT_IP_HEADER || "",
+    // メールの送信(Resend)。両方あるときだけ送る
+    mail: process.env.RESEND_API_KEY && process.env.MAIL_FROM ? { resendKey: process.env.RESEND_API_KEY, from: process.env.MAIL_FROM } : null,
   };
 }
 

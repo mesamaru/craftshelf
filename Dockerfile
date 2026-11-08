@@ -18,6 +18,6 @@ COPY docker/start.sh /usr/local/bin/craftshelf-start
 VOLUME /data
 EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s \
-  CMD wget -qO- "http://127.0.0.1:${PORT}/api/auth/ok" >/dev/null || exit 1
+  CMD wget -qO- "http://127.0.0.1:${PORT}/api/health" >/dev/null || exit 1
 # パネルで選んだ版(/data/v03/versions)があればそれを起動する
 CMD ["sh", "/usr/local/bin/craftshelf-start"]

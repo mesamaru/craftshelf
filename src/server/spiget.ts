@@ -1,13 +1,14 @@
 // SpigotMC(Spiget の API https://spiget.org/documentation/)からプラグインを探し、入れるファイルを決める。
 // ファイルはこのアプリを通さず、Pterodactyl が Spiget の CDN(api.spiget.org → cdn.spiget.org)から直接取り込む。
 // SpigotMC の外のサイトで配っているもの(external)・有料のもの(premium)は、取り込めないので扱わない
-import { type Platform } from "~/lib/platforms";
-import { type FileChoice, type Hit, SAFE_JAR } from "./modrinth";
+import { type Platform, mcClean } from "~/lib/platforms";
+import { type FileChoice, type Hit, type ItemVersion, SAFE_JAR } from "./modrinth";
+import { htmlToText } from "./html-text";
 import type { FetchLike } from "./net";
 
 const API = "https://api.spiget.org/v2";
 const UA = "mesamaru/craftshelf (https://github.com/mesamaru/craftshelf)";
-const FIELDS = "id,name,tag,downloads,external,premium,category,version";
+const FIELDS = "id,name,tag,downloads,external,premium,category,version,testedVersions";
 
 export class SpigetError extends Error {}
 export const SPIGET_ID = /^\d{1,9}$/;
@@ -26,7 +27,7 @@ export function spigetFits(category: number, platform: Platform) {
   return BUKKIT.includes(platform);
 }
 
-type Resource = { id: number; name: string; tag: string; downloads: number; external: boolean; premium: boolean; category?: { id: number }; version?: { id: number } };
+type Resource = { id: number; name: string; tag: string; downloads: number; external: boolean; premium: boolean; category?: { id: number }; version?: { id: number }; testedVersions?: string[] };
 
 // 置くファイルの名前: プラグインの名前と版から、安全な文字だけで作る
 const jarName = (id: number, name: string, version: string) => {
@@ -77,9 +78,25 @@ export function spigetClient(fetch: FetchLike) {
       return { projectId: String(r.id), versionId, versionNumber, filename: jarName(r.id, r.name, versionNumber), url: `${API}/resources/${r.id}/download`, sha512: "", size: 0 };
     },
 
+    // mcVersions は作者が「試した」と書いたバージョン(1.20 のように、細かい番号の無いことが多い)
     async project(projectId: string) {
       const r = await resource(projectId);
-      return r ? { title: String(r.name ?? ""), slug: "", projectType: installable(r) ? "plugin" : "", iconUrl: "" } : null;
+      return r ? { title: String(r.name ?? ""), slug: "", projectType: installable(r) ? "plugin" : "", iconUrl: "", mcVersions: mcClean(r.testedVersions) } : null;
+    },
+
+    /** 更新のお知らせ(新しい順・15 件まで)。SpigotMC は版ごとの変更内容が無いので、これを版の一覧の代わりにする */
+    async updates(projectId: string): Promise<ItemVersion[]> {
+      if (!SPIGET_ID.test(projectId)) return [];
+      const list = await get(`/resources/${projectId}/updates?size=15&sort=-date`);
+      return (Array.isArray(list) ? list : []).map((u: Record<string, unknown>) => {
+        let html = "";
+        try {
+          html = Buffer.from(String(u.description ?? ""), "base64").toString("utf8");
+        } catch { /* 読めなければ空 */ }
+        const date = Number(u.date);
+        return { versionId: String(u.id ?? ""), versionNumber: String(u.title ?? "").slice(0, 120), date: date ? new Date(date * 1000).toISOString() : "", type: "release",
+          mcVersions: [], loaders: [], changelog: htmlToText(html, 20_000) };
+      });
     },
   };
 }

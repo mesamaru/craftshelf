@@ -16,6 +16,8 @@ const DEP = "VaultPrj";
 const EXTRA = "EssxPrj1";
 const files = new Map<string, string[]>([["plugins", []]]);
 const power: string[] = [];
+const discord: string[] = [];
+const HOOK = "https://discord.com/api/webhooks/123456789012345678/abcdefghijklmnopqrstuvwxyz_0123456789";
 let latest = { id: "ver00001", number: "5.4.0" };
 
 const version = (pid: string, id: string, number: string, name: string, deps: string[] = []) => ({
@@ -39,6 +41,10 @@ const fake: FetchLike = async (url, init) => {
     if (m?.[2] && m[1] === DEP) return json([version(DEP, "vault001", "1.7", "Vault")]);
     if (m?.[2] && m[1] === EXTRA) return json([version(EXTRA, "essx0001", "2.20", "Essentials")]);
     return json({}, 404);
+  }
+  if (u.host === "discord.com") {
+    discord.push(JSON.parse(String(init?.body)).content);
+    return new Response(null, { status: 204 });
   }
   if (u.host !== "panel.example.com") throw new Error("想定外の接続先: " + url);
   if (u.pathname === "/api/client") return json({ data: [{ attributes: { identifier: "abcd1234", name: "ロビー" } }], meta: { pagination: { total_pages: 1 } } });
@@ -164,7 +170,8 @@ describe("サーバーごとの予約", () => {
     expect(await sched.getServer(viewer, serverId)).toMatchObject(ok);
   });
 
-  it("時刻・曜日になったら最新にし、変えたら再起動する。同じ分に 2 回は動かない。変えるものが無ければ再起動しない", async () => {
+  it("時刻・曜日になったら最新にし、変えたら再起動する。同じ分に 2 回は動かない。変えるものが無ければ再起動せず、Discord にも送らない", async () => {
+    await ev.setNotify(owner, { url: HOOK, kinds: ["schedule"] });
     latest = { id: "ver00004", number: "5.7.0" };
     expect(await sched.serverTick(later(-1))).toEqual([]);
     expect(await sched.serverTick(SUN_0400)).toEqual([serverId]);
@@ -176,9 +183,11 @@ describe("サーバーごとの予約", () => {
     expect([e.action, e.target, e.userName]).toEqual(["予約で最新にする", "ロビー", ""]);
     expect(e.detail).toContain("LuckPerms: 5.6.0 → 5.7.0");
     expect(e.detail).toContain("再起動しました");
+    expect(discord.filter((d) => d.includes("予約で最新にする"))).toHaveLength(1);
     expect(await sched.serverTick(later(60 * 24 * 7))).toEqual([serverId]);
     expect(power).toEqual(["restart"]);
-    expect((await ev.list(owner))[0].detail).toBe("変えるものはありませんでした");
+    expect((await ev.list(owner))[0].detail).toBe("変えるものはありませんでした"); // 記録は残す
+    expect(discord.filter((d) => d.includes("予約で最新にする"))).toHaveLength(1); // 通知はしない
   });
 
   it("毎日なら曜日を問わない。止めると動かない。チームの予約とは別に動く", async () => {

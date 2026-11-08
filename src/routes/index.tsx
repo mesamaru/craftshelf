@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { authClient } from "~/lib/auth-client";
-import { addLibraryItem, favoriteLibraryItem, installMod, libraryCatalog, outdatedLibraryItems, removeLibraryItem, searchCatalog, tagLibraryItems } from "~/lib/library-api";
+import { addLibraryItem, addLibraryItemFromUrl, editLibraryItem, favoriteLibraryItem, installMod, libraryCatalog, libraryItemChangelog, libraryItemVersions, libraryMissingDeps,
+  linkLibraryDep, outdatedLibraryItems, relinkLibraryItem, removeLibraryItem, searchCatalog, setLibraryChannel, tagLibraryItems } from "~/lib/library-api";
+import { mcCompare, mcCovers, mcRange } from "~/lib/platforms";
 import { localEnabled } from "~/lib/servers-api";
-import { SOURCE_LABEL, type ItemSource, type Source, isItemSource, pageUrl } from "~/lib/sources";
+import { CHANNELS, SOURCE_LABEL, type Channel, type ItemSource, type Source, isItemSource, pageUrl } from "~/lib/sources";
 import { removeUploadedFile, uploadedFiles } from "~/lib/uploads-api";
 import { ShareMaker } from "~/lib/share-maker";
 import { useCan } from "~/lib/use-can";
@@ -26,22 +28,26 @@ const TYPE_LABEL: Record<string, string> = { plugin: "プラグイン", mod: "Mo
 
 type Catalog = Awaited<ReturnType<typeof libraryCatalog>>;
 type CatItem = Catalog["items"][number];
+type DepInfo = Awaited<ReturnType<typeof libraryMissingDeps>>["items"][number]["servers"];
 
-// 一覧の絞り込み・並べ替え。oldIds は「更新あり」を確かめた結果(確かめるまでは null)
-type Filter = { q: string; type: string; source: string; tag: string; sort: "name" | "new"; old: boolean; oldIds: Set<string> | null };
-const NO_FILTER: Filter = { q: "", type: "", source: "", tag: "", sort: "name", old: false, oldIds: null };
+// 一覧の絞り込み・並べ替え。oldIds は「更新あり」、depIds は「前提が足りない」を確かめた結果(確かめるまでは null)。mc は対応 MC で絞る
+type Filter = { q: string; type: string; source: string; tag: string; mc: string; sort: "name" | "new"; old: boolean; oldIds: Set<string> | null;
+  deps: boolean; depIds: Map<string, DepInfo> | null };
+const NO_FILTER: Filter = { q: "", type: "", source: "", tag: "", mc: "", sort: "name", old: false, oldIds: null, deps: false, depIds: null };
 
 // お気に入りを上に。あとは名前順(サーバーから名前順で来る)か、追加日が新しい順
 function filterItems(items: CatItem[], f: Filter) {
   const q = f.q.trim().toLowerCase();
   return items
     .filter((i) => (!q || i.title.toLowerCase().includes(q)) && (!f.type || i.projectType === f.type) && (!f.source || i.source === f.source)
-      && (!f.tag || i.tags.includes(f.tag)) && (!f.old || !!f.oldIds?.has(i.id)))
+      && (!f.tag || i.tags.includes(f.tag)) && (!f.old || !!f.oldIds?.has(i.id)) && (!f.mc || mcCovers(i.mc, f.mc)) && (!f.deps || !!f.depIds?.has(i.id)))
     .sort((a, b) => Number(b.favorite) - Number(a.favorite) || (f.sort === "new" ? b.createdAt.localeCompare(a.createdAt) : 0));
 }
 
 function Filters({ cat, f, setF }: { cat: Catalog; f: Filter; setF: (fn: (f: Filter) => Filter) => void }) {
   const outdated = useServerFn(outdatedLibraryItems);
+  const missing = useServerFn(libraryMissingDeps);
+  const mcs = [...new Set(cat.items.flatMap((i) => i.mc))].sort(mcCompare).reverse();
   const [error, setError] = useState("");
   const tags = [...new Set(cat.items.flatMap((i) => i.tags))].sort((a, b) => a.localeCompare(b, "ja"));
   const sources = [...new Set(cat.items.map((i) => i.source))];
@@ -51,6 +57,12 @@ function Filters({ cat, f, setF }: { cat: Catalog; f: Filter; setF: (fn: (f: Fil
     set({ old: true });
     setError("");
     if (!f.oldIds) outdated().then((ids) => set({ oldIds: new Set(ids) }), (e) => { setError(message(e)); set({ old: false }); });
+  };
+  const toggleDeps = () => {
+    if (f.deps) return set({ deps: false });
+    set({ deps: true });
+    setError("");
+    if (!f.depIds) missing({ data: {} }).then((r) => set({ depIds: new Map(r.items.map((x) => [x.itemId, x.servers])) }), (e) => { setError(message(e)); set({ deps: false }); });
   };
   return (
     <section className="group">
@@ -65,6 +77,12 @@ function Filters({ cat, f, setF }: { cat: Catalog; f: Filter; setF: (fn: (f: Fil
           <option value="">すべての配布元</option>
           {sources.map((s) => <option key={s} value={s}>{isItemSource(s) ? SOURCE_LABEL[s] : s}</option>)}
         </select>
+        {mcs.length > 0 && (
+          <select value={f.mc} aria-label="対応 MC" onChange={(e) => set({ mc: e.target.value })}>
+            <option value="">すべての MC</option>
+            {mcs.map((v) => <option key={v} value={v}>{`MC ${v}`}</option>)}
+          </select>
+        )}
         <select value={f.sort} aria-label="並べ替え" onChange={(e) => set({ sort: e.target.value as Filter["sort"] })}>
           <option value="name">名前順</option>
           <option value="new">追加日が新しい順</option>
@@ -75,6 +93,10 @@ function Filters({ cat, f, setF }: { cat: Catalog; f: Filter; setF: (fn: (f: Fil
           <button type="button" className={f.old ? "on" : ""} aria-pressed={f.old} onClick={toggleOld}
             title="どこかのサーバーに古い版が入っているもの(配布元に問い合わせます。更新を止めたものは除きます)">
             {f.old && !f.oldIds ? "確かめています…" : "更新あり"}
+          </button>
+          <button type="button" className={f.deps ? "on" : ""} aria-pressed={f.deps} onClick={toggleDeps}
+            title="入っているサーバーに、必須の前提が無いもの(配布元に問い合わせます)">
+            {f.deps && !f.depIds ? "確かめています…" : "前提が足りない"}
           </button>
           {tags.map((t) => (
             <button key={t} type="button" className={f.tag === t ? "on" : ""} aria-pressed={f.tag === t} onClick={() => set({ tag: f.tag === t ? "" : t })}>
@@ -168,6 +190,9 @@ function Home() {
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const shown = cat ? filterItems(cat.items, f) : [];
   const favorite = useServerFn(favoriteLibraryItem);
+  const missing = useServerFn(libraryMissingDeps);
+  // 前提を入れたら、「前提が足りない」を確かめ直す
+  const refreshDeps = () => { missing({ data: {} }).then((r) => setF((x) => ({ ...x, depIds: new Map(r.items.map((d) => [d.itemId, d.servers])) })), () => {}); };
   // 先に画面を変え、うまくいかなければ読み直す
   const toggleFavorite = (item: CatItem) => {
     setCat((c) => c && { ...c, items: c.items.map((x) => (x.id === item.id ? { ...x, favorite: !item.favorite } : x)) });
@@ -204,20 +229,25 @@ function Home() {
             {shown.every((i) => picked.has(i.id)) ? "選ぶのをやめる" : `表示している ${shown.length} 件をすべて選ぶ`}
           </button>
         )}
-        {cat && shown.map((i) => <Item key={i.id} item={i} servers={cat.servers} edit={edit} onChange={reload} onFavorite={() => toggleFavorite(i)}
+        {cat && shown.map((i) => <Item key={i.id} item={i} cat={cat} servers={cat.servers} edit={edit} admin={can({ member: ["update"] })} depInfo={f.depIds?.get(i.id)}
+          onChange={reload} onDeps={refreshDeps} onFavorite={() => toggleFavorite(i)}
           picked={picked.has(i.id)} onPick={(on) => setPicked((p) => { const n = new Set(p); if (on) n.add(i.id); else n.delete(i.id); return n; })} />)}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
       <p className="foot">チームで使う Mod・プラグインの一覧です。Modrinth・SpigotMC のものは、サーバーが配布元から直接取り込みます(アップロードしたものは、保存先から送ります)。入れる版は、サーバーの種類とバージョンに合うものを選びます(Paper のサーバーには Paper 向けの作りを優先)。</p>
 
+      {can({ member: ["update"] }) && cat && <TeamChannel value={cat.channel} onDone={reload} />}
       {edit && uploads && <Upload onDone={reload} />}
       {edit && cat && <AddFromSource sources={cat.sources as Source[]} have={new Set(cat.items.map((i) => `${i.source}:${i.projectId}`))} onAdded={reload} />}
     </main>
   );
 }
 
-function Item({ item, servers, edit, onChange, onFavorite, picked, onPick }:
-  { item: CatItem; servers: Catalog["servers"]; edit: boolean; onChange: () => void; onFavorite: () => void; picked: boolean; onPick: (on: boolean) => void }) {
+function Item({ item, cat, servers, edit, admin, depInfo, onChange, onDeps, onFavorite, picked, onPick }:
+  { item: CatItem; cat: Catalog; servers: Catalog["servers"]; edit: boolean; admin: boolean; depInfo?: DepInfo; onChange: () => void; onDeps: () => void; onFavorite: () => void;
+    picked: boolean; onPick: (on: boolean) => void }) {
+  const [detail, setDetail] = useState(false);
+  const channel: Channel = item.channel || cat.channel;
   const install = useServerFn(installMod);
   const remove = useServerFn(removeLibraryItem);
   const tag = useServerFn(tagLibraryItems);
@@ -249,7 +279,7 @@ function Item({ item, servers, edit, onChange, onFavorite, picked, onPick }:
           ? <a href={pageUrl(item.source, item.projectId, item.slug)} target="_blank" rel="noreferrer noopener" translate="no">{item.title}</a>
           : <span translate="no" className="strong">{item.title}</span>}
         <span className="muted">
-          {TYPE_LABEL[item.projectType] ?? item.projectType} · {isItemSource(item.source) ? SOURCE_LABEL[item.source] : item.source} · {item.installs.length
+          {TYPE_LABEL[item.projectType] ?? item.projectType} · {isItemSource(item.source) ? SOURCE_LABEL[item.source] : item.source}{item.mc.length > 0 && ` · MC ${mcRange(item.mc)}`} · {item.installs.length
             ? <span translate="no">{item.installs.map((x) => `${x.serverName} ${x.versionNumber}`).join("、")}</span>
             : "どのサーバーにも入っていません"}
         </span>
@@ -263,10 +293,12 @@ function Item({ item, servers, edit, onChange, onFavorite, picked, onPick }:
               onClick={() => { const t = prompt("付けるタグ(30 文字まで)")?.trim(); if (t) run("tag", () => tag({ data: { itemIds: [item.id], tag: t, on: true } })); }}>+ タグ</button>}
           </span>
         )}
+        {channel === "all" && <span><span className="badge muted-badge">ベータ版も受け取る</span></span>}
         {busy && busy !== "tag" && <span className="muted">{busy === "remove" ? "外しています…" : "サーバーに入れています…"}</span>}
         {error && <span className="error" role="alert">{error}</span>}
         {item.source === "upload" && <button className="link small" type="button" onClick={() => setShowFiles((v) => !v)}>{showFiles ? "版を閉じる" : "版を見る"}</button>}
         {showFiles && <Files itemId={item.id} title={item.title} edit={edit} />}
+        <button className="link small" type="button" onClick={() => setDetail((v) => !v)}>{detail ? "詳しくを閉じる" : "詳しく(前提・版と変更内容・情報)"}</button>
       </span>
       <button type="button" className="link star" aria-pressed={item.favorite} onClick={onFavorite}
         aria-label={item.favorite ? "お気に入りから外す" : "お気に入りにする"} title={item.favorite ? "お気に入りから外す" : "お気に入りにする"}>
@@ -285,7 +317,241 @@ function Item({ item, servers, edit, onChange, onFavorite, picked, onPick }:
           外す
         </button>
       )}
+      {/* 前提の警告・詳しくは、行の下に全幅で出す */}
+      {depInfo && <div className="full"><DepWarnings servers={depInfo} edit={edit} onInstalled={() => { onChange(); onDeps(); }} /></div>}
+      {detail && <div className="full"><Detail item={item} cat={cat} edit={edit} admin={admin} onChange={onChange} /></div>}
     </div>
+  );
+}
+
+// 必須の前提が無いサーバーと前提(ワンクリックで、そのサーバーに入れる)
+function DepWarnings({ servers, edit, onInstalled }: { servers: DepInfo; edit: boolean; onInstalled: () => void }) {
+  const install = useServerFn(installMod);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const add = async (serverId: string, d: DepInfo[number]["deps"][number]) => {
+    setBusy(`${serverId}:${d.projectId}`);
+    setError("");
+    try {
+      await install({ data: { id: serverId, projectId: d.projectId, source: d.source } });
+      onInstalled();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy("");
+    }
+  };
+  return (
+    <span className="files">
+      {servers.flatMap((s) => s.deps.map((d) => (
+        <span key={`${s.serverId}:${d.source}:${d.projectId}`} className="error">
+          <span translate="no">{`${s.serverName}: ${d.title}`}</span> — 前提が入っていません
+          {edit && <>{" "}<button className="link small" type="button" disabled={!!busy} onClick={() => add(s.serverId, d)}>
+            {busy === `${s.serverId}:${d.projectId}` ? "入れています…" : "入れる"}</button></>}
+        </span>
+      )))}
+      {error && <span className="error" role="alert">{error}</span>}
+    </span>
+  );
+}
+
+// アイテムの詳しい情報: 前提(手で決めたもの・サーバーに足りないもの)・版と変更内容・情報を直す(管理者以上)
+function Detail({ item, cat, edit, admin, onChange }: { item: CatItem; cat: Catalog; edit: boolean; admin: boolean; onChange: () => void }) {
+  const check = useServerFn(libraryMissingDeps);
+  const link = useServerFn(linkLibraryDep);
+  const [miss, setMiss] = useState<DepInfo | null>(null);
+  const [error, setError] = useState("");
+  const recheck = () => { check({ data: { itemId: item.id } }).then((r) => setMiss(r.items[0]?.servers ?? []), (e) => setError(message(e))); };
+  useEffect(recheck, [item.id]);
+  const titleOf = (id: string) => cat.items.find((i) => i.id === id)?.title ?? id;
+  const others = cat.items.filter((i) => i.id !== item.id && !item.deps.includes(i.id));
+  const setLink = (depItemId: string, on: boolean) => link({ data: { itemId: item.id, depItemId, on } }).then(() => { onChange(); recheck(); }, (e) => setError(message(e)));
+  return (
+    <span className="files detail">
+      <span className="strong">前提</span>
+      <span>
+        <span className="muted">手で決めた前提: </span>
+        {item.deps.length === 0 && <span className="muted">なし</span>}
+        {item.deps.map((id) => edit
+          ? <button key={id} type="button" className="badge muted-badge" title="押すと前提から外します" onClick={() => setLink(id, false)}><span translate="no">{titleOf(id)}</span> ×</button>
+          : <span key={id} className="badge muted-badge" translate="no">{titleOf(id)}</span>)}
+        {edit && others.length > 0 && (
+          <select value="" aria-label="前提を足す" onChange={(e) => e.target.value && setLink(e.target.value, true)}>
+            <option value="">前提を足す…</option>
+            {others.map((i) => <option key={i.id} value={i.id} translate="no">{i.title}</option>)}
+          </select>
+        )}
+      </span>
+      {miss === null && !error && <span className="muted">入っているサーバーの前提を確かめています…</span>}
+      {miss?.length === 0 && <span className="muted">{item.installs.length ? "入っているサーバーに、前提はそろっています" : "どのサーバーにも入っていません"}</span>}
+      {miss && miss.length > 0 && <DepWarnings servers={miss} edit={edit} onInstalled={() => { onChange(); recheck(); }} />}
+      {error && <span className="error" role="alert">{error}</span>}
+      {item.source !== "upload" && <Versions item={item} />}
+      {admin && <EditInfo item={item} teamChannel={cat.channel} onDone={onChange} />}
+    </span>
+  );
+}
+
+// 配布元の版(新しい順)と、版ごとの変更内容(文字として出す)
+const VERSION_TYPE: Record<string, string> = { beta: "ベータ", alpha: "アルファ" };
+function Versions({ item }: { item: CatItem }) {
+  const load = useServerFn(libraryItemVersions);
+  const changelog = useServerFn(libraryItemChangelog);
+  const [list, setList] = useState<Awaited<ReturnType<typeof libraryItemVersions>> | null>(null);
+  const [open, setOpen] = useState<Record<string, string>>({});
+  const [error, setError] = useState("");
+  useEffect(() => { load({ data: { itemId: item.id } }).then(setList, (e) => setError(message(e))); }, [item.id]);
+  const toggle = async (v: NonNullable<typeof list>[number]) => {
+    if (v.versionId in open) return setOpen(({ [v.versionId]: _, ...rest }) => rest);
+    try {
+      const text = v.changelog ?? (await changelog({ data: { itemId: item.id, versionId: v.versionId } })).text;
+      setOpen((o) => ({ ...o, [v.versionId]: text.trim() || "(変更内容の記載はありません)" }));
+    } catch (e) {
+      setError(message(e));
+    }
+  };
+  return (
+    <>
+      <span className="strong">{item.source === "spigot" ? "更新のお知らせ" : "版と変更内容"}</span>
+      {!list && !error && <span className="muted">読み込んでいます…</span>}
+      {list?.length === 0 && <span className="muted">版がありません</span>}
+      {list?.map((v) => (
+        <span key={v.versionId}>
+          <span translate="no">{v.versionNumber}</span>
+          {VERSION_TYPE[v.type] && <span className="badge muted-badge">{VERSION_TYPE[v.type]}</span>}
+          <span className="muted small">{" "}{v.date ? new Date(v.date).toLocaleDateString("ja-JP") : ""}{v.mcVersions.length ? ` · MC ${mcRange(v.mcVersions)}` : ""}{v.loaders.length ? ` · ${v.loaders.join(" / ")}` : ""}</span>
+          {" "}<button className="link small" type="button" aria-expanded={v.versionId in open} onClick={() => toggle(v)}>{v.versionId in open ? "閉じる" : "変更内容"}</button>
+          {v.versionId in open && <pre className="changelog" translate="no">{open[v.versionId]}</pre>}
+        </span>
+      ))}
+      {error && <span className="error" role="alert">{error}</span>}
+    </>
+  );
+}
+
+// アイテムの情報を直す(管理者以上): 種類・動く作り・対応 MC・受け取る版・配布元の付け替え
+const listOf = (s: string) => (s.trim() ? s.split(/[,、\s]+/).filter(Boolean) : null);
+function EditInfo({ item, teamChannel, onDone }: { item: CatItem; teamChannel: Channel; onDone: () => void }) {
+  const save = useServerFn(editLibraryItem);
+  const relink = useServerFn(relinkLibraryItem);
+  const [type, setType] = useState(item.projectType);
+  const [loaders, setLoaders] = useState((item.loaders ?? []).join(", "));
+  const [mc, setMc] = useState((item.mcVersions ?? []).join(", "));
+  const [channel, setChannel] = useState<string>(item.channel);
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const run = async (fn: () => Promise<string>) => {
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      setNote(await fn());
+      onDone();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const doRelink = () => {
+    if (!url.trim() || !confirm("配布元を付け替えますか?(サーバーに入っているものは、次の更新で新しいプロジェクトの版に入れ替わります)")) return;
+    run(async () => { const r = await relink({ data: { itemId: item.id, url } }); setUrl(""); return `${r.title} に付け替えました`; });
+  };
+  return (
+    <>
+      <span className="strong">情報を直す</span>
+      <label className="edit-field">
+        <span className="muted small">種類</span>
+        <select value={type} disabled={busy} onChange={(e) => setType(e.target.value)}>
+          <option value="plugin">プラグイン</option>
+          <option value="mod">Mod</option>
+        </select>
+      </label>
+      <label className="edit-field">
+        <span className="muted small">動く作り(カンマで区切る。空なら配布元のとおり)</span>
+        <input value={loaders} disabled={busy} placeholder="例: paper, spigot" onChange={(e) => setLoaders(e.target.value)} />
+      </label>
+      <label className="edit-field">
+        <span className="muted small">対応 MC(カンマで区切る。空なら配布元のとおり)</span>
+        <input value={mc} disabled={busy} placeholder="例: 1.20, 1.21.4" onChange={(e) => setMc(e.target.value)} />
+      </label>
+      <label className="edit-field">
+        <span className="muted small">受け取る版(更新・入れるとき)</span>
+        <select value={channel} disabled={busy} onChange={(e) => setChannel(e.target.value)}>
+          <option value="">{`チームの既定(${CHANNELS[teamChannel]})`}</option>
+          {(Object.keys(CHANNELS) as Channel[]).map((c) => <option key={c} value={c}>{CHANNELS[c]}</option>)}
+        </select>
+      </label>
+      <button className="link small" type="button" disabled={busy}
+        onClick={() => run(async () => { await save({ data: { itemId: item.id, projectType: type, loaders: listOf(loaders), mcVersions: listOf(mc), channel } }); return "保存しました"; })}>
+        {busy ? "保存しています…" : "保存"}
+      </button>
+      {item.source !== "upload" && (
+        <label className="edit-field">
+          <span className="muted small">配布元を付け替える(別のプロジェクトのページの URL)</span>
+          <input type="url" value={url} disabled={busy} placeholder="https://modrinth.com/plugin/…" onChange={(e) => setUrl(e.target.value)} />
+        </label>
+      )}
+      {item.source !== "upload" && <button className="link small" type="button" disabled={busy || !url.trim()} onClick={doRelink}>付け替える</button>}
+      {note && <span className="muted" role="status" translate="no">{note}</span>}
+      {error && <span className="error" role="alert">{error}</span>}
+    </>
+  );
+}
+
+// 受け取る版のチームの既定(管理者以上)
+function TeamChannel({ value, onDone }: { value: Channel; onDone: () => void }) {
+  const save = useServerFn(setLibraryChannel);
+  const [error, setError] = useState("");
+  const change = (channel: string) => save({ data: { channel } }).then(() => { setError(""); onDone(); }, (e) => setError(message(e)));
+  return (
+    <>
+      <div className="group-title">受け取る版</div>
+      <section className="group">
+        <label className="row">
+          <span>チームの既定</span>
+          <select className="trail" value={value} aria-label="受け取る版のチームの既定" onChange={(e) => change(e.target.value)}>
+            {(Object.keys(CHANNELS) as Channel[]).map((c) => <option key={c} value={c}>{CHANNELS[c]}</option>)}
+          </select>
+        </label>
+        {error && <p className="row error" role="alert">{error}</p>}
+      </section>
+      <p className="foot">更新・サーバーに入れるときに、どの版を選ぶかです。「正式版だけ」でも、正式版が 1 つも無いものはベータ版を使います。アイテムごとに「詳しく」→「情報を直す」で変えられます。</p>
+    </>
+  );
+}
+
+// 配布元のページの URL から足す
+function AddFromUrl({ onAdded }: { onAdded: () => void }) {
+  const add = useServerFn(addLibraryItemFromUrl);
+  const [url, setUrl] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const submit = async () => {
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      const r = await add({ data: { url } });
+      setNote(`${r.title} を足しました`);
+      setUrl("");
+      onAdded();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form className="group form" onSubmit={(e) => { e.preventDefault(); submit(); }}>
+      <input className="row" type="url" placeholder="ページの URL(Modrinth・SpigotMC・CurseForge)" aria-label="配布元のページの URL" value={url} disabled={busy} onChange={(e) => setUrl(e.target.value)} />
+      <button className="row link" type="submit" disabled={busy || !url.trim()}>{busy ? "足しています…" : "URL から足す"}</button>
+      {note && <p className="row muted" role="status" translate="no">{note}</p>}
+      {error && <p className="row error" role="alert">{error}</p>}
+    </form>
   );
 }
 
@@ -324,6 +590,7 @@ function AddFromSource({ sources, have, onAdded }: { sources: Source[]; have: Se
   return (
     <>
       <div className="group-title">配布元から足す</div>
+      <AddFromUrl onAdded={onAdded} />
       <form className="group form" onSubmit={(e) => (e.preventDefault(), find())}>
         <div className="row">
           <span>配布元</span>

@@ -40,6 +40,7 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 ## 決まりごと
 
 - **データベースの変更は「足すだけ」**: 表・項目を消したり、名前や意味を変えたりしない。`npm run db:generate` で `drizzle/` に移行の SQL を足し、起動したときに流す。
+- 本番のビルドでは `instance.ts` が 2 つの束(サーバーの関数 / サーバーのルートと起動時の処理)に別々に入る。データベース(`createDb`)とエージェントの列(`hub`)は `globalThis` でプロセスに 1 つにする(03.56.00 から。PGlite を 2 回開くと、互いの書き込みが見えない)。
 - 認証の表(`src/server/db/auth-schema.ts`)は `npm run auth:schema` で作る。Better Auth の設定(プラグイン)を変えたら作り直し、続けて `npm run db:generate`。
 - サーバーだけで動く処理は `src/server/` に置き、画面からは `createServerFn` かサーバーのルート(`src/routes/api/`)を通して使う。認証の確認は、画面の `beforeLoad` だけでなく、サーバー側の処理ごとに必ず行う。
 - 利用者の IP は、Cloudflare Tunnel が付ける `cf-connecting-ip` を使う(`CLIENT_IP_HEADER`)。app のポートを外に出さない構成のときだけ信頼できる。
@@ -91,6 +92,12 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 - 足すのは `library: ["edit"]`(編集者以上)。プラグインと Mod だけ。外してもサーバーのファイルは消さない。無料の上限は 1 チーム 500 件(`LIBRARY_LIMITS`)。
 - タグ(表 `library_tag`、チームの中で共有。付け外しは `library: ["edit"]`、1 つ 30 文字・1 件に 20 個まで)とお気に入り(表 `library_favorite`、利用者ごと。閲覧者もできる。一覧の上に並べる)。
 - 一覧の絞り込み(名前・種類・配布元・タグ)と並べ替え(名前・追加日)は画面の中だけで行う。「更新あり」は押したときだけ `outdated` が配布元に問い合わせる(サーバーの種類とバージョンごとに 1 回。更新を止めたもの・割り当てのないサーバーは見ない)。まとめて操作(タグ・セットに足す・外す)は、選んだものに 1 件ずつ同じ処理を呼ぶ(タグだけは 1 回で付ける)。
+- 前提の確かめ(03.56.00 から。`modTools.missingOf` をセット・ライブラリ・サーバーで共有): 前提は、配布元の必須(Modrinth・CurseForge の、そのサーバーに入るいちばん新しい版の `deps`)と、手で決めた前提(表 `library_dep`、アイテム → 前提のアイテム。配布元が前提を知らない SpigotMC・アップロードしたものにも使える。`linkDep` は `library: ["edit"]`)。ライブラリの「前提が足りない」(`missingDeps`)は押したときだけ配布元に問い合わせ、アイテムの「詳しく」(`missingDeps(itemId)`)とサーバーの画面(`serverDeps`、開いたとき)は自動で確かめる。足りないものは `install` でそのサーバーに入れる。無効にしたものは入っていないものとみなす。
+- 配布元の変更内容(`itemVersions`・`itemChangelog`): Modrinth は `/project/<ID>/version`(30 個)と `/version/<ID>` の `changelog`(Markdown の文のまま)、CurseForge は `/files` と `/files/<ID>/changelog`(HTML を `html-text.ts` で文字にする)、SpigotMC は版ごとの変更内容が無いので、更新のお知らせ(`/resources/<ID>/updates`、base64 の HTML を文字にする)を版の代わりにする。画面ではいつも文字として出す(HTML として描かない)。
+- アイテムの情報を直す(`editItem`・`relinkItem`、`member: ["update"]`): 種類・動く作り(`library_item.loaders`)・対応 MC(`mc_versions`)・受け取る版(`channel`)。どれも "" = 直していない。動く作りを直すと、配布元に問い合わせるときの loaders にそれを使い、対応 MC がサーバーのバージョンを含むなら MC のバージョンでは絞らない(`pickOf`)。付け替えは URL で別のプロジェクトにし、チームのサーバーの `installed_mod`・`server_hold` の配布元と ID も付け替える(次の更新で新しいプロジェクトの版に入れ替わる)。アップロードしたものは付け替えない。
+- 対応 MC(`library_item.upstream_mc`・`info_at`): 1 分ごとの `refreshInfo` が、取ってから 1 日たったものを 50 件ずつ取り直す(Modrinth は `/projects` の `game_versions`、CurseForge は `latestFilesIndexes`、SpigotMC は `testedVersions`、アップロードは jar から読んだもの。スナップショットは除く)。一覧は直したもの、無ければこれを出し、MC のバージョンで絞り込める(1.20 は 1.20.x を含む)。
+- 受け取る版(`channel`): release = 正式版だけ(正式版が無いものだけベータ)/ all = ベータ・アルファも含めていちばん新しいもの。チームの既定は `team_option.channel`(管理者以上)、アイテムごとに変えられる。v02 の `stable_only`・`item_sources.channel` は `maybeImportV02Channels` で一度だけ引き継ぐ。
+- URL から足す(`addFromUrl`): Modrinth(slug でも)・SpigotMC・CurseForge(slug を `/mods/search?slug=` で ID に)のページの URL を読む(`parseSourceUrl`)。Hangar はまだ配布元に無いので断る。
 - v02 からの取り込み(`maybeImportV02Library`、結果は `/data/v03/import-v02-library.json`): v02 から移った自分用の版で一度だけ。配布元が Modrinth(ID が 8 文字)とわかるプラグイン・Mod と、SpigotMC(数字の ID)とわかるプラグインだけを載せ、v02 のセットも作る(版の固定は引き継がない)。アップロードしただけのファイル・CurseForge・データパックは、名前を結果に残して飛ばす。
 
 ## セット
@@ -162,7 +169,7 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 - チームごとに 1 つ(表 `team_schedule`)。曜日・時刻(`tz`、いまは日本時間)・すること(`check` = 確かめるだけ / `sync` = そろえる)。決めるのは `server: ["update"]`。
 - `src/server/startup.ts` が 1 分ごとに `tick` を呼ぶ(前の回が終わっていなければ飛ばす)。時刻になったチームは、動かす前に `last_run_at` を条件付きで書き換え、書き換えられたときだけ動かす(同じ分に 2 回・複数のプロセスで重ねて動かさない)。
 - 中身は `setService.runForSchedule`(画面からは呼ばない)。セットを結び付けたサーバーを 1 台ずつ `applyTo` し、1 台が失敗しても残りは続ける。結果は `schedule` の種類で記録する(user_id は null)。
-- サーバーごとの予約(表 `server_schedule`、03.55.00 から。v02 の予約同期): `mode` = off / daily / weekly(`dow`)、`time`(`tz`)、すること `action` = update(入っているものを最新に)/ sync(結び付けたセットでそろえる)、`restart` = 何か変えたら再起動する。決めるのは `server: ["update"]`。`serverTick` が 1 分ごとに、チームの予約と同じく `last_run_at` を条件付きで書き換えてから動かし、結果をいつも `schedule` の種類で記録する。チームの予約(`team_schedule`)とは別に動く。v02 の `sched_*` は `maybeImportV02Schedules` で一度だけ update として引き継ぐ(結果は `/data/v03/import-v02-schedule.json`)。
+- サーバーごとの予約(表 `server_schedule`、03.55.00 から。v02 の予約同期): `mode` = off / daily / weekly(`dow`)、`time`(`tz`)、すること `action` = update(入っているものを最新に)/ sync(結び付けたセットでそろえる)、`restart` = 何か変えたら再起動する。決めるのは `server: ["update"]`。`serverTick` が 1 分ごとに、チームの予約と同じく `last_run_at` を条件付きで書き換えてから動かし、結果をいつも `schedule` の種類で記録する(Discord には、何か変えたとき・失敗したときだけ送る。`record` の `quiet`、03.56.00 から)。チームの予約(`team_schedule`)とは別に動く。v02 の `sched_*` は `maybeImportV02Schedules` で一度だけ update として引き継ぐ(結果は `/data/v03/import-v02-schedule.json`)。
 - サーバーごとの自動更新(`server.auto_update`、入れる・やめるのは `library: ["edit"]`): 同じ 1 分ごとの見回りで `setService.runAutoUpdates` を呼ぶ。前に確かめてから 6 時間(`AUTO_UPDATE_EVERY`)たったサーバーを、`auto_updated_at` を条件付きで書き換えてから動かし、入っているものを `applyTo`(`sync`)で新しい版にする(止めたもの・無効にしたものは除く)。何か変えたとき・失敗したときだけ記録する。v02 で自動更新をオンにしていたサーバーは `maybeImportV02AutoUpdate` で一度だけ引き継ぐ(結果は `/data/v03/import-v02-auto-update.json`)。
 
 ## ファイルとコマンド

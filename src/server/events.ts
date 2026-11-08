@@ -22,8 +22,9 @@ export const EVENT_KINDS = {
 export type EventKind = keyof typeof EVENT_KINDS;
 const isKind = (v: unknown): v is EventKind => typeof v === "string" && v in EVENT_KINDS;
 
-// also は、記録の種類のほかに当てはまる知らせる種類(自動更新で入れた → auto、失敗 → errors など)。記録は kind で残す
-export type EventInput = { teamId: string; userId: string | null; kind: EventKind; also?: EventKind[]; action: string; target?: string; detail?: string };
+// also は、記録の種類のほかに当てはまる知らせる種類(自動更新で入れた → auto、失敗 → errors など)。記録は kind で残す。
+// quiet なら記録だけ残し、Discord には送らない(予約で何も変えなかったときなど)
+export type EventInput = { teamId: string; userId: string | null; kind: EventKind; also?: EventKind[]; action: string; target?: string; detail?: string; quiet?: boolean };
 // 管理者でない人のお知らせに出す種類
 const MEMBER_KINDS: EventKind[] = ["changes", "sets", "schedule", "power", "updates"];
 // 人でない操作の名前(予約・自動更新は「予約」、見回りなどは「自動」)
@@ -61,6 +62,7 @@ export function eventService(deps: Deps) {
   /** 記録する(選んだ種類なら Discord にも送る)。送れなくても、もとの操作は失敗させない */
   async function record(e: EventInput) {
     await db.insert(auditLog).values({ id: randomUUID(), teamId: e.teamId, userId: e.userId, kind: e.kind, action: e.action, target: clip(e.target ?? "", 200), detail: clip(e.detail ?? "", 2000) });
+    if (e.quiet) return;
     try {
       const n = await notifyOf(e.teamId);
       if (!n || ![e.kind, ...(e.also ?? [])].some((k) => n.kinds.includes(k))) return;

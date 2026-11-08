@@ -41,7 +41,7 @@ const cleanName = (name: string) => {
 
 export function setService(deps: Deps) {
   const { db, auth } = deps;
-  const { latestFile, fileById, versionsOf, needProfile, installInto, holdsOf, updatesOf, removeFrom, project, remember } = modTools(deps);
+  const { missingOf, latestFile, fileById, versionsOf, needProfile, installInto, holdsOf, updatesOf, removeFrom, project, remember } = modTools(deps);
   const { record } = eventService(deps);
   // 結果のまとめ(通知・記録に使う)。変わったもの・失敗したものだけを並べる
   const summary = (list: ApplyResult[]) => {
@@ -295,45 +295,19 @@ export function setService(deps: Deps) {
     },
 
     /**
-     * セットの前提(Modrinth・CurseForge の必須)のうち、セットに入っていないもの(v02 02.21 の「前提が足りません」)。
+     * セットの前提(Modrinth・CurseForge の必須と、ライブラリで手で決めた前提)のうち、セットに入っていないもの(v02 02.21 の「前提が足りません」)。
      * platform のサーバーに入る、いちばん新しい版の前提で見る。配布元につながらなかったものは errors に
      */
     async missingDeps(headers: Headers, id: string, platform: string) {
       const { teamId } = await requireTeam(auth, headers);
       const set = await setOf(teamId, id);
       if (!isPlatform(platform)) throw new HttpError(400, "サーバーの種類を選んでください");
-      const p = { platform, mcVersion: null };
       const items = await itemsOf(set.id);
-      const have = new Set(items.map((i) => `${i.source}:${i.projectId}`));
-      const need = new Map<string, { source: "modrinth" | "curseforge"; projectId: string; by: string[] }>();
-      const errors: string[] = [];
-      const todo = items.filter((i) => (i.source === "modrinth" || i.source === "curseforge") && i.projectType === PLATFORMS[platform].type);
-      for (let k = 0; k < todo.length; k += 8) {
-        await Promise.all(todo.slice(k, k + 8).map(async (it) => {
-          try {
-            const f = await latestFile(it.source as "modrinth", it.projectId, p, teamId);
-            for (const d of f?.deps ?? []) {
-              const key = `${it.source}:${d}`;
-              if (have.has(key)) continue;
-              const e = need.get(key) ?? { source: it.source as "modrinth", projectId: d, by: [] };
-              e.by.push(it.title);
-              need.set(key, e);
-            }
-          } catch (e) {
-            if (!(e instanceof HttpError)) throw e;
-            errors.push(`${it.title}: ${e.message}`);
-          }
-        }));
-      }
-      const missing = [];
-      for (const n of need.values()) {
-        const info = await project(n.source, n.projectId, teamId).catch(() => null);
-        missing.push({ ...n, title: info?.title ?? n.projectId, iconUrl: info?.iconUrl ?? "", by: n.by.sort() });
-      }
-      return { missing: missing.sort((a, b) => a.title.localeCompare(b.title)), errors };
+      const r = await missingOf(teamId, items.filter((i) => i.projectType === PLATFORMS[platform].type), { platform, mcVersion: null }, new Set(items.map((i) => `${i.source}:${i.projectId}`)));
+      return { missing: r.missing.map(({ byKeys: _, ...m }) => ({ ...m, by: m.by.sort() })), errors: r.errors };
     },
 
-    /** 足りない前提を、ライブラリに載せてセットに足す(編集者以上)。種類は platform のサーバーのもの */
+    /** 足りない前提を、セットに足す(編集者以上)。ライブラリに無いもの(Modrinth・CurseForge)は、platform のサーバーの種類で載せる */
     async addDeps(headers: Headers, id: string, list: { source: string; projectId: string }[], platform: string) {
       const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
       const set = await setOf(teamId, id);
@@ -342,6 +316,13 @@ export function setService(deps: Deps) {
       if (c + list.length > SET_LIMITS.itemsPerSet) throw new HttpError(400, `1 つのセットに入れられるのは ${SET_LIMITS.itemsPerSet} 件までです`);
       const added: string[] = [];
       for (const d of list) {
+        const [known] = await db.select({ id: libraryItem.id, title: libraryItem.title }).from(libraryItem)
+          .where(and(eq(libraryItem.teamId, teamId), eq(libraryItem.source, d.source), eq(libraryItem.projectId, d.projectId)));
+        if (known) {
+          await db.insert(addonSetItem).values({ setId: id, itemId: known.id }).onConflictDoNothing();
+          added.push(known.title);
+          continue;
+        }
         if (d.source !== "modrinth" && d.source !== "curseforge") throw new HttpError(400, "足せるのは Modrinth・CurseForge のものだけです");
         const info = await project(d.source, d.projectId, teamId);
         if (!info) throw new HttpError(404, `${d.projectId} が配布元に見つかりません`);

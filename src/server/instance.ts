@@ -86,6 +86,13 @@ if (env.mode === "self") {
   } catch (e) {
     console.error("[v02] サーバーごとの予約の取り込みに失敗しました(v02 のデータはそのままです):", e);
   }
+  const { maybeImportV02Channels } = await import("./import-v02");
+  try {
+    const r = await maybeImportV02Channels(db, env);
+    if (r && (r.team === "all" || r.items.length)) console.log(`[v02] 受け取る版の設定を引き継ぎました: ${[r.team === "all" ? "チームの既定(ベータ版も)" : "", ...r.items].filter(Boolean).join("、")}`);
+  } catch (e) {
+    console.error("[v02] 受け取る版の設定の取り込みに失敗しました(v02 のデータはそのままです):", e);
+  }
 }
 const { resendMailer } = await import("./mail");
 export const mailer = env.mail ? resendMailer(safeFetch, env.mail.resendKey, env.mail.from) : null;
@@ -93,7 +100,8 @@ export const auth = createAuth(db, { ...env, mailer });
 // 自分用の版は家の中のアドレスにもつなぐ。サービス版は公開されたアドレスだけ(SSRF 対策)
 // エージェントとのやりとりの列(このプロセスに 1 つ)
 const { agentHub } = await import("./agent-hub");
-export const hub = agentHub();
+// 本番のビルドでは、このファイルが 2 つの束に入るので、つながっているエージェントの列はプロセスで 1 つにする(db と同じ)
+export const hub: ReturnType<typeof agentHub> = ((globalThis as { __craftshelfHub?: ReturnType<typeof agentHub> }).__craftshelfHub ??= agentHub());
 const deps = { agents: hub, db, auth, secret: env.secret, fetch: env.mode === "self" ? lanFetch : safeFetch, allowPrivate: env.mode === "self",
   ...(env.mode === "self" ? { local: { dataDir: env.dataDir } } : {}) };
 export const servers = serverService(deps);

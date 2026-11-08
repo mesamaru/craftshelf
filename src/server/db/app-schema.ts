@@ -90,8 +90,27 @@ export const libraryItem = pgTable(
     iconUrl: text("icon_url").notNull().default(""),
     addedBy: text("added_by").references(() => user.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
+    // 03.56.00 から。channel = 受け取る版("" = チームの既定 / release = 正式版だけ / all = ベータ・アルファも)。
+    // loaders・mc_versions = 管理者が直した、動く作り・対応 MC(JSON の配列。"" = 直していない = 配布元のとおり)。
+    // upstream_mc = 配布元の情報から取った対応 MC(JSON の配列)と、取った時刻 info_at(1 日ごとに取り直す)
+    channel: text("channel").notNull().default(""),
+    loaders: text("loaders").notNull().default(""),
+    mcVersions: text("mc_versions").notNull().default(""),
+    upstreamMc: text("upstream_mc").notNull().default("[]"),
+    infoAt: timestamp("info_at"),
   },
   (t) => [uniqueIndex("library_item_team_project_uq").on(t.teamId, t.source, t.projectId)],
+);
+
+// 手で決めた前提(03.56.00 から): item_id を入れるサーバーには dep_item_id も要る(配布元が前提を知らないとき)
+export const libraryDep = pgTable(
+  "library_dep",
+  {
+    itemId: text("item_id").notNull().references(() => libraryItem.id, { onDelete: "cascade" }),
+    depItemId: text("dep_item_id").notNull().references(() => libraryItem.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.itemId, t.depItemId] })],
 );
 
 // セット: ライブラリから選んだものの組み合わせ。サーバーにまとめて入れる
@@ -238,6 +257,8 @@ export const teamNotify = pgTable("team_notify", {
 export const teamOption = pgTable("team_option", {
   teamId: text("team_id").primaryKey().references(() => organization.id, { onDelete: "cascade" }),
   editorFiles: boolean("editor_files").notNull().default(false),
+  // 03.56.00 から。受け取る版の既定(release = 正式版だけ / all = ベータ・アルファも)。アイテムごとに変えられる
+  channel: text("channel").notNull().default("release"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 

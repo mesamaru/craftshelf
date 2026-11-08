@@ -1,6 +1,7 @@
 // Modrinth(https://docs.modrinth.com/api/)から Mod・プラグインを探し、入れるファイルを決める。
 // ファイルそのものはこのアプリを通さず、Pterodactyl に直接取り込ませる
-import { PLATFORMS, type Platform } from "~/lib/platforms";
+import { PLATFORMS, type Platform, mcClean } from "~/lib/platforms";
+import type { Channel } from "~/lib/sources";
 import type { FetchLike } from "./net";
 
 const API = "https://api.modrinth.com/v2";
@@ -29,6 +30,12 @@ function fileOf(projectId: string, v: Record<string, unknown>): FileChoice | nul
 }
 
 const PROJECT_ID = /^[A-Za-z0-9]{8}$/;
+// URL から足すときの slug(ID もこの形に入る)
+const SLUG = /^[A-Za-z0-9._-]{2,64}$/;
+// 入れる版の選び方: loaders = 動く作り(管理者が直したもの。無ければサーバーの種類のもの)・channel = 受け取る版
+export type PickOpts = { loaders?: readonly string[]; channel?: Channel };
+// アイテムの版の一覧(サーバーを決めずに。変更内容を読むとき)の 1 行
+export type ItemVersion = { versionId: string; versionNumber: string; date: string; type: string; mcVersions: string[]; loaders: string[]; changelog?: string };
 const icon = (v: unknown) => (typeof v === "string" && v.startsWith("https://cdn.modrinth.com/") ? v : "");
 export type ProjectType = "plugin" | "mod";
 export const isProjectType = (v: unknown): v is ProjectType => v === "plugin" || v === "mod";
@@ -56,9 +63,9 @@ export function modrinthClient(fetch: FetchLike) {
     return res.json();
   }
 
-  async function rawVersions(projectId: string, platform: Platform, mcVersion: string | null): Promise<Record<string, unknown>[]> {
+  async function rawVersions(projectId: string, platform: Platform, mcVersion: string | null, loaders?: readonly string[]): Promise<Record<string, unknown>[]> {
     if (!PROJECT_ID.test(projectId)) throw new ModrinthError("プロジェクトの ID が正しくありません");
-    const q = new URLSearchParams({ loaders: JSON.stringify(PLATFORMS[platform].loaders), include_changelog: "false" });
+    const q = new URLSearchParams({ loaders: JSON.stringify(loaders ?? PLATFORMS[platform].loaders), include_changelog: "false" });
     if (mcVersion) q.set("game_versions", JSON.stringify([mcVersion]));
     return (await get(`/project/${projectId}/version?${q}`)) ?? [];
   }
@@ -88,30 +95,31 @@ export function modrinthClient(fetch: FetchLike) {
 
     // サーバーの種類とバージョンに合う、いちばん新しい安定版のファイル(無ければ null)。
     // 同じ時期に作りの違う版(Paper 向けと Bukkit 向けなど)が出ていれば、サーバーの種類向けのもの(loaders の前のほう)を選ぶ
-    async latestFile(projectId: string, platform: Platform, mcVersion: string | null): Promise<FileChoice | null> {
-      const versions = await rawVersions(projectId, platform, mcVersion);
-      const releases = versions.filter((x) => x.version_type === "release");
-      const v = pickVersion(releases.length ? releases : versions, PLATFORMS[platform].loaders);
+    // channel が all なら、ベータ・アルファも含めていちばん新しいもの
+    async latestFile(projectId: string, platform: Platform, mcVersion: string | null, opts: PickOpts = {}): Promise<FileChoice | null> {
+      const versions = await rawVersions(projectId, platform, mcVersion, opts.loaders);
+      const releases = opts.channel === "all" ? [] : versions.filter((x) => x.version_type === "release");
+      const v = pickVersion(releases.length ? releases : versions, opts.loaders ?? PLATFORMS[platform].loaders);
       return v ? fileOf(projectId, v) : null;
     },
 
     /** サーバーの種類とバージョンに合う版(新しい順・${VERSIONS_SHOWN} 個まで。版を選んで入れるとき) */
-    async versions(projectId: string, platform: Platform, mcVersion: string | null): Promise<VersionChoice[]> {
+    async versions(projectId: string, platform: Platform, mcVersion: string | null, opts: PickOpts = {}): Promise<VersionChoice[]> {
       const time = (v: Record<string, unknown>) => Date.parse(String(v.date_published)) || 0;
-      return (await rawVersions(projectId, platform, mcVersion)).sort((a, b) => time(b) - time(a)).flatMap((v) => {
+      return (await rawVersions(projectId, platform, mcVersion, opts.loaders)).sort((a, b) => time(b) - time(a)).flatMap((v) => {
         const f = fileOf(projectId, v);
         return f ? [{ ...f, date: String(v.date_published ?? ""), release: v.version_type === "release" }] : [];
       }).slice(0, VERSIONS_SHOWN);
     },
 
     /** プロジェクトの名前などを、まとめて取る(ID → 中身) */
-    async projects(ids: string[]): Promise<Map<string, { title: string; slug: string; iconUrl: string }>> {
-      const out = new Map<string, { title: string; slug: string; iconUrl: string }>();
+    async projects(ids: string[]): Promise<Map<string, { title: string; slug: string; iconUrl: string; mcVersions: string[] }>> {
+      const out = new Map<string, { title: string; slug: string; iconUrl: string; mcVersions: string[] }>();
       for (let i = 0; i < ids.length; i += 100) {
         const part = ids.slice(i, i + 100).filter((x) => PROJECT_ID.test(x));
         if (!part.length) continue;
         for (const p of ((await get(`/projects?ids=${encodeURIComponent(JSON.stringify(part))}`)) ?? []) as Record<string, unknown>[]) {
-          out.set(String(p.id), { title: String(p.title ?? ""), slug: String(p.slug ?? ""), iconUrl: icon(p.icon_url) });
+          out.set(String(p.id), { title: String(p.title ?? ""), slug: String(p.slug ?? ""), iconUrl: icon(p.icon_url), mcVersions: mcClean(p.game_versions) });
         }
       }
       return out;
@@ -135,10 +143,30 @@ export function modrinthClient(fetch: FetchLike) {
       return v && v.project_id === projectId ? fileOf(projectId, v) : null;
     },
 
+    /** プロジェクト(ID か slug で。id は ID) */
     async project(projectId: string) {
-      if (!PROJECT_ID.test(projectId)) return null;
+      if (!SLUG.test(projectId)) return null;
       const p = await get(`/project/${projectId}`);
-      return p ? { title: String(p.title ?? ""), slug: String(p.slug ?? ""), projectType: String(p.project_type ?? ""), iconUrl: icon(p.icon_url) } : null;
+      return p && PROJECT_ID.test(String(p.id ?? projectId))
+        ? { id: String(p.id ?? projectId), title: String(p.title ?? ""), slug: String(p.slug ?? ""), projectType: String(p.project_type ?? ""), iconUrl: icon(p.icon_url) } : null;
+    },
+
+    /** すべての版(サーバーを決めずに、新しい順・${VERSIONS_SHOWN} 個まで。アイテムの版と変更内容を見るとき) */
+    async allVersions(projectId: string): Promise<ItemVersion[]> {
+      if (!PROJECT_ID.test(projectId)) return [];
+      const list = ((await get(`/project/${projectId}/version?include_changelog=false`)) ?? []) as Record<string, unknown>[];
+      const time = (v: Record<string, unknown>) => Date.parse(String(v.date_published)) || 0;
+      return list.sort((a, b) => time(b) - time(a)).slice(0, VERSIONS_SHOWN).map((v) => ({
+        versionId: String(v.id), versionNumber: String(v.version_number ?? ""), date: String(v.date_published ?? ""), type: String(v.version_type ?? ""),
+        mcVersions: mcClean(v.game_versions), loaders: Array.isArray(v.loaders) ? v.loaders.map(String) : [],
+      }));
+    },
+
+    /** 版の変更内容(Markdown の文。このプロジェクトの版でなければ null) */
+    async changelog(projectId: string, versionId: string): Promise<string | null> {
+      if (!PROJECT_ID.test(versionId)) return null;
+      const v = await get(`/version/${versionId}`);
+      return v && v.project_id === projectId ? String(v.changelog ?? "").slice(0, 20_000) : null;
     },
   };
 }

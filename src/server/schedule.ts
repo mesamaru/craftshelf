@@ -51,7 +51,7 @@ export function scheduleService(deps: Deps, sets: ReturnType<typeof setService>)
     return servers;
   }
 
-  // サーバーごとの予約を動かす。何か変えて、再起動を選んでいれば再起動する。結果はいつも記録する
+  // サーバーごとの予約を動かす。何か変えて、再起動を選んでいれば再起動する。結果はいつも記録し、Discord には何か変えたとき・失敗したときだけ送る
   async function runServer(teamId: string, serverId: string, name: string, action: string, restart: boolean) {
     const label = action === "sync" ? "予約でそろえる" : "予約で最新にする";
     let r: ApplyResult[];
@@ -73,8 +73,9 @@ export function scheduleService(deps: Deps, sets: ReturnType<typeof setService>)
         note = `再起動できませんでした: ${e instanceof Error ? e.message : ""}`;
       }
     }
+    const failed = r.some((x) => x.status === "failed");
     await record({ teamId, userId: null, kind: "schedule", also: [...alsoOf(r), ...(note.startsWith("再起動できません") ? ["errors" as const] : [])], action: label, target: name,
-      detail: [changed || r.some((x) => x.status === "failed") ? sets.summary(r) : "変えるものはありませんでした", note].filter(Boolean).join("\n") });
+      detail: [changed || failed ? sets.summary(r) : "変えるものはありませんでした", note].filter(Boolean).join("\n"), quiet: !changed && !failed });
   }
 
   return {

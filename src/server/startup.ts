@@ -2,7 +2,7 @@
 // 最初のリクエストを待つと、だれも開かないうちの再起動で「起動できなかった」と見なされてしまうため。
 // あわせて、予約を 1 分ごとに確かめる(前の回が終わっていなければ、その回は飛ばす)
 export default function startup() {
-  import("./instance").then(({ schedules, sets, telemetry, versions, events, backups, worlds }) => {
+  import("./instance").then(({ schedules, sets, library, telemetry, versions, events, backups, worlds }) => {
     // 利用状況の送信(同意したパネルだけ。1 時間ごとに確かめ、前に送ってから 1 日たっていれば送る)
     const tele = setInterval(() => { telemetry.sendIfDue().catch(() => {}); }, 60 * 60_000);
     tele.unref?.();
@@ -29,6 +29,7 @@ export default function startup() {
         sets.runUpdateChecks(now).catch((e) => console.error("[新しい版の見回り] 確かめられませんでした:", e)),
         backups.tick(now).catch((e) => console.error("[定期バックアップ] 確かめられませんでした:", e)),
         worlds.tick(now).catch((e) => console.error("[ワールドのバックアップ] 確かめられませんでした:", e)),
+        library.refreshInfo(now).catch((e) => console.error("[対応 MC の取り直し] 取り直せませんでした:", e)),
       ]).finally(() => { busy = false; });
     }, 60_000);
     timer.unref?.();

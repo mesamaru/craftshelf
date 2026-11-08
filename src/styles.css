@@ -244,3 +244,12 @@ button.row.link:last-child, label.row.link:last-child { border-bottom: 0; }
 .share-maker { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
 .share-maker .actions { align-items: center; flex-wrap: wrap; }
 .share-maker .actions .share-url { flex: 1; min-width: 0; width: auto; }
+
+/* アイテムの詳しい情報(前提・版と変更内容・情報を直す) */
+.files.detail { gap: 4px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
+.edit-field { display: flex; flex-direction: column; gap: 2px; }
+.edit-field input, .edit-field select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; max-width: 360px; }
+/* 配布元の変更内容(文字として出す) */
+.changelog { white-space: pre-wrap; word-break: break-word; max-height: 18em; overflow: auto; margin: 4px 0; padding: 6px 8px; border-radius: 8px; background: var(--line); font: inherit; font-size: 12.5px; }
+.row.hit:has(> .full) { flex-wrap: wrap; }
+.row.hit > .full { flex-basis: 100%; min-width: 0; }

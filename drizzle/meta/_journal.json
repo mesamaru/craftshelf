@@ -204,6 +204,13 @@
       "when": 1794173854492,
       "tag": "0028_share_limit_server_schedule",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1794177143324,
+      "tag": "0029_library_item_info",
+      "breakpoints": true
     }
   ]
 }

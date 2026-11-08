@@ -18,3 +18,27 @@ export const isPlatform = (v: unknown): v is Platform => typeof v === "string" &
 
 // 例 1.21.1・1.20・1.8.9、年ごとの新しい番号の 26.3・26.3.1
 export const MC_VERSION = /^(1\.\d{1,2}|\d{2}\.\d{1,2})(\.\d{1,2})?$/;
+
+// 動く作りの名前(Modrinth の loaders)。アイテムの情報を直すときに選べるもの
+export const LOADERS: string[] = [...new Set(Object.values(PLATFORMS).flatMap((p) => [...p.loaders]))];
+
+/** MC のバージョンを比べる(1.20.4 < 1.21 < 26.3) */
+export function mcCompare(a: string, b: string) {
+  const x = a.split(".").map(Number);
+  const y = b.split(".").map(Number);
+  for (let i = 0; i < Math.max(x.length, y.length); i++) {
+    const d = (x[i] ?? 0) - (y[i] ?? 0);
+    if (d) return d;
+  }
+  return 0;
+}
+/** 対応 MC の一覧がそのバージョンを含むか(1.20 は 1.20.x をすべて含む) */
+export const mcCovers = (list: readonly string[], v: string) => list.some((e) => v === e || v.startsWith(e + "."));
+/** 対応 MC の一覧から、リリースの番号だけを古い順に(スナップショットなどは除く) */
+export const mcClean = (list: unknown) =>
+  Array.isArray(list) ? [...new Set(list.map(String).filter((v) => MC_VERSION.test(v)))].sort(mcCompare).slice(-200) : [];
+/** 対応 MC の範囲の表示("1.20.1〜1.21.4") */
+export function mcRange(list: readonly string[]) {
+  const l = mcClean(list);
+  return l.length === 0 ? "" : l.length === 1 ? l[0] : `${l[0]}〜${l[l.length - 1]}`;
+}

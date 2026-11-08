@@ -31,7 +31,12 @@ export const ROUTES: Route[] = [
   { method: "GET", path: "/servers/:id/schedule", summary: "サーバーごとの予約(毎日・毎週の時刻・すること・再起動)", handler: (s, h, [id]) => s.schedules.getServer(h, id) },
   { method: "GET", path: "/servers/:id/worlds", summary: "ワールドのバックアップの一覧と設定(編集者以上。Pterodactyl はパネルのバックアップ)", handler: (s, h, [id]) => s.worlds.get(h, id) },
   { method: "POST", path: "/servers/:id/worlds", summary: "ワールドのバックアップを始める(終わると一覧と操作の記録に出る)", handler: async (s, h, [id]) => { await s.worlds.create(h, id); return { started: true }; } },
-  { method: "GET", path: "/library", summary: "ライブラリ(チームの Mod・プラグイン)", handler: (s, h) => s.library.catalog(h) },
+  { method: "GET", path: "/servers/:id/deps", summary: "入っているものの必須の前提で、このサーバーに無いもの(配布元に問い合わせる)", handler: (s, h, [id]) => s.library.serverDeps(h, id) },
+  { method: "GET", path: "/library", summary: "ライブラリ(チームの Mod・プラグイン。対応 MC・受け取る版・手で決めた前提を含む)", handler: (s, h) => s.library.catalog(h) },
+  { method: "POST", path: "/library/url", summary: "配布元のページの URL(url。Modrinth・SpigotMC・CurseForge)からライブラリに足す", handler: (s, h, _p, b) => s.library.addFromUrl(h, str(b.url)) },
+  { method: "GET", path: "/library/deps", summary: "必須の前提が入っていないもの(アイテムごと・サーバーごと。配布元に問い合わせる)", handler: (s, h) => s.library.missingDeps(h) },
+  { method: "GET", path: "/library/:id/versions", summary: "アイテムの配布元の版(新しい順)。変更内容は /library/:id/versions/:versionId/changelog", handler: (s, h, [id]) => s.library.itemVersions(h, id) },
+  { method: "GET", path: "/library/:id/versions/:versionId/changelog", summary: "版の変更内容(Modrinth・CurseForge。文字だけ)", handler: (s, h, [id, v]) => s.library.itemChangelog(h, id, v) },
   { method: "GET", path: "/sets", summary: "セットの一覧", handler: (s, h) => s.sets.list(h) },
   { method: "GET", path: "/events", summary: "操作の記録(管理者以上)", handler: (s, h) => s.events.list(h) },
 ];

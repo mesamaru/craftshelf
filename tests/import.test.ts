@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 import { signupOpen } from "~/server/auth";
 import { addonSet, addonSetItem, libraryFile, libraryItem, localServer, pteroConnection, server, serverProfile, storageTarget } from "~/server/db/schema";
 import * as schema from "~/server/db/schema";
-import { maybeImportV02, maybeImportV02AutoUpdate, maybeImportV02Backups, maybeImportV02Library, maybeImportV02Schedules, maybeImportV02Software, type ImportReport } from "~/server/import-v02";
+import { maybeImportV02, maybeImportV02AutoUpdate, maybeImportV02Backups, maybeImportV02Channels, maybeImportV02Library, maybeImportV02Schedules, maybeImportV02Software, type ImportReport } from "~/server/import-v02";
 import { totpCode } from "~/server/legacy";
 import { open } from "~/server/secrets";
 import { TEST_SECRET, setup } from "./helpers";
@@ -84,6 +84,9 @@ function makeV02(dir: string) {
       (3,'modrinth','gvQqBUqZ','Lithium','https://modrinth.com/mod/lithium'),(5,'spigot','9089','EssentialsX','');
     INSERT INTO sets (name, owner_id) VALUES ('ロビー', 1);
     INSERT INTO set_items VALUES (1,1,2),(1,3,NULL),(1,4,NULL);
+    ALTER TABLE item_sources ADD COLUMN channel TEXT NOT NULL DEFAULT '';
+    UPDATE item_sources SET channel='release' WHERE item_id=3;
+    INSERT INTO settings (key, value) VALUES ('stable_only', '0');
   `);
   d.close();
   writeFileSync(join(dir, "secret.key"), V02.fernetKey);
@@ -262,6 +265,20 @@ describe("v02 のサーバーごとの予約の取り込み", () => {
     expect(rows.find((x) => x.name === "家のサーバー")?.s).toMatchObject({ mode: "weekly", action: "update", time: "02:15", dow: 0, restart: false });
     expect(rows.find((x) => x.name === "サバイバル")?.s).toMatchObject({ mode: "daily", action: "update", time: "04:00", restart: true });
     expect(await maybeImportV02Schedules(t.db, { v02Dir, v03Dir, dataDir: v03Dir })).toBeNull();
+    expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
+  });
+});
+
+describe("v02 の受け取る版の取り込み", () => {
+  it("全体の「ベータ版も」をチームの既定に、アイテムごとの設定をライブラリのものに引き継ぐ。一度だけ", async () => {
+    const r = (await maybeImportV02Channels(t.db, { v02Dir, v03Dir }))!;
+    expect(r).toMatchObject({ team: "all", items: ["Lithium"] });
+    const [opt] = await t.db.select().from(schema.teamOption);
+    expect(opt.channel).toBe("all");
+    const items = await t.db.select({ title: libraryItem.title, channel: libraryItem.channel }).from(libraryItem);
+    expect(items.find((i) => i.title === "Lithium")?.channel).toBe("release");
+    expect(items.find((i) => i.title === "LuckPerms")?.channel).toBe("");
+    expect(await maybeImportV02Channels(t.db, { v02Dir, v03Dir })).toBeNull();
     expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
   });
 });

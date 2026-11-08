@@ -41,6 +41,11 @@ describe("英語表示", () => {
     expect(translate("操作 12 回(30 日で 3 回)")).toBe("12 actions (3 in the last 30 days)");
     expect(translate("「ロビー」を「検証」にそろえますか?(入っているものだけ合わせる)")).toBe("Sync “ロビー” with “検証”? (Only match what is installed)");
     expect(translate("5 回")).toBe("5 times");
+    expect(translate("チームの既定(正式版だけ)")).toBe("Team default (releases only)");
+    expect(translate("LuckPerms を足しました")).toBe("Added LuckPerms");
+    expect(translate(" — 前提が入っていません")).toBe(" — dependency not installed");
+    expect(translate("前提が入っていません: ")).toBe("Dependency not installed: ");
+    expect(translate("前提")).toBe("Dependencies");
     expect(translate("戻しました(12 ファイル)。前のワールドは world.craftshelf-before-restore-1 に残しています")).toBe("Restored (12 files). The previous world is kept as world.craftshelf-before-restore-1");
   });
 });

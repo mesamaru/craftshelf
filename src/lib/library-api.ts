@@ -97,3 +97,42 @@ export const setModEnabled = createServerFn({ method: "POST" })
 export const adoptMod = createServerFn({ method: "POST" })
   .validator(z.object({ id: sid, filename: z.string().min(1).max(200) }))
   .handler(async ({ data }) => (await svc()).adopt(headers(), data.id, data.filename));
+
+const iid = z.string().min(1).max(64);
+
+export const addLibraryItemFromUrl = createServerFn({ method: "POST" })
+  .validator(z.object({ url: z.string().min(1).max(300) }))
+  .handler(async ({ data }) => (await svc()).addFromUrl(headers(), data.url));
+
+export const editLibraryItem = createServerFn({ method: "POST" })
+  .validator(z.object({ itemId: iid, projectType: z.string().max(10), loaders: z.array(z.string().max(20)).max(20).nullable(),
+    mcVersions: z.array(z.string().max(10)).max(60).nullable(), channel: z.string().max(10) }))
+  .handler(async ({ data }) => (await svc()).editItem(headers(), data.itemId, data));
+
+export const relinkLibraryItem = createServerFn({ method: "POST" })
+  .validator(z.object({ itemId: iid, url: z.string().min(1).max(300) }))
+  .handler(async ({ data }) => (await svc()).relinkItem(headers(), data.itemId, data.url));
+
+export const linkLibraryDep = createServerFn({ method: "POST" })
+  .validator(z.object({ itemId: iid, depItemId: iid, on: z.boolean() }))
+  .handler(async ({ data }) => (await svc()).linkDep(headers(), data.itemId, data.depItemId, data.on));
+
+export const libraryMissingDeps = createServerFn({ method: "GET" })
+  .validator(z.object({ itemId: iid.optional() }))
+  .handler(async ({ data }) => (await svc()).missingDeps(headers(), data.itemId));
+
+export const serverMissingDeps = createServerFn({ method: "GET" })
+  .validator(z.object({ id: sid }))
+  .handler(async ({ data }) => (await svc()).serverDeps(headers(), data.id));
+
+export const libraryItemVersions = createServerFn({ method: "GET" })
+  .validator(z.object({ itemId: iid }))
+  .handler(async ({ data }) => (await svc()).itemVersions(headers(), data.itemId));
+
+export const libraryItemChangelog = createServerFn({ method: "GET" })
+  .validator(z.object({ itemId: iid, versionId: z.string().min(1).max(64) }))
+  .handler(async ({ data }) => (await svc()).itemChangelog(headers(), data.itemId, data.versionId));
+
+export const setLibraryChannel = createServerFn({ method: "POST" })
+  .validator(z.object({ channel: z.string().max(10) }))
+  .handler(async ({ data }) => (await svc()).setChannel(headers(), data.channel));

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { identifyMods, serverChanges, undoChange, installMod, installedMods, modUpdates, removeMod, rollbackMod, searchMods, serverDetail, setModEnabled, setModHold, setProfile } from "~/lib/library-api";
+import { identifyMods, serverChanges, undoChange, installMod, installedMods, modUpdates, removeMod, rollbackMod, searchMods, serverDetail, serverMissingDeps, setModEnabled, setModHold, setProfile } from "~/lib/library-api";
 import { importServerFile } from "~/lib/uploads-api";
 import { ApplyResults } from "~/lib/apply-results";
 import { PLATFORMS, PLATFORM_IDS } from "~/lib/platforms";
@@ -149,7 +149,12 @@ function Installed({ id, items, error, edit, local, auto, dir, onChange }:
   const remove = useServerFn(removeMod);
   const hold = useServerFn(setModHold);
   const rollback = useServerFn(rollbackMod);
+  const missingDeps = useServerFn(serverMissingDeps);
   const [updates, setUpdates] = useState<Map<string, Update> | null>(null);
+  // 入っているものの必須の前提で、このサーバーに無いもの(開いたとき・前提を入れたあとに確かめる)
+  const [deps, setDeps] = useState<Awaited<ReturnType<typeof serverMissingDeps>> | null>(null);
+  const checkDeps = () => { missingDeps({ data: { id } }).then(setDeps, () => setDeps(null)); };
+  useEffect(checkDeps, [id]);
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
 
@@ -176,6 +181,20 @@ function Installed({ id, items, error, edit, local, auto, dir, onChange }:
       <section className="group">
         {!items && !error && <div className="row muted">サーバーに問い合わせています…</div>}
         {items?.length === 0 && <div className="row muted">まだ何も入っていません。</div>}
+        {deps?.missing.map((d) => (
+          <div className="row" key={`dep:${d.source}:${d.projectId}`}>
+            <span className="main">
+              <span className="error">前提が入っていません: <span translate="no">{d.title}</span></span>
+              <span className="muted small"><span translate="no">{d.by.join("、")}</span> が使います</span>
+            </span>
+            {edit && (
+              <button className="trail link" type="button" disabled={!!busy}
+                onClick={() => run(`dep:${d.projectId}`, async () => { await install({ data: { id, projectId: d.projectId, source: d.source } }); checkDeps(); })}>
+                {busy === `dep:${d.projectId}` ? "入れています…" : "入れる"}
+              </button>
+            )}
+          </div>
+        ))}
         {items?.map((m) => {
           const u = m.disabled ? undefined : updates?.get(m.filename);
           // 押せるもの(はじめのものを右に寄せる)

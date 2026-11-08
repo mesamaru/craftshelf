@@ -600,3 +600,33 @@ export async function maybeImportV02Schedules(db: Db, opts: { v02Dir: string; v0
     v02.close();
   }
 }
+
+// 受け取る版(03.56.00 から。v02 01.19 の「正式版だけ / ベータ版も」)。サーバーごとの予約の取り込みのあとで一度だけ(前に取り込んだパネルも、次の起動で)。
+// v02 の全体の設定(stable_only)をチームの既定に、アイテムごとの設定(item_sources.channel)を、同じ配布元・プロジェクトのライブラリのものに
+export const channelReportPath = (v03Dir: string) => join(v03Dir, "import-v02-channel.json");
+
+export async function maybeImportV02Channels(db: Db, opts: { v02Dir: string; v03Dir: string }): Promise<{ at: string; team: string; items: string[] } | null> {
+  const dbFile = join(opts.v02Dir, "index.db");
+  if (!existsSync(dbFile) || !existsSync(scheduleReportPath(opts.v03Dir)) || existsSync(channelReportPath(opts.v03Dir))) return null;
+  const [team] = await db.select({ id: schema.organization.id }).from(schema.organization).orderBy(asc(schema.organization.createdAt)).limit(1);
+  if (!team) return null;
+  const v02 = new DatabaseSync(dbFile, { readOnly: true });
+  try {
+    const report = { at: new Date().toISOString(), team: "release", items: [] as string[] };
+    const stable = has(v02, "settings") ? (v02.prepare("SELECT value FROM settings WHERE key='stable_only'").get() as Row | undefined)?.value : undefined;
+    if (stable !== undefined && str(stable) === "0") {
+      await db.insert(schema.teamOption).values({ teamId: team.id, channel: "all" }).onConflictDoUpdate({ target: schema.teamOption.teamId, set: { channel: "all" } });
+      report.team = "all";
+    }
+    for (const s of has(v02, "item_sources", "channel") ? all(v02, "SELECT provider, project_id, channel FROM item_sources WHERE channel IN ('release', 'all')") : []) {
+      const rows = await db.update(schema.libraryItem).set({ channel: str(s.channel) })
+        .where(and(eq(schema.libraryItem.teamId, team.id), eq(schema.libraryItem.source, str(s.provider)), eq(schema.libraryItem.projectId, str(s.project_id))))
+        .returning({ title: schema.libraryItem.title });
+      report.items.push(...rows.map((r) => r.title));
+    }
+    writeFileSync(channelReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
+    return report;
+  } finally {
+    v02.close();
+  }
+}

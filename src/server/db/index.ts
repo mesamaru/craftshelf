@@ -8,8 +8,17 @@ export type Db = PgDatabase<PgQueryResultHKT, typeof schema>;
 // 移行は切り替える前のつなぎで流す(0025_time_utc が、それまでの時間帯で入った時刻を UTC に直すため)
 const UTC = "SET TIME ZONE 'UTC'";
 
+// 本番のビルドでは instance.ts が 2 つの束(サーバーの関数 / サーバーのルートと起動時の処理)に別々に入るので、同じデータベースはプロセスで 1 回だけ開く
+// (PGlite は同じフォルダを 2 つで開くと、互いの書き込みが見えず、予約などが古い中身で動く)。テストの "pglite:"(メモリ)は毎回新しく作る
+const opened: Map<string, Promise<Db>> = ((globalThis as { __craftshelfDb?: Map<string, Promise<Db>> }).__craftshelfDb ??= new Map());
+export function createDb(url: string, migrationsDir: string): Promise<Db> {
+  if (url === "pglite:") return openDb(url, migrationsDir);
+  if (!opened.has(url)) opened.set(url, openDb(url, migrationsDir));
+  return opened.get(url)!;
+}
+
 // DATABASE_URL が postgres:// なら PostgreSQL、pglite:<フォルダー> なら組み込みの PGlite(試すとき・テスト用)
-export async function createDb(url: string, migrationsDir: string): Promise<Db> {
+async function openDb(url: string, migrationsDir: string): Promise<Db> {
   if (url.startsWith("pglite:")) {
     const { PGlite } = await import("@electric-sql/pglite");
     const { drizzle } = await import("drizzle-orm/pglite");

@@ -203,6 +203,13 @@ export const EN: Record<string, string> = {
   "設定ファイルを集めています…": "Collecting config files…",
   "設定ファイルを集める": "Collect config files",
   "違うかもしれないものだけ": "Only possibly different",
+  "すべて(ツリー)": "All (tree)",
+  "違いだけ": "Differences only",
+  "同じものも出す": "Show identical files",
+  "比較結果": "Result",
+  "すべて同じ": "All identical",
+  "違いのあるファイルはありません": "No files differ",
+  "違う行は、基準(最初に選んだサーバー)と比べた行の数です(ファイルを開いて「違う行だけ」にしたときの行数)。Pterodactyl のサーバーは、API の回数に上限があるので大きさが違うファイルだけ中身を読みます(「大きさは同じ」は中身を読んでいません)。": "Different lines are counted against the base (the first server you picked), the same number you see with “Different lines only” when you open the file. For Pterodactyl servers only files whose sizes differ are read, because the API has a rate limit (“Same size” means the contents were not read).",
   "どのファイルも、すべてのサーバーで同じ大きさです": "Every file has the same size on all servers",
   "設定ファイルが見つかりませんでした": "No config files were found",
   "大きさは同じ": "Same size",
@@ -907,6 +914,9 @@ export const EN: Record<string, string> = {
 };
 /** 1 文字だけのもの(曜日など)。文全体が一致したときだけ置き換える */
 export const EN_WHOLE: Record<string, string> = {
+  "同じ": "Identical",
+  "ない": "Missing",
+  "違い": "Lines",
   "と": " and the ",
   "青": "Blue",
   "緑": "Green",
@@ -981,6 +991,9 @@ export const EN_RULES: [RegExp, To][] = [
   [/^「(.+?)」の (.+?) を「(.+?)」と同じ中身にしますか[?？]\(前の中身は履歴に残ります\)$/, "Make $2 on “$1” the same as “$3”? (The previous content is kept in the history)"],
   [/^「(.+?)」の (.+?) を写しました。反映にはサーバーの再起動が要ります$/, "Copied $2 to “$1”. Restart the server to apply"],
   [/^(\d+) 台にない$/, "Missing on $1"],
+  [/^変更のあるファイル (\d+)$/, "$1 changed"],
+  [/^違う行 (\d+)$/, (_, n) => (n === "1" ? "1 line differs" : n + " lines differ")],
+  [/^(\d+) 件中$/, "of $1"],
   [/^(.+?) を (.+?) にしますか[?？]\(反映にはサーバーの再起動が要ります\)$/, "Switch $1 to $2? (Restart the server to apply)"],
   [/^(\d+) 件を入れます$/, "Installing $1 items"],
   [/^(\d+) 件を入れました。反映にはサーバーの再起動が要ります$/, "Installed $1 items. Restart the servers to apply"],

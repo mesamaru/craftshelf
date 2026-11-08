@@ -159,3 +159,22 @@ describe("起動・停止・RCON", () => {
     expect((await servers.status(owner, id)).state).toBe("running");
   });
 });
+
+describe("ファイル比較(フォルダのサーバー)", () => {
+  it("中身を読んで、基準と違う行を数える(大きさが同じでも)。1 台だけにあるものは数えない", async () => {
+    const root2 = mkdtempSync(join(tmpdir(), "cs-srv2-"));
+    writeFileSync(join(root2, "paper-1.21.4-123.jar"), "");
+    const props = readFileSync(join(root, "server.properties"), "utf8");
+    writeFileSync(join(root2, "server.properties"), props.replace("server-port=25570", "server-port=25571"));
+    writeFileSync(join(root, "bukkit.yml"), "a: 1\n");
+    writeFileSync(join(root2, "bukkit.yml"), "a: 1\r\n");
+    mkdirSync(join(root2, "plugins", "Foo"), { recursive: true });
+    writeFileSync(join(root2, "plugins", "Foo", "config.yml"), "x: 1\n");
+    const { id: id2 } = await servers.addLocal(owner, { rootDir: root2, name: "二台目" });
+    const r = await files.configs(owner, [id, id2]);
+    const by = Object.fromEntries(r.files.map((f) => [f.path, f]));
+    expect(by["server.properties"]).toMatchObject({ lines: 1, same: false });
+    expect(by["bukkit.yml"]).toMatchObject({ lines: 0, same: true }); // 改行コードの違いは見ない
+    expect(by["plugins/Foo/config.yml"]).toMatchObject({ on: [id2], lines: null, same: false, sizes: [null, 5] });
+  });
+});

@@ -13,12 +13,15 @@ const SECRET = "test-secret-0123456789-0123456789-abcd";
 const disk = new Map<string, string>([
   ["server.properties", "motd=Hello\nserver-port=25565\n"],
   ["plugins/Essentials/config.yml", "spawn: world\n"],
+  ["plugins/Vault/config.yml", "a: 1\n"],
   ["world/level.dat", "x".repeat(10)],
   ["huge.yml", "y".repeat(600 * 1024)],
 ]);
 const disk2 = new Map<string, string>([
   ["server.properties", "motd=Hello\nserver-port=25566\n"],
   ["plugins/LuckPerms/config.yml", "storage: h2\n"],
+  ["plugins/Essentials/config.yml", "spawn: world_nether\nkits: true\n"],
+  ["plugins/Vault/config.yml", "a: 2\n"],
 ]);
 const commands: string[] = [];
 
@@ -27,6 +30,10 @@ const fake: FetchLike = async (url, init) => {
   const json = (b: unknown, status = 200) => Response.json(b, { status });
   if (u.host !== "panel.example.com") throw new Error("想定外の接続先: " + url);
   if (u.pathname === "/api/client") return json({ data: [{ attributes: { identifier: "abcd1234", name: "ロビー" } }, { attributes: { identifier: "efgh5678", name: "サバイバル" } }], meta: { pagination: { total_pages: 1 } } });
+  if (u.pathname === "/api/client/servers/efgh5678/files/contents") {
+    const f = u.searchParams.get("file")!.replace(/^\/+/, "");
+    return disk2.has(f) ? new Response(disk2.get(f)) : json({}, 404);
+  }
   const m2 = u.pathname.match(/^\/api\/client\/servers\/efgh5678\/files\/list$/);
   if (m2) {
     const dir = (u.searchParams.get("directory") ?? "/").replace(/^\/+|\/+$/g, "");
@@ -156,9 +163,13 @@ describe("ファイル比較", () => {
     const r = await files.configs(owner, [id, id2]);
     expect(r.servers.map((s) => [s.name, s.error])).toEqual([["ロビー", ""], ["サバイバル", ""]]);
     const by = Object.fromEntries(r.files.map((f) => [f.path, f]));
-    expect(Object.keys(by).sort()).toEqual(["plugins/Essentials/config.yml", "plugins/LuckPerms/config.yml", "server.properties"]);
+    expect(Object.keys(by).sort()).toEqual(["plugins/Essentials/config.yml", "plugins/LuckPerms/config.yml", "plugins/Vault/config.yml", "server.properties"]);
     expect(by["server.properties"].on).toEqual([id, id2]);
-    expect(by["plugins/LuckPerms/config.yml"]).toMatchObject({ on: [id2], same: false });
+    expect(by["plugins/LuckPerms/config.yml"]).toMatchObject({ on: [id2], same: false, lines: null });
+    // Pterodactyl は大きさが違うものだけ中身を読んで数える(同じ大きさのものは読まない)
+    expect(by["plugins/Essentials/config.yml"]).toMatchObject({ on: [id, id2], lines: 2, same: false });
+    expect(by["plugins/Vault/config.yml"]).toMatchObject({ lines: null, same: true });
+    expect(by["server.properties"]).toMatchObject({ lines: 2, same: false }); // 上のテストで書き換わり、大きさが違う
   });
 });
 

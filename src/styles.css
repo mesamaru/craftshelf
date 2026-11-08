@@ -208,3 +208,21 @@ pre.log .err { color: var(--danger); } pre.log .warn { color: #c27c00; }
 .doc h2 { font-size: 15px; margin: 14px 0 2px; }
 .doc ul { margin: 0; padding-left: 1.3em; }
 .doc p { margin: 0; }
+/* ファイル比較の一覧(ツリー)。WinMerge のフォルダー比較のように、フォルダーを開け閉めして違いの数を見る */
+.badge.chg { background: rgba(255, 204, 0, 0.24); color: inherit; margin-left: 0; }
+.badge.miss { background: rgba(255, 59, 48, 0.2); color: inherit; margin-left: 0; margin-right: 6px; }
+.badge.dirc { background: color-mix(in srgb, var(--accent) 20%, transparent); color: inherit; margin-left: 0; }
+.tree-table td { padding: 5px 10px; }
+.tree-table tr.dir { cursor: pointer; }
+.tree-table tr.same td, .tree-table tr.dir.same td { color: var(--muted); }
+.tree-table tr.chg td:nth-child(2), .tree-table tr.chg td:nth-child(3) { background: rgba(255, 204, 0, 0.12); }
+.tree-table tr.miss td:nth-child(2) { background: rgba(255, 59, 48, 0.1); }
+.tree-table td.no { color: #ff6b61; }
+.tree-name { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; color: inherit; font: 13px ui-monospace, Consolas, monospace; cursor: pointer; padding-top: 2px; padding-bottom: 2px; }
+.tree-name:hover span:last-child { text-decoration: underline; }
+.tree-name .tw { width: 12px; font-size: 11px; color: var(--muted); }
+.tree-name .ic { width: 18px; height: 18px; border-radius: 5px; display: inline-flex; align-items: center; justify-content: center; font: 700 11px system-ui, sans-serif; }
+.ic.same { background: rgba(127, 127, 127, 0.25); }
+.ic.chg { background: #e0b100; color: #2b2100; }
+.ic.miss { background: #e5453b; color: #fff; }
+.ic.dir { background: color-mix(in srgb, var(--accent) 22%, transparent); color: var(--accent); }

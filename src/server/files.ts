@@ -6,6 +6,7 @@ import { serverFileHistory, user } from "./db/schema";
 import { eventService } from "./events";
 import { HttpError, requireTeam } from "./guard";
 import { type Deps, remote, serverOf } from "./servers";
+import { alignAll, splitLines } from "~/lib/diff";
 
 // 開いて直せるファイル(テキストの設定ファイルだけ)。大きすぎるものは開かない
 const TEXT_FILE = /\.(properties|ya?ml|json|json5|toml|conf|cfg|ini|txt|hocon|sk|lang|md|csv|sh|env)$/i;
@@ -24,6 +25,8 @@ export function cleanPath(input: string) {
 const CONFIG_SCAN: [string, number][] = [["", 0], ["plugins", 3], ["config", 4], ["mods/config", 3]];
 const CONFIG_SKIP = new Set(["logs", "cache", "libraries", "crash-reports", "versions", "world", "world_nether", "world_the_end"]);
 export const CONFIG_MAX = 400;
+// Pterodactyl は API の回数に上限があるので、中身を読むのは大きさが違うものだけ・1 台あたりこの数まで
+export const CONFIG_READ_MAX = 100;
 export const editable = (path: string) => TEXT_FILE.test(path) || /(^|\/)(eula\.txt|server\.properties|\.env)$/i.test(path);
 
 export function fileService(deps: Deps) {
@@ -86,15 +89,15 @@ export function fileService(deps: Deps) {
     },
 
     /**
-     * ファイル比較: 選んだサーバー(2〜8 台)の設定ファイルの一覧と、どのサーバーにあるか。
-     * 中身までは読まないので、同じかどうかは大きさで見る(違えば確かに違う。同じ大きさでも中身が違うことはある)
+     * ファイル比較: 選んだサーバー(2〜8 台)の設定ファイルの一覧と、どのサーバーにあるか・基準と違う行の数。
+     * 中身を読んで数える(Pterodactyl は大きさが違うものだけ。読まなかったものは lines: null で、大きさで見る)
      */
     async configs(headers: Headers, serverIds: string[]) {
       const who = await requireTeam(auth, headers, { server: ["update"] });
       const { teamId } = who;
       const ids = [...new Set(serverIds)].slice(0, 8);
       if (ids.length < 2) throw new HttpError(400, "比べるサーバーを 2 台以上選んでください");
-      const servers: { id: string; name: string; files: Map<string, number>; error: string }[] = [];
+      const servers: { id: string; name: string; files: Map<string, number>; error: string; target: Awaited<ReturnType<typeof serverOf>> }[] = [];
       for (const id of ids) {
         const target = await serverOf(deps, who, id);
         const found = new Map<string, number>();
@@ -122,15 +125,42 @@ export function fileService(deps: Deps) {
         } catch (e) {
           error = e instanceof HttpError ? e.message : "読めませんでした";
         }
-        servers.push({ id: target.row.id, name: target.row.name, files: found, error });
+        servers.push({ id: target.row.id, name: target.row.name, files: found, error, target });
       }
       const paths = [...new Set(servers.flatMap((s) => [...s.files.keys()]))]
         .sort((a, b) => a.split("/").length - b.split("/").length || a.toLowerCase().localeCompare(b.toLowerCase()));
+      // 2 台以上にあるファイルの中身を読み、最初のサーバー(基準)と違う行を数える(ファイルを開いて「違う行だけ」にしたときの行数)
+      const reads = new Map<string, number>();
+      const count = async (path: string): Promise<number | null> => {
+        const have = servers.filter((s) => s.files.has(path));
+        if (have.length < 2) return null;
+        const sized = new Set(have.map((s) => s.files.get(path))).size > 1;
+        if (have.some((s) => s.target.row.kind === "ptero" && (!sized || (reads.get(s.id) ?? 0) >= CONFIG_READ_MAX))) return null;
+        for (const s of have) if (s.target.row.kind === "ptero") reads.set(s.id, (reads.get(s.id) ?? 0) + 1);
+        try {
+          const texts = await Promise.all(have.map((s) => remote(() => s.target.client.readFile(s.target.remoteId, path))));
+          if (texts.some((t) => t === null)) return null;
+          const [base, ...others] = texts.map((t) => splitLines(t!));
+          return alignAll(base, others).filter((r) => r.diff).length;
+        } catch {
+          return null;
+        }
+      };
+      const lines = new Map<string, number | null>();
+      for (let i = 0; i < paths.length; i += 6) {
+        await Promise.all(paths.slice(i, i + 6).map(async (p) => lines.set(p, await count(p))));
+      }
       return {
         servers: servers.map((s) => ({ id: s.id, name: s.name, count: s.files.size, error: s.error })),
         files: paths.map((path) => {
           const have = servers.filter((s) => s.files.has(path));
-          return { path, on: have.map((s) => s.id), same: have.length === servers.length && new Set(have.map((s) => s.files.get(path))).size === 1 };
+          const n = lines.get(path) ?? null;
+          const sameSize = new Set(have.map((s) => s.files.get(path))).size === 1;
+          return {
+            path, on: have.map((s) => s.id), lines: n,
+            sizes: servers.map((s) => s.files.get(path) ?? null),
+            same: have.length === servers.length && (n === null ? sameSize : n === 0),
+          };
         }),
       };
     },

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { alignAll, splitLines, takeBase } from "~/lib/diff";
@@ -27,6 +27,7 @@ function FileCompare() {
   const [sel, setSel] = useState<string[]>([]);
   const [list, setList] = useState<List | null>(null);
   const [onlyDiff, setOnlyDiff] = useState(true);
+  const [view, setView] = useState<View>({ mode: "tree", showSame: true, open: new Set() });
   const [opened, setOpened] = useState<Opened | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
@@ -81,7 +82,7 @@ function FileCompare() {
         </section>
       )}
       {error && <p className="error" role="alert">{error}</p>}
-      {list && !opened && <FileList list={list} onlyDiff={onlyDiff} setOnlyDiff={setOnlyDiff} busy={busy} onOpen={(p) => { setNote(""); open(p); }} />}
+      {list && !opened && <FileList list={list} view={view} setView={setView} busy={busy} onOpen={(p) => { setNote(""); open(p); }} />}
       {opened && (
         <Compare opened={opened} onlyDiff={onlyDiff} setOnlyDiff={setOnlyDiff} busy={busy} note={note} onBack={() => setOpened(null)}
           onSave={(to, content) => run(async () => {
@@ -96,24 +97,126 @@ function FileCompare() {
   );
 }
 
-function FileList({ list, onlyDiff, setOnlyDiff, busy, onOpen }:
-  { list: List; onlyDiff: boolean; setOnlyDiff: (v: boolean) => void; busy: boolean; onOpen: (path: string) => void }) {
+type View = { mode: "list" | "tree"; showSame: boolean; open: Set<string> };
+type File = List["files"][number];
+type Dir = { name: string; path: string; dirs: Map<string, Dir>; files: (File & { name: string })[] };
+
+// 違いがあるか(無いサーバーがある・中身が違う)
+const changed = (f: File, total: number) => f.on.length < total || !f.same;
+const kb = (n: number) => `${n < 1024 ? n : (n / 1024).toFixed(1)} ${n < 1024 ? "B" : "KB"}`;
+function treeOf(files: File[]) {
+  const root: Dir = { name: "", path: "", dirs: new Map(), files: [] };
+  for (const f of files) {
+    const parts = f.path.split("/");
+    let node = root;
+    parts.slice(0, -1).forEach((name, i) => {
+      if (!node.dirs.has(name)) node.dirs.set(name, { name, path: parts.slice(0, i + 1).join("/"), dirs: new Map(), files: [] });
+      node = node.dirs.get(name)!;
+    });
+    node.files.push({ ...f, name: parts.at(-1)! });
+  }
+  return root;
+}
+const filesIn = (d: Dir): File[] => [...d.files, ...[...d.dirs.values()].flatMap(filesIn)];
+
+// 比較の結果のひとこと(違う行の数がわかれば数も)
+function Result({ f, total, count = true }: { f: File; total: number; count?: boolean }) {
+  const miss = total - f.on.length;
+  return (
+    <>
+      {miss > 0 && <span className="badge miss">{miss} 台にない</span>}
+      {!f.same && f.on.length > 1 && <span className="badge chg">{count && f.lines ? `違う行 ${f.lines}` : "違う"}</span>}
+      {f.same && f.lines === null && <span className="muted small">大きさは同じ</span>}
+      {f.same && f.lines === 0 && <span className="muted small">同じ</span>}
+    </>
+  );
+}
+
+// 一覧: 「違いだけ」は違いのあるファイルをパスのまま、「すべて(ツリー)」はフォルダーの構造のまま(WinMerge のフォルダー比較のように)
+function FileList({ list, view, setView, busy, onOpen }:
+  { list: List; view: View; setView: (v: View) => void; busy: boolean; onOpen: (path: string) => void }) {
   const total = list.servers.length;
-  const files = list.files.filter((f) => !onlyDiff || !f.same);
+  const diffs = list.files.filter((f) => changed(f, total));
+  const toggle = (path: string) => {
+    const open = new Set(view.open);
+    if (open.has(path)) open.delete(path);
+    else open.add(path);
+    setView({ ...view, open });
+  };
+  const rows: ReactNode[] = [];
+  const walk = (node: Dir, depth: number) => {
+    for (const d of [...node.dirs.values()].sort((a, b) => a.name.localeCompare(b.name))) {
+      const all = filesIn(d);
+      const n = all.filter((f) => changed(f, total)).length;
+      if (!view.showSame && !n) continue;
+      const isOpen = view.open.has(d.path);
+      rows.push(
+        <tr key={"d:" + d.path} className={"dir" + (n ? "" : " same")} onClick={() => toggle(d.path)}>
+          <td><button type="button" className="tree-name" style={{ paddingLeft: depth * 18 }} aria-expanded={isOpen}>
+            <span className="tw" aria-hidden>{isOpen ? "▾" : "▸"}</span><span className="ic dir" aria-hidden>▤</span><span translate="no">{d.name}/</span>
+          </button></td>
+          <td>{n ? <span className="badge dirc">{`変更のあるファイル ${n}`}</span> : <span className="muted small">すべて同じ</span>}</td>
+          <td className="muted small">{`${all.length} 件中`}</td>
+          {list.servers.map((s) => <td key={s.id} />)}
+        </tr>,
+      );
+      if (isOpen) walk(d, depth + 1);
+    }
+    for (const f of [...node.files].sort((a, b) => a.name.localeCompare(b.name))) {
+      if (!view.showSame && !changed(f, total)) continue;
+      const kind = f.on.length < total ? "miss" : f.same ? "same" : "chg";
+      rows.push(
+        <tr key={f.path} className={kind}>
+          <td><button type="button" className="tree-name" style={{ paddingLeft: depth * 18 }} disabled={busy} onClick={() => onOpen(f.path)}>
+            <span className="tw" aria-hidden /><span className={"ic " + kind} aria-hidden>{kind === "miss" ? "!" : kind === "chg" ? "≠" : "="}</span><span translate="no">{f.name}</span>
+          </button></td>
+          <td><Result f={f} total={total} count={false} /></td>
+          <td className="small">{f.lines ? <b>{`違う行 ${f.lines}`}</b> : ""}</td>
+          {f.sizes.map((n, i) => <td key={i} className={"small " + (n === null ? "no" : "muted")}>{n === null ? "ない" : kb(n)}</td>)}
+        </tr>,
+      );
+    }
+  };
+  if (view.mode === "tree") walk(treeOf(list.files), 0);
   return (
     <>
       {list.servers.filter((s) => s.error).map((s) => <p key={s.id} className="error" role="alert"><span translate="no">{s.name}</span>: {s.error}</p>)}
-      <label className="capsule small"><input type="checkbox" checked={onlyDiff} onChange={(e) => setOnlyDiff(e.target.checked)} /> 違うかもしれないものだけ</label>
-      <section className="group spaced">
-        {files.length === 0 && <div className="row muted">{onlyDiff ? "どのファイルも、すべてのサーバーで同じ大きさです" : "設定ファイルが見つかりませんでした"}</div>}
-        {files.map((f) => (
-          <button key={f.path} type="button" className="row link" disabled={busy} onClick={() => onOpen(f.path)}>
-            <span className="main" translate="no">{f.path}</span>
-            <span className="trail muted small">{f.on.length < total ? `${total - f.on.length} 台にない` : f.same ? "大きさは同じ" : "違う"}</span>
-          </button>
-        ))}
-      </section>
-      <p className="foot">中身までは読まずに大きさで見ています(大きさが同じでも、開くと違うことがあります)。</p>
+      <div className="bar wrap">
+        <div className="seg" role="group" aria-label="一覧の表示">
+          <button type="button" className={view.mode === "list" ? "on" : ""} aria-pressed={view.mode === "list"} onClick={() => setView({ ...view, mode: "list" })}>違いだけ</button>
+          <button type="button" className={view.mode === "tree" ? "on" : ""} aria-pressed={view.mode === "tree"} onClick={() => setView({ ...view, mode: "tree" })}>すべて(ツリー)</button>
+        </div>
+        {view.mode === "tree" && (
+          <label className="capsule small"><input type="checkbox" checked={view.showSame} onChange={(e) => setView({ ...view, showSame: e.target.checked })} /> 同じものも出す</label>
+        )}
+      </div>
+      {view.mode === "list" ? (
+        <section className="group spaced">
+          {diffs.length === 0 && <div className="row muted">{list.files.length ? "違いのあるファイルはありません" : "設定ファイルが見つかりませんでした"}</div>}
+          {diffs.map((f) => (
+            <button key={f.path} type="button" className="row link" disabled={busy} onClick={() => onOpen(f.path)}>
+              <span className="main" translate="no">{f.path}</span>
+              <span className="trail"><Result f={f} total={total} /></span>
+            </button>
+          ))}
+        </section>
+      ) : (
+        <section className="group ports-table tree-table">
+          <table>
+            <thead>
+              <tr>
+                <th>名前</th><th>比較結果</th><th>違い</th>
+                {list.servers.map((s, i) => <th key={s.id}><span translate="no">{s.name}</span>{i === 0 && <small>基準</small>}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.length === 0 && <tr><td colSpan={total + 3} className="muted">{list.files.length ? "違いのあるファイルはありません" : "設定ファイルが見つかりませんでした"}</td></tr>}
+              {rows}
+            </tbody>
+          </table>
+        </section>
+      )}
+      <p className="foot">違う行は、基準(最初に選んだサーバー)と比べた行の数です(ファイルを開いて「違う行だけ」にしたときの行数)。Pterodactyl のサーバーは、API の回数に上限があるので大きさが違うファイルだけ中身を読みます(「大きさは同じ」は中身を読んでいません)。</p>
     </>
   );
 }

@@ -115,7 +115,7 @@ export function eventService(deps: Deps) {
       return r?.at.toISOString() ?? null;
     },
 
-    /** ここまで読んだ(先へ進めるだけ。記録の時刻をそのまま受け取る: データベースによっては記録の時刻がずれて見えるので、いまの時刻とは比べない) */
+    /** ここまで読んだ(先へ進めるだけ。記録の時刻をそのまま受け取る) */
     async markSeen(headers: Headers, at: string) {
       const { teamId, user: me } = await requireTeam(auth, headers);
       const d = new Date(at);

@@ -18,6 +18,7 @@ import { softwareService } from "./software";
 import { backupService } from "./backup";
 import { modpackService } from "./modpack";
 import { telemetryService } from "./telemetry";
+import { teamService } from "./teams";
 
 // 置いてあるバックアップで入れ替える(データベースを開く前・鍵を読む前。自分用の版だけ)
 {
@@ -72,6 +73,7 @@ export const files = fileService(deps);
 export const software = softwareService(deps);
 export const backups = backupService(deps);
 export const modpacks = modpackService(deps);
+export const teams = teamService(deps);
 // 利用状況の送信は、同意したパネルから v02 と同じ受け口へ(送る先へのつなぎ方はサービス版と同じ)
 export const telemetry = telemetryService({ ...deps, fetch: safeFetch });
 export const uploads = uploadService(deps);

@@ -7,6 +7,7 @@ import { useCan } from "~/lib/use-can";
 import { useServerFn } from "@tanstack/react-start";
 import { ASSIGNABLE_ROLES, type RoleName, roleLabel } from "~/lib/permissions";
 import { serverAssignments, setServerAssignment } from "~/lib/servers-api";
+import { deleteTeam, transferOwner } from "~/lib/teams-api";
 
 export const Route = createFileRoute("/team")({
   beforeLoad: ({ context }) => {
@@ -63,6 +64,10 @@ function Team() {
           {app.mode === "self" && <section className="group"><Link to="/shares" className="row link">共有リンク</Link></section>}
           {app.mode === "self" && can({ member: ["update"] }) && <CurseForgeKey />}
           {me && me.role !== "owner" && <Leave teamId={team.id} />}
+          {me?.role === "owner" && (
+            <OwnerTools teamName={team.name} service={app.mode === "service"}
+              members={team.members.filter((m) => m.userId !== user.id).map((m) => ({ userId: m.userId, name: m.user.name }))} />
+          )}
         </>
       )}
     </main>
@@ -319,6 +324,57 @@ function Assignments() {
       ))}
       {error && <p className="error" role="alert">{error}</p>}
       <p className="foot">オフにすると、その人は下で選んだサーバーだけを見る・操作できます(一覧・比較・セット・ポートにも、選んだサーバーだけが出ます)。管理者とオーナーは、いつでもすべてのサーバーを使えます。</p>
+    </>
+  );
+}
+
+// オーナーだけ: オーナーを譲る(両方の版)・チームを消す(サービス版)
+function OwnerTools({ teamName, service, members }: { teamName: string; service: boolean; members: { userId: string; name: string }[] }) {
+  const transfer = useServerFn(transferOwner);
+  const remove = useServerFn(deleteTeam);
+  const [to, setTo] = useState("");
+  const [confirmName, setConfirmName] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const run = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    setError("");
+    try {
+      await fn();
+      location.href = "/team";
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "うまくいきませんでした");
+      setBusy(false);
+    }
+  };
+  if (!members.length && !service) return null;
+  return (
+    <>
+      <div className="group-title">オーナー</div>
+      {members.length > 0 && (
+        <section className="group">
+          <div className="row">
+            <span>オーナーを譲る</span>
+            <select className="trail" value={to} onChange={(e) => setTo(e.target.value)} aria-label="オーナーを譲る相手">
+              <option value="">選んでください…</option>
+              {members.map((m) => <option key={m.userId} value={m.userId} translate="no">{m.name}</option>)}
+            </select>
+          </div>
+          <button className="row link" type="button" disabled={busy || !to} onClick={() => {
+            const name = members.find((m) => m.userId === to)?.name ?? "";
+            if (confirm(`${name} さんにオーナーを譲りますか?(あなたは管理者になります)`)) run(() => transfer({ data: { userId: to } }));
+          }}>譲る</button>
+        </section>
+      )}
+      {service && (
+        <section className="group">
+          <input className="row" placeholder={`消すときは、チームの名前(${teamName})を入力`} value={confirmName} onChange={(e) => setConfirmName(e.target.value)} aria-label="消すチームの名前" />
+          <button className="row danger" type="button" disabled={busy || confirmName.trim() !== teamName} onClick={() => {
+            if (confirm("チームを消しますか?サーバー・ライブラリ・セットなど、このチームのものはすべて消え、元に戻せません(サーバーのファイルは消えません)")) run(() => remove({ data: { name: confirmName } }));
+          }}>このチームを消す</button>
+        </section>
+      )}
+      {error && <p className="error" role="alert">{error}</p>}
     </>
   );
 }

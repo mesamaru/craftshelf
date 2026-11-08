@@ -1,6 +1,24 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "オーナーを譲る": "Transfer ownership",
+  "オーナーを譲る相手": "New owner",
+  "譲る": "Transfer",
+  "消すチームの名前": "Name of the team to delete",
+  "このチームを消す": "Delete this team",
+  "チームを消しますか?サーバー・ライブラリ・セットなど、このチームのものはすべて消え、元に戻せません(サーバーのファイルは消えません)": "Delete the team? Servers, library, sets and everything else in this team are deleted and cannot be restored (files on the servers are not deleted)",
+  "アカウントを消す": "Delete account",
+  "アカウントを消すと、元に戻せません。自分だけのチームは一緒に消えます。ほかのメンバーがいるチームのオーナーは、先にオーナーを譲るか、チームを消してください。": "Deleting your account cannot be undone. Teams with only you are deleted too. If you own a team with other members, transfer ownership or delete the team first.",
+  "確かめのためのパスワード": "Password to confirm",
+  "アカウントを消しますか?元に戻せません": "Delete your account? This cannot be undone",
+  "消しています…": "Deleting…",
+  "オーナーを譲れるのは、オーナーだけです": "Only the owner can transfer ownership",
+  "ほかのメンバーを選んでください": "Choose another member",
+  "自分用の版では、チームは消せません": "Teams can't be deleted in the self-hosted edition",
+  "チームを消せるのは、オーナーだけです": "Only the owner can delete the team",
+  "確かめのため、チームの名前をそのまま入力してください": "To confirm, type the team name exactly",
+  "自分用の版では、アカウントは消せません(管理者にチームから外してもらってください)": "Accounts can't be deleted in the self-hosted edition (ask an admin to remove you from the team)",
+  "この操作は、ログインしてから行ってください": "Please sign in to do this",
   "パスワードを忘れたとき": "Forgot your password?",
   "利用規約": "Terms of Service",
   "プライバシーポリシー": "Privacy Policy",
@@ -902,6 +920,9 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^(.+?) さんにオーナーを譲りますか[?？]\(あなたは管理者になります\)$/, "Transfer ownership to $1? (You become an admin)"],
+  [/^消すときは、チームの名前\((.+?)\)を入力$/, "To delete, type the team name ($1)"],
+  [/^チーム「(.+?)」には、ほかのメンバーがいます。先にオーナーを譲るか、チームを消してください$/, "Team “$1” has other members. Transfer ownership or delete the team first"],
   [/^(.+?) に確認のメールを送りました。メールのリンクを開くと登録が終わり、ログインできます\(24 時間有効\)。$/, "A confirmation email has been sent to $1. Open the link in it to finish signing up and sign in (valid for 24 hours)."],
   [/。設定ファイルを (\d+) 個書き込みました/, ". Wrote $1 config files"],
   [/^「(.+?)」の (.+?) を保存しました。反映にはサーバーの再起動が要ります$/, "Saved $2 on “$1”. Restart the server to apply"],

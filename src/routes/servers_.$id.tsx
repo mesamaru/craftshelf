@@ -5,12 +5,13 @@ import { identifyMods, serverChanges, undoChange, installMod, installedMods, mod
 import { importServerFile } from "~/lib/uploads-api";
 import { ApplyResults } from "~/lib/apply-results";
 import { PLATFORMS, PLATFORM_IDS } from "~/lib/platforms";
-import { listServers, localSettings, setLocalSettings } from "~/lib/servers-api";
+import { listServers, localSettings, serverStatus, setLocalSettings } from "~/lib/servers-api";
 import { bindServerSet, copyServer, listSets, setAutoUpdate, syncServerSet } from "~/lib/sets-api";
 import { SOURCE_LABEL, type Source, pageUrl } from "~/lib/sources";
 import { useCan } from "~/lib/use-can";
-import { rollbackSoftware, softwareInfo, updateSoftware } from "~/lib/software-api";
-import { createWorldBackup, removeWorldBackup, setWorldBackup, worldBackups } from "~/lib/worlds-api";
+import { detectSoftware, installSoftware, rollbackSoftware, setSoftware, softwareBuilds, softwareInfo, updateSoftware } from "~/lib/software-api";
+import { SOFTWARE, SOFTWARE_IDS } from "~/lib/software";
+import { createWorldBackup, removeWorldBackup, restoreWorldBackup, setWorldBackup, worldBackups } from "~/lib/worlds-api";
 
 export const Route = createFileRoute("/servers_/$id")({
   beforeLoad: ({ context, params }) => {
@@ -50,13 +51,14 @@ function ServerPage() {
         <Link to="/servers/$id/files" params={{ id: server.id }} className="capsule">ファイルとコマンド</Link>
       </header>
 
+      <Live id={server.id} />
       <Profile id={server.id} profile={server.profile} editable={can({ server: ["update"] })} />
       {server.kind === "local" && can({ server: ["update"] }) && <LocalControl id={server.id} />}
       {can({ server: ["control"] }) && <Worlds id={server.id} admin={can({ server: ["update"] })} />}
 
+      <Software id={server.id} admin={can({ server: ["update"] })} />
       {server.profile && (
         <>
-          <Software id={server.id} admin={can({ server: ["update"] })} />
           <SetBinding id={server.id} name={server.name} edit={edit} onSynced={reload} />
           {edit && <CopyServers id={server.id} name={server.name} onDone={reload} />}
           <Installed id={server.id} items={items} error={error} edit={edit} local={app.mode === "self"} auto={server.autoUpdate}
@@ -77,7 +79,20 @@ function Profile({ id, profile, editable }:
   const [platform, setPlatform] = useState(profile?.platform ?? "");
   const [mcVersion, setMcVersion] = useState(profile?.mcVersion ?? "");
   const [error, setError] = useState("");
+  const [found, setFound] = useState("");
+  const detect = useServerFn(detectSoftware);
   const changed = platform !== (profile?.platform ?? "") || mcVersion !== (profile?.mcVersion ?? "");
+  const guess = async () => {
+    setError("");
+    try {
+      const d = await detect({ data: { id } });
+      if (d.platform) setPlatform(d.platform);
+      if (d.mcVersion) setMcVersion(d.mcVersion);
+      setFound(d.software ? `${SOFTWARE[d.software].label}${d.mcVersion ? ` ${d.mcVersion}` : ""} のようです${d.platform ? "(よければ保存してください)" : "(Mod・プラグインは扱えない種類です)"}` : "ファイルからは分かりませんでした");
+    } catch (e) {
+      setError(message(e));
+    }
+  };
 
   const submit = async () => {
     try {
@@ -111,6 +126,8 @@ function Profile({ id, profile, editable }:
         <span>Minecraft のバージョン</span>
         <input className="trail version" placeholder="例 1.21.1" value={mcVersion} onChange={(e) => setMcVersion(e.target.value)} aria-label="Minecraft のバージョン" />
       </div>
+      <button className="row link" type="button" onClick={guess}>サーバーのファイルから判定する</button>
+      {found && <p className="row muted" role="status">{found}</p>}
       {error && <p className="row error" role="alert">{error}</p>}
       {changed && <button className="capsule primary" type="button" onClick={submit} disabled={!platform}>保存</button>}
     </section>
@@ -503,21 +520,29 @@ function LocalControl({ id }: { id: string }) {
   );
 }
 
-// サーバー本体(jar): 今のビルドといちばん新しいビルド。入れ替える・入れ替える前に戻すのは管理者以上
+// a が b より古いバージョンか(1.21.10 は 1.21.4 より新しい)
+const older = (a: string, b: string) => { const x = a.split(".").map(Number), y = b.split(".").map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); return false; };
+
+// サーバー本体(jar): 今のビルドといちばん新しいビルド。入れ替える(ビルド・Minecraft のバージョンを選べる)・残した jar に戻すのは管理者以上
 function Software({ id, admin }: { id: string; admin: boolean }) {
   const load = useServerFn(softwareInfo);
   const update = useServerFn(updateSoftware);
+  const install = useServerFn(installSoftware);
+  const listBuilds = useServerFn(softwareBuilds);
   const back = useServerFn(rollbackSoftware);
+  const choose = useServerFn(setSoftware);
+  const backupWorld = useServerFn(createWorldBackup);
   const [info, setInfo] = useState<Awaited<ReturnType<typeof softwareInfo>> | null>(null);
+  const [builds, setBuilds] = useState<Awaited<ReturnType<typeof softwareBuilds>> | null>(null);
+  const [pick, setPick] = useState({ mc: "", build: "" });
   const [restart, setRestart] = useState(false);
-  const [mc, setMc] = useState("");
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const reload = () => load({ data: { id } }).then((d) => { setInfo(d); setError(""); }, (e) => setError(message(e)));
   useEffect(() => { reload(); }, [id]);
-  const run = async (ask: string, fn: () => Promise<string>) => {
-    if (!confirm(ask)) return;
+  const run = async (ask: string | null, fn: () => Promise<string>) => {
+    if (ask && !confirm(ask)) return;
     setBusy(true);
     setError("");
     setNote("");
@@ -530,11 +555,27 @@ function Software({ id, admin }: { id: string; admin: boolean }) {
       setBusy(false);
     }
   };
+  const after = (r: { restarted: boolean }) => (r.restarted ? "。再起動しています" : "。サーバーを再起動すると新しい jar で動きます");
+  const openBuilds = (mc?: string) => listBuilds({ data: { id, mc } }).then((b) => { setBuilds(b); setPick({ mc: b.mc, build: "" }); }, (e) => setError(message(e)));
+  const mcChanged = !!(info && pick.mc && info.mc && pick.mc !== info.mc && !info.proxy);
   return (
     <>
       <div className="group-title">サーバー本体</div>
       <section className="group">
         {!info && !error && <div className="row muted">確かめています…</div>}
+        {admin && (
+          <div className="row">
+            <span>サーバー本体の種類</span>
+            <select className="trail" value={info?.software ?? ""} disabled={busy} aria-label="サーバー本体の種類" onChange={(e) => run(null, async () => {
+              await choose({ data: { id, software: e.target.value } });
+              setBuilds(null);
+              return "サーバー本体の種類を変えました";
+            })}>
+              <option value="" disabled>選んでください</option>
+              {SOFTWARE_IDS.map((x) => <option key={x} value={x}>{SOFTWARE[x].label}</option>)}
+            </select>
+          </div>
+        )}
         {info && (
           <>
             <div className="row"><span>{info.label}</span><span className="trail muted" translate="no">{info.jar || "jar がわかりません"}</span></div>
@@ -544,42 +585,98 @@ function Software({ id, admin }: { id: string; admin: boolean }) {
               <span className="trail" translate="no">{info.latest ? info.latest.build : "確かめられません"}</span>
             </div>
             {info.update && <div className="row"><span className="notice small">新しいビルドがあります</span></div>}
-            {info.latest && !info.latest.auto && <a className="row link" href={info.page} target="_blank" rel="noopener noreferrer">配布ページで確かめる</a>}
+            <a className="row link" href={info.page} target="_blank" rel="noopener noreferrer">配布ページで確かめる</a>
+            {admin && info.auto && (
+              <label className="row"><span>入れ替えたら再起動する</span><input className="trail" type="checkbox" checked={restart} onChange={(e) => setRestart(e.target.checked)} /></label>
+            )}
             {admin && info.update && info.latest?.auto && (
+              <button className="row link" type="button" disabled={busy || !info.jar} onClick={() => run(
+                `${info.jar} を ${info.latest!.build} に入れ替えますか?(今の jar は残し、あとで戻せます)`,
+                async () => { const r = await update({ data: { id, restart } }); return `${r.build} に入れ替えました${after(r)}`; },
+              )}>{busy ? "入れ替えています…" : "いちばん新しいビルドに入れ替える"}</button>
+            )}
+            {admin && info.auto && !builds && (
+              <button className="row link" type="button" disabled={busy || !info.jar} onClick={() => openBuilds()}>バージョンを選んで入れ替える…</button>
+            )}
+            {admin && builds && (
               <>
-                <label className="row"><span>入れ替えたら再起動する</span><input className="trail" type="checkbox" checked={restart} onChange={(e) => setRestart(e.target.checked)} /></label>
-                <button className="row link" type="button" disabled={busy || !info.jar} onClick={() => run(
-                  `${info.jar} を ${info.latest!.build} に入れ替えますか?(今の jar は残し、あとで戻せます)`,
-                  async () => { const r = await update({ data: { id, restart } }); return `${r.build} に入れ替えました${r.restarted ? "。再起動しています" : "。サーバーを再起動すると新しい jar で動きます"}`; },
-                )}>{busy ? "入れ替えています…" : "いちばん新しいビルドに入れ替える"}</button>
+                {builds.mcVersions.length > 0 && (
+                  <div className="row">
+                    <span>{info.proxy ? "版" : "Minecraft のバージョン"}</span>
+                    <select className="trail" value={pick.mc} aria-label="入れる Minecraft のバージョン" onChange={(e) => openBuilds(e.target.value)}>
+                      {!builds.mcVersions.includes(pick.mc) && <option value={pick.mc} translate="no">{pick.mc || "選んでください…"}</option>}
+                      {builds.mcVersions.map((v) => <option key={v} value={v} translate="no">{v === info.mc ? `${v}(今)` : v}</option>)}
+                    </select>
+                  </div>
+                )}
+                <div className="row">
+                  <span>ビルド</span>
+                  <select className="trail" value={pick.build} aria-label="入れるビルド" onChange={(e) => setPick({ ...pick, build: e.target.value })}>
+                    <option value="">{builds.builds.length ? "選んでください…" : "見つかりません"}</option>
+                    {builds.builds.map((b) => <option key={b.build} value={b.build} disabled={!b.auto} translate="no">{`${b.build}${b.stable ? "" : "(試験版)"}${b.build === info.build && pick.mc === info.mc ? "(今)" : ""}`}</option>)}
+                  </select>
+                </div>
+                {mcChanged && (
+                  <>
+                  <div className="row">
+                    <span className="notice small">{`Minecraft のバージョンを ${info.mc} から ${pick.mc} に${older(pick.mc, info.mc) ? "下げると、ワールドが読めなくなったり壊れたりすることがあります" : "上げると、ワールドは新しいバージョンに変換され、元には戻せません"}。先にワールドをバックアップしてください。`}</span>
+                  </div>
+                    <button className="row link" type="button" disabled={busy} onClick={() => run(null, async () => { await backupWorld({ data: { id } }); return "ワールドのバックアップを始めました(終わると「ワールドのバックアップ」に出ます)"; })}>先にワールドをバックアップする</button>
+                  </>
+                )}
+                <button className="row link" type="button" disabled={busy || !pick.build} onClick={() => run(
+                  mcChanged
+                    ? `Minecraft を ${info.mc} から ${pick.mc}(ビルド ${pick.build})に変えますか?ワールドのバックアップを取ったか、プラグイン・Mod が ${pick.mc} に対応しているかを確かめてください。`
+                    : `${info.jar} を ${pick.build} に入れ替えますか?(今の jar は残し、あとで戻せます)`,
+                  async () => { const r = await install({ data: { id, mc: pick.mc || undefined, build: pick.build, restart } }); setBuilds(null); return `${r.mc ? `${r.mc} ` : ""}${r.build} に入れ替えました${after(r)}`; },
+                )}>{busy ? "入れ替えています…" : "選んだビルドに入れ替える"}</button>
+                <button className="row link" type="button" onClick={() => setBuilds(null)}>閉じる</button>
               </>
             )}
-            {admin && info.mcNewer.length > 0 && (
-              <div className="row">
-                <span>Minecraft のバージョンを上げる</span>
-                <select className="trail" value={mc} onChange={(e) => setMc(e.target.value)} aria-label="上げる Minecraft のバージョン">
-                  <option value="">選んでください…</option>
-                  {info.mcNewer.map((v) => <option key={v} value={v} translate="no">{v}</option>)}
-                </select>
-                <button className="trail link" type="button" disabled={busy || !mc || !info.jar} onClick={() => run(
-                  `Minecraft を ${info.mc} から ${mc} に上げますか?ワールドは新しいバージョンに変換され、元のバージョンには戻せません。先にワールドのバックアップを取り、プラグイン・Mod が ${mc} に対応しているかも確かめてください。`,
-                  async () => { const r = await update({ data: { id, restart, mc } }); setMc(""); return `${mc}(ビルド ${r.build})に入れ替えました${r.restarted ? "。再起動しています" : "。サーバーを再起動すると新しい jar で動きます"}`; },
-                )}>上げる</button>
+            {info.backups.length > 0 && <div className="row muted small">{`残している前の jar(新しい順・${info.backups.length} 個)`}</div>}
+            {info.backups.map((b) => (
+              <div className="row" key={b.file}>
+                <span className="main">
+                  <span translate="no">{`${b.mc ? `${b.mc} · ` : ""}${b.build || "ビルド不明"}`}</span>
+                  <span className="muted small" translate="no">{b.file}</span>
+                </span>
+                {admin && (
+                  <button className="trail link" type="button" disabled={busy} onClick={() => run(
+                    `${b.build || "前の jar"} に戻しますか?(今の jar は代わりに残します)`,
+                    async () => { const r = await back({ data: { id, file: b.file } }); return `${r.build || "前の jar"} に戻しました。サーバーを再起動すると戻した jar で動きます`; },
+                  )}>戻す</button>
+                )}
               </div>
-            )}
-            {admin && info.backup && (
-              <button className="row link" type="button" disabled={busy} onClick={() => run(
-                `入れ替える前の jar(${info.backup!.build || "ビルド不明"})に戻しますか?`,
-                async () => { const r = await back({ data: { id } }); return `${r.build || "前の jar"} に戻しました。サーバーを再起動すると戻した jar で動きます`; },
-              )}>{`入れ替える前の jar に戻す(${info.backup.build || "ビルド不明"})`}</button>
-            )}
+            ))}
           </>
         )}
         {note && <p className="row muted" role="status">{note}</p>}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">入れ替えるときは、サーバーが配布元から直接 jar を取り込みます。入れ替える前の jar は 1 つだけ残し、そこへ戻せます。Paper・Folia・Velocity・Purpur・Fabric は入れ替えられ、Forge などは新しい版があるかだけを確かめます。</p>
+      <p className="foot">入れ替えるときは、サーバーが配布元から直接 jar を取り込みます。入れ替える前の jar はサーバーのフォルダに 5 つまで残し、そこへ戻せます。Paper・Folia・Purpur・Leaf・Pufferfish・Velocity・Waterfall・BungeeCord・Fabric・Vanilla・Mohist・SpongeVanilla は入れ替えられ、Forge・NeoForge・Quilt・Arclight は新しい版があるかだけを確かめます。</p>
     </>
+  );
+}
+
+// 今の状態と、Minecraft のサーバーの人数・名前の一部・応答の速さ(Server List Ping)
+function Live({ id }: { id: string }) {
+  const status = useServerFn(serverStatus);
+  const [st, setSt] = useState<Awaited<ReturnType<typeof serverStatus>> | null>(null);
+  useEffect(() => {
+    const read = () => status({ data: { id } }).then(setSt, () => setSt(null));
+    read();
+    const t = setInterval(read, 15_000);
+    return () => clearInterval(t);
+  }, [id]);
+  if (!st?.ping) return null;
+  const p = st.ping;
+  return (
+    <section className="group">
+      <div className="row"><span>プレイヤー</span><span className="trail">{`${p.online} / ${p.max} 人`}</span></div>
+      {p.sample.length > 0 && <div className="row"><span className="muted small" translate="no">{p.sample.join("、")}{p.online > p.sample.length ? " …" : ""}</span></div>}
+      <div className="row"><span>応答の速さ</span><span className="trail">{`${p.latency} ms`}</span></div>
+      {p.version && <div className="row"><span>バージョン</span><span className="trail muted" translate="no">{p.version}</span></div>}
+    </section>
   );
 }
 
@@ -641,6 +738,8 @@ function Worlds({ id, admin }: { id: string; admin: boolean }) {
   const create = useServerFn(createWorldBackup);
   const remove = useServerFn(removeWorldBackup);
   const save = useServerFn(setWorldBackup);
+  const restore = useServerFn(restoreWorldBackup);
+  const [opt, setOpt] = useState({ stop: false, truncate: false });
   const [d, setD] = useState<Awaited<ReturnType<typeof worldBackups>> | null>(null);
   const [draft, setDraft] = useState<Awaited<ReturnType<typeof worldBackups>>["settings"] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -661,8 +760,8 @@ function Worlds({ id, admin }: { id: string; admin: boolean }) {
     setError("");
     setNote("");
     try {
-      await fn();
-      setNote(done);
+      const r = await fn();
+      setNote(typeof r === "string" ? r : done);
       await reload();
     } catch (e) {
       setError(message(e));
@@ -696,6 +795,19 @@ function Worlds({ id, admin }: { id: string; admin: boolean }) {
             {b.done && !b.ok && <span className="badge muted-badge">失敗</span>}
             {b.locked && <span className="badge muted-badge">鍵つき</span>}
             {b.done && b.ok && <a className="trail link" href={`/api/worlds/${id}/${b.name}`} download>ダウンロード</a>}
+            {admin && b.done && b.ok && (
+              <button className="link danger" type="button" disabled={busy || d.running} onClick={() => {
+                const what = new Date(b.at).toLocaleString("ja-JP");
+                if (!confirm(ptero
+                  ? `${what} のバックアップから戻しますか?サーバーは止まり、サーバー全体がこのときの状態に戻ります${opt.truncate ? "(今のファイルはすべて消えます)" : ""}。`
+                  : `${what} のバックアップからワールドを戻しますか?今のワールドは名前を変えて残します。`)) return;
+                if (!confirm(ptero ? "もう一度確かめます。本当に戻しますか?" : `もう一度確かめます。サーバーが止まっていることを確かめましたか?${opt.stop ? "(動いていたら止めます)" : "(動いていれば戻しません)"}`)) return;
+                act(async () => {
+                  const r = await restore({ data: { id, name: b.name, ...opt } });
+                  return (ptero ? "パネルが戻しています(終わるとサーバーを起動できます)" : `戻しました(${r.files} ファイル)${r.aside.length ? `。前のワールドは ${r.aside.join("・")} に残しています` : ""}`);
+                });
+              }}>戻す</button>
+            )}
             {!b.locked && b.done && (
               <button className="link danger" type="button" disabled={busy} onClick={() => {
                 if (confirm(`${b.label} を消しますか?`)) act(() => remove({ data: { id, name: b.name } }), "消しました");
@@ -703,6 +815,9 @@ function Worlds({ id, admin }: { id: string; admin: boolean }) {
             )}
           </div>
         ))}
+        {admin && d.backups.length > 0 && (ptero
+          ? <label className="row"><span>戻すときに、今のファイルを消してから戻す</span><input className="trail" type="checkbox" checked={opt.truncate} onChange={(e) => setOpt({ ...opt, truncate: e.target.checked })} /></label>
+          : <label className="row"><span>戻すときに、動いていたら止める</span><input className="trail" type="checkbox" checked={opt.stop} onChange={(e) => setOpt({ ...opt, stop: e.target.checked })} /></label>)}
         {note && <p className="row muted" role="status">{note}</p>}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>

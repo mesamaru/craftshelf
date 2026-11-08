@@ -69,3 +69,45 @@ export function tarGz(path: string) {
     },
   };
 }
+
+/**
+ * tar.gz を読み、ファイルを 1 つずつ返す(ワールドのバックアップから戻す。全体をメモリに持たない)。
+ * 普通のファイル(0)だけを返し、フォルダ・リンクなどは飛ばす。名前は PAX の path・GNU の長い名前(L)も読む。maxBytes を超えるファイルは断る
+ */
+export async function* untarGz(input: import("node:stream").Readable, maxBytes: number): AsyncGenerator<{ name: string; data: Buffer }> {
+  const { createGunzip } = await import("node:zlib");
+  const gz = input.pipe(createGunzip());
+  let buf: Buffer = Buffer.alloc(0);
+  let want: { name: string; size: number; type: string } | null = null;
+  let longName = "";
+  const text = (b: Buffer) => b.toString("utf8").replace(/\0.*$/s, "");
+  for await (const chunk of gz as AsyncIterable<Buffer>) {
+    buf = buf.length ? Buffer.concat([buf, chunk]) : chunk;
+    for (;;) {
+      if (!want) {
+        if (buf.length < 512) break;
+        const h = buf.subarray(0, 512);
+        buf = buf.subarray(512);
+        if (h.every((b) => b === 0)) continue; // 終わりのしるし
+        const size = parseInt(text(h.subarray(124, 136)).trim() || "0", 8);
+        if (!Number.isFinite(size) || size < 0) throw new Error("バックアップのファイルが壊れています");
+        const prefix = text(h.subarray(345, 500));
+        const base = text(h.subarray(0, 100));
+        want = { name: longName || (prefix ? `${prefix}/${base}` : base), size, type: String.fromCharCode(h[156] || 48) };
+        longName = "";
+        if ((want.type === "0" || want.type === "7") && size > maxBytes) throw new Error(`大きすぎるファイルがあります(${want.name})`);
+        if (want.type !== "0" && want.type !== "7" && want.type !== "x" && want.type !== "L" && size > 1024 * 1024) throw new Error("バックアップのファイルが壊れています");
+      }
+      const padded = want.size + ((512 - (want.size % 512)) % 512);
+      if (buf.length < padded) break;
+      const data = Buffer.from(buf.subarray(0, want.size));
+      buf = buf.subarray(padded);
+      const w = want;
+      want = null;
+      if (w.type === "x") longName = data.toString("utf8").match(/(?:^|\n)\d+ path=([^\n]*)\n/)?.[1] ?? "";
+      else if (w.type === "L") longName = text(data);
+      else if (w.type === "0" || w.type === "7") yield { name: w.name, data };
+    }
+  }
+  if (want) throw new Error("バックアップのファイルが途中で切れています");
+}

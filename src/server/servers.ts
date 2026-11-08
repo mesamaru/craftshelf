@@ -5,9 +5,10 @@ import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { and, asc, count, eq } from "drizzle-orm";
 import type { Auth } from "./auth";
 import type { Db } from "./db";
-import { agentServer, localServer, member, memberServer, memberServerLimit, pteroConnection, server, serverProfile, user as userTable } from "./db/schema";
+import { agentServer, localServer, member, memberServer, memberServerLimit, pteroConnection, server, serverProfile, serverSoftware, user as userTable } from "./db/schema";
 import { HttpError, requireTeam } from "./guard";
-import { type FetchLike, UnsafeUrlError, checkPublicUrl } from "./net";
+import { type FetchLike, UnsafeUrlError, checkPublicUrl, isPublicAddress } from "./net";
+import { type Ping, gamePort, ping } from "./mcping";
 import { POWER_SIGNALS, type PowerSignal, PteroError, pteroClient } from "./ptero";
 import { eventService } from "./events";
 import { checkRoot, detectFromJar, localClient } from "./local";
@@ -106,6 +107,46 @@ const POWER_LABEL: Record<PowerSignal, string> = { start: "起動", stop: "停�
 export function serverService(deps: Deps) {
   const { db, auth, secret, fetch } = deps;
   const { record } = eventService(deps);
+  const addresses = new Map<string, { host: string; port: number; at: number }>(); // Pterodactyl の割り当て(10 分おぼえておく)
+
+  /** Minecraft の Server List Ping(人数・名前の一部・応答の速さ)。つながらなければ null */
+  async function pingOf(row: typeof server.$inferSelect, client: PteroClient, remoteId: string): Promise<Ping | null> {
+    try {
+      if (row.kind === "agent") return await (client as unknown as { ping: () => Promise<Ping> }).ping();
+      if (row.kind === "local") return await ping("127.0.0.1", gamePort(await client.readFile(remoteId, "server.properties")));
+      let a = addresses.get(row.id);
+      if (!a || Date.now() - a.at > 600_000) {
+        const list = await client.allocations(remoteId);
+        const d = list.find((x) => x.isDefault) ?? list[0];
+        if (!d) return null;
+        let host = d.alias || d.ip;
+        if (!host || host === "0.0.0.0" || host === "::") {
+          // どこでも受けるときは、パネルと同じ名前で問い合わせる
+          const [c] = await db.select({ url: pteroConnection.url }).from(pteroConnection).where(eq(pteroConnection.id, row.pteroConnectionId ?? ""));
+          host = c ? new URL(c.url).hostname : "";
+        }
+        if (!host) return null;
+        a = { host, port: d.port, at: Date.now() };
+        addresses.set(row.id, a);
+      }
+      // サービス版は、公開されたアドレスだけに問い合わせる(家の中・クラウドの内側へつながせない)
+      return await ping(a.host, a.port, { publicOnly: deps.allowPrivate ? undefined : isPublicAddress });
+    } catch {
+      return null;
+    }
+  }
+
+  // 追加した Pterodactyl のサーバーの種類を、ファイル・jar の名前・egg から決める(わからなければそのまま)
+  async function detectAdded(client: ReturnType<typeof pteroClient>, rows: { id: string; remoteId: string }[]) {
+    const { detectServer } = await import("./software");
+    for (const r of rows) {
+      try {
+        const d = await detectServer(client, r.remoteId, await client.details(r.remoteId).catch(() => undefined));
+        if (d.platform) await db.insert(serverProfile).values({ serverId: r.id, platform: d.platform, mcVersion: d.mcVersion }).onConflictDoNothing();
+        if (d.software && d.software !== d.platform) await db.insert(serverSoftware).values({ serverId: r.id, jar: "", software: d.software }).onConflictDoNothing();
+      } catch { /* 読めないサーバーは、あとで画面から決める */ }
+    }
+  }
 
   return {
     /** Pterodactyl パネルを登録する。キーで一覧が取れることを確かめてから保存する */
@@ -159,9 +200,10 @@ export function serverService(deps: Deps) {
         const [{ n }] = await tx.select({ n: count() }).from(server).where(eq(server.teamId, teamId));
         if (n + picked.length > SERVER_LIMITS.serversPerTeam) throw new HttpError(400, `サーバーは 1 チーム ${SERVER_LIMITS.serversPerTeam} 台までです`);
         const rows = picked.map((s) => ({ id: randomUUID(), teamId, kind: "ptero", name: s.name || s.identifier, pteroConnectionId: connectionId, remoteId: s.identifier }));
-        const inserted = await tx.insert(server).values(rows).onConflictDoNothing().returning({ name: server.name });
-        return { added: inserted.length, names: inserted.map((x) => x.name) };
+        const inserted = await tx.insert(server).values(rows).onConflictDoNothing().returning({ id: server.id, name: server.name, remoteId: server.remoteId });
+        return { added: inserted.length, names: inserted.map((x) => x.name), rows: inserted.map((x) => ({ id: x.id, remoteId: x.remoteId ?? "" })) };
       });
+      await detectAdded(client, r.rows);
       if (r.added) await record({ teamId, userId: user.id, kind: "admin", action: "サーバーを追加", target: r.names.join("、") });
       return { added: r.added };
     },
@@ -293,11 +335,15 @@ export function serverService(deps: Deps) {
         detail: { none: "設定しない", command: "コマンド", docker: `Docker(${container})` }[input.control] });
     },
 
+    /** 動いているか・CPU・メモリと、Minecraft のサーバーの人数・名前の一部・応答の速さ(ping。つながらなければ null) */
     async status(headers: Headers, id: string) {
       const who = await requireTeam(auth, headers);
-      const { teamId } = who;
-      const { client, remoteId } = await serverOf(deps, who, id);
-      return remote(() => client.resources(remoteId));
+      const { row, client, remoteId } = await serverOf(deps, who, id);
+      const r = await remote(() => client.resources(remoteId));
+      const p = r.state === "offline" ? null : await pingOf(row, client, remoteId);
+      // フォルダのサーバーで動いているかわからないときは、問い合わせの結果で決める(v02 と同じ)
+      const state = r.state === "unknown" && row.kind === "local" ? (p ? "running" : "offline") : r.state;
+      return { ...r, state, ping: p };
     },
 
     async power(headers: Headers, id: string, signal: PowerSignal) {

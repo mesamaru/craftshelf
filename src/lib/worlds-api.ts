@@ -23,3 +23,7 @@ export const removeWorldBackup = createServerFn({ method: "POST" })
 export const setWorldBackup = createServerFn({ method: "POST" })
   .validator(z.object({ id: sid, mode: z.string().max(10), time: z.string().max(5), dow: z.number().int(), keep: z.number().int(), targetId: z.string().max(64).nullable(), tz: z.string().max(64) }))
   .handler(async ({ data: { id, ...input } }) => (await svc()).setSettings(headers(), id, input));
+
+export const restoreWorldBackup = createServerFn({ method: "POST" })
+  .validator(z.object({ id: sid, name, stop: z.boolean(), truncate: z.boolean() }))
+  .handler(async ({ data }) => (await svc()).restore(headers(), data.id, data.name, { stop: data.stop, truncate: data.truncate }));

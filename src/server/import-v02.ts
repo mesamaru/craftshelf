@@ -2,10 +2,11 @@
 // v02 のデータベースは読み取り専用で開き、何も書き込まない(イメージを v02 に戻せば、そのまま v02 で使える)
 import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { and, asc, count, eq, inArray } from "drizzle-orm";
 import { MC_VERSION, type Platform, isPlatform } from "~/lib/platforms";
+import { isSoftware } from "~/lib/software";
 import { APP_NAME, legacyTotpContext } from "./auth";
 import type { Db } from "./db";
 import * as schema from "./db/schema";
@@ -540,5 +541,35 @@ export async function importCurseforgeKey(db: Db, v02: DatabaseSync, teamId: str
     await db.insert(schema.teamCurseforge).values({ teamId, apiKeySealed: seal(opts.secret, key, `curseforge:${teamId}`), apiKeyHint: hint(key) }).onConflictDoNothing();
   } catch {
     report.skipped.push({ what: "CurseForge の API キー", detail: "読めませんでした。「チーム」で設定し直してください" });
+  }
+}
+
+// サーバー本体の種類(03.54.00 から)。v03 のサーバーの種類だけでは分からないもの(Leaf・Waterfall・Vanilla・Mohist など)と、
+// v02 で決めていたサーバー本体の jar を、ワールドのバックアップの取り込みのあとで一度だけ引き継ぐ。v02 がパネルに退避していた jar は引き継がない
+export const softwareReportPath = (v03Dir: string) => join(v03Dir, "import-v02-software.json");
+const V02_SOFTWARE: Record<string, string> = { bukkit: "spigot" };
+
+export async function maybeImportV02Software(db: Db, opts: { v02Dir: string; v03Dir: string; dataDir?: string }): Promise<{ at: string; servers: string[] } | null> {
+  const dbFile = join(opts.v02Dir, "index.db");
+  if (!existsSync(dbFile) || !existsSync(backupReportPath(opts.v03Dir)) || existsSync(softwareReportPath(opts.v03Dir))) return null;
+  const v02 = new DatabaseSync(dbFile, { readOnly: true });
+  try {
+    const report = { at: new Date().toISOString(), servers: [] as string[] };
+    if (has(v02, "servers", "software")) {
+      const jarCol = has(v02, "servers", "server_jar");
+      for (const s of all(v02, "SELECT * FROM servers ORDER BY id")) {
+        const sw = V02_SOFTWARE[str(s.software)] ?? str(s.software);
+        const jar = jarCol ? basename(str(s.server_jar)) : "";
+        const safeJar = /^[^/\\]{1,120}\.jar$/i.test(jar) ? jar : "";
+        if (!isSoftware(sw) || (sw === SOFT[str(s.software)] && !safeJar)) continue; // サーバーの種類と同じで jar も決めていなければ、引き継ぐものが無い
+        const ids = await v03ServerIds(db, s, opts);
+        for (const serverId of ids) await db.insert(schema.serverSoftware).values({ serverId, jar: safeJar, software: sw }).onConflictDoNothing();
+        if (ids.length) report.servers.push(str(s.name));
+      }
+    }
+    writeFileSync(softwareReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
+    return report;
+  } finally {
+    v02.close();
   }
 }

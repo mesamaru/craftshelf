@@ -9,11 +9,12 @@ import { isAbsolute, join, resolve, sep, dirname } from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { MC_VERSION, type Platform } from "~/lib/platforms";
+import { BUILD_HOSTS } from "~/lib/software";
 import type { FetchLike } from "./net";
 import { type Allocation, POWER_SIGNALS, type PowerSignal, type PteroClient, PteroError, type RemoteFile, type Resources } from "./ptero";
 
-// フォルダのサーバーへ取ってくるファイルの置き場所(配布元の CDN だけ)
-const PULL_HOSTS = new Set(["cdn.modrinth.com", "api.spiget.org", "cdn.spiget.org", "edge.forgecdn.net", "mediafilez.forgecdn.net"]);
+// フォルダのサーバーへ取ってくるファイルの置き場所(配布元の CDN と、サーバー本体の公式の取得先だけ)
+const PULL_HOSTS = new Set(["cdn.modrinth.com", "api.spiget.org", "cdn.spiget.org", "edge.forgecdn.net", "mediafilez.forgecdn.net", ...BUILD_HOSTS]);
 export const LOCAL_LIMITS = { downloadBytes: 300 * 1024 * 1024, commandSeconds: 120 };
 export type Control = { control: string; startCmd: string; stopCmd: string; container: string; rconPort: number | null; rconPassword: string };
 

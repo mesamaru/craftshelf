@@ -407,7 +407,7 @@ export const memberServer = pgTable(
   (t) => [primaryKey({ columns: [t.teamId, t.userId, t.serverId] })],
 );
 
-// サーバー本体(jar)を入れ替えた記録。入れ替える前の jar は backup_jar の名前で 1 つだけ残し、そこへ戻せる。
+// サーバー本体(jar)を入れ替えた記録。入れ替える前の jar は old_jars に 5 つまで残し(03.53.00 までは backup_jar の 1 つだけ)、そこへ戻せる。
 // size は入れ替えたときの jar の大きさ(同じなら、入れ替えたビルドのまま。サーバーを再起動するまで version_history.json は古いため)
 export const serverSoftware = pgTable("server_software", {
   serverId: text("server_id").primaryKey().references(() => server.id, { onDelete: "cascade" }),
@@ -418,6 +418,10 @@ export const serverSoftware = pgTable("server_software", {
   backupJar: text("backup_jar").notNull().default(""),
   backupBuild: text("backup_build").notNull().default(""),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  // 03.54.00 から: サーバー本体の種類(src/lib/software.ts。空ならサーバーの種類と同じ)と、
+  // 入れ替える前の jar(新しい順に 5 つまで。[{ file, build, mc, at }] の JSON。いちばん新しいものは backup_jar にも書く)
+  software: text("software").notNull().default(""),
+  oldJars: text("old_jars").notNull().default("[]"),
 });
 
 // サーバーのアドオンの変更の履歴(v02 の「履歴と巻き戻し」)。removed は外した・入れ替えたファイルの記録(JSON)、

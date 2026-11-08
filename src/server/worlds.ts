@@ -12,10 +12,12 @@ import { HttpError, requireTeam } from "./guard";
 import type { PteroBackups, PteroClient } from "./ptero";
 import { localParts } from "./schedule";
 import { type Deps, remote, serverOf } from "./servers";
-import { tarGz } from "./tar";
+import { tarGz, untarGz } from "./tar";
+import { type Ping, gamePort, ping } from "./mcping";
 import { fileStore, fromStorage } from "./uploads";
 
-export const WORLD_LIMITS = { keepMax: 30, fileBytes: 100 * 1024 * 1024, files: 200_000, depth: 32 };
+export const WORLD_LIMITS = { keepMax: 30, fileBytes: 100 * 1024 * 1024, files: 200_000, depth: 32, stopWaitMs: 120_000 };
+const ASIDE = ".craftshelf-before-restore-"; // 戻す前のワールドを退避するときの名前の後ろ
 export const WORLD_DIR = "_craftshelf_worlds"; // 保存先の中の場所(v02 と同じ)
 export const WORLD_NAME = /^[A-Za-z0-9_.-]{1,60}-\d{8}-\d{6}\.tar\.gz$/;
 const MODES = ["off", "daily", "weekly"] as const;
@@ -249,6 +251,94 @@ export function worldService(deps: Deps) {
       const p = join(panelDir(row.id), name);
       if (!existsSync(p)) throw new HttpError(404, "バックアップが見つかりません");
       return { stream: createReadStream(p), size: statSync(p).size };
+    },
+
+    /**
+     * バックアップから戻す(管理者以上・危ない操作なので画面では 2 回確かめる)。Pterodactyl はパネルの復元(truncate なら今のファイルを消してから)。
+     * フォルダのサーバー・エージェントは、サーバーが止まっていることを確かめ(stop なら止めて待つ)、今のワールドのフォルダを名前を変えて残してから展開する。
+     * 途中で失敗したら、展開したものを消して、残したフォルダを元の名前に戻す
+     */
+    async restore(headers: Headers, id: string, name: string, input: { stop?: boolean; truncate?: boolean } = {}) {
+      const who = await requireTeam(auth, headers, { server: ["update"] });
+      const { row, client, remoteId } = await serverOf(deps, who, id);
+      if (running.has(row.id)) throw new HttpError(409, "このサーバーのワールドは、いまバックアップか復元をしています");
+      if (row.kind === "ptero") {
+        await remote(() => backupsOf(client).restore(remoteId, name, !!input.truncate));
+        await record({ teamId: who.teamId, userId: who.user.id, kind: "backup", action: "ワールドをバックアップから戻す", target: row.name,
+          detail: `${name}(Pterodactyl のバックアップ${input.truncate ? "。今のファイルを消してから" : ""})` });
+        return { aside: [] as string[], files: 0 };
+      }
+      needFiles();
+      checkName(name);
+      const s = await settingsOf(row.id);
+      if (!s.targetId && !existsSync(join(panelDir(row.id), name))) throw new HttpError(404, "バックアップが見つかりません");
+      running.add(row.id);
+      const aside: [string, string][] = []; // [元の名前, 残した名前]
+      const made = new Set<string>();
+      try {
+        // 動いているかわからないとき(RCON・Docker が無い)は、Minecraft の問い合わせに答えるかで決める
+        const stateOf = async () => {
+          const st = (await remote(() => client.resources(remoteId))).state;
+          if (st !== "unknown") return st;
+          const p = row.kind === "agent" ? (client as unknown as { ping: () => Promise<Ping> }).ping() : ping("127.0.0.1", gamePort(await client.readFile(remoteId, "server.properties").catch(() => null)));
+          return (await p.then(() => true, () => false)) ? "running" : "unknown";
+        };
+        let state = await stateOf();
+        if (state !== "offline" && state !== "unknown") {
+          if (!input.stop) throw new HttpError(409, "サーバーが動いています。止めてから戻してください(「動いていたら止める」を選ぶと、止めてから戻します)");
+          await remote(() => client.power(remoteId, "stop"));
+          for (const until = Date.now() + WORLD_LIMITS.stopWaitMs; state !== "offline" && state !== "unknown" && Date.now() < until;) {
+            await sleep(3000);
+            state = await stateOf();
+          }
+          if (state !== "offline" && state !== "unknown") throw new HttpError(409, "サーバーが止まりませんでした。止めてからやり直してください");
+        }
+        const stream = s.targetId ? await fromStorage(async () => (await storeOf(who.teamId, s.targetId)).read(keyOf(row.id, name))) : createReadStream(join(panelDir(row.id), name));
+        const present = new Set((await remote(() => client.listFiles(remoteId, "/"))).map((f) => f.name));
+        const stamp = stampOf();
+        let allowed: string[] = [];
+        let files = 0;
+        try {
+          for await (const f of untarGz(stream, WORLD_LIMITS.fileBytes)) {
+            const parts = f.name.split("/");
+            const top = parts[0];
+            // 入れてよいのは、1 つのワールド(とその _nether・_the_end)のフォルダの中だけ
+            if (!allowed.length) {
+              const base = top.replace(/_(nether|the_end)$/, "");
+              allowed = [base, `${base}_nether`, `${base}_the_end`];
+            }
+            if (!/^[A-Za-z0-9_-][A-Za-z0-9_.-]{0,59}$/.test(top) || !allowed.includes(top) || parts.length < 2 || parts.some((p) => !p || p === "." || p === ".." || p.includes("\\"))) {
+              throw new HttpError(400, `ワールドの外のファイルが入っています(${f.name.slice(0, 100)})`);
+            }
+            if (!made.has(top)) {
+              if (present.has(top)) {
+                let to = `${top}${ASIDE}${stamp}`;
+                for (let n = 2; present.has(to); n++) to = `${top}${ASIDE}${stamp}-${n}`;
+                await remote(() => client.rename(remoteId, "/", top, to));
+                aside.push([top, to]);
+              }
+              made.add(top);
+            }
+            if (++files > WORLD_LIMITS.files) throw new HttpError(400, `ワールドのファイルが多すぎます(${WORLD_LIMITS.files} 個まで)`);
+            await remote(() => client.upload(remoteId, parts.slice(0, -1).join("/"), parts[parts.length - 1], f.data));
+          }
+        } catch (e) {
+          if (e instanceof HttpError) throw e;
+          throw new HttpError(400, e instanceof Error ? e.message : String(e));
+        }
+        if (!files) throw new HttpError(400, "バックアップにファイルがありません");
+        await record({ teamId: who.teamId, userId: who.user.id, kind: "backup", action: "ワールドをバックアップから戻す", target: row.name,
+          detail: `${name}(${files} ファイル${aside.length ? `。前のワールドは ${aside.map((a) => a[1]).join("・")} に残しました` : ""})` });
+        return { aside: aside.map((a) => a[1]), files };
+      } catch (e) {
+        // 展開したものを消して、残したフォルダを元に戻す
+        if (made.size) await client.deleteFiles(remoteId, "/", [...made]).catch(() => {});
+        for (const [from, to] of aside) await client.rename(remoteId, "/", to, from).catch(() => {});
+        await record({ teamId: who.teamId, userId: who.user.id, kind: "backup", also: ["errors"], action: "ワールドを戻せませんでした", target: row.name, detail: e instanceof Error ? e.message : String(e) });
+        throw e;
+      } finally {
+        running.delete(row.id);
+      }
     },
 
     async remove(headers: Headers, id: string, name: string) {

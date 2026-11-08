@@ -110,6 +110,16 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
         ip: String(a.ip ?? ""), alias: String(a.ip_alias ?? ""), port: Number(a.port ?? 0), notes: String(a.notes ?? ""), isDefault: !!a.is_default,
       })).filter((a: Allocation) => Number.isInteger(a.port) && a.port > 0);
     },
+    // egg の名前と起動の変数(MINECRAFT_VERSION・SERVER_JARFILE など)。サーバーの種類を推し量るのに使う
+    async details(ident: string): Promise<{ egg: string; vars: Record<string, string> }> {
+      const a = (await (await req("GET", srv(ident) + "?include=egg,variables")).json())?.attributes ?? {};
+      const vars: Record<string, string> = {};
+      for (const v of a.relationships?.variables?.data ?? []) {
+        const x = v?.attributes ?? {};
+        if (typeof x.env_variable === "string") vars[x.env_variable] = String(x.server_value ?? x.default_value ?? "").slice(0, 200);
+      }
+      return { egg: String(a.relationships?.egg?.attributes?.name ?? "").slice(0, 100), vars };
+    },
     // テキストのファイルを読む(無ければ null)
     async readFile(ident: string, file: string): Promise<string | null> {
       const res = await req("GET", srv(ident) + `/files/contents?file=${encodeURIComponent(file)}`, undefined, [200, 404]);
@@ -189,6 +199,11 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
         if (!/^https?:\/\//.test(url)) throw new PteroError("Pterodactyl からダウンロード先を受け取れませんでした");
         return url;
       },
+      // バックアップから戻す(パネルがサーバーを止めて展開する)。truncate なら、今のファイルを消してから戻す
+      async restore(ident: string, uuid: string, truncate: boolean) {
+        if (!UUID.test(uuid)) throw new PteroError("バックアップの ID が正しくありません");
+        await req("POST", srv(ident) + `/backups/${uuid}/restore`, { truncate });
+      },
       async remove(ident: string, uuid: string) {
         if (!UUID.test(uuid)) throw new PteroError("バックアップの ID が正しくありません");
         await req("DELETE", srv(ident) + `/backups/${uuid}`);
@@ -198,5 +213,5 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
 }
 
 // ファイル・コマンドなど、フォルダのサーバー・エージェントも同じ形で持つ操作(バックアップは Pterodactyl だけ)
-export type PteroClient = Omit<ReturnType<typeof pteroClient>, "backups">;
+export type PteroClient = Omit<ReturnType<typeof pteroClient>, "backups" | "details">;
 export type PteroBackups = ReturnType<typeof pteroClient>["backups"];

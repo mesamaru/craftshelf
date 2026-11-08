@@ -1,12 +1,13 @@
 // エージェントとのやりとり(ロングポーリング)。サービス側は頼みごとを列に入れ、エージェントが取りに来て、結果を返す。
 // 家の中のエージェントからの外向きの通信だけで動く(家のポートは開けない)。列はこのプロセスの中に持つ
+import type { Ping } from "./mcping";
 import { PteroError, type Allocation, type PowerSignal, type RemoteFile, type RemoteServer, type Resources } from "./ptero";
 
 export type AgentRequest = { id: string; method: string; args: Record<string, unknown> };
 type Waiting = { req: AgentRequest; resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> };
 
 // エージェントにさせてよいこと(ここに無いものは、エージェントも断る)
-export const AGENT_METHODS = ["resources", "command", "power", "listFiles", "pull", "upload", "readFile", "writeFile", "readBytes", "deleteFiles", "rename"] as const;
+export const AGENT_METHODS = ["resources", "command", "power", "listFiles", "pull", "upload", "readFile", "writeFile", "readBytes", "deleteFiles", "rename", "ping"] as const;
 export const AGENT_LIMITS = { pendingPerAgent: 100, pollWaitMs: 25_000, callTimeoutMs: 120_000, onlineMs: 60_000 };
 
 let seq = 0;
@@ -96,5 +97,7 @@ export function agentClient(hub: AgentHub, agentId: string, key: string) {
     readBytes: async (_ident: string, file: string, maxBytes: number) => new Uint8Array(Buffer.from(await call<string>("readBytes", { file, maxBytes }, 300_000), "base64")),
     deleteFiles: async (_ident: string, root: string, files: string[]) => { await call("deleteFiles", { root, files }); },
     rename: async (_ident: string, root: string, from: string, to: string) => { await call("rename", { root, from, to }); },
+    // エージェントが、自分のサーバー(server.properties のポート)に問い合わせる
+    ping: () => call<Ping>("ping", {}, 10_000),
   };
 }

@@ -8,6 +8,7 @@ import { isItemSource } from "~/lib/sources";
 import { isDisabled, modTools } from "./library";
 import { type EventKind, eventService } from "./events";
 import { type Deps, serverOf, needServerAccess, serverScope } from "./servers";
+import { softwareService } from "./software";
 
 // 無料で使える範囲
 export const SET_LIMITS = { setsPerTeam: 50, itemsPerSet: 200 };
@@ -368,19 +369,23 @@ export function setService(deps: Deps) {
 
     /**
      * 新しい版の見回り(1 分ごとに呼ぶ。画面からは呼ばない): 前に確かめてから 1 日たったサーバーを、1 回に UPDATE_CHECK_BATCH 台まで確かめ、
-     * 前に知らせていない新しい版があれば記録する(知らせる種類 updates)。自動更新を入れたサーバーは、そちらで入るので見ない
+     * 前に知らせていない新しい版があれば記録する(知らせる種類 updates)。Mod・プラグインは、自動更新を入れたサーバーならそちらで入るので見ない。
+     * サーバー本体の新しいビルド(v02 の「サーバー本体の新しいビルドのお知らせ」)も同じ行に入れる
      */
     async runUpdateChecks(now: Date) {
       const stale = or(isNull(server.updateCheckedAt), lt(server.updateCheckedAt, new Date(now.getTime() - UPDATE_CHECK_EVERY)));
-      const due = await db.select({ id: server.id }).from(server).where(and(eq(server.autoUpdate, false), stale)).limit(UPDATE_CHECK_BATCH);
+      const due = await db.select({ id: server.id }).from(server).where(stale).limit(UPDATE_CHECK_BATCH);
+      const software = softwareService(deps);
       const found: string[] = [];
       for (const { id } of due) {
         // 動かす前に時刻を書き換え、ほかのプロセスと同じサーバーを 2 回確かめない
         const [s] = await db.update(server).set({ updateCheckedAt: now }).where(and(eq(server.id, id), stale))
-          .returning({ id: server.id, teamId: server.teamId, name: server.name, notice: server.updateNotice });
+          .returning({ id: server.id, teamId: server.teamId, name: server.name, notice: server.updateNotice, auto: server.autoUpdate });
         if (!s) continue;
         try {
-          const lines = (await updatesOf(s.id, await needProfile(s.id), s.teamId, true)).map((u) => `・${u.title}: ${u.current} → ${u.latest}`);
+          const body = await software.notice(s.teamId, s.id).catch(() => null); // 種類のわからないサーバー・配布元につながらないときは飛ばす
+          const mods = s.auto ? [] : await updatesOf(s.id, await needProfile(s.id), s.teamId, true).catch((e) => { if (body) return []; throw e; });
+          const lines = [...(body ? [body] : []), ...mods.map((u) => `・${u.title}: ${u.current} → ${u.latest}`)];
           const before = new Set(s.notice.split("\n"));
           const fresh = lines.filter((l) => !before.has(l));
           await db.update(server).set({ updateNotice: lines.join("\n") }).where(eq(server.id, s.id));

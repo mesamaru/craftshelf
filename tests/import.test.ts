@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 import { signupOpen } from "~/server/auth";
 import { addonSet, addonSetItem, libraryFile, libraryItem, localServer, pteroConnection, server, serverProfile, storageTarget } from "~/server/db/schema";
 import * as schema from "~/server/db/schema";
-import { maybeImportV02, maybeImportV02AutoUpdate, maybeImportV02Backups, maybeImportV02Library, type ImportReport } from "~/server/import-v02";
+import { maybeImportV02, maybeImportV02AutoUpdate, maybeImportV02Backups, maybeImportV02Library, maybeImportV02Software, type ImportReport } from "~/server/import-v02";
 import { totpCode } from "~/server/legacy";
 import { open } from "~/server/secrets";
 import { TEST_SECRET, setup } from "./helpers";
@@ -235,6 +235,17 @@ describe("v02 のバックアップの設定の取り込み", () => {
     expect(rows.find((x) => x.name === "家のサーバー")?.w).toMatchObject({ mode: "weekly", time: "03:30", dow: 1, keep: 3, targetId: target.id });
     expect(rows.find((x) => x.name === "サバイバル")?.w).toMatchObject({ mode: "daily", time: "05:00", targetId: null });
     expect(await maybeImportV02Backups(t.db, { v02Dir, v03Dir, dataDir: v03Dir })).toBeNull();
+    expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
+  });
+});
+
+describe("v02 のサーバー本体の種類の取り込み", () => {
+  it("v03 のサーバーの種類だけでは分からない種類(Waterfall など)を引き継ぐ。一度だけ", async () => {
+    const r = (await maybeImportV02Software(t.db, { v02Dir, v03Dir, dataDir: v03Dir }))!;
+    expect(r.servers).toEqual(["プロキシ"]);
+    const rows = await t.db.select({ name: server.name, sw: schema.serverSoftware.software }).from(schema.serverSoftware).innerJoin(server, eq(schema.serverSoftware.serverId, server.id));
+    expect(rows).toEqual([{ name: "プロキシ", sw: "waterfall" }]);
+    expect(await maybeImportV02Software(t.db, { v02Dir, v03Dir, dataDir: v03Dir })).toBeNull();
     expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
   });
 });

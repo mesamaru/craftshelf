@@ -13,6 +13,7 @@ import { localParts } from "~/server/schedule";
 import { serverService } from "~/server/servers";
 import { uploadService } from "~/server/uploads";
 import { worldService } from "~/server/worlds";
+import { tarGz } from "~/server/tar";
 import { setup } from "./helpers";
 
 vi.setConfig({ testTimeout: 60_000 });
@@ -27,6 +28,7 @@ const LONG = `myworld/datapacks/${"a".repeat(60)}/${"b".repeat(50)}.json`;
 
 // 偽の Pterodactyl: バックアップの一覧・作る・ダウンロード先・消す
 let seq = 0;
+const restored: string[] = [];
 const remoteBackups: Record<string, unknown>[] = [
   { uuid: "00000000-0000-4000-8000-000000000001", name: "手で作ったもの", created_at: "2026-01-01T00:00:00Z", completed_at: "2026-01-01T00:01:00Z", is_successful: true, is_locked: false, bytes: 10 },
   { uuid: "00000000-0000-4000-8000-000000000002", name: "CraftShelf 鍵つき", created_at: "2026-01-02T00:00:00Z", completed_at: "2026-01-02T00:01:00Z", is_successful: true, is_locked: true, bytes: 10 },
@@ -35,7 +37,7 @@ const fake: FetchLike = async (url, init) => {
   const u = new URL(url);
   if (u.origin !== "https://panel.example.com") throw new Error("想定外の接続先");
   if (u.pathname === "/api/client") return Response.json({ data: [{ attributes: { identifier: "abcd1234", name: "サバイバル" } }], meta: { pagination: { total_pages: 1 } } });
-  const m = u.pathname.match(/^\/api\/client\/servers\/abcd1234\/backups(?:\/([0-9a-f-]+)(\/download)?)?$/);
+  const m = u.pathname.match(/^\/api\/client\/servers\/abcd1234\/backups(?:\/([0-9a-f-]+)(\/download|\/restore)?)?$/);
   if (!m) return new Response("{}", { status: 404 });
   if (!m[1] && init?.method === "POST") {
     seq++;
@@ -44,6 +46,7 @@ const fake: FetchLike = async (url, init) => {
     return Response.json({ attributes: {} });
   }
   if (!m[1]) return Response.json({ data: remoteBackups.map((attributes) => ({ attributes })), meta: { pagination: { total_pages: 1 } } });
+  if (m[2] === "/restore") { restored.push(`${m[1]}:${JSON.parse(String(init?.body)).truncate}`); return new Response(null, { status: 204 }); }
   if (m[2]) return Response.json({ attributes: { url: `https://wings.example.com/download/backup?token=${m[1]}` } });
   if (init?.method === "DELETE") {
     remoteBackups.splice(remoteBackups.findIndex((b) => b.uuid === m[1]), 1);
@@ -201,5 +204,69 @@ describe("Pterodactyl のサーバー", () => {
     expect(await code(worlds.open(editor, pteroId, "../x"))).toBe(502);
     expect(await code(worlds.get(viewer, pteroId))).toBe(403);
     expect(await code(worlds.get(outsider, pteroId))).toBe(404);
+  });
+});
+
+describe("バックアップから戻す", () => {
+  it("フォルダのサーバー: 管理者以上。今のワールドを名前を変えて残してから、バックアップを展開する", async () => {
+    const { name } = await worlds.create(owner, id, true);
+    writeFileSync(join(root, "myworld/level.dat"), "壊れた");
+    writeFileSync(join(root, "myworld/region/r.9.9.mca"), "新しい");
+    expect(await code(worlds.restore(editor, id, name))).toBe(403);
+    expect(await code(worlds.restore(outsider, id, name))).toBe(404);
+    expect(await code(worlds.restore(owner, id, "nothing-20260101-000000.tar.gz"))).toBe(502);
+    const r = await worlds.restore(owner, id, name);
+    expect(r.files).toBeGreaterThan(2);
+    expect(r.aside).toEqual([expect.stringMatching(/^myworld.craftshelf-before-restore-/), expect.stringMatching(/^myworld_nether.craftshelf-before-restore-/)]);
+    expect(readFileSync(join(root, "myworld/level.dat"), "utf8")).toBe("level");
+    expect(readFileSync(join(root, LONG), "utf8")).toBe("{}");
+    expect(existsSync(join(root, "myworld/region/r.9.9.mca"))).toBe(false);
+    expect(readFileSync(join(root, r.aside[0], "level.dat"), "utf8")).toBe("壊れた");
+    expect(readFileSync(join(root, "world/level.dat"), "utf8")).toBe("ほかのワールド"); // ほかのワールドは触らない
+    expect((await t.db.select().from(auditLog)).some((a) => a.action === "ワールドをバックアップから戻す" && a.target === "家のサーバー")).toBe(true);
+  });
+
+  it("ワールドの外のファイルが入っていたら、展開したものを消して元に戻す", async () => {
+    const before = readFileSync(join(root, "myworld/level.dat"), "utf8");
+    const bad = "evil-20260101-000000.tar.gz";
+    mkdirSync(join(store, "_craftshelf_worlds", id), { recursive: true });
+    const tar = tarGz(join(store, "_craftshelf_worlds", id, bad));
+    await tar.add("myworld/level.dat", Buffer.from("上書き"));
+    await tar.add("plugins/evil.jar", Buffer.from("x"));
+    await tar.end();
+    expect(await code(worlds.restore(owner, id, bad))).toBe(400);
+    expect(readFileSync(join(root, "myworld/level.dat"), "utf8")).toBe(before);
+    expect(existsSync(join(root, "plugins"))).toBe(false);
+    expect(readdirSync(root).filter((n) => n.startsWith("myworld.craftshelf-before-restore-"))).toHaveLength(1); // 前に戻したときのものだけ
+    expect((await t.db.select().from(auditLog)).find((a) => a.action === "ワールドを戻せませんでした")?.kind).toBe("backup");
+  });
+
+  it("Pterodactyl: パネルの復元を使う(今のファイルを消すかを選べる)", async () => {
+    const [b] = (await worlds.get(owner, pteroId)).backups;
+    expect(await code(worlds.restore(editor, pteroId, b.name))).toBe(403);
+    await worlds.restore(owner, pteroId, b.name, { truncate: true });
+    await worlds.restore(owner, pteroId, b.name);
+    expect(restored).toEqual([`${b.name}:true`, `${b.name}:false`]);
+  });
+});
+
+describe("動いているサーバーには戻さない", () => {
+  it("RCON・Docker が無くても、Minecraft の問い合わせに答えれば動いているとみなし、戻さない", async () => {
+    const { createServer } = await import("node:net");
+    const mc = createServer((s) => s.once("data", () => {
+      const body = Buffer.from(JSON.stringify({ players: { online: 0, max: 1 } }));
+      s.end(Buffer.concat([Buffer.from([body.length + 2, 0, body.length]), body]));
+    }));
+    await new Promise<void>((r) => mc.listen(0, "127.0.0.1", () => r()));
+    writeFileSync(join(root, "server.properties"), `level-name=myworld\nserver-port=${(mc.address() as { port: number }).port}\n`);
+    try {
+      const [b] = (await worlds.get(owner, id)).backups;
+      const before = readFileSync(join(root, "myworld/level.dat"), "utf8");
+      expect(await code(worlds.restore(owner, id, b.name))).toBe(409);
+      expect(readFileSync(join(root, "myworld/level.dat"), "utf8")).toBe(before);
+    } finally {
+      mc.close();
+      writeFileSync(join(root, "server.properties"), "level-name=myworld\n");
+    }
   });
 });

@@ -72,6 +72,13 @@ if (env.mode === "self") {
   } catch (e) {
     console.error("[v02] バックアップの設定の取り込みに失敗しました(v02 のデータはそのままです):", e);
   }
+  const { maybeImportV02Software } = await import("./import-v02");
+  try {
+    const r = await maybeImportV02Software(db, env);
+    if (r?.servers.length) console.log(`[v02] サーバー本体の種類を引き継ぎました: ${r.servers.join("、")}`);
+  } catch (e) {
+    console.error("[v02] サーバー本体の種類の取り込みに失敗しました(v02 のデータはそのままです):", e);
+  }
 }
 const { resendMailer } = await import("./mail");
 export const mailer = env.mail ? resendMailer(safeFetch, env.mail.resendKey, env.mail.from) : null;

@@ -55,7 +55,7 @@ function Servers() {
   );
 }
 
-type Status = { state: string; cpu: number | null; memory: number | null };
+type Status = { state: string; cpu: number | null; memory: number | null; ping: { online: number; max: number; latency: number; sample: string[] } | null };
 const STATE_LABELS: Record<string, string> = { running: "動いています", starting: "起動中", stopping: "停止中", offline: "止まっています" };
 
 function ServerRow({ id, name, source, control, removable, onDone }:
@@ -103,9 +103,11 @@ function ServerRow({ id, name, source, control, removable, onDone }:
         <Link to="/servers/$id" params={{ id }} className="name" translate="no">{name}</Link>
         <span className="muted">
           {st ? STATE_LABELS[state] ?? state : "確認中…"}
+          {st?.ping && ` · ${st.ping.online} / ${st.ping.max} 人 · ${st.ping.latency} ms`}
           {st?.memory != null && ` · メモリ ${(st.memory / 1024 ** 3).toFixed(1)} GB`}
           {source && <> · <span translate="no">{source}</span></>}
         </span>
+        {st?.ping && st.ping.sample.length > 0 && <span className="muted small" translate="no">{st.ping.sample.join("、")}{st.ping.online > st.ping.sample.length ? " …" : ""}</span>}
         {error && <span className="error" role="alert">{error}</span>}
       </span>
       {control && (

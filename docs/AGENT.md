@@ -4,10 +4,10 @@
 
 ## できること・できないこと
 
-- CraftShelf から頼めるのは、決まった操作だけです: ファイルの一覧・設定ファイルの読み書き・Mod・プラグインの取り込みと削除・起動と停止・コンソールのコマンド(RCON)・状態
+- CraftShelf から頼めるのは、決まった操作だけです: ファイルの一覧・設定ファイルの読み書き・Mod・プラグインの取り込みと削除・起動と停止・コンソールのコマンド(RCON)・状態・人数と応答の速さ(そのサーバーの server.properties のポートに、このサーバー機の上で問い合わせる。1.1.0 から)
 - 扱うのは、**設定ファイルに書いたサーバーのフォルダの中だけ**です(フォルダの外・シンボリックリンクで外を指すものは扱いません)
 - 起動・停止は、**設定ファイルに書いたコマンド・Docker のコンテナだけ**を使います。CraftShelf から任意のコマンドを実行させることはできません
-- Mod・プラグイン・サーバー本体を取り込むのは、配布元の公式の取得先(Modrinth・SpigotMC・CurseForge・PaperMC・Purpur・Fabric)からだけです
+- Mod・プラグイン・サーバー本体を取り込むのは、配布元の公式の取得先(Modrinth・SpigotMC・CurseForge・PaperMC・Purpur・Fabric・Leaf・Pufferfish・BungeeCord・Mojang・Mohist・SpongePowered)からだけです
 
 ## 使い方
 

@@ -11,10 +11,12 @@ import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { AGENT_METHODS } from "../server/agent-hub";
 import { checkRoot, detectFromJar, localClient } from "../server/local";
+import { BUILD_HOSTS } from "../lib/software";
+import { gamePort, ping } from "../server/mcping";
 
-export const AGENT_VERSION = "1.0.0";
+export const AGENT_VERSION = "1.1.0";
 // 取り込んでよい取得先(Mod・プラグインの配布元と、サーバー本体の公式の取得先)
-export const AGENT_PULL_HOSTS = new Set(["cdn.modrinth.com", "api.spiget.org", "cdn.spiget.org", "edge.forgecdn.net", "mediafilez.forgecdn.net", "fill-data.papermc.io", "api.purpurmc.org", "meta.fabricmc.net"]);
+export const AGENT_PULL_HOSTS = new Set(["cdn.modrinth.com", "api.spiget.org", "cdn.spiget.org", "edge.forgecdn.net", "mediafilez.forgecdn.net", ...BUILD_HOSTS]);
 
 type ServerConf = { key: string; name?: string; root: string; control?: string; startCmd?: string; stopCmd?: string; container?: string; rconPort?: number; rconPassword?: string };
 export type AgentConf = { url: string; token: string; servers: ServerConf[] };
@@ -84,6 +86,8 @@ export async function handle(clients: ReturnType<typeof makeClients>, method: st
     case "readBytes": return Buffer.from(await c.readBytes("", str(args.file), Math.min(Number(args.maxBytes) || 0, 100 * 1024 * 1024))).toString("base64");
     case "deleteFiles": return c.deleteFiles("", str(args.root), (Array.isArray(args.files) ? args.files : []).map(String));
     case "rename": return c.rename("", str(args.root), str(args.from), str(args.to));
+    // つなぐ先は、このサーバー機の上の、そのサーバーのポートだけ
+    case "ping": return ping("127.0.0.1", gamePort(await c.readFile("", "server.properties")));
   }
   throw new Error("この操作はできません");
 }

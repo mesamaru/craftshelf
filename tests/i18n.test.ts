@@ -32,5 +32,9 @@ describe("英語表示", () => {
     expect(translate("水曜日")).toBe("Wed");
     expect(translate("保存先「NAS」のバックアップ(新しい 5 個)")).toBe("Backups in storage “NAS” (newest 5)");
     expect(translate("作れませんでした: 時間帯が正しくありません")).toBe("Failed: Invalid time zone");
+    expect(translate(" · 3 / 20 人 · 12 ms")).toBe(" · 3 / 20 players · 12 ms");
+    expect(translate("232(試験版)(今)")).toBe("232 (experimental, current)");
+    expect(translate("選んだ 2 台をまとめて最新にする(最新のものは飛ばす)")).toBe("Update 2 selected servers to the newest builds (skip up-to-date ones)");
+    expect(translate("戻しました(12 ファイル)。前のワールドは world.craftshelf-before-restore-1 に残しています")).toBe("Restored (12 files). The previous world is kept as world.craftshelf-before-restore-1");
   });
 });

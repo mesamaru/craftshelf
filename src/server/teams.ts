@@ -1,8 +1,8 @@
-// チームのオーナーを譲る・チームを消す・アカウントを消す。チームとアカウントを消すのはサービス版だけ
+// チームのオーナーを譲る・チームを消す・アカウントを消す・メンバーの二段階認証を外す。チームとアカウントを消すのはサービス版だけ
 // (自分用の版はチームが 1 つで、そこに全員がいるため)
 import { verifyPassword } from "better-auth/crypto";
 import { and, asc, count, eq, inArray } from "drizzle-orm";
-import { account, member, organization, session, user as userTable } from "./db/schema";
+import { account, legacyTotp, member, organization, passkey, session, twoFactor, user as userTable } from "./db/schema";
 import { eventService } from "./events";
 import { HttpError, requireTeam, requireUser } from "./guard";
 import type { Deps } from "./servers";
@@ -45,6 +45,40 @@ export function teamService(deps: Deps) {
       const [next] = await db.select({ id: member.organizationId }).from(member).where(eq(member.userId, user.id)).orderBy(asc(member.createdAt)).limit(1);
       if (next) await db.update(session).set({ activeOrganizationId: next.id }).where(and(eq(session.userId, user.id)));
       return { next: next?.id ?? null };
+    },
+
+    /**
+     * メンバーの二段階認証を外す・パスキーをすべて消す(本人が端末をなくしたとき)。自分用の版の管理者以上だけ。
+     * サービス版では出さない: アカウントはほかのチームと共有なので、1 つのチームのオーナーが、ほかのチームでも使う
+     * ログインの守りを外せてしまう(本人の予備のコード・パスワードの再設定に任せる)。
+     * オーナーは対象にしない(役割の変更と同じ決まり)。なくした端末に残ったログインも切る
+     */
+    async resetSignIn(headers: Headers, userId: string, what: "twoFactor" | "passkeys") {
+      const { teamId, user, apiKey } = await requireTeam(auth, headers, { member: ["update"] });
+      if (apiKey) throw new HttpError(403, "この操作は、ログインしてから行ってください");
+      if (!deps.local) throw new HttpError(400, "サービス版では、本人が予備のコードかパスワードの再設定で設定し直してください");
+      if (userId === user.id) throw new HttpError(400, "自分の設定は「アカウント」で変えてください");
+      const role = await roleOf(teamId, userId);
+      if (role === null) throw new HttpError(404, "メンバーが見つかりません");
+      if (isOwner(role)) throw new HttpError(403, "オーナーの設定は変えられません");
+      const [to] = await db.select({ name: userTable.name }).from(userTable).where(eq(userTable.id, userId));
+      const removed = await db.transaction(async (tx) => {
+        let n = 0;
+        if (what === "twoFactor") {
+          n = (await tx.delete(twoFactor).where(eq(twoFactor.userId, userId)).returning({ id: twoFactor.id })).length;
+          n += (await tx.delete(legacyTotp).where(eq(legacyTotp.userId, userId)).returning({ id: legacyTotp.userId })).length;
+          await tx.update(userTable).set({ twoFactorEnabled: false }).where(eq(userTable.id, userId));
+        } else {
+          n = (await tx.delete(passkey).where(eq(passkey.userId, userId)).returning({ id: passkey.id })).length;
+        }
+        if (n) await tx.delete(session).where(eq(session.userId, userId));
+        return n;
+      });
+      await record({
+        teamId, userId: user.id, kind: "admin", action: what === "twoFactor" ? "二段階認証を外す" : "パスキーをすべて消す",
+        target: to?.name ?? "", detail: what === "passkeys" ? `${removed} 個` : removed ? "" : "設定なし",
+      });
+      return { removed };
     },
 
     /**

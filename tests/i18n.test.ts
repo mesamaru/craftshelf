@@ -20,6 +20,10 @@ describe("英語表示", () => {
     expect(translate("自動更新(6 時間ごとに、新しい版があれば入れる)")).toBe("Auto update (every 6 hours, install new versions if any)");
     expect(translate("プラグインを外す・入れ替えるときは、設定フォルダ(plugins/〈名前〉/)も plugins/.craftshelf-config に退避し、元に戻すと設定も戻します(ファイルが 100 個・20 MB を超えるフォルダは退避しません)。")).toMatch(/^When a plugin is removed/);
     expect(translate("選んだ 2 台へ反映")).toBe("Promote to 2 selected");
+    expect(translate("外したファイルは消さずに名前を変えて残すので、元に戻せます(1 台につき新しい 30 件まで)。変更はサーバーの再起動で反映されます。")).toMatch(/^Removed files are kept/);
+    expect(translate("入っているもの(plugins/)")).toBe("Installed (plugins/)");
+    expect(translate("新しいパスワード(10 文字以上)")).toBe("New password (10+ characters)");
+    expect(translate("匿名の利用状況を送る(1 日 1 回)")).toBe("Send anonymous usage (once a day)");
     expect(translate("この版は、このサーバーの種類・バージョンに合いません")).toBe("This version does not fit this server's type and version");
   });
 });

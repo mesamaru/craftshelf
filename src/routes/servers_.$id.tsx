@@ -151,7 +151,7 @@ function Installed({ id, items, error, edit, local, auto, dir, onChange }:
 
   return (
     <>
-      <div className="group-title">入っているもの({dir}/)</div>
+      <div className="group-title">{`入っているもの(${dir}/)`}</div>
       <section className="group">
         {!items && !error && <div className="row muted">サーバーに問い合わせています…</div>}
         {items?.length === 0 && <div className="row muted">まだ何も入っていません。</div>}

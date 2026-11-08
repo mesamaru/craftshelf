@@ -24,6 +24,7 @@ export function translate(s: string): string {
   if (!JA.test(s)) return s;
   const t = s.trim();
   if (t in EN_WHOLE) return s.replace(t, EN_WHOLE[t]);
+  if (Object.hasOwn(EN, t)) return s.replace(t, EN[t]); // 文全体が辞書にあれば、数字の規則より先に当てる(「1 台」などが先に訳されて辞書と合わなくなるため)
   re ??= new RegExp(Object.keys(EN).sort((a, b) => b.length - a.length).map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "g");
   for (const [r, to] of EN_RULES) s = s.replace(r, to as never);
   s = s.replace(re, (m) => EN[m]);

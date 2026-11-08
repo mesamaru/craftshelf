@@ -40,8 +40,8 @@ function Settings() {
       </header>
 
       <div className="group-title">プロフィール</div>
+      <Profile name={user.name} username={user.username ?? ""} />
       <section className="group">
-        <div className="row"><span>表示名</span><span className="trail" translate="no">{user.name}</span></div>
         <div className="row"><span>メールアドレス</span><span className="trail" translate="no">{user.email.endsWith("@v02.craftshelf.invalid") ? "未設定(v02 から取り込み)" : user.email}</span></div>
       </section>
 
@@ -63,6 +63,7 @@ function Settings() {
           v02 の二段階認証(認証アプリのコード)でログインしています。予備のコードは引き継げなかったので、下の「二段階認証を設定する」で設定し直してください(設定し直すと、v02 のものは使わなくなります)。
         </p>
       )}
+      <ChangePassword />
       <TwoFactor enabled={user.twoFactorEnabled} />
       <Passkeys />
 
@@ -77,6 +78,64 @@ function Settings() {
       </section>
       <DeleteAccount />
     </main>
+  );
+}
+
+// 表示名・ユーザー名(ログインに使う)を変える。ユーザー名の決まりと重複は Better Auth の username プラグインが確かめる
+function Profile({ name, username }: { name: string; username: string }) {
+  const router = useRouter();
+  const [v, setV] = useState({ name, username });
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const save = async () => {
+    setError("");
+    setNote("");
+    const u = v.username.trim();
+    const { error } = await authClient.updateUser({
+      ...(v.name.trim() !== name ? { name: v.name.trim() } : {}),
+      ...(u !== username ? { username: u, displayUsername: u } : {}),
+    });
+    if (error) return setError(errorText(error));
+    setNote("保存しました");
+    await router.invalidate();
+  };
+  return (
+    <form className="group form" onSubmit={(e) => (e.preventDefault(), save())}>
+      <label className="row"><span>表示名</span><input className="trail field" translate="no" maxLength={60} value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} aria-label="表示名" /></label>
+      <label className="row"><span>ユーザー名</span><input className="trail field" maxLength={40} autoComplete="username" placeholder="未設定" value={v.username} onChange={(e) => setV({ ...v, username: e.target.value })} aria-label="ユーザー名" /></label>
+      <button className="row link" type="submit" disabled={!v.name.trim() || !v.username.trim() && !!username || (v.name.trim() === name && v.username.trim() === username)}>保存</button>
+      {note && <p className="row muted" role="status">{note}</p>}
+      {error && <p className="row error" role="alert">{error}</p>}
+    </form>
+  );
+}
+
+// ログインしたままパスワードを変える(いまのパスワードで確かめる)
+function ChangePassword() {
+  const [current, setCurrent] = useState("");
+  const [next, setNext] = useState("");
+  const [revoke, setRevoke] = useState(true);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const submit = async () => {
+    setError("");
+    setNote("");
+    const { error } = await authClient.changePassword({ currentPassword: current, newPassword: next, revokeOtherSessions: revoke });
+    if (error) return setError(errorText(error));
+    setCurrent("");
+    setNext("");
+    setNote("パスワードを変えました");
+  };
+  return (
+    <form className="group form" onSubmit={(e) => (e.preventDefault(), submit())}>
+      <div className="row"><span>パスワード</span></div>
+      <input className="row" type="password" autoComplete="current-password" placeholder="いまのパスワード" value={current} onChange={(e) => setCurrent(e.target.value)} />
+      <input className="row" type="password" autoComplete="new-password" placeholder="新しいパスワード(10 文字以上)" value={next} onChange={(e) => setNext(e.target.value)} />
+      <label className="row"><span>ほかの端末のログインを切る</span><input className="trail" type="checkbox" checked={revoke} onChange={(e) => setRevoke(e.target.checked)} /></label>
+      <button className="capsule" type="submit" disabled={!current || next.length < 10}>パスワードを変える</button>
+      {note && <p className="row muted" role="status">{note}</p>}
+      {error && <p className="row error" role="alert">{error}</p>}
+    </form>
   );
 }
 
@@ -151,6 +210,14 @@ function Passkeys() {
     if (error) return setError(errorText(error));
     refetch();
   };
+  const rename = async (id: string, now: string) => {
+    const name = prompt("パスキーの名前(どの端末のものか分かるように)", now)?.trim().slice(0, 60);
+    if (!name || name === now) return;
+    setError("");
+    const { error } = await authClient.passkey.updatePasskey({ id, name });
+    if (error) return setError(errorText(error));
+    refetch();
+  };
 
   return (
     <section className="group">
@@ -158,7 +225,8 @@ function Passkeys() {
       {list?.map((p) => (
         <div className="row" key={p.id}>
           <span translate="no">{p.name || "パスキー"}</span>
-          <button className="trail link danger" type="button" onClick={() => remove(p.id)}>削除</button>
+          <button className="trail link" type="button" onClick={() => rename(p.id, p.name || "パスキー")}>名前を変える</button>
+          <button className="link danger" type="button" onClick={() => remove(p.id)}>削除</button>
         </div>
       ))}
       <button className="row link" type="button" onClick={add}>パスキーを追加</button>

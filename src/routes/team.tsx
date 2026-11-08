@@ -7,7 +7,7 @@ import { useCan } from "~/lib/use-can";
 import { useServerFn } from "@tanstack/react-start";
 import { ASSIGNABLE_ROLES, type RoleName, roleLabel } from "~/lib/permissions";
 import { serverAssignments, setServerAssignment } from "~/lib/servers-api";
-import { deleteTeam, transferOwner } from "~/lib/teams-api";
+import { deleteTeam, resetSignIn, transferOwner } from "~/lib/teams-api";
 
 export const Route = createFileRoute("/team")({
   beforeLoad: ({ context }) => {
@@ -63,6 +63,9 @@ function Team() {
           )}
           {app.mode === "self" && <section className="group"><Link to="/shares" className="row link">共有リンク</Link></section>}
           {app.mode === "self" && can({ member: ["update"] }) && <CurseForgeKey />}
+          {app.mode === "self" && can({ member: ["update"] }) && (
+            <SignInHelp members={team.members.filter((m) => m.role !== "owner" && m.userId !== user.id).map((m) => ({ userId: m.userId, name: m.user.name }))} />
+          )}
           {me && me.role !== "owner" && <Leave teamId={team.id} />}
           {me?.role === "owner" && (
             <OwnerTools teamName={team.name} service={app.mode === "service"}
@@ -375,6 +378,47 @@ function OwnerTools({ teamName, service, members }: { teamName: string; service:
         </section>
       )}
       {error && <p className="error" role="alert">{error}</p>}
+    </>
+  );
+}
+
+// ログインできなくなったメンバー(自分用の版・管理者以上): 二段階認証を外す・パスキーをすべて消す。
+// サービス版では出さない(理由は src/server/teams.ts の resetSignIn)
+function SignInHelp({ members }: { members: { userId: string; name: string }[] }) {
+  const reset = useServerFn(resetSignIn);
+  const [to, setTo] = useState("");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  if (!members.length) return null;
+  const run = async (what: "twoFactor" | "passkeys", ask: string) => {
+    const name = members.find((m) => m.userId === to)?.name ?? "";
+    if (!confirm(`${name} さんの${ask}`)) return;
+    setError("");
+    setNote("");
+    try {
+      const r = await reset({ data: { userId: to, what } });
+      setNote(r.removed ? "外しました。その人はログインし直しになります" : "設定されていませんでした");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "うまくいきませんでした");
+    }
+  };
+  return (
+    <>
+      <div className="group-title">ログインできなくなったメンバー</div>
+      <section className="group">
+        <div className="row">
+          <span>メンバー</span>
+          <select className="trail" value={to} onChange={(e) => setTo(e.target.value)} aria-label="ログインできなくなったメンバー">
+            <option value="">選んでください…</option>
+            {members.map((m) => <option key={m.userId} value={m.userId} translate="no">{m.name}</option>)}
+          </select>
+        </div>
+        <button className="row link danger" type="button" disabled={!to} onClick={() => run("twoFactor", "二段階認証を外しますか?(パスワードだけでログインできるようになります)")}>二段階認証を外す</button>
+        <button className="row link danger" type="button" disabled={!to} onClick={() => run("passkeys", "パスキーをすべて消しますか?")}>パスキーをすべて消す</button>
+        {note && <p className="row muted" role="status">{note}</p>}
+        {error && <p className="row error" role="alert">{error}</p>}
+      </section>
+      <p className="foot">本人が端末をなくしたときに使います。外すと、その人のいまのログインもすべて切れます。操作は記録に残ります。オーナーの設定は変えられません。</p>
     </>
   );
 }

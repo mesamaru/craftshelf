@@ -69,6 +69,10 @@ export function createAuth(db: Db, opts: Options) {
       // v02 で二段階認証を使っていた人は、v02 の認証アプリのコード(ヘッダー x-v02-totp)も確かめる。
       // パスワードが合っているときだけ求める(ユーザー名からは、二段階認証の有無がわからないように)
       before: createAuthMiddleware(async (ctx) => {
+        // 表示名の長さ(Better Auth は決めていない)
+        if ((ctx.path === "/update-user" || ctx.path === "/sign-up/email") && String((ctx.body as { name?: unknown } | undefined)?.name ?? "").length > 60) {
+          throw new APIError("BAD_REQUEST", { message: "表示名は 60 文字までです", code: "NAME_TOO_LONG" });
+        }
         if (ctx.path !== "/sign-in/username" && ctx.path !== "/sign-in/email") return;
         const body = (ctx.body ?? {}) as { username?: string; email?: string; password?: string };
         const where = ctx.path === "/sign-in/username"

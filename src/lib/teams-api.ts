@@ -17,3 +17,7 @@ export const deleteTeam = createServerFn({ method: "POST" })
 export const deleteAccount = createServerFn({ method: "POST" })
   .validator(z.object({ password: z.string().max(200) }))
   .handler(async ({ data }) => (await svc()).deleteAccount(headers(), data.password));
+
+export const resetSignIn = createServerFn({ method: "POST" })
+  .validator(z.object({ userId: z.string().min(1).max(64), what: z.enum(["twoFactor", "passkeys"]) }))
+  .handler(async ({ data }) => (await svc()).resetSignIn(headers(), data.userId, data.what));

@@ -84,6 +84,8 @@ button.row { cursor: pointer; width: 100%; }
 .main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .member .main span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 select.trail { font: inherit; color: var(--text); background: transparent; border: 1px solid var(--line); border-radius: 10px; padding: 4px 8px; }
+/* 行の右側で入力する欄(iOS の設定のように、枠なしで右に寄せる) */
+input.field { flex: 1; min-width: 0; text-align: right; border: 0; background: transparent; font: inherit; color: var(--text); outline: none; }
 .dot { width: 10px; height: 10px; border-radius: 50%; flex: none; background: var(--muted); }
 .dot.running { background: #34c759; box-shadow: 0 0 0 3px rgba(52, 199, 89, 0.2); }
 .dot.starting, .dot.stopping { background: #ff9f0a; }

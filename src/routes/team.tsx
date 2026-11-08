@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { authClient } from "~/lib/auth-client";
 import { errorText } from "~/lib/errors";
+import { filesAccess, setEditorFiles } from "~/lib/files-api";
 import { curseforgeKey, setCurseforgeKey } from "~/lib/library-api";
 import { useCan } from "~/lib/use-can";
 import { useServerFn } from "@tanstack/react-start";
@@ -62,6 +63,7 @@ function Team() {
             </section>
           )}
           {app.mode === "self" && <section className="group"><Link to="/shares" className="row link">共有リンク</Link></section>}
+          {can({ member: ["update"] }) && <EditorFiles />}
           {app.mode === "self" && can({ member: ["update"] }) && <CurseForgeKey />}
           {app.mode === "self" && can({ member: ["update"] }) && (
             <SignInHelp members={team.members.filter((m) => m.role !== "owner" && m.userId !== user.id).map((m) => ({ userId: m.userId, name: m.user.name }))} />
@@ -282,6 +284,39 @@ function CurseForgeKey() {
         {error && <p className="row error" role="alert">{error}</p>}
       </form>
       <p className="foot">設定すると、サーバーの画面とライブラリで CurseForge からも探して入れられます。作者が外部からのダウンロードを許していないものは入れられません。キーは暗号化して保存し、画面には最後の 4 文字だけを出します。</p>
+    </>
+  );
+}
+
+// 設定ファイルを編集者にも許すか(管理者以上が決める。既定は管理者以上だけ)
+function EditorFiles() {
+  const load = useServerFn(filesAccess);
+  const save = useServerFn(setEditorFiles);
+  const [on, setOn] = useState<boolean | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => { load().then((a) => setOn(a.editors), (e) => setError(cfMessage(e))); }, []);
+  const change = async (v: boolean) => {
+    setError("");
+    setOn(v);
+    try {
+      await save({ data: { on: v } });
+    } catch (e) {
+      setOn(!v);
+      setError(cfMessage(e));
+    }
+  };
+  if (on === null && !error) return null;
+  return (
+    <>
+      <div className="group-title">設定ファイル</div>
+      <section className="group">
+        <label className="row">
+          <span>編集者にも、サーバーの設定ファイルを見る・直すのを許す</span>
+          <input className="trail" type="checkbox" checked={!!on} disabled={on === null} onChange={(e) => change(e.target.checked)} />
+        </label>
+        {error && <p className="row error" role="alert">{error}</p>}
+      </section>
+      <p className="foot">設定ファイル(server.properties・plugins の設定など)には、データベースのパスワードや API キーが入っていることがあります。既定では管理者とオーナーだけが見る・直せます。許すと、編集者も「ファイルとコマンド」とファイル比較で見る・直せるようになります(割り当てたサーバーだけ)。</p>
     </>
   );
 }

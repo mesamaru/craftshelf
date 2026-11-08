@@ -15,6 +15,17 @@ export const EN: Record<string, string> = {
   "バックアップを作る": "Create backup",
   "バックアップを作れませんでした": "Could not create the backup",
   "日時が正しくありません": "Invalid date and time",
+  // 設定ファイルの書き方の確かめ・編集者にも許す・元に戻す
+  "それでも保存しますか?": "Save anyway?",
+  "やり直す": "Redo",
+  "元に戻す(Ctrl+Z)": "Undo (Ctrl+Z)",
+  "やり直す(Ctrl+Y)": "Redo (Ctrl+Y)",
+  "編集者にも、サーバーの設定ファイルを見る・直すのを許す": "Allow editors to view and edit server config files",
+  "設定ファイル(server.properties・plugins の設定など)には、データベースのパスワードや API キーが入っていることがあります。既定では管理者とオーナーだけが見る・直せます。許すと、編集者も「ファイルとコマンド」とファイル比較で見る・直せるようになります(割り当てたサーバーだけ)。":
+    "Config files (server.properties, plugin settings, etc.) may contain database passwords or API keys. By default only admins and the owner can view and edit them. If allowed, editors can also view and edit them in “Files and commands” and the file comparison (only on their assigned servers).",
+  "編集者にも設定ファイルを許す": "Allow editors to edit config files",
+  "設定ファイルを管理者以上だけにする": "Limit config files to admins",
+  "\\u のあとに 16 進数 4 けたが要ります": "\\u must be followed by 4 hex digits",
   // 無効にする・設定フォルダの退避・ほかのサーバーにそろえる・ライブラリに取り込む・自動更新
   "無効にする": "Disable",
   "「無効にする」と、ファイルを消さずに名前の最後に .disabled を付けて止めます(更新・自動更新の対象からも外れます)。自動更新は、ライブラリ(配布元・アップロード)に新しい版が出たら入れます。「更新を止める」にしたもの・無効にしたものは入れ替えません。":
@@ -135,7 +146,7 @@ export const EN: Record<string, string> = {
   "基準の行にする": "Use the base line",
   "を直しています(下の表にもすぐに出ます)": " — editing (shown in the table below right away)",
   "ファイルの中身": "File contents",
-  "黄色は違う行、赤は基準にあってこのサーバーに無い行、緑はこのサーバーだけにある行です。「←」で基準の行にし(緑の行は「×」で消し)、「直す」でその場で書き換えられます。「保存」を押すまでサーバーは変わりません(保存する前の中身は履歴に残ります)。基準は、上で最初に選んだサーバーです。": "Yellow lines differ, red lines are in the base but missing here, and green lines exist only on this server. Use “←” to take the base line (or “×” to delete a green line), and “Edit” to change the file in place. Servers aren't changed until you press “Save” (the previous content is kept in the history). The base is the first server you selected above.",
+  "黄色は違う行、赤は基準にあってこのサーバーに無い行、緑はこのサーバーだけにある行です。「←」で基準の行にし(緑の行は「×」で消し)、「直す」でその場で書き換えられます。「保存」を押すまでサーバーは変わりません(保存する前の中身は履歴に残ります)。変えたことは「元に戻す」(Ctrl+Z)・「やり直す」(Ctrl+Y)で戻せます。基準は、上で最初に選んだサーバーです。": "Yellow lines differ, red lines are in the base but missing here, and green lines exist only on this server. Use “←” to take the base line (or “×” to delete a green line), and “Edit” to change the file in place. Servers aren't changed until you press “Save” (the previous content is kept in the history). Changes can be undone with “Undo” (Ctrl+Z) and redone with “Redo” (Ctrl+Y). The base is the first server you selected above.",
   "Minecraft のバージョンを上げる": "Upgrade Minecraft",
   "上げる Minecraft のバージョン": "Minecraft version to upgrade to",
   "上げる": "Upgrade",
@@ -263,7 +274,7 @@ export const EN: Record<string, string> = {
   "‹ ファイルの一覧": "‹ File list",
   "比べるサーバー": "Servers to compare",
   "比べるサーバーを 2 台以上選んでください": "Choose 2 or more servers to compare",
-  "比べるサーバーを 2 台以上選んでください(8 台まで)。設定ファイル(server.properties・plugins・config の中など)を並べて見比べ、左のサーバーの中身をほかのサーバーへ写せます。見る・直すのは管理者以上です。": "Choose 2 or more servers (up to 8). Config files (server.properties, files in plugins and config, etc.) are shown side by side, and the left server's content can be copied to the others. Admins and above can view and edit.",
+  "比べるサーバーを 2 台以上選んでください(8 台まで)。設定ファイル(server.properties・plugins・config の中など)を並べて見比べ、左のサーバーの中身をほかのサーバーへ写せます。見る・直すのは管理者以上です(チームの設定で、編集者にも許せます)。": "Choose 2 or more servers (up to 8). Config files (server.properties, files in plugins and config, etc.) are shown side by side, and the left server's content can be copied to the others. Admins and above can view and edit (the team settings can also allow editors).",
   "設定ファイルを集めています…": "Collecting config files…",
   "設定ファイルを集める": "Collect config files",
   "違うかもしれないものだけ": "Only possibly different",
@@ -914,7 +925,7 @@ export const EN: Record<string, string> = {
   "設定すると、サーバーの画面とライブラリで CurseForge からも探して入れられます。作者が外部からのダウンロードを許していないものは入れられません。キーは暗号化して保存し、画面には最後の 4 文字だけを出します。": "Once set, you can also search and install from CurseForge on the server page and in the library. Items whose authors do not allow third-party downloads cannot be installed. The key is stored encrypted and only its last 4 characters are shown.",
   "設定ファイル": "Config files",
   "設定ファイルを直す": "Edit config files",
-  "設定ファイルを見る・直すのは、チームの管理者とオーナーだけです。": "Only the team's admins and owner can view and edit config files.",
+  "設定ファイルを見る・直すのは、チームの管理者とオーナーだけです(チームの設定で、編集者にも許せます)。": "Only the team's admins and owner can view and edit config files (the team settings can also allow editors).",
   "試しに送る": "Send test",
   "試行が多すぎます。しばらく待ってからやり直してください": "Too many attempts. Wait a while and try again",
   "認証アプリで QR コードを読み取り、表示された 6 桁のコードを入力してください。": "Scan the QR code with your authenticator app and enter the 6-digit code it shows.",
@@ -1037,6 +1048,9 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/(\d+) 行目: (\S+) の書き方が正しくありません\(/, "Line $1: invalid $2 syntax ("],
+  [/(\S+) の書き方が正しくありません\(/, "Invalid $1 syntax ("],
+  [/^(\d+) 個$/, (_, n) => `${n} ${n === "1" ? "item" : "items"}`],
   [/^自動更新\(6 時間ごとに、新しい版があれば入れる\)$/, "Auto update (every 6 hours, install new versions if any)"],
   [/^プラグインを外す・入れ替えるときは、設定フォルダ\(plugins\/〈名前〉\/\)も plugins\/\.craftshelf-config に退避し、元に戻すと設定も戻します\(ファイルが 100 個・20 MB を超えるフォルダは退避しません\)。$/,
     "When a plugin is removed or replaced, its config folder (plugins/<name>/) is also saved to plugins/.craftshelf-config, and undoing restores the config too (folders over 100 files or 20 MB are not saved)."],

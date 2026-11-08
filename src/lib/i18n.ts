@@ -34,6 +34,8 @@ export function translate(s: string): string {
 
 const ATTRS = ["placeholder", "title", "aria-label"];
 const skip = (el: Element | null) => !!el?.closest("[translate=no], script, style, textarea, code");
+// 属性(placeholder など)は入力欄でも訳す。中身(textarea の文字)は訳さない
+const skipAttr = (el: Element | null) => !!el?.closest("[translate=no], script, style, code");
 
 // 同じ値を書き戻すと監視がまた反応して繰り返すので、変わるときだけ書き換える
 function textNode(n: Node) {
@@ -44,13 +46,13 @@ function textNode(n: Node) {
 }
 function attr(el: Element, a: string) {
   const v = el.getAttribute(a);
-  if (!v || !JA.test(v) || skip(el)) return;
+  if (!v || !JA.test(v) || skipAttr(el)) return;
   const t = translate(v);
   if (t !== v) el.setAttribute(a, t);
 }
 function tree(root: Node) {
   if (root.nodeType === Node.TEXT_NODE) return textNode(root);
-  if (!(root instanceof Element) || skip(root)) return;
+  if (!(root instanceof Element) || skipAttr(root)) return;
   const w = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   while (w.nextNode()) textNode(w.currentNode);
   for (const el of [root, ...root.querySelectorAll(ATTRS.map((a) => `[${a}]`).join(","))]) for (const a of ATTRS) attr(el, a);

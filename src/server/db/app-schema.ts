@@ -234,6 +234,13 @@ export const teamNotify = pgTable("team_notify", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// チームの決めごと(03.52.00 から)。editor_files = 編集者にも設定ファイルを見る・直すのを許す(既定は管理者以上だけ)
+export const teamOption = pgTable("team_option", {
+  teamId: text("team_id").primaryKey().references(() => organization.id, { onDelete: "cascade" }),
+  editorFiles: boolean("editor_files").notNull().default(false),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // お知らせ(ベル)をどこまで読んだか(利用者 × チーム。どの端末でも同じにする)
 export const noticeSeen = pgTable(
   "notice_seen",

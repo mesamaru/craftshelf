@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { fileHistory, listFiles, readServerFile, saveServerFile, sendCommand, serverLogs } from "~/lib/files-api";
+import { fileHistory, filesAccess, listFiles, readServerFile, saveServerFile, sendCommand, serverLogs } from "~/lib/files-api";
+import { confirmSyntax } from "~/lib/syntax";
 import { serverDetail } from "~/lib/library-api";
 import { useCan } from "~/lib/use-can";
 
@@ -21,6 +22,9 @@ function FilesPage() {
   const { user } = Route.useRouteContext();
   const server = Route.useLoaderData();
   const { can, me } = useCan(user.id);
+  const access = useServerFn(filesAccess);
+  const [files, setFiles] = useState<boolean | null>(null);
+  useEffect(() => { access().then((a) => setFiles(a.allowed), () => setFiles(false)); }, []);
   return (
     <main className="page narrow">
       <header className="bar">
@@ -29,8 +33,8 @@ function FilesPage() {
       </header>
       {me && can({ server: ["control"] }) && <Logs id={server.id} local={server.kind === "local"} />}
       {me && can({ server: ["control"] }) && <Command id={server.id} />}
-      {me && (can({ server: ["update"] }) ? <Files id={server.id} />
-        : <section className="group"><div className="row muted">設定ファイルを見る・直すのは、チームの管理者とオーナーだけです。</div></section>)}
+      {files !== null && (files ? <Files id={server.id} />
+        : <section className="group"><div className="row muted">設定ファイルを見る・直すのは、チームの管理者とオーナーだけです(チームの設定で、編集者にも許せます)。</div></section>)}
     </main>
   );
 }
@@ -152,6 +156,7 @@ function Files({ id }: { id: string }) {
           <div className="row actions">
             <button className="link" type="button" disabled={!!busy || !changed}
               onClick={() => run("save", async () => {
+                if (!(await confirmSyntax(opened.path, text))) return;
                 await save({ data: { id, path: opened.path, content: text, base: opened.content } });
                 const f = await read({ data: { id, path: opened.path } }); // 履歴と、保存した中身を読み直す
                 setOpened(f);

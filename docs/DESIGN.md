@@ -120,7 +120,7 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 - 新しい版の見回り(`setService.runUpdateChecks`、1 分ごと): 前に確かめてから 1 日(`UPDATE_CHECK_EVERY`)たったサーバーを 1 回に 2 台まで、`update_checked_at` を条件付きで書き換えてから確かめる(配布元へは入っているもの 1 つにつき 1 回。自動更新を入れたサーバーは見ない)。見つけた行を `server.update_notice` に残し、前に知らせていない行だけを `updates` で記録する。
 - パネルの新しい版(自分用の版、`startup.ts`): 6 時間ごとに GitHub のリリースを見て、いまより新しい版があれば `events.announcePanel` ですべてのチームに `panel` で記録する(同じ版は 1 度だけ)。
 - お知らせ(ベル)の既読は、利用者 × チームごとに表 `notice_seen` に残す(どの端末でも同じ。先へ進めるだけ)。
-- ファイル比較(`/compare/files`、`files.configs`): v02 と同じ場所(一番上・plugins は 3 段・config は 4 段・mods/config は 3 段)から、開ける設定ファイルを 1 台 400 個まで集める。一覧では中身を読まず大きさで見る。開いたら全部を読み、行の差分(`src/lib/diff.ts`、Myers の方法)で基準にそろえて並べる。写すのは `files.save`(履歴に残る)。
+- ファイル比較(`/compare/files`、`files.configs`): v02 と同じ場所(一番上・plugins は 3 段・config は 4 段・mods/config は 3 段)から、開ける設定ファイルを 1 台 400 個まで集める。一覧では中身を読まず大きさで見る。開いたら全部を読み、行の差分(`src/lib/diff.ts`、Myers の方法)で基準にそろえて並べる。写すのは `files.save`(履歴に残る)。行の操作と直接の書き換えは、画面の中だけの「元に戻す・やり直す」(Ctrl+Z・Ctrl+Y・Ctrl+Shift+Z とボタン。続けて打った文字は 1 回で戻す。100 回まで)で戻せる。
 
 - サーバーの割り当て(表 `member_server_limit`・`member_server`): `member_server_limit` に行がある閲覧者・編集者は、`member_server` のサーバーだけを使える。確かめるのは `serverOf(deps, who, id)`(`who` は `requireTeam` の結果。チームの ID だけを渡すのは予約などの人でない操作だけ)と `needServerAccess`、一覧は `serverScope` で絞る。管理者・オーナーは制限しない。
 
@@ -154,7 +154,8 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 ## ファイルとコマンド
 
 - コマンド(`src/server/files.ts` の `command`)は Pterodactyl の `/command` に送る。1 行・500 文字まで、権限は `server: ["control"]`。出力はウェブソケットが要るので、いまは受け取らない(パネルのコンソールで見る)。
-- 設定ファイルは、サーバーのフォルダーの中の相対パスだけ(`cleanPath`。`..`・`.`・空の区切り・改行を断る)。開けるのはテキストの拡張子(`TEXT_FILE`)で 512 KB までのものだけ。見る・直すのは `server: ["update"]`(パスワードなどが入っていることがあるため)。
+- 設定ファイルは、サーバーのフォルダーの中の相対パスだけ(`cleanPath`。`..`・`.`・空の区切り・改行を断る)。開けるのはテキストの拡張子(`TEXT_FILE`)で 512 KB までのものだけ。見る・直すのは `server: ["update"]`(パスワードなどが入っていることがあるため)。チームが「編集者にも許す」(表 `team_option.editor_files`、決めるのは `member: ["update"]`、既定はオフ)を選んだときは `library: ["edit"]` でもよい(`files.ts` の `needFiles`。割り当てたサーバーだけ)。
+- 保存する前に、画面で書き方を確かめる(`src/lib/syntax.ts`: JSON は `JSON.parse` と場所を探す小さな読み手・YAML は `yaml`・TOML は `smol-toml`・properties は `\u` の形だけ)。誤りがあれば行番号つきで知らせ、それでも保存するかを聞く(サーバー側では断らない)。
 - 保存するときは、開いたときの中身(base)とサーバーのいまの中身を比べ、違えば保存しない(409)。保存する前の中身を表 `server_file_history` に残す(1 ファイル 30 件)。
 
 ## フォルダでつなぐサーバー(自分用の版だけ)

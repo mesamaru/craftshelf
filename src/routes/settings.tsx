@@ -221,7 +221,7 @@ function Passkeys() {
 
   return (
     <section className="group">
-      <div className="row"><span>パスキー</span><span className="trail">{list?.length ?? 0} 個</span></div>
+      <div className="row"><span>パスキー</span><span className="trail">{`${list?.length ?? 0} 個`}</span></div>
       {list?.map((p) => (
         <div className="row" key={p.id}>
           <span translate="no">{p.name || "パスキー"}</span>

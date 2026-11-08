@@ -35,3 +35,9 @@ export const saveServerFile = createServerFn({ method: "POST" })
 export const fileHistory = createServerFn({ method: "GET" })
   .validator(z.object({ id: sid, historyId: sid }))
   .handler(async ({ data }) => (await svc()).historyContent(headers(), data.id, data.historyId));
+
+export const filesAccess = createServerFn({ method: "GET" }).handler(async () => (await svc()).access(headers()));
+
+export const setEditorFiles = createServerFn({ method: "POST" })
+  .validator(z.object({ on: z.boolean() }))
+  .handler(async ({ data }) => (await svc()).setEditorFiles(headers(), data.on));

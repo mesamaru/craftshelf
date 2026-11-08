@@ -184,3 +184,31 @@ describe("最近のログ", () => {
     expect(await code(files.logs(outsider, id))).toBe(404);
   });
 });
+
+describe("設定ファイルを編集者にも許す", () => {
+  it("既定は管理者以上だけ。管理者が許すと編集者も見る・直せる(閲覧者・ほかのチームは見られない)。決めるのは管理者以上", async () => {
+    const inv = await (await t.call("/organization/invite-member", { email: "viewer@example.com", role: "viewer" }, owner.get("cookie")!)).json();
+    const cookie = await t.signUp("閲覧者", "viewer@example.com");
+    await t.call("/organization/accept-invitation", { invitationId: inv.id }, cookie);
+    await t.call("/organization/set-active", { organizationId: inv.organizationId }, cookie);
+    const viewer = t.headers(cookie);
+
+    expect(await files.access(editor)).toEqual({ allowed: false, editors: false });
+    expect(await code(files.read(editor, id, "server.properties"))).toBe(403);
+    expect(await code(files.setEditorFiles(editor, true))).toBe(403);
+    await files.setEditorFiles(owner, true);
+    expect(await files.access(editor)).toEqual({ allowed: true, editors: true });
+    const f = await files.read(editor, id, "server.properties");
+    await files.save(editor, id, "server.properties", f.content + "pvp=false\n", f.content);
+    expect(disk.get("server.properties")).toContain("pvp=false");
+    expect((await files.list(editor, id, "")).entries.length).toBeGreaterThan(0);
+    expect((await files.configs(editor, [id, id2])).files.length).toBeGreaterThan(0);
+    expect(await files.access(viewer)).toEqual({ allowed: false, editors: true });
+    expect(await code(files.read(viewer, id, "server.properties"))).toBe(403);
+    expect(await code(files.read(outsider, id, "server.properties"))).toBe(404); // ほかのチームのサーバーは見つからない
+    expect((await files.access(outsider)).editors).toBe(false); // チームごとの決めごと
+    await files.setEditorFiles(owner, false);
+    expect(await code(files.read(editor, id, "server.properties"))).toBe(403);
+    expect((await ev.list(owner)).slice(0, 3).map((r) => r.action)).toEqual(["設定ファイルを管理者以上だけにする", "設定ファイルを直す", "編集者にも設定ファイルを許す"]);
+  });
+});

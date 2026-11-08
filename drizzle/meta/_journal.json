@@ -169,6 +169,13 @@
       "when": 1794155960610,
       "tag": "0023_notices",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1794156480670,
+      "tag": "0024_team_option",
+      "breakpoints": true
     }
   ]
 }

@@ -115,13 +115,12 @@ export function eventService(deps: Deps) {
       return r?.at.toISOString() ?? null;
     },
 
-    /** ここまで読んだ(先へ進めるだけ。いまより先の時刻は、いまにする) */
+    /** ここまで読んだ(先へ進めるだけ。記録の時刻をそのまま受け取る: データベースによっては記録の時刻がずれて見えるので、いまの時刻とは比べない) */
     async markSeen(headers: Headers, at: string) {
       const { teamId, user: me } = await requireTeam(auth, headers);
       const d = new Date(at);
       if (Number.isNaN(d.getTime())) throw new HttpError(400, "日時が正しくありません");
-      const seenAt = d > new Date() ? new Date() : d;
-      await db.insert(noticeSeen).values({ userId: me.id, teamId, seenAt })
+      await db.insert(noticeSeen).values({ userId: me.id, teamId, seenAt: d })
         .onConflictDoUpdate({ target: [noticeSeen.userId, noticeSeen.teamId], set: { seenAt: sql`greatest(${noticeSeen.seenAt}, excluded.seen_at)` } });
     },
 

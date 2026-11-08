@@ -138,8 +138,10 @@ describe("お知らせの既読", () => {
     await ev.markSeen(owner, "2026-01-01T00:00:00.000Z"); // 戻らない
     expect(await ev.seen(owner)).toBe("2026-01-02T00:00:00.000Z");
     expect(await ev.seen(editor)).toBeNull(); // ほかの人は別
-    await ev.markSeen(editor, "2999-01-01T00:00:00.000Z"); // 先の時刻は、いまにする
-    expect(new Date((await ev.seen(editor))!).getTime()).toBeLessThanOrEqual(Date.now());
+    const [latest] = await ev.recent(editor);
+    await ev.markSeen(editor, latest.at); // 記録の時刻のまま残る(画面は、これより新しいものを未読と数える)
+    expect(await ev.seen(editor)).toBe(latest.at);
+    expect((await ev.recent(editor)).filter((e) => e.at > (latest.at)).length).toBe(0);
     expect(await code(ev.markSeen(owner, "nope"))).toBe(400);
   });
 });

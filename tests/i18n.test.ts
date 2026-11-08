@@ -25,5 +25,9 @@ describe("英語表示", () => {
     expect(translate("新しいパスワード(10 文字以上)")).toBe("New password (10+ characters)");
     expect(translate("匿名の利用状況を送る(1 日 1 回)")).toBe("Send anonymous usage (once a day)");
     expect(translate("この版は、このサーバーの種類・バージョンに合いません")).toBe("This version does not fit this server's type and version");
+    expect(translate("2 個")).toBe("2 items"); // パスキーの数など
+    expect(translate("1 個")).toBe("1 item");
+    expect(translate("自動")).toBe("Auto");
+    expect(translate("新しいバージョンがあります")).toBe("New versions available");
   });
 });

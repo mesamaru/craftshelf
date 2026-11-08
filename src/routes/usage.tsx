@@ -49,7 +49,7 @@ function Usage() {
           <div className="group-title">チーム</div>
           <section className="group">
             <div className="row"><span>サーバー</span><span className="trail">{u.servers} 台(入れたもの {u.installed} 件)</span></div>
-            <div className="row"><span>セット</span><span className="trail">{u.sets} 個</span></div>
+            <div className="row"><span>セット</span><span className="trail">{`${u.sets} 個`}</span></div>
             <div className="row"><span>メンバー</span><span className="trail">{u.members} 人</span></div>
             <div className="row"><span>共有リンク</span><span className="trail">{u.shareLinks} 個</span></div>
           </section>

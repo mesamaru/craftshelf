@@ -1,9 +1,10 @@
-import { type ReactNode, useEffect, useMemo, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { alignAll, splitLines, takeBase } from "~/lib/diff";
 import { configFiles, readServerFile, saveServerFile } from "~/lib/files-api";
 import { listServers } from "~/lib/servers-api";
+import { confirmSyntax } from "~/lib/syntax";
 
 export const Route = createFileRoute("/compare_/files")({
   beforeLoad: ({ context }) => {
@@ -68,7 +69,7 @@ function FileCompare() {
         <Link to="/compare" className="capsule">‹ 比較</Link>
         <h1>ファイル比較</h1>
       </header>
-      <p className="foot">比べるサーバーを 2 台以上選んでください(8 台まで)。設定ファイル(server.properties・plugins・config の中など)を並べて見比べ、左のサーバーの中身をほかのサーバーへ写せます。見る・直すのは管理者以上です。</p>
+      <p className="foot">比べるサーバーを 2 台以上選んでください(8 台まで)。設定ファイル(server.properties・plugins・config の中など)を並べて見比べ、左のサーバーの中身をほかのサーバーへ写せます。見る・直すのは管理者以上です(チームの設定で、編集者にも許せます)。</p>
       <div className="seg" role="group" aria-label="比べるサーバー">
         {servers.map((s) => (
           <button key={s.id} type="button" className={sel.includes(s.id) ? "on" : ""} aria-pressed={sel.includes(s.id)} translate="no" onClick={() => toggle(s.id)}>{s.name}</button>
@@ -87,7 +88,7 @@ function FileCompare() {
         <Compare opened={opened} onlyDiff={onlyDiff} setOnlyDiff={setOnlyDiff} busy={busy} note={note} onBack={() => setOpened(null)}
           onSave={(to, content) => run(async () => {
             const target = opened.servers.find((s) => s.id === to)!;
-            if (target.content === null) return;
+            if (target.content === null || !(await confirmSyntax(opened.path, content))) return;
             await save({ data: { id: to, path: opened.path, content, base: target.content } });
             setNote(`「${target.name}」の ${opened.path} を保存しました。反映にはサーバーの再起動が要ります`);
             await open(opened.path);
@@ -228,17 +229,51 @@ function joinLines(lines: string[], original: string) {
   return lines.join(eol) + (lines.length && last ? eol : "");
 }
 
-// 並べて比べる。違う行の「←」で基準の行にし、「直す」でその場で書き換える。変えたサーバーだけ「保存」を出す
+// 並べて比べる。違う行の「←」で基準の行にし、「直す」でその場で書き換える。変えたサーバーだけ「保存」を出す。
+// 変えたことは Ctrl+Z で戻し、Ctrl+Y(Ctrl+Shift+Z)でやり直せる(続けて打った文字は 1 回で戻す。保存・開き直すと消える)
 function Compare({ opened, onlyDiff, setOnlyDiff, busy, note, onBack, onSave }:
   { opened: Opened; onlyDiff: boolean; setOnlyDiff: (v: boolean) => void; busy: boolean; note: string; onBack: () => void; onSave: (id: string, content: string) => void }) {
   const [drafts, setDrafts] = useState<(string | null)[]>(() => opened.servers.map((s) => s.content));
   const [editing, setEditing] = useState<number | null>(null);
-  useEffect(() => { setDrafts(opened.servers.map((s) => s.content)); setEditing(null); }, [opened]);
+  const [past, setPast] = useState<(string | null)[][]>([]);
+  const [future, setFuture] = useState<(string | null)[][]>([]);
+  const typing = useRef<number | null>(null); // 続けて打っている列
+  useEffect(() => { setDrafts(opened.servers.map((s) => s.content)); setEditing(null); setPast([]); setFuture([]); typing.current = null; }, [opened]);
   const [base, ...others] = opened.servers;
   const lines = useMemo(() => drafts.map((d) => splitLines(d ?? "")), [drafts]);
   const rows = useMemo(() => alignAll(lines[0], lines.slice(1)).map((r, idx) => ({ ...r, idx })), [lines]);
   const shown = onlyDiff ? rows.filter((r) => r.diff) : rows;
-  const setCol = (col: number, text: string) => setDrafts((d) => d.map((x, i) => (i === col ? text : x)));
+  const setCol = (col: number, text: string, typed = false) => {
+    if (drafts[col] === text) return;
+    if (!typed || typing.current !== col) setPast((p) => [...p.slice(-99), drafts]);
+    typing.current = typed ? col : null;
+    setFuture([]);
+    setDrafts(drafts.map((x, i) => (i === col ? text : x)));
+  };
+  const undo = () => {
+    if (!past.length) return;
+    setFuture((f) => [drafts, ...f]);
+    setDrafts(past[past.length - 1]);
+    setPast((p) => p.slice(0, -1));
+    typing.current = null;
+  };
+  const redo = () => {
+    if (!future.length) return;
+    setPast((p) => [...p, drafts]);
+    setDrafts(future[0]);
+    setFuture((f) => f.slice(1));
+    typing.current = null;
+  };
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || busy) return;
+      const k = e.key.toLowerCase();
+      if (k === "z" && !e.shiftKey) (e.preventDefault(), undo());
+      else if (k === "y" || (k === "z" && e.shiftKey)) (e.preventDefault(), redo());
+    };
+    document.addEventListener("keydown", key);
+    return () => document.removeEventListener("keydown", key);
+  });
   const changed = (col: number) => drafts[col] !== null && drafts[col] !== opened.servers[col].content;
   // ほかのサーバー(k)の、その行を基準の行にする: 違う → 書き換える / 無い → 入れる / そのサーバーだけ → 消す
   const take = (idx: number, k: number) => setCol(k + 1, joinLines(takeBase(lines[0], lines[k + 1], rows, idx, k), opened.servers[k + 1].content ?? ""));
@@ -266,13 +301,15 @@ function Compare({ opened, onlyDiff, setOnlyDiff, busy, note, onBack, onSave }:
         <button type="button" className="capsule small" onClick={onBack}>‹ ファイルの一覧</button>
         <strong translate="no">{opened.path}</strong>
         <span className="spacer" />
+        <button type="button" className="capsule small" disabled={busy || !past.length} onClick={undo} title="元に戻す(Ctrl+Z)">元に戻す</button>
+        <button type="button" className="capsule small" disabled={busy || !future.length} onClick={redo} title="やり直す(Ctrl+Y)">やり直す</button>
         <label className="capsule small"><input type="checkbox" checked={onlyDiff} onChange={(e) => setOnlyDiff(e.target.checked)} /> 違う行だけ</label>
       </div>
       {note && <p className="notice" role="status">{note}</p>}
       {editing !== null && drafts[editing] !== null && (
         <section className="group form">
           <div className="row"><span translate="no">{opened.servers[editing].name}</span><span className="trail muted small">を直しています(下の表にもすぐに出ます)</span></div>
-          <textarea className="row codes" rows={14} spellCheck={false} value={drafts[editing]!} onChange={(e) => setCol(editing, e.target.value)} aria-label="ファイルの中身" translate="no" />
+          <textarea className="row codes" rows={14} spellCheck={false} value={drafts[editing]!} onChange={(e) => setCol(editing, e.target.value, true)} aria-label="ファイルの中身" translate="no" />
         </section>
       )}
       <section className="group ports-table diff-table">
@@ -306,7 +343,7 @@ function Compare({ opened, onlyDiff, setOnlyDiff, busy, note, onBack, onSave }:
           </tbody>
         </table>
       </section>
-      <p className="foot">黄色は違う行、赤は基準にあってこのサーバーに無い行、緑はこのサーバーだけにある行です。「←」で基準の行にし(緑の行は「×」で消し)、「直す」でその場で書き換えられます。「保存」を押すまでサーバーは変わりません(保存する前の中身は履歴に残ります)。基準は、上で最初に選んだサーバーです。</p>
+      <p className="foot">黄色は違う行、赤は基準にあってこのサーバーに無い行、緑はこのサーバーだけにある行です。「←」で基準の行にし(緑の行は「×」で消し)、「直す」でその場で書き換えられます。「保存」を押すまでサーバーは変わりません(保存する前の中身は履歴に残ります)。変えたことは「元に戻す」(Ctrl+Z)・「やり直す」(Ctrl+Y)で戻せます。基準は、上で最初に選んだサーバーです。</p>
     </>
   );
 }

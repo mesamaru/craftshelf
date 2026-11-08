@@ -1,6 +1,28 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  // ライブラリの絞り込み・タグ・お気に入り・まとめて操作
+  "条件に合うものはありません": "Nothing matches",
+  "更新を確かめています…": "Checking for updates…",
+  "選ぶのをやめる": "Clear selection",
+  "名前で絞り込む": "Filter by name",
+  "すべての種類": "All types",
+  "すべての配布元": "All sources",
+  "並べ替え": "Sort",
+  "名前順": "By name",
+  "追加日が新しい順": "Newest first",
+  "どこかのサーバーに古い版が入っているもの(配布元に問い合わせます。更新を止めたものは除きます)": "Items with an older version on some server (asks the sources; paused items are excluded)",
+  "更新あり": "Has updates",
+  "付けるタグ(30 文字まで)": "Tag to add (up to 30 characters)",
+  "タグを付ける": "Add tag",
+  "タグを外す": "Remove tag",
+  "セットに足す…": "Add to set…",
+  "セットに足す": "Add to set",
+  "しています…": "Working…",
+  "押すとタグを外します": "Click to remove this tag",
+  "+ タグ": "+ Tag",
+  "お気に入りから外す": "Remove from favorites",
+  "お気に入りにする": "Add to favorites",
   "エージェント(家の中のサーバー)": "Agents (servers at home)",
   "つながっています": "Connected",
   "まだつながっていません": "Not connected yet",
@@ -949,6 +971,15 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^タグ「(.+)」を付けました$/, "Added tag “$1”"],
+  [/^セット「(.+)」に足しました$/, "Added to set “$1”"],
+  [/^(\d+) 件をライブラリから外しますか[?？]\(サーバーに入っているファイルはそのままです\)$/, "Remove $1 items from the library? (Files on servers stay.)"],
+  [/^(\d+) 件を外しました$/, "Removed $1 items"],
+  [/^(\d+) 件を選んでいます$/, "$1 selected"],
+  [/^表示している (\d+) 件をすべて選ぶ$/, "Select all $1 shown"],
+  [/^(.+?) を選ぶ$/, "Select $1"],
+  [/^タグは 1〜(\d+) 文字にしてください$/, "Tags must be 1–$1 characters"],
+  [/^タグは 1 つにつき (\d+) 個までです$/, "Up to $1 tags per item"],
   [/^最後につながった日時 /, "Last connected "],
   [/^エージェント「(.+?)」を消しますか[?？]\(このエージェントのサーバーも一覧から外れます。家のサーバーのファイルは消えません\)$/, "Delete agent “$1”? (Its servers are removed from the list. Files on your home servers are not deleted)"],
   [/^エージェントは (\d+) 個までです$/, "Up to $1 agents"],

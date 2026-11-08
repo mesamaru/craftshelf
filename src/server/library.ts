@@ -10,7 +10,7 @@ import { type ItemSource, SOURCE_LABEL, isItemSource } from "~/lib/sources";
 import { ModrinthError, type ProjectType, isProjectType, modrinthClient } from "./modrinth";
 import { SpigetError, spigetClient } from "./spiget";
 import { CF_KEY, CurseForgeError, curseforgeClient } from "./curseforge";
-import { installHistory, libraryFile, serverChange, teamCurseforge } from "./db/schema";
+import { installHistory, libraryFavorite, libraryFile, libraryTag, serverChange, teamCurseforge } from "./db/schema";
 import { hint, open, seal } from "./secrets";
 import { fileStore } from "./uploads";
 import { eventService } from "./events";
@@ -18,6 +18,9 @@ import { type Deps, remote, serverOf, serverScope } from "./servers";
 
 // 無料で使える範囲
 export const LIBRARY_LIMITS = { itemsPerTeam: 500 };
+// タグの長さと、1 つに付けられる数
+const TAG_MAX = 30;
+const TAGS_PER_ITEM = 20;
 // 配布元を中身から探すとき: 1 回に調べる数と、1 つの大きさの上限
 const IDENTIFY_MAX = 100;
 const IDENTIFY_BYTES = 100 * 1024 * 1024;
@@ -245,6 +248,11 @@ export function libraryService(deps: Deps) {
       const scope = await serverScope(deps, who);
       const mine = (id: string) => !scope || scope.has(id);
       const items = await db.select().from(libraryItem).where(eq(libraryItem.teamId, teamId)).orderBy(asc(libraryItem.title));
+      const tags = await db.select({ itemId: libraryTag.itemId, tag: libraryTag.tag }).from(libraryTag)
+        .innerJoin(libraryItem, eq(libraryTag.itemId, libraryItem.id)).where(eq(libraryItem.teamId, teamId)).orderBy(asc(libraryTag.tag));
+      const favs = new Set((await db.select({ itemId: libraryFavorite.itemId }).from(libraryFavorite)
+        .innerJoin(libraryItem, eq(libraryFavorite.itemId, libraryItem.id))
+        .where(and(eq(libraryItem.teamId, teamId), eq(libraryFavorite.userId, who.user.id)))).map((f) => f.itemId));
       const installs = await db.select({ serverId: server.id, serverName: server.name, source: installedMod.source, projectId: installedMod.projectId, versionNumber: installedMod.versionNumber, filename: installedMod.filename })
         .from(installedMod).innerJoin(server, eq(installedMod.serverId, server.id))
         .where(eq(server.teamId, teamId)).orderBy(asc(server.name));
@@ -253,6 +261,7 @@ export function libraryService(deps: Deps) {
       return {
         items: items.map((i) => ({
           id: i.id, source: i.source, projectId: i.projectId, title: i.title, slug: i.slug, projectType: i.projectType, iconUrl: i.iconUrl,
+          createdAt: i.createdAt.toISOString(), favorite: favs.has(i.id), tags: tags.filter((t) => t.itemId === i.id).map((t) => t.tag),
           installs: installs.filter((r) => r.source === i.source && r.projectId === i.projectId && mine(r.serverId)).map(({ serverId, serverName, versionNumber, filename }) => ({ serverId, serverName, versionNumber, filename })),
         })),
         // 種類を決めていないサーバーには入れられない(type が null)
@@ -322,6 +331,67 @@ export function libraryService(deps: Deps) {
       const gone = await db.delete(libraryItem).where(and(eq(libraryItem.id, itemId), eq(libraryItem.teamId, teamId))).returning({ title: libraryItem.title });
       if (!gone.length) throw new HttpError(404, "見つかりません");
       await record({ teamId, userId: user.id, kind: "admin", action: "ライブラリから外す", target: gone[0].title });
+    },
+
+    /** ライブラリのものにタグを付ける・外す(まとめて)。タグはチームの中で共有 */
+    async tagItems(headers: Headers, itemIds: string[], tag: string, on: boolean) {
+      const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
+      const t = tag.trim();
+      if (!t || t.length > TAG_MAX) throw new HttpError(400, `タグは 1〜${TAG_MAX} 文字にしてください`);
+      const ids = itemIds.length ? (await db.select({ id: libraryItem.id }).from(libraryItem)
+        .where(and(eq(libraryItem.teamId, teamId), inArray(libraryItem.id, itemIds)))).map((r) => r.id) : [];
+      if (!ids.length) throw new HttpError(404, "見つかりません");
+      if (on) {
+        const full = await db.select({ itemId: libraryTag.itemId, n: count() }).from(libraryTag).where(inArray(libraryTag.itemId, ids)).groupBy(libraryTag.itemId);
+        if (full.some((f) => f.n >= TAGS_PER_ITEM)) throw new HttpError(400, `タグは 1 つにつき ${TAGS_PER_ITEM} 個までです`);
+        await db.insert(libraryTag).values(ids.map((itemId) => ({ itemId, tag: t }))).onConflictDoNothing();
+      } else {
+        await db.delete(libraryTag).where(and(inArray(libraryTag.itemId, ids), eq(libraryTag.tag, t)));
+      }
+      await record({ teamId, userId: user.id, kind: "admin", action: on ? "タグを付ける" : "タグを外す", target: t, detail: `${ids.length} 件` });
+    },
+
+    /** お気に入りにする・やめる(利用者ごと。閲覧者もできる) */
+    async favorite(headers: Headers, itemId: string, on: boolean) {
+      const { teamId, user } = await requireTeam(auth, headers);
+      const [i] = await db.select({ id: libraryItem.id }).from(libraryItem).where(and(eq(libraryItem.id, itemId), eq(libraryItem.teamId, teamId)));
+      if (!i) throw new HttpError(404, "見つかりません");
+      if (on) await db.insert(libraryFavorite).values({ userId: user.id, itemId }).onConflictDoNothing();
+      else await db.delete(libraryFavorite).where(and(eq(libraryFavorite.userId, user.id), eq(libraryFavorite.itemId, itemId)));
+    },
+
+    /** どこかのサーバーに古い版が入っているもの(ライブラリの ID)。配布元に問い合わせるので、絞り込むときだけ呼ぶ */
+    async outdated(headers: Headers) {
+      const who = await requireTeam(auth, headers);
+      const { teamId } = who;
+      const scope = await serverScope(deps, who);
+      const rows = await db.select({ serverId: server.id, source: installedMod.source, projectId: installedMod.projectId, versionId: installedMod.versionId, platform: serverProfile.platform, mcVersion: serverProfile.mcVersion })
+        .from(installedMod).innerJoin(server, eq(installedMod.serverId, server.id)).innerJoin(serverProfile, eq(serverProfile.serverId, server.id))
+        .where(eq(server.teamId, teamId));
+      const holds = new Set((await db.select({ serverId: serverHold.serverId, source: serverHold.source, projectId: serverHold.projectId }).from(serverHold)
+        .innerJoin(server, eq(serverHold.serverId, server.id)).where(eq(server.teamId, teamId))).map((h) => `${h.serverId}:${h.source}:${h.projectId}`));
+      // 更新を止めているもの・割り当てられていないサーバーは見ない
+      const todo = rows.filter((r) => isItemSource(r.source) && isPlatform(r.platform) && (!scope || scope.has(r.serverId)) && !holds.has(`${r.serverId}:${r.source}:${r.projectId}`));
+      // 同じ配布元・種類・バージョンの組は 1 回だけ問い合わせる。問い合わせられなかったものは「更新あり」にしない
+      const latest = new Map<string, Promise<string | null>>();
+      const latestOf = (r: (typeof todo)[number]) => {
+        const k = `${r.source}:${r.projectId}:${r.platform}:${r.mcVersion ?? ""}`;
+        if (!latest.has(k)) {
+          latest.set(k, latestFile(r.source as ItemSource, r.projectId, { platform: r.platform as Platform, mcVersion: r.mcVersion }, teamId)
+            .then((f) => f?.versionId ?? null, () => null));
+        }
+        return latest.get(k)!;
+      };
+      const old = new Set<string>();
+      for (let i = 0; i < todo.length; i += 8) { // 配布元に一度に送りすぎない
+        await Promise.all(todo.slice(i, i + 8).map(async (r) => {
+          const v = await latestOf(r);
+          if (v && v !== r.versionId) old.add(`${r.source}:${r.projectId}`);
+        }));
+      }
+      if (!old.size) return [];
+      const items = await db.select({ id: libraryItem.id, source: libraryItem.source, projectId: libraryItem.projectId }).from(libraryItem).where(eq(libraryItem.teamId, teamId));
+      return items.filter((i) => old.has(`${i.source}:${i.projectId}`)).map((i) => i.id);
     },
 
     /** サーバーの名前・種類・バージョン */

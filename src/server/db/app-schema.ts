@@ -111,6 +111,28 @@ export const addonSetItem = pgTable(
   (t) => [primaryKey({ columns: [t.setId, t.itemId] })],
 );
 
+// ライブラリのタグ(チームの中で共有。チームはアイテムからたどる)
+export const libraryTag = pgTable(
+  "library_tag",
+  {
+    itemId: text("item_id").notNull().references(() => libraryItem.id, { onDelete: "cascade" }),
+    tag: text("tag").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.itemId, t.tag] })],
+);
+
+// ライブラリのお気に入り(利用者ごと)
+export const libraryFavorite = pgTable(
+  "library_favorite",
+  {
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    itemId: text("item_id").notNull().references(() => libraryItem.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.itemId] })],
+);
+
 // ポート管理: 種類(表の列)。mode = group(開始番号 + グループ番号から size 個)/ fixed(from–to)/ free(自由)。
 // file・key は読み書きする設定ファイルと項目(空 = 記録だけ)
 export const portKind = pgTable(

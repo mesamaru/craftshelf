@@ -13,5 +13,8 @@ describe("英語表示", () => {
     expect(translate("ロビー をサーバーに入れる")).toBe("Add ロビー to a server");
     expect(translate(" 件")).toBe(" items"); // {n} 件 のように分かれた単位
     expect(translate(" 台(入れたもの ")).toBe(" servers(installed ");
+    expect(translate("3 件を選んでいます")).toBe("3 selected");
+    expect(translate("LuckPerms を選ぶ")).toBe("Select LuckPerms");
+    expect(translate("更新を確かめています…")).toBe("Checking for updates…");
   });
 });

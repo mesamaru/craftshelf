@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { authClient } from "~/lib/auth-client";
-import { addLibraryItem, installMod, libraryCatalog, removeLibraryItem, searchCatalog } from "~/lib/library-api";
+import { addLibraryItem, favoriteLibraryItem, installMod, libraryCatalog, outdatedLibraryItems, removeLibraryItem, searchCatalog, tagLibraryItems } from "~/lib/library-api";
 import { localEnabled } from "~/lib/servers-api";
 import { SOURCE_LABEL, type ItemSource, type Source, isItemSource, pageUrl } from "~/lib/sources";
 import { removeUploadedFile, uploadedFiles } from "~/lib/uploads-api";
@@ -11,7 +11,7 @@ import { useCan } from "~/lib/use-can";
 import { Bell } from "~/lib/bell";
 import { OPEN_PALETTE } from "~/lib/palette";
 import { recentEvents } from "~/lib/events-api";
-import { listSets } from "~/lib/sets-api";
+import { listSets, toggleSetItem } from "~/lib/sets-api";
 
 export const Route = createFileRoute("/")({
   beforeLoad: ({ context }) => {
@@ -25,6 +25,128 @@ const message = (e: unknown) => (e instanceof Error ? e.message : "うまくい�
 const TYPE_LABEL: Record<string, string> = { plugin: "プラグイン", mod: "Mod" };
 
 type Catalog = Awaited<ReturnType<typeof libraryCatalog>>;
+type CatItem = Catalog["items"][number];
+
+// 一覧の絞り込み・並べ替え。oldIds は「更新あり」を確かめた結果(確かめるまでは null)
+type Filter = { q: string; type: string; source: string; tag: string; sort: "name" | "new"; old: boolean; oldIds: Set<string> | null };
+const NO_FILTER: Filter = { q: "", type: "", source: "", tag: "", sort: "name", old: false, oldIds: null };
+
+// お気に入りを上に。あとは名前順(サーバーから名前順で来る)か、追加日が新しい順
+function filterItems(items: CatItem[], f: Filter) {
+  const q = f.q.trim().toLowerCase();
+  return items
+    .filter((i) => (!q || i.title.toLowerCase().includes(q)) && (!f.type || i.projectType === f.type) && (!f.source || i.source === f.source)
+      && (!f.tag || i.tags.includes(f.tag)) && (!f.old || !!f.oldIds?.has(i.id)))
+    .sort((a, b) => Number(b.favorite) - Number(a.favorite) || (f.sort === "new" ? b.createdAt.localeCompare(a.createdAt) : 0));
+}
+
+function Filters({ cat, f, setF }: { cat: Catalog; f: Filter; setF: (fn: (f: Filter) => Filter) => void }) {
+  const outdated = useServerFn(outdatedLibraryItems);
+  const [error, setError] = useState("");
+  const tags = [...new Set(cat.items.flatMap((i) => i.tags))].sort((a, b) => a.localeCompare(b, "ja"));
+  const sources = [...new Set(cat.items.map((i) => i.source))];
+  const set = (p: Partial<Filter>) => setF((x) => ({ ...x, ...p }));
+  const toggleOld = () => {
+    if (f.old) return set({ old: false });
+    set({ old: true });
+    setError("");
+    if (!f.oldIds) outdated().then((ids) => set({ oldIds: new Set(ids) }), (e) => { setError(message(e)); set({ old: false }); });
+  };
+  return (
+    <section className="group">
+      <input className="row" type="search" placeholder="名前で絞り込む" aria-label="名前で絞り込む" value={f.q} onChange={(e) => set({ q: e.target.value })} />
+      <div className="row filters">
+        <select value={f.type} aria-label="種類" onChange={(e) => set({ type: e.target.value })}>
+          <option value="">すべての種類</option>
+          <option value="plugin">プラグイン</option>
+          <option value="mod">Mod</option>
+        </select>
+        <select value={f.source} aria-label="配布元" onChange={(e) => set({ source: e.target.value })}>
+          <option value="">すべての配布元</option>
+          {sources.map((s) => <option key={s} value={s}>{isItemSource(s) ? SOURCE_LABEL[s] : s}</option>)}
+        </select>
+        <select value={f.sort} aria-label="並べ替え" onChange={(e) => set({ sort: e.target.value as Filter["sort"] })}>
+          <option value="name">名前順</option>
+          <option value="new">追加日が新しい順</option>
+        </select>
+      </div>
+      <div className="row">
+        <span className="seg">
+          <button type="button" className={f.old ? "on" : ""} aria-pressed={f.old} onClick={toggleOld}
+            title="どこかのサーバーに古い版が入っているもの(配布元に問い合わせます。更新を止めたものは除きます)">
+            {f.old && !f.oldIds ? "確かめています…" : "更新あり"}
+          </button>
+          {tags.map((t) => (
+            <button key={t} type="button" className={f.tag === t ? "on" : ""} aria-pressed={f.tag === t} onClick={() => set({ tag: f.tag === t ? "" : t })}>
+              <span translate="no">#{t}</span>
+            </button>
+          ))}
+        </span>
+      </div>
+      {error && <p className="row error" role="alert">{error}</p>}
+    </section>
+  );
+}
+
+// チェックで選んだものをまとめて: タグを付ける・セットに足す・ライブラリから外す
+function Bulk({ ids, onDone }: { ids: string[]; onDone: (clear: boolean) => void }) {
+  const tag = useServerFn(tagLibraryItems);
+  const toSet = useServerFn(toggleSetItem);
+  const remove = useServerFn(removeLibraryItem);
+  const loadSets = useServerFn(listSets);
+  const [sets, setSets] = useState<{ id: string; name: string }[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => { loadSets().then(setSets, () => setSets([])); }, []);
+  const run = async (fn: () => Promise<string>, clear: boolean) => {
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      setNote(await fn());
+      onDone(clear);
+    } catch (e) {
+      setError(message(e));
+      onDone(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const addTag = () => {
+    const t = prompt("付けるタグ(30 文字まで)")?.trim();
+    if (t) run(async () => { await tag({ data: { itemIds: ids, tag: t, on: true } }); return `タグ「${t}」を付けました`; }, false);
+  };
+  const addToSet = (setId: string) => {
+    const s = sets.find((x) => x.id === setId);
+    if (s) run(async () => { for (const itemId of ids) await toSet({ data: { id: setId, itemId, add: true } }); return `セット「${s.name}」に足しました`; }, false);
+  };
+  const removeAll = () => {
+    if (confirm(`${ids.length} 件をライブラリから外しますか?(サーバーに入っているファイルはそのままです)`)) {
+      run(async () => { for (const itemId of ids) await remove({ data: { itemId } }); return `${ids.length} 件を外しました`; }, true);
+    }
+  };
+  return (
+    <section className="group">
+      <div className="row">
+        <span className="main strong">{`${ids.length} 件を選んでいます`}</span>
+        {busy && <span className="trail muted">しています…</span>}
+      </div>
+      <div className="row filters">
+        <button className="link" type="button" disabled={busy} onClick={addTag}>タグを付ける</button>
+        {sets.length > 0 && (
+          <select value="" disabled={busy} aria-label="セットに足す" onChange={(e) => addToSet(e.target.value)}>
+            <option value="">セットに足す…</option>
+            {sets.map((s) => <option key={s.id} value={s.id} translate="no">{s.name}</option>)}
+          </select>
+        )}
+        <button className="link danger" type="button" disabled={busy} onClick={removeAll}>ライブラリから外す</button>
+      </div>
+      {note && <p className="row muted" role="status">{note}</p>}
+      {error && <p className="row error" role="alert">{error}</p>}
+    </section>
+  );
+}
 
 // ライブラリ: チームで使う Mod・プラグインの目録(どのサーバーにどの版が入っているか・サーバーに入れる)
 function Home() {
@@ -41,6 +163,15 @@ function Home() {
   useEffect(() => { isLocal().then(setUploads, () => setUploads(false)); }, []);
 
   const edit = can({ library: ["edit"] });
+  const [f, setF] = useState<Filter>(NO_FILTER);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const shown = cat ? filterItems(cat.items, f) : [];
+  const favorite = useServerFn(favoriteLibraryItem);
+  // 先に画面を変え、うまくいかなければ読み直す
+  const toggleFavorite = (item: CatItem) => {
+    setCat((c) => c && { ...c, items: c.items.map((x) => (x.id === item.id ? { ...x, favorite: !item.favorite } : x)) });
+    favorite({ data: { itemId: item.id, on: !item.favorite } }).catch((e) => { setError(message(e)); reload(); });
+  };
   return (
     <main className="page narrow">
       <header className="bar">
@@ -61,10 +192,19 @@ function Home() {
       </section>
 
       <div className="group-title">Mod・プラグイン</div>
+      {cat && cat.items.length > 0 && <Filters cat={cat} f={f} setF={setF} />}
+      {edit && picked.size > 0 && <Bulk ids={[...picked]} onDone={(clear) => { if (clear) setPicked(new Set()); reload(); }} />}
       <section className="group">
         {!cat && !error && <div className="row muted">読み込んでいます…</div>}
         {cat?.items.length === 0 && <div className="row muted">まだ何もありません。サーバーに入れたものは自動でここに載ります。下の「配布元から足す」でも登録できます。</div>}
-        {cat?.items.map((i) => <Item key={i.id} item={i} servers={cat.servers} edit={edit} onChange={reload} />)}
+        {cat && cat.items.length > 0 && shown.length === 0 && <div className="row muted">{f.old && !f.oldIds ? "更新を確かめています…" : "条件に合うものはありません"}</div>}
+        {edit && shown.length > 1 && (
+          <button className="row link" type="button" onClick={() => setPicked(shown.every((i) => picked.has(i.id)) ? new Set() : new Set(shown.map((i) => i.id)))}>
+            {shown.every((i) => picked.has(i.id)) ? "選ぶのをやめる" : `表示している ${shown.length} 件をすべて選ぶ`}
+          </button>
+        )}
+        {cat && shown.map((i) => <Item key={i.id} item={i} servers={cat.servers} edit={edit} onChange={reload} onFavorite={() => toggleFavorite(i)}
+          picked={picked.has(i.id)} onPick={(on) => setPicked((p) => { const n = new Set(p); if (on) n.add(i.id); else n.delete(i.id); return n; })} />)}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
       <p className="foot">チームで使う Mod・プラグインの一覧です。Modrinth・SpigotMC のものは、サーバーが配布元から直接取り込みます(アップロードしたものは、保存先から送ります)。入れる版は、サーバーの種類とバージョンに合うものを選びます(Paper のサーバーには Paper 向けの作りを優先)。</p>
@@ -75,10 +215,11 @@ function Home() {
   );
 }
 
-function Item({ item, servers, edit, onChange }:
-  { item: Catalog["items"][number]; servers: Catalog["servers"]; edit: boolean; onChange: () => void }) {
+function Item({ item, servers, edit, onChange, onFavorite, picked, onPick }:
+  { item: CatItem; servers: Catalog["servers"]; edit: boolean; onChange: () => void; onFavorite: () => void; picked: boolean; onPick: (on: boolean) => void }) {
   const install = useServerFn(installMod);
   const remove = useServerFn(removeLibraryItem);
+  const tag = useServerFn(tagLibraryItems);
   const [busy, setBusy] = useState("");
   const [showFiles, setShowFiles] = useState(false);
   const [error, setError] = useState("");
@@ -100,6 +241,7 @@ function Item({ item, servers, edit, onChange }:
 
   return (
     <div className="row hit">
+      {edit && <input type="checkbox" checked={picked} onChange={(e) => onPick(e.target.checked)} aria-label={`${item.title} を選ぶ`} />}
       {item.iconUrl ? <img src={item.iconUrl} alt="" width={40} height={40} loading="lazy" /> : <span className="icon-ph" />}
       <span className="main">
         {pageUrl(item.source, item.projectId, item.slug)
@@ -110,11 +252,25 @@ function Item({ item, servers, edit, onChange }:
             ? <span translate="no">{item.installs.map((x) => `${x.serverName} ${x.versionNumber}`).join("、")}</span>
             : "どのサーバーにも入っていません"}
         </span>
-        {busy && <span className="muted">{busy === "remove" ? "外しています…" : "サーバーに入れています…"}</span>}
+        {(item.tags.length > 0 || edit) && (
+          <span>
+            {item.tags.map((t) => edit
+              ? <button key={t} type="button" className="badge muted-badge" title="押すとタグを外します" disabled={!!busy}
+                  onClick={() => run("tag", () => tag({ data: { itemIds: [item.id], tag: t, on: false } }))}><span translate="no">#{t}</span> ×</button>
+              : <span key={t} className="badge muted-badge" translate="no">#{t}</span>)}
+            {edit && <button className="link small" type="button" disabled={!!busy}
+              onClick={() => { const t = prompt("付けるタグ(30 文字まで)")?.trim(); if (t) run("tag", () => tag({ data: { itemIds: [item.id], tag: t, on: true } })); }}>+ タグ</button>}
+          </span>
+        )}
+        {busy && busy !== "tag" && <span className="muted">{busy === "remove" ? "外しています…" : "サーバーに入れています…"}</span>}
         {error && <span className="error" role="alert">{error}</span>}
         {item.source === "upload" && <button className="link small" type="button" onClick={() => setShowFiles((v) => !v)}>{showFiles ? "版を閉じる" : "版を見る"}</button>}
         {showFiles && <Files itemId={item.id} title={item.title} edit={edit} />}
       </span>
+      <button type="button" className="link star" aria-pressed={item.favorite} onClick={onFavorite}
+        aria-label={item.favorite ? "お気に入りから外す" : "お気に入りにする"} title={item.favorite ? "お気に入りから外す" : "お気に入りにする"}>
+        {item.favorite ? "★" : "☆"}
+      </button>
       {edit && targets.length > 0 && (
         <select className="trail" value="" disabled={!!busy} aria-label={`${item.title} をサーバーに入れる`}
           onChange={(e) => { const sid = e.target.value; if (sid && isItemSource(item.source)) run(sid, () => install({ data: { id: sid, projectId: item.projectId, source: item.source as ItemSource } })); }}>

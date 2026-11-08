@@ -79,3 +79,13 @@ export const undoChange = createServerFn({ method: "POST" })
 export const rollbackMod = createServerFn({ method: "POST" })
   .validator(z.object({ id: sid, projectId: z.string().max(40), source }))
   .handler(async ({ data }) => (await svc()).rollback(headers(), data.id, data.source, data.projectId));
+
+export const tagLibraryItems = createServerFn({ method: "POST" })
+  .validator(z.object({ itemIds: z.array(sid).min(1).max(500), tag: z.string().max(60), on: z.boolean() }))
+  .handler(async ({ data }) => (await svc()).tagItems(headers(), data.itemIds, data.tag, data.on));
+
+export const favoriteLibraryItem = createServerFn({ method: "POST" })
+  .validator(z.object({ itemId: sid, on: z.boolean() }))
+  .handler(async ({ data }) => (await svc()).favorite(headers(), data.itemId, data.on));
+
+export const outdatedLibraryItems = createServerFn({ method: "GET" }).handler(async () => (await svc()).outdated(headers()));

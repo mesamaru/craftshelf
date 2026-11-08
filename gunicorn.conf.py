@@ -4,6 +4,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+# 自己更新(HUP)のたびにこのファイルを読み直す。古い v03switch が親に残るとワーカーにも引き継がれるので、読み込み直す
+sys.modules.pop("v03switch", None)
 import v03switch  # noqa: E402
 
 v03switch.maybe_exec(int(os.environ.get("PORT") or 8080))

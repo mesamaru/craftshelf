@@ -181,3 +181,15 @@ def test_preflight_lists_what_is_not_carried_over():
     assert any(x.startswith("Discord") for x in notes)
     assert not any(x.startswith("API トークン") for x in notes)  # 表が無ければ数えない
     assert not any("個別に付けた権限" in x for x in notes)
+
+
+def test_gunicorn_conf_reloads_v03switch(monkeypatch, tmp_path):
+    """自己更新(HUP)で gunicorn.conf.py を読み直すと、親に残っていた古い v03switch を新しいものに入れ替える。"""
+    import runpy
+    import types
+    stale = types.ModuleType("v03switch")
+    stale.maybe_exec = lambda port: None
+    monkeypatch.setitem(sys.modules, "v03switch", stale)
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))  # v03 に切り替えていないので、乗り換えない
+    runpy.run_path(str(Path(__file__).resolve().parent.parent / "gunicorn.conf.py"))
+    assert sys.modules["v03switch"] is not stale and hasattr(sys.modules["v03switch"], "preflight")

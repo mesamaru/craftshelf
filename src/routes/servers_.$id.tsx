@@ -1,12 +1,12 @@
 import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { identifyMods, serverChanges, undoChange, installMod, installedMods, modUpdates, removeMod, rollbackMod, searchMods, serverDetail, setModHold, setProfile } from "~/lib/library-api";
+import { identifyMods, serverChanges, undoChange, installMod, installedMods, modUpdates, removeMod, rollbackMod, searchMods, serverDetail, setModEnabled, setModHold, setProfile } from "~/lib/library-api";
 import { importServerFile } from "~/lib/uploads-api";
 import { ApplyResults } from "~/lib/apply-results";
 import { PLATFORMS, PLATFORM_IDS } from "~/lib/platforms";
-import { localSettings, setLocalSettings } from "~/lib/servers-api";
-import { bindServerSet, listSets, syncServerSet } from "~/lib/sets-api";
+import { listServers, localSettings, setLocalSettings } from "~/lib/servers-api";
+import { bindServerSet, copyServer, listSets, setAutoUpdate, syncServerSet } from "~/lib/sets-api";
 import { SOURCE_LABEL, type Source, pageUrl } from "~/lib/sources";
 import { useCan } from "~/lib/use-can";
 import { rollbackSoftware, softwareInfo, updateSoftware } from "~/lib/software-api";
@@ -56,7 +56,8 @@ function ServerPage() {
         <>
           <Software id={server.id} admin={can({ server: ["update"] })} />
           <SetBinding id={server.id} name={server.name} edit={edit} onSynced={reload} />
-          <Installed id={server.id} items={items} error={error} edit={edit} local={app.mode === "self"}
+          {edit && <CopyServers id={server.id} name={server.name} onDone={reload} />}
+          <Installed id={server.id} items={items} error={error} edit={edit} local={app.mode === "self"} auto={server.autoUpdate}
             dir={PLATFORMS[server.profile.platform].dir} onChange={reload} />
           <Changes id={server.id} edit={edit} items={items} onChange={reload} />
           {edit && <Search id={server.id} installed={items ?? []}
@@ -114,9 +115,12 @@ function Profile({ id, profile, editable }:
   );
 }
 
-function Installed({ id, items, error, edit, local, dir, onChange }:
-  { id: string; items: Installed[] | null; error: string; edit: boolean; local: boolean; dir: string; onChange: () => void }) {
+function Installed({ id, items, error, edit, local, auto, dir, onChange }:
+  { id: string; items: Installed[] | null; error: string; edit: boolean; local: boolean; auto: boolean; dir: string; onChange: () => void }) {
+  const router = useRouter();
   const identify = useServerFn(identifyMods);
+  const toggle = useServerFn(setModEnabled);
+  const setAuto = useServerFn(setAutoUpdate);
   const importFile = useServerFn(importServerFile);
   const [found, setFound] = useState("");
   const check = useServerFn(modUpdates);
@@ -152,11 +156,29 @@ function Installed({ id, items, error, edit, local, dir, onChange }:
         {!items && !error && <div className="row muted">サーバーに問い合わせています…</div>}
         {items?.length === 0 && <div className="row muted">まだ何も入っていません。</div>}
         {items?.map((m) => {
-          const u = updates?.get(m.filename);
+          const u = m.disabled ? undefined : updates?.get(m.filename);
+          // 押せるもの(はじめのものを右に寄せる)
+          const acts: { key: string; label: string; danger?: boolean; fn: () => void }[] = !edit ? [] : [
+            ...(u ? [{ key: m.filename, label: busy === m.filename ? "更新中…" : "更新",
+              fn: () => run(m.filename, async () => { await install({ data: { id, projectId: u.projectId, source: u.source } }); setUpdates((p) => { const n = new Map(p); n.delete(m.filename); return n; }); }) }] : []),
+            ...(m.canRollback && m.projectId && m.source && !m.disabled ? [{ key: `rb:${m.filename}`, label: busy === `rb:${m.filename}` ? "戻しています…" : "前の版に戻す",
+              fn: () => confirm(`${m.title} を前の版に戻しますか?(戻したあとは「更新を止める」になります)`) && run(`rb:${m.filename}`, () => rollback({ data: { id, projectId: m.projectId!, source: m.source as Source } })) }] : []),
+            ...(m.projectId && m.source ? [{ key: `hold:${m.filename}`, label: m.held ? "止めるのをやめる" : "更新を止める",
+              fn: () => run(`hold:${m.filename}`, () => hold({ data: { id, projectId: m.projectId!, source: m.source as Source, hold: !m.held } })) }] : []),
+            ...(local && !m.projectId ? [{ key: `imp:${m.filename}`, label: busy === `imp:${m.filename}` ? "取り込んでいます…" : "ライブラリに取り込む",
+              fn: () => run(`imp:${m.filename}`, () => importFile({ data: { id, filename: m.filename } })) }] : []),
+            { key: `tg:${m.filename}`, label: m.disabled ? "有効にする" : "無効にする",
+              fn: () => run(`tg:${m.filename}`, () => toggle({ data: { id, filename: m.filename, enable: m.disabled } })) },
+            { key: `rm:${m.filename}`, label: "外す", danger: true,
+              fn: () => confirm(`${m.title ?? m.filename} を外しますか?(「変更の履歴」から元に戻せます)`) && run(m.filename, () => remove({ data: { id, filename: m.filename } })) },
+          ];
           return (
             <div className="row" key={m.filename}>
               <span className="main">
-                <span translate="no">{m.title ?? m.filename}</span>
+                <span>
+                  <span translate="no">{m.title ?? m.filename}</span>
+                  {m.disabled && <span className="badge muted-badge">無効</span>}
+                </span>
                 {m.title && (
                   <span className="muted" translate="no">
                     {m.versionNumber} · {m.filename}
@@ -165,36 +187,9 @@ function Installed({ id, items, error, edit, local, dir, onChange }:
                   </span>
                 )}
               </span>
-              {edit && u && (
-                <button className="trail link" type="button" disabled={!!busy}
-                  onClick={() => run(m.filename, async () => { await install({ data: { id, projectId: u.projectId, source: u.source } }); setUpdates((p) => { const n = new Map(p); n.delete(m.filename); return n; }); })}>
-                  {busy === m.filename ? "更新中…" : "更新"}
-                </button>
-              )}
-              {edit && m.canRollback && m.projectId && m.source && (
-                <button className={`${u ? "" : "trail "}link`} type="button" disabled={!!busy}
-                  onClick={() => confirm(`${m.title} を前の版に戻しますか?(戻したあとは「更新を止める」になります)`) && run(`rb:${m.filename}`, () => rollback({ data: { id, projectId: m.projectId!, source: m.source as Source } }))}>
-                  {busy === `rb:${m.filename}` ? "戻しています…" : "前の版に戻す"}
-                </button>
-              )}
-              {edit && m.projectId && m.source && (
-                <button className={`${u || m.canRollback ? "" : "trail "}link`} type="button" disabled={!!busy}
-                  onClick={() => run(`hold:${m.filename}`, () => hold({ data: { id, projectId: m.projectId!, source: m.source as Source, hold: !m.held } }))}>
-                  {m.held ? "止めるのをやめる" : "更新を止める"}
-                </button>
-              )}
-              {edit && local && !m.projectId && (
-                <button className="trail link" type="button" disabled={!!busy}
-                  onClick={() => run(`imp:${m.filename}`, () => importFile({ data: { id, filename: m.filename } }))}>
-                  {busy === `imp:${m.filename}` ? "取り込んでいます…" : "ライブラリに取り込む"}
-                </button>
-              )}
-              {edit && (
-                <button className={`${u || m.projectId || local ? "" : "trail "}link danger`} type="button" disabled={!!busy}
-                  onClick={() => confirm(`${m.title ?? m.filename} を外しますか?(「変更の履歴」から元に戻せます)`) && run(m.filename, () => remove({ data: { id, filename: m.filename } }))}>
-                  外す
-                </button>
-              )}
+              {acts.map((a, i) => (
+                <button key={a.key} className={`${i === 0 ? "trail " : ""}link${a.danger ? " danger" : ""}`} type="button" disabled={!!busy} onClick={a.fn}>{a.label}</button>
+              ))}
             </div>
           );
         })}
@@ -212,8 +207,16 @@ function Installed({ id, items, error, edit, local, dir, onChange }:
             {busy === "check" ? "確かめています…" : updates ? `更新を確かめる(${updates.size} 件あり)` : "更新を確かめる"}
           </button>
         )}
+        {items && (edit ? (
+          <label className="row">
+            <span>自動更新(6 時間ごとに、新しい版があれば入れる)</span>
+            <input className="trail" type="checkbox" checked={auto} disabled={!!busy}
+              onChange={(e) => { const on = e.target.checked; run("auto", async () => { await setAuto({ data: { serverId: id, on } }); await router.invalidate(); }); }} />
+          </label>
+        ) : auto && <div className="row"><span>自動更新</span><span className="trail">オン</span></div>)}
         {(error || err) && <p className="row error" role="alert">{error || err}</p>}
       </section>
+      <p className="foot">「無効にする」と、ファイルを消さずに名前の最後に .disabled を付けて止めます(更新・自動更新の対象からも外れます)。自動更新は、ライブラリ(配布元・アップロード)に新しい版が出たら入れます。「更新を止める」にしたもの・無効にしたものは入れ替えません。</p>
       <p className="foot">Modrinth・SpigotMC から入れたものは、版と更新がわかります。それ以外のファイルは名前だけを表示します(「配布元を探す」で、ファイルの中身から Modrinth・CurseForge のものかを確かめられます)。「更新を止める」にしたものは、セットでそろえる・予約・更新の確認で新しい版にしません。変更はサーバーの再起動で反映されます。</p>
     </>
   );
@@ -355,6 +358,80 @@ function SetBinding({ id, name, edit, onSynced }: { id: string; name: string; ed
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
       <p className="foot">「セットでそろえる」は、セットのうちこのサーバーの種類に合うもので、足りないものを入れ、入っているものに新しい版があれば更新します。セットに無いものは外しません。</p>
+    </>
+  );
+}
+
+// ほかのサーバーとそろえる: このサーバーを、ほかのサーバーの構成に合わせる / このサーバー(検証用)の構成を、本番のサーバーへ反映する
+function CopyServers({ id, name, onDone }: { id: string; name: string; onDone: () => void }) {
+  const load = useServerFn(listServers);
+  const copy = useServerFn(copyServer);
+  const [others, setOthers] = useState<{ id: string; name: string }[] | null>(null);
+  const [mode, setMode] = useState<"update" | "add" | "mirror">("add");
+  const [from, setFrom] = useState("");
+  const [to, setTo] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState("");
+  const [results, setResults] = useState<Awaited<ReturnType<typeof copyServer>> | null>(null);
+  const [error, setError] = useState("");
+  useEffect(() => { load().then((l) => setOthers(l.filter((s) => s.id !== id)), (e) => setError(message(e))); }, [id]);
+  if (!others?.length) return null;
+
+  const run = async (key: string, ask: string, data: { from: string; to: string[] }) => {
+    if (!confirm(ask)) return;
+    setBusy(key);
+    setError("");
+    setResults(null);
+    try {
+      setResults(await copy({ data: { ...data, mode } }));
+      onDone();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy("");
+    }
+  };
+  const nameOf = (x: string) => others.find((o) => o.id === x)?.name ?? "";
+  return (
+    <>
+      <div className="group-title">ほかのサーバーとそろえる</div>
+      <section className="group form">
+        <div className="row">
+          <span>そろえ方</span>
+          <select className="trail" value={mode} aria-label="そろえ方" onChange={(e) => setMode(e.target.value as typeof mode)}>
+            <option value="update">入っているものだけ合わせる</option>
+            <option value="add">足りないものも入れる</option>
+            <option value="mirror">まったく同じにする</option>
+          </select>
+        </div>
+        <div className="row">
+          <span>このサーバーを、次のサーバーにそろえる</span>
+          <select className="trail" value={from} aria-label="そろえる元のサーバー" onChange={(e) => setFrom(e.target.value)}>
+            <option value="">選んでください…</option>
+            {others.map((o) => <option key={o.id} value={o.id} translate="no">{o.name}</option>)}
+          </select>
+        </div>
+        <button className="row link" type="button" disabled={!from || !!busy}
+          onClick={() => run("from", `「${name}」を「${nameOf(from)}」にそろえますか?`, { from, to: [id] })}>
+          {busy === "from" ? "そろえています…" : "そろえる"}
+        </button>
+        <div className="row muted">検証用から本番へ反映(このサーバーの構成を、選んだサーバーへそろえる)</div>
+        {others.map((o) => (
+          <label className="row" key={o.id}>
+            <span translate="no">{o.name}</span>
+            <input className="trail" type="checkbox" checked={to.has(o.id)}
+              onChange={(e) => setTo((x) => { const n = new Set(x); if (e.target.checked) n.add(o.id); else n.delete(o.id); return n; })} />
+          </label>
+        ))}
+        <button className="row link" type="button" disabled={!to.size || !!busy}
+          onClick={() => run("to", `「${name}」の構成を、選んだ ${to.size} 台へ反映しますか?`, { from: id, to: [...to] })}>
+          {busy === "to" ? "反映しています…" : `選んだ ${to.size} 台へ反映`}
+        </button>
+        {results?.map((r) => (r.error
+          ? <p className="row error" key={r.serverId}><span translate="no">{r.server}</span>: {r.error}</p>
+          : <ApplyResults key={r.serverId} server={r.server} verb="そろえた" list={r.results} empty="変えるものはありませんでした。" />))}
+        {error && <p className="row error" role="alert">{error}</p>}
+      </section>
+      <p className="foot">そろえる元のサーバーに、このアプリで入れたもの(無効にしたものは除く)と同じ版を入れます。「まったく同じにする」は、そろえる元に無いもの(このアプリで入れたもの)を外します。「更新を止める」にしたもの・無効にしたものは変えません。外したもの・入れ替えたものは「変更の履歴」から元に戻せます。</p>
     </>
   );
 }
@@ -522,12 +599,14 @@ function Changes({ id, edit, items, onChange }: { id: string; edit: boolean; ite
         {shown.map((c) => (
           <div className={`row${c.undone ? " faded" : ""}`} key={c.id}>
             <span className="main">
-              <span><span translate="no">{c.title}</span>{` を${c.action === "外す" ? "外した" : c.action === "更新" ? "更新した" : "入れた"}`}</span>
+              <span><span translate="no">{c.title}</span>{` を${({ 外す: "外した", 更新: "更新した", 無効にする: "無効にした", 有効にする: "有効にした" } as Record<string, string>)[c.action] ?? "入れた"}`}{c.config && <span className="badge muted-badge">設定も退避</span>}</span>
               <span className="muted small" translate="no">{new Date(c.at).toLocaleString("ja-JP")}{c.by ? ` · ${c.by}` : ""}{c.action === "更新" && c.version ? ` · 前の版 ${c.version}` : ""}{c.undone ? " · 元に戻しました" : ""}</span>
             </span>
             {edit && c.undoable && (
               <button className="trail link" type="button" disabled={!!busy} onClick={async () => {
-                if (!confirm(c.action === "外す" ? `${c.title} を元に戻しますか?(外したファイルを戻します)` : c.action === "入れる" ? `${c.title} を外しますか?(入れる前に戻します)` : `${c.title} を前の版(${c.version})に戻しますか?(戻したあとは「更新を止める」になります)`)) return;
+                if (!confirm(c.action === "外す" ? `${c.title} を元に戻しますか?(外したファイルを戻します)` : c.action === "入れる" ? `${c.title} を外しますか?(入れる前に戻します)`
+                  : c.action === "無効にする" ? `${c.title} を有効に戻しますか?` : c.action === "有効にする" ? `${c.title} を無効に戻しますか?`
+                  : `${c.title} を前の版(${c.version})に戻しますか?(戻したあとは「更新を止める」になります)`)) return;
                 setBusy(c.id);
                 setError("");
                 try {
@@ -546,6 +625,7 @@ function Changes({ id, edit, items, onChange }: { id: string; edit: boolean; ite
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
       <p className="foot">外したファイルは消さずに名前を変えて残すので、元に戻せます(1 台につき新しい 30 件まで)。変更はサーバーの再起動で反映されます。</p>
+      <p className="foot">プラグインを外す・入れ替えるときは、設定フォルダ(plugins/〈名前〉/)も plugins/.craftshelf-config に退避し、元に戻すと設定も戻します(ファイルが 100 個・20 MB を超えるフォルダは退避しません)。</p>
     </>
   );
 }

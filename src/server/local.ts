@@ -2,7 +2,7 @@
 // Pterodactyl のクライアント(ptero.ts)と同じ形にして、ライブラリ・セット・予約・ファイルとコマンド・ポートの処理をそのまま使う
 import { spawn } from "node:child_process";
 import { createWriteStream, existsSync, realpathSync, statSync } from "node:fs";
-import { mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { request } from "node:http";
 import { Socket } from "node:net";
 import { isAbsolute, join, resolve, sep, dirname } from "node:path";
@@ -281,7 +281,8 @@ export function localClient(root: string, fetch: FetchLike, control: Control): P
       const dir = inside(root, dirRel);
       for (const f of files) {
         if (/[\\/]/.test(f) || f === "." || f === "..") throw new PteroError("ファイルの名前が正しくありません");
-        await unlink(join(dir, f)).catch((e) => { if (e?.code !== "ENOENT") throw new PteroError(`${f} を消せませんでした`); });
+        // Pterodactyl と同じく、フォルダーなら中身ごと消す(退避した設定フォルダの片付け)
+        await rm(join(dir, f), { recursive: true, force: true }).catch(() => { throw new PteroError(`${f} を消せませんでした`); });
       }
     },
   };

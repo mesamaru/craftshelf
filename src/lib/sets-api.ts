@@ -37,3 +37,11 @@ export const bindServerSet = createServerFn({ method: "POST" })
 export const syncServerSet = createServerFn({ method: "POST" })
   .validator(z.object({ serverId: sid, removeExtra: z.boolean().default(false) }))
   .handler(async ({ data }) => (await svc()).sync(headers(), data.serverId, data.removeExtra));
+
+export const copyServer = createServerFn({ method: "POST" })
+  .validator(z.object({ from: sid, to: z.array(sid).min(1).max(50), mode: z.enum(["update", "add", "mirror"]) }))
+  .handler(async ({ data }) => (await svc()).copy(headers(), data.from, data.to, data.mode));
+
+export const setAutoUpdate = createServerFn({ method: "POST" })
+  .validator(z.object({ serverId: sid, on: z.boolean() }))
+  .handler(async ({ data }) => (await svc()).setAutoUpdate(headers(), data.serverId, data.on));

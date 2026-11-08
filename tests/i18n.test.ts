@@ -16,5 +16,10 @@ describe("英語表示", () => {
     expect(translate("3 件を選んでいます")).toBe("3 selected");
     expect(translate("LuckPerms を選ぶ")).toBe("Select LuckPerms");
     expect(translate("更新を確かめています…")).toBe("Checking for updates…");
+    expect(translate("自動更新")).toBe("Auto update");
+    expect(translate("自動更新(6 時間ごとに、新しい版があれば入れる)")).toBe("Auto update (every 6 hours, install new versions if any)");
+    expect(translate("プラグインを外す・入れ替えるときは、設定フォルダ(plugins/〈名前〉/)も plugins/.craftshelf-config に退避し、元に戻すと設定も戻します(ファイルが 100 個・20 MB を超えるフォルダは退避しません)。")).toMatch(/^When a plugin is removed/);
+    expect(translate("選んだ 2 台へ反映")).toBe("Promote to 2 selected");
+    expect(translate("この版は、このサーバーの種類・バージョンに合いません")).toBe("This version does not fit this server's type and version");
   });
 });

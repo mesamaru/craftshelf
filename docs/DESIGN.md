@@ -125,7 +125,11 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 
 - 配布元を探す(`library.identify`): このアプリの記録が無い jar を 1 回に 100 個まで読み(Pterodactyl はダウンロード用の URL から)、Modrinth の `version_files`(SHA-1)・CurseForge の `fingerprints`(`fingerprint.ts`、v02 と同じ MurmurHash2)で探す。見つかったものは `installed_mod` に記録し、ライブラリにも載せる(種類はサーバーの種類)。見つからないものは `uploads.fromServer` でアップロードしたものとして取り込める。
 
-- 変更の履歴(表 `server_change`): `installInto` が入れる・更新を、`remove` が外すを残す。外すときは消さずに `<名前>.craftshelf-removed` に名前を変える(元に戻すと名前を戻す)。更新を元に戻すのは `fileById` で前の版を取り直す(SpigotMC はできない)。1 台につき新しい 30 件までで、古いものの残したファイルも消す。セットの「セットに無いものを外す」も同じように残す。
+- 変更の履歴(表 `server_change`): `installInto` が入れる・更新を、`remove` が外すを残す。外すときは消さずに `<名前>.craftshelf-removed` に名前を変える(元に戻すと名前を戻す)。更新を元に戻すのは `fileById` で前の版を取り直す(SpigotMC はできない)。1 台につき新しい 30 件までで、古いものの残したファイルも消す。セットの「セットに無いものを外す」も同じように残す(外すのは `modTools.removeFrom` にまとめてある)。
+- 無効にする(`library.setEnabled`): 消さずに `<名前>.jar.disabled` に名前を変える(v02 と同じ)。`installed_mod` の記録の名前も変え、履歴(「無効にする」「有効にする」)から戻せる。無効にしたものは、更新の確認・セットでそろえる・自動更新・ほかのサーバーにそろえるで入れ替えない(比較の表・入っているものには「無効」と出す)。
+- 設定フォルダの退避: プラグインを外す・更新で入れ替えるとき、jar の plugin.yml の名前と同じフォルダ(`plugins/<名前>/`)を `plugins/.craftshelf-config/<key>/<名前>/` に写し、`server_change.config_backup` に残す。元に戻すと上書きで戻す。Pterodactyl・フォルダ・エージェントのどれでも動くよう、`listFiles`・`readBytes`・`upload` だけで 1 ファイルずつ写す(隠しファイルは除く。100 個・20 MB・6 段を超えるフォルダは退避しない)。退避できなくても入れ替え・外すは続ける。履歴を消すときに退避先も消す(フォルダのサーバーの `deleteFiles` も、Pterodactyl と同じくフォルダーを中身ごと消す)。
+- ほかのサーバーにそろえる(`sets.copy`、画面は「ほかのサーバーとそろえる」。検証用から本番へ反映するのも同じ): そろえる元の `installed_mod`(無効にしたものは除く)と同じ版を、そろえる先の種類・バージョンに合うときだけ入れる(`versionsOf` に無い版は入れない。SpigotMC はいちばん新しい版のときだけ)。`update` = 入っているものだけ / `add` = 足りないものも / `mirror` = さらに、そろえる元に無いもの(このアプリで入れたもの)を外す。先で止めているもの・無効にしたものは変えない。元で止めているものは、先でも止める。プラグインと Mod のサーバーどうしはそろえない。
+- ライブラリに取り込む(`library.adopt`、比較の表から): 配布元がわかっていてライブラリに無いもの(`catalog.orphans`)はそのまま載せる。記録の無い jar は `identifyIn` で中身から探し、見つからなければ `uploads.fromServer`(自分用の版だけ)。
 
 - バックアップ(`backup.ts`、自分用の版・PGlite だけ): PGlite の `dumpDataDir`・`secret`・`library` を `tar` でまとめ、`/data/v03/backups` に新しい 5 個を残す。戻すときは `restore-pending.tar.gz` を置いて終了し、次の起動で(データベースを開く前・鍵を読む前に)`applyPendingRestore` が入れ替える。今のデータは `before-restore-<日時>` に移し、失敗したら元に戻して `restore-failed-…` に名前を変える。
 
@@ -142,6 +146,7 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 - チームごとに 1 つ(表 `team_schedule`)。曜日・時刻(`tz`、いまは日本時間)・すること(`check` = 確かめるだけ / `sync` = そろえる)。決めるのは `server: ["update"]`。
 - `src/server/startup.ts` が 1 分ごとに `tick` を呼ぶ(前の回が終わっていなければ飛ばす)。時刻になったチームは、動かす前に `last_run_at` を条件付きで書き換え、書き換えられたときだけ動かす(同じ分に 2 回・複数のプロセスで重ねて動かさない)。
 - 中身は `setService.runForSchedule`(画面からは呼ばない)。セットを結び付けたサーバーを 1 台ずつ `applyTo` し、1 台が失敗しても残りは続ける。結果は `schedule` の種類で記録する(user_id は null)。
+- サーバーごとの自動更新(`server.auto_update`、入れる・やめるのは `library: ["edit"]`): 同じ 1 分ごとの見回りで `setService.runAutoUpdates` を呼ぶ。前に確かめてから 6 時間(`AUTO_UPDATE_EVERY`)たったサーバーを、`auto_updated_at` を条件付きで書き換えてから動かし、入っているものを `applyTo`(`sync`)で新しい版にする(止めたもの・無効にしたものは除く)。何か変えたとき・失敗したときだけ記録する。v02 で自動更新をオンにしていたサーバーは `maybeImportV02AutoUpdate` で一度だけ引き継ぐ(結果は `/data/v03/import-v02-auto-update.json`)。
 
 ## ファイルとコマンド
 

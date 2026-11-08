@@ -57,6 +57,13 @@ if (env.mode === "self") {
   } catch (e) {
     console.error("[v02] ライブラリの取り込みに失敗しました(v02 のデータはそのままです):", e);
   }
+  const { maybeImportV02AutoUpdate } = await import("./import-v02");
+  try {
+    const r = await maybeImportV02AutoUpdate(db, env);
+    if (r?.servers.length) console.log(`[v02] 自動更新を引き継ぎました: ${r.servers.join("、")}`);
+  } catch (e) {
+    console.error("[v02] 自動更新の取り込みに失敗しました(v02 のデータはそのままです):", e);
+  }
 }
 const { resendMailer } = await import("./mail");
 export const mailer = env.mail ? resendMailer(safeFetch, env.mail.resendKey, env.mail.from) : null;

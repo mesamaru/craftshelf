@@ -98,7 +98,7 @@ input.version { width: 96px; text-align: right; }
 .name { color: inherit; font-weight: 600; text-decoration: none; }
 /* ボタンや右端の表示は折り返さない(本文のほうを縮める) */
 .trail, .capsule, .link, .actions { white-space: nowrap; flex: none; }
-.main { flex: 1; }
+.main { flex: 1; overflow-wrap: anywhere; } /* 長いファイル名がボタンに重ならないように */
 html { background: #eef1f7; }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { background: #111214; } }
 :root[data-theme="dark"] { background: #111214; }

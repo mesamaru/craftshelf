@@ -29,6 +29,9 @@ export const server = pgTable(
     pteroConnectionId: text("ptero_connection_id").references(() => pteroConnection.id, { onDelete: "cascade" }),
     remoteId: text("remote_id"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
+    // 自動更新(03.49.00 から): 入れておくと、6 時間ごとに新しい版があれば入れる。auto_updated_at は最後に確かめた時刻
+    autoUpdate: boolean("auto_update").notNull().default(false),
+    autoUpdatedAt: timestamp("auto_updated_at"),
   },
   (t) => [
     index("server_team_idx").on(t.teamId),
@@ -410,6 +413,8 @@ export const serverChange = pgTable(
     removed: text("removed").notNull().default(""),
     backup: text("backup").notNull().default(""),
     undone: boolean("undone").notNull().default(false),
+    // 退避したプラグインの設定フォルダ(<dir>/.craftshelf-config/ の下の "<key>/<フォルダ名>"。03.49.00 から)
+    configBackup: text("config_backup").notNull().default(""),
     at: timestamp("at").defaultNow().notNull(),
   },
   (t) => [index("server_change_server_idx").on(t.serverId, t.at)],

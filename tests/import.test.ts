@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 import { signupOpen } from "~/server/auth";
 import { addonSet, addonSetItem, libraryFile, libraryItem, localServer, pteroConnection, server, serverProfile, storageTarget } from "~/server/db/schema";
 import * as schema from "~/server/db/schema";
-import { maybeImportV02, maybeImportV02Library, type ImportReport } from "~/server/import-v02";
+import { maybeImportV02, maybeImportV02AutoUpdate, maybeImportV02Library, type ImportReport } from "~/server/import-v02";
 import { totpCode } from "~/server/legacy";
 import { open } from "~/server/secrets";
 import { TEST_SECRET, setup } from "./helpers";
@@ -57,6 +57,8 @@ function makeV02(dir: string) {
   d.prepare("UPDATE servers SET root_dir=?, control='command', start_cmd='./start.sh', rcon_port=25575 WHERE identifier='local-1'").run(mkdtempSync(join(tmpdir(), "cs-v02srv-")));
   d.prepare("UPDATE servers SET root_dir=? WHERE identifier='local-2'").run(join(tmpdir(), "cs-no-such-folder-x"));
   d.exec("INSERT INTO passkeys VALUES (1, 1, 'x'); ");
+  d.exec("ALTER TABLE servers ADD COLUMN auto_update TEXT NOT NULL DEFAULT 'off'"); // 01.17 の自動更新
+  d.exec("UPDATE servers SET auto_update='auto' WHERE identifier IN ('abcd1234', 'local-1', 'local-2')");
   // 保存先: 1 = パネルの中 / 2 = SMB(v03 はまだつなげない)。自作は 1 に、NASだけ は 2 にだけ版がある
   d.exec(`
     INSERT INTO storage_targets (name, protocol, server, share, active) VALUES ('パネルの中', 'local', '', '', 1), ('家の NAS', 'smb', 'nas.example.test', 'share', 0);
@@ -202,5 +204,16 @@ describe("v02 のフォルダのサーバーの取り込み", () => {
     const [row] = await t.db.select({ name: server.name, control: localServer.control, start: localServer.startCmd, rcon: localServer.rconPort, platform: serverProfile.platform })
       .from(localServer).innerJoin(server, eq(localServer.serverId, server.id)).leftJoin(serverProfile, eq(serverProfile.serverId, server.id));
     expect(row).toEqual({ name: "家のサーバー", control: "command", start: "./start.sh", rcon: 25575, platform: "fabric" });
+  });
+});
+
+describe("v02 の自動更新の取り込み", () => {
+  it("自動更新をオンにしていたサーバーを、Pterodactyl は識別子・フォルダはフォルダの場所で探してオンにする。一度だけ", async () => {
+    const r = (await maybeImportV02AutoUpdate(t.db, { v02Dir, v03Dir, dataDir: v03Dir }))!;
+    expect(r.servers).toEqual(["サバイバル", "家のサーバー"]); // 消えたサーバーは取り込んでいない
+    const on = await t.db.select({ name: server.name }).from(server).where(eq(server.autoUpdate, true));
+    expect(on.map((x) => x.name).sort()).toEqual(["サバイバル", "家のサーバー"].sort());
+    expect(await maybeImportV02AutoUpdate(t.db, { v02Dir, v03Dir, dataDir: v03Dir })).toBeNull();
+    expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
   });
 });

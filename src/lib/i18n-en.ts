@@ -1,6 +1,35 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  // 無効にする・設定フォルダの退避・ほかのサーバーにそろえる・ライブラリに取り込む・自動更新
+  "無効にする": "Disable",
+  "「無効にする」と、ファイルを消さずに名前の最後に .disabled を付けて止めます(更新・自動更新の対象からも外れます)。自動更新は、ライブラリ(配布元・アップロード)に新しい版が出たら入れます。「更新を止める」にしたもの・無効にしたものは入れ替えません。":
+    "“Disable” stops an add-on without deleting it by adding .disabled to the end of its name (it is also skipped by updates and auto update). Auto update installs new versions when they appear in the library (sources and uploads). Paused and disabled items are not replaced.",
+  "設定も退避": "Config saved",
+  "ほかのサーバーとそろえる": "Match with other servers",
+  "そろえ方": "How to match",
+  "入っているものだけ合わせる": "Only match what is installed",
+  "足りないものも入れる": "Also install missing items",
+  "まったく同じにする": "Make identical",
+  "このサーバーを、次のサーバーにそろえる": "Match this server to",
+  "そろえる元のサーバー": "Source server",
+  "そろえる": "Match",
+  "検証用から本番へ反映(このサーバーの構成を、選んだサーバーへそろえる)": "Promote from staging to production (match the selected servers to this server)",
+  "反映しています…": "Promoting…",
+  "変えるものはありませんでした。": "Nothing to change.",
+  "そろえる元のサーバーに、このアプリで入れたもの(無効にしたものは除く)と同じ版を入れます。「まったく同じにする」は、そろえる元に無いもの(このアプリで入れたもの)を外します。「更新を止める」にしたもの・無効にしたものは変えません。外したもの・入れ替えたものは「変更の履歴」から元に戻せます。":
+    "Installs the same versions as the add-ons installed by this app on the source server (except disabled ones). “Make identical” also removes items (installed by this app) that the source does not have. Paused and disabled items are not changed. Removed and replaced items can be undone from the change history.",
+  "ライブラリに無いもの(配布元はわかっています)": "Not in the library (source known)",
+  "入っているもの・ライブラリに無いものを押すと、無効にする(消さずに止める)・有効にする・ライブラリに取り込むもできます。配布元のわからないものは、ファイルの中身から探し、見つからなければアップロードしたものとして取り込みます(自分用の版)。":
+    "Click an installed item or one not in the library to disable it (stop without deleting), enable it, or import it to the library. For unknown items, the source is looked up from the file contents; if none is found, it is imported as an upload (self-hosted edition).",
+  "版を変える・無効にする・外す": "Change version, disable or remove",
+  "ライブラリに取り込む・無効にする・外す": "Import to library, disable or remove",
+  "すでに有効です": "Already enabled",
+  "すでに無効です": "Already disabled",
+  "そろえ方を選んでください": "Choose how to match",
+  "そろえる先のサーバーを選んでください": "Choose the servers to match",
+  "プラグインのサーバーと Mod のサーバーはそろえられません": "A plugin server and a mod server cannot be matched",
+  "配布元が見つかりませんでした(配布元のわからないファイルを取り込めるのは、自分用の版だけです)": "No source was found (files of unknown origin can be imported only in the self-hosted edition)",
   // ライブラリの絞り込み・タグ・お気に入り・まとめて操作
   "条件に合うものはありません": "Nothing matches",
   "更新を確かめています…": "Checking for updates…",
@@ -936,6 +965,8 @@ export const EN: Record<string, string> = {
 };
 /** 1 文字だけのもの(曜日など)。文全体が一致したときだけ置き換える */
 export const EN_WHOLE: Record<string, string> = {
+  "無効": "Disabled",
+  "自動更新": "Auto update",
   "同じ": "Identical",
   "ない": "Missing",
   "違い": "Lines",
@@ -971,6 +1002,18 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^自動更新\(6 時間ごとに、新しい版があれば入れる\)$/, "Auto update (every 6 hours, install new versions if any)"],
+  [/^プラグインを外す・入れ替えるときは、設定フォルダ\(plugins\/〈名前〉\/\)も plugins\/\.craftshelf-config に退避し、元に戻すと設定も戻します\(ファイルが 100 個・20 MB を超えるフォルダは退避しません\)。$/,
+    "When a plugin is removed or replaced, its config folder (plugins/<name>/) is also saved to plugins/.craftshelf-config, and undoing restores the config too (folders over 100 files or 20 MB are not saved)."],
+  [/^ を無効にした$/, " disabled"], [/^ を有効にした$/, " enabled"],
+  [/^(.+?) を有効に戻しますか[?？]$/, "Enable $1 again?"],
+  [/^(.+?) を無効に戻しますか[?？]$/, "Disable $1 again?"],
+  [/^選んだ (\d+) 台へ反映$/, "Promote to $1 selected"],
+  [/^「(.+?)」を「(.+?)」にそろえますか[?？]$/, "Match “$1” to “$2”?"],
+  [/^「(.+?)」の構成を、選んだ (\d+) 台へ反映しますか[?？]$/, "Promote the setup of “$1” to $2 selected servers?"],
+  [/^無効にしています\((.+?)\)$/, "Disabled ($1)"],
+  [/^SpigotMC のものは、いちばん新しい版しか入れられません\((.+?)\)$/, "Only the newest SpigotMC version can be installed ($1)"],
+  [/^(.+?) は、このサーバーの種類・バージョンに合いません$/, "$1 does not fit this server's type and version"],
   [/^タグ「(.+)」を付けました$/, "Added tag “$1”"],
   [/^セット「(.+)」に足しました$/, "Added to set “$1”"],
   [/^(\d+) 件をライブラリから外しますか[?？]\(サーバーに入っているファイルはそのままです\)$/, "Remove $1 items from the library? (Files on servers stay.)"],

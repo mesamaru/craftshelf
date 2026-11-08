@@ -4,7 +4,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { and, asc, count, eq } from "drizzle-orm";
+import { and, asc, count, eq, inArray } from "drizzle-orm";
 import { MC_VERSION, type Platform, isPlatform } from "~/lib/platforms";
 import { APP_NAME, legacyTotpContext } from "./auth";
 import type { Db } from "./db";
@@ -439,6 +439,41 @@ export async function importUploads(db: Db, v02: DatabaseSync, teamId: string, o
   }
   if (smb.length) report.skipped.push({ what: `v02 の保存先(${smb.length} 個)`, detail: `${smb.join("、")}。v03 で使えない方式(NFS など)なので取り込んでいません(NAS をマウントしてフォルダとして足せます)` });
   return uploaded;
+}
+
+// サーバーごとの自動更新(03.49.00 から)。ライブラリ(フォルダのサーバー)を取り込んだあとで一度だけ(前に取り込んだパネルも、次の起動で)。
+// v02 で「自動更新」をオンにしていたサーバーを、Pterodactyl は識別子・フォルダのサーバーはフォルダの場所で探してオンにする
+export const autoUpdateReportPath = (v03Dir: string) => join(v03Dir, "import-v02-auto-update.json");
+
+export async function maybeImportV02AutoUpdate(db: Db, opts: { v02Dir: string; v03Dir: string; dataDir?: string }): Promise<{ at: string; servers: string[] } | null> {
+  const dbFile = join(opts.v02Dir, "index.db");
+  if (!existsSync(dbFile) || !existsSync(libraryReportPath(opts.v03Dir)) || existsSync(autoUpdateReportPath(opts.v03Dir))) return null;
+  const v02 = new DatabaseSync(dbFile, { readOnly: true });
+  try {
+    const report = { at: new Date().toISOString(), servers: [] as string[] };
+    for (const s of has(v02, "servers", "auto_update") ? all(v02, "SELECT * FROM servers WHERE auto_update='auto' ORDER BY id") : []) {
+      let ids: string[] = [];
+      if ((str(s.kind) || "ptero") === "ptero") {
+        ids = (await db.select({ id: schema.server.id }).from(schema.server)
+          .where(and(eq(schema.server.kind, "ptero"), eq(schema.server.remoteId, str(s.identifier))))).map((x) => x.id);
+      } else {
+        let root: string;
+        try {
+          root = checkRoot(str(s.root_dir), opts.dataDir ?? opts.v02Dir);
+        } catch {
+          continue; // 取り込めなかったフォルダのサーバー
+        }
+        ids = (await db.select({ id: schema.localServer.serverId }).from(schema.localServer).where(eq(schema.localServer.rootDir, root))).map((x) => x.id);
+      }
+      if (!ids.length) continue;
+      await db.update(schema.server).set({ autoUpdate: true }).where(inArray(schema.server.id, ids));
+      report.servers.push(str(s.name));
+    }
+    writeFileSync(autoUpdateReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
+    return report;
+  } finally {
+    v02.close();
+  }
 }
 
 // CurseForge の API キー(03.19.00 から)。v02 のパネル全体の設定を、チームのキーにする

@@ -1,4 +1,4 @@
-// セットを入れた・そろえた結果の一覧(セットの画面とサーバーの画面で使う)
+// セットを入れた・そろえた結果の一覧(セットの画面とサーバーの画面で使う。ほかのサーバーにそろえた結果にも)
 import type { ApplyResult } from "~/server/sets";
 
 const LABEL: Record<ApplyResult["status"], string> = {
@@ -6,12 +6,12 @@ const LABEL: Record<ApplyResult["status"], string> = {
   missing: "入っていません", available: "新しい版があります", removed: "外しました",
 };
 
-export function ApplyResults({ server, verb, list }: { server: string; verb: string; list: ApplyResult[] }) {
+export function ApplyResults({ server, verb, list, empty = "セットに何も入っていません。" }: { server: string; verb: string; list: ApplyResult[]; empty?: string }) {
   return (
     <div className="row">
       <span className="main">
         <span>{verb}結果: <span translate="no">{server}</span></span>
-        {list.length === 0 && <span className="muted">セットに何も入っていません。</span>}
+        {list.length === 0 && <span className="muted">{empty}</span>}
         {list.map((r) => (
           <span key={r.title} className={r.status === "failed" ? "error" : "muted"}>
             <span translate="no">{r.title}</span>: {LABEL[r.status]}{r.detail && r.detail !== LABEL[r.status] ? `(${r.detail})` : ""}

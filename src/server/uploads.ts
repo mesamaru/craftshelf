@@ -232,13 +232,13 @@ export function uploadService(deps: Deps) {
     async fromServer(headers: Headers, serverId: string, filename: string) {
       const who = await requireTeam(auth, headers, { library: ["edit"] });
       needLocal();
-      if (/[\\/]/.test(filename) || !/\.jar$/i.test(filename)) throw new HttpError(400, "ファイルの名前が正しくありません");
+      if (/[\\/]/.test(filename) || !/\.jar(\.disabled)?$/i.test(filename)) throw new HttpError(400, "ファイルの名前が正しくありません");
       const { row, client, remoteId } = await serverOf(deps, who, serverId);
       const [p] = await db.select().from(serverProfile).where(eq(serverProfile.serverId, row.id));
       if (!p || !isPlatform(p.platform)) throw new HttpError(400, "先にサーバーの種類を選んでください");
       const dir = PLATFORMS[p.platform].dir;
       const data = await remote(() => client.readBytes(remoteId, `${dir}/${filename}`, UPLOAD_LIMITS.fileBytes));
-      const r = await this.ingest(headers, filename, data);
+      const r = await this.ingest(headers, filename.replace(/\.disabled$/i, ""), data); // 無効にしたものも、jar として取り込む
       const values = { serverId: row.id, source: "upload", projectId: r.projectId, versionId: r.fileId, versionNumber: r.version || filename, title: r.title, filename, installedBy: who.user.id, installedAt: new Date() };
       await db.insert(installedMod).values({ id: randomUUID(), ...values }).onConflictDoUpdate({ target: [installedMod.serverId, installedMod.filename], set: values });
       return r;

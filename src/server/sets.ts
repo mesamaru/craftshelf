@@ -1,21 +1,27 @@
 // セット: ライブラリから選んだものの組み合わせ。サーバーにまとめて入れる。どの処理も、選んでいるチームの中だけを読み書きする
 import { randomUUID } from "node:crypto";
-import { and, asc, count, eq, inArray } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { PLATFORMS } from "~/lib/platforms";
-import { addonSet, addonSetItem, installedMod, libraryItem, server, serverSet } from "./db/schema";
+import { addonSet, addonSetItem, installedMod, libraryItem, server, serverHold, serverSet } from "./db/schema";
 import { HttpError, requireTeam } from "./guard";
 import { isItemSource } from "~/lib/sources";
-import { modTools } from "./library";
+import { isDisabled, modTools } from "./library";
 import { eventService } from "./events";
-import { type Deps, remote, serverOf, needServerAccess, serverScope } from "./servers";
+import { type Deps, serverOf, needServerAccess, serverScope } from "./servers";
 
 // 無料で使える範囲
 export const SET_LIMITS = { setsPerTeam: 50, itemsPerSet: 200 };
+// 自動更新を入れたサーバーを確かめる間隔
+export const AUTO_UPDATE_EVERY = 6 * 60 * 60_000;
 
 // missing・available は「確かめるだけ」のときの、入っていない・新しい版がある
 export type ApplyResult = { title: string; status: "installed" | "updated" | "present" | "skipped" | "failed" | "missing" | "available" | "removed"; detail: string };
 // add = 足りないものを入れる / sync = それに加えて更新する / check = 確かめるだけ(何も変えない)
 export type ApplyMode = "add" | "sync" | "check";
+// ほかのサーバーにそろえるときの、そろえ方: update = 入っているものだけ同じ版に / add = 足りないものも入れる / mirror = さらに、そろえる元に無いものを外す
+export const COPY_MODES = ["update", "add", "mirror"] as const;
+export type CopyMode = (typeof COPY_MODES)[number];
+type SetLike = { source: string; projectId: string; title: string; projectType: string };
 
 const cleanName = (name: string) => {
   const n = name.trim().slice(0, 60);
@@ -25,7 +31,7 @@ const cleanName = (name: string) => {
 
 export function setService(deps: Deps) {
   const { db, auth } = deps;
-  const { latestFile, needProfile, installInto, holdsOf, logChange } = modTools(deps);
+  const { latestFile, fileById, versionsOf, needProfile, installInto, holdsOf, removeFrom } = modTools(deps);
   const { record } = eventService(deps);
   // 結果のまとめ(通知・記録に使う)。変わったもの・失敗したものだけを並べる
   const summary = (list: ApplyResult[]) => {
@@ -42,15 +48,14 @@ export function setService(deps: Deps) {
     if (!s) throw new HttpError(404, "セットが見つかりません");
     return s;
   }
-  // セットの中身をサーバーに入れる(mode は ApplyMode)
-  async function applyTo(teamId: string, userId: string | null, set: { id: string }, serverId: string, mode: ApplyMode, removeExtra = false): Promise<ApplyResult[]> {
+  // セットの中身(items)をサーバーに入れる(mode は ApplyMode)
+  async function applyTo(teamId: string, userId: string | null, items: SetLike[], serverId: string, mode: ApplyMode, removeExtra = false): Promise<ApplyResult[]> {
     const target = await serverOf(deps, teamId, serverId);
     const p = await needProfile(target.row.id);
     const type = PLATFORMS[p.platform].type;
     const records = await db.select().from(installedMod).where(eq(installedMod.serverId, target.row.id));
     const present = new Map(records.map((r) => [`${r.source}:${r.projectId}`, r]));
     const holds = await holdsOf(target.row.id);
-    const items = await itemsOf(set.id);
     const out: ApplyResult[] = [];
     for (const it of items) {
       const now = present.get(`${it.source}:${it.projectId}`);
@@ -68,6 +73,8 @@ export function setService(deps: Deps) {
           for (const d of r.deps) out.push({ title: d.title, status: d.ok ? "installed" : "failed", detail: d.ok ? `${d.detail}(${it.title} の前提)` : d.detail });
         } else if (mode === "add") {
           out.push({ title: it.title, status: "present", detail: "入っています" });
+        } else if (isDisabled(now.filename)) {
+          out.push({ title: it.title, status: "present", detail: `無効にしています(${now.versionNumber})` });
         } else if (holds.has(`${it.source}:${it.projectId}`)) {
           out.push({ title: it.title, status: "present", detail: `更新を止めています(${now.versionNumber})` });
         } else {
@@ -87,30 +94,66 @@ export function setService(deps: Deps) {
       }
     }
     // セットに無いもの(このアプリで入れたものだけ。手で置いたファイルは触らない)を外す
-    if (removeExtra && mode === "sync") {
-      const keep = new Set(items.map((it) => `${it.source}:${it.projectId}`));
-      const extra = records.filter((r) => !keep.has(`${r.source}:${r.projectId}`));
-      const dir = PLATFORMS[p.platform].dir;
-      // 1 つずつ、消さずに名前を変えて残す(変更の履歴から元に戻せる)
-      for (const r of extra) {
-        const backup = r.filename + ".craftshelf-removed";
-        try {
-          await remote(async () => {
-            await target.client.deleteFiles(target.remoteId, dir, [backup]).catch(() => {});
-            await target.client.rename(target.remoteId, dir, r.filename, backup);
-          });
-          await db.delete(installedMod).where(eq(installedMod.id, r.id));
-          await logChange(target.row.id, userId, {
-            action: "外す", title: r.title, backup,
-            removed: { filename: r.filename, source: r.source, projectId: r.projectId, versionId: r.versionId, versionNumber: r.versionNumber, title: r.title },
-          }, target, dir);
-          out.push({ title: r.title, status: "removed", detail: r.filename });
-        } catch (e) {
-          if (!(e instanceof HttpError)) throw e;
-          out.push({ title: r.title, status: "failed", detail: `外せませんでした(${e.message})` });
-        }
+    if (removeExtra && mode === "sync") await removeExtras(target, p, userId, records, new Set(items.map((it) => `${it.source}:${it.projectId}`)), out);
+    return out;
+  }
+
+  // keep に無いもの(このアプリで入れたもの)を、1 つずつ外す(消さずに名前を変えて残し、変更の履歴から元に戻せる)
+  async function removeExtras(target: Awaited<ReturnType<typeof serverOf>>, p: Awaited<ReturnType<typeof needProfile>>, userId: string | null,
+    records: (typeof installedMod.$inferSelect)[], keep: Set<string>, out: ApplyResult[]) {
+    for (const r of records.filter((x) => !keep.has(`${x.source}:${x.projectId}`))) {
+      try {
+        await removeFrom(target, p, userId, r.filename);
+        out.push({ title: r.title, status: "removed", detail: r.filename });
+      } catch (e) {
+        if (!(e instanceof HttpError)) throw e;
+        out.push({ title: r.title, status: "failed", detail: `外せませんでした(${e.message})` });
       }
     }
+  }
+
+  /**
+   * from のサーバーの構成(このアプリで入れたもの。無効にしたものは除く)を、serverId のサーバーに同じ版でそろえる。
+   * 版を変えたもの・入れたものだけを結果に載せる。止めているもの・無効にしたものは変えない
+   */
+  async function copyInto(teamId: string, userId: string | null, from: { type: string; rows: (typeof installedMod.$inferSelect)[]; holds: Set<string> }, serverId: string, mode: CopyMode) {
+    const target = await serverOf(deps, teamId, serverId);
+    const p = await needProfile(target.row.id);
+    if (PLATFORMS[p.platform].type !== from.type) throw new HttpError(400, "プラグインのサーバーと Mod のサーバーはそろえられません");
+    const records = await db.select().from(installedMod).where(eq(installedMod.serverId, target.row.id));
+    const present = new Map(records.map((r) => [`${r.source}:${r.projectId}`, r]));
+    const holds = await holdsOf(target.row.id);
+    const out: ApplyResult[] = [];
+    for (const s of from.rows) {
+      const key = `${s.source}:${s.projectId}`;
+      const now = present.get(key);
+      if (!isItemSource(s.source) || (!now && mode === "update") || now?.versionId === s.versionId) continue;
+      if (now && isDisabled(now.filename)) {
+        out.push({ title: s.title, status: "present", detail: `無効にしています(${now.versionNumber})` });
+        continue;
+      }
+      if (now && holds.has(key)) {
+        out.push({ title: s.title, status: "present", detail: `更新を止めています(${now.versionNumber})` });
+        continue;
+      }
+      try {
+        // そろえる元と同じ版を、このサーバーの種類・バージョンに合うときだけ入れる。SpigotMC はいちばん新しい版だけ
+        const file = s.source === "spigot" ? await latestFile(s.source, s.projectId, p, teamId)
+          : (await versionsOf(s.source, s.projectId, p, teamId)).some((v) => v.versionId === s.versionId) ? await fileById(s.source, s.projectId, s.versionId, teamId) : null;
+        if (!file || file.versionId !== s.versionId) {
+          out.push({ title: s.title, status: "failed", detail: s.source === "spigot" ? `SpigotMC のものは、いちばん新しい版しか入れられません(${s.versionNumber})` : `${s.versionNumber} は、このサーバーの種類・バージョンに合いません` });
+          continue;
+        }
+        const r = await installInto(teamId, userId, target, p, s.source, s.projectId, { file, depth: 0 });
+        // そろえる元で更新を止めているもの(古い版にしたもの)は、こちらでも止める(自動更新・予約で戻されないように)
+        if (from.holds.has(key)) await db.insert(serverHold).values({ serverId: target.row.id, source: s.source, projectId: s.projectId, createdBy: userId }).onConflictDoNothing();
+        out.push({ title: s.title, status: now ? "updated" : "installed", detail: now ? `${now.versionNumber} → ${r.versionNumber}` : r.versionNumber });
+      } catch (e) {
+        if (!(e instanceof HttpError)) throw e;
+        out.push({ title: s.title, status: "failed", detail: e.message });
+      }
+    }
+    if (mode === "mirror") await removeExtras(target, p, userId, records, new Set(from.rows.map((r) => `${r.source}:${r.projectId}`)), out);
     return out;
   }
 
@@ -192,7 +235,7 @@ export function setService(deps: Deps) {
       const set = await setOf(teamId, id);
       await serverInTeam(teamId, serverId);
       await needServerAccess(deps, who, serverId);
-      const r = await applyTo(teamId, user.id, set, serverId, "add");
+      const r = await applyTo(teamId, user.id, await itemsOf(set.id), serverId, "add");
       await record({ teamId, userId: user.id, kind: "sets", action: "セットを入れる", target: `${set.name} → ${await serverName(serverId)}`, detail: summary(r) });
       return r;
     },
@@ -223,7 +266,7 @@ export function setService(deps: Deps) {
       const [b] = await db.select({ setId: serverSet.setId }).from(serverSet).where(eq(serverSet.serverId, serverId));
       if (!b) throw new HttpError(400, "このサーバーにはセットを結び付けていません");
       const set = await setOf(teamId, b.setId);
-      const r = await applyTo(teamId, user.id, set, serverId, "sync", removeExtra);
+      const r = await applyTo(teamId, user.id, await itemsOf(set.id), serverId, "sync", removeExtra);
       await record({ teamId, userId: user.id, kind: "sets", action: "セットでそろえる", target: `${await serverName(serverId)}(${set.name})`, detail: summary(r) });
       return r;
     },
@@ -239,13 +282,79 @@ export function setService(deps: Deps) {
       const out: { server: string; set: string; results: ApplyResult[]; error: string }[] = [];
       for (const b of bound) {
         try {
-          out.push({ server: b.name, set: b.setName, results: await applyTo(teamId, null, { id: b.setId }, b.serverId, mode), error: "" });
+          out.push({ server: b.name, set: b.setName, results: await applyTo(teamId, null, await itemsOf(b.setId), b.serverId, mode), error: "" });
         } catch (e) {
           if (!(e instanceof HttpError)) throw e;
           out.push({ server: b.name, set: b.setName, results: [], error: e.message });
         }
       }
       return { servers: out, summary };
+    },
+
+    /**
+     * from のサーバーの構成(このアプリで入れたもの)を、ほかのサーバー(to)にそろえる(編集者以上)。
+     * 検証用のサーバーで試した構成を、本番のサーバーへ反映するのにも使う。1 台が失敗しても残りは続ける
+     */
+    async copy(headers: Headers, fromId: string, toIds: string[], mode: string) {
+      const who = await requireTeam(auth, headers, { library: ["edit"] });
+      const { teamId, user } = who;
+      if (!(COPY_MODES as readonly string[]).includes(mode)) throw new HttpError(400, "そろえ方を選んでください");
+      const ids = [...new Set(toIds)].filter((x) => x !== fromId);
+      if (!ids.length) throw new HttpError(400, "そろえる先のサーバーを選んでください");
+      const src = await serverOf(deps, who, fromId);
+      const targets = [];
+      for (const id of ids) targets.push((await serverOf(deps, who, id)).row); // 変える前に、どれも使えるサーバーか確かめる
+      const sp = await needProfile(src.row.id);
+      const from = {
+        type: PLATFORMS[sp.platform].type,
+        rows: (await db.select().from(installedMod).where(eq(installedMod.serverId, src.row.id)).orderBy(asc(installedMod.title))).filter((r) => !isDisabled(r.filename)),
+        holds: await holdsOf(src.row.id),
+      };
+      const out: { serverId: string; server: string; results: ApplyResult[]; error: string }[] = [];
+      for (const t of targets) {
+        let results: ApplyResult[] = [];
+        let error = "";
+        try {
+          results = await copyInto(teamId, user.id, from, t.id, mode as CopyMode);
+        } catch (e) {
+          if (!(e instanceof HttpError)) throw e;
+          error = e.message;
+        }
+        out.push({ serverId: t.id, server: t.name, results, error });
+        await record({ teamId, userId: user.id, kind: "sets", action: "ほかのサーバーにそろえる", target: `${src.row.name} → ${t.name}`, detail: error || summary(results) });
+      }
+      return out;
+    },
+
+    /** 自動更新を入れる・やめる(編集者以上): 入れたサーバーは 6 時間ごとに、新しい版があれば入れる */
+    async setAutoUpdate(headers: Headers, serverId: string, on: boolean) {
+      const who = await requireTeam(auth, headers, { library: ["edit"] });
+      const { row } = await serverOf(deps, who, serverId);
+      await db.update(server).set({ autoUpdate: on }).where(eq(server.id, row.id));
+      await record({ teamId: who.teamId, userId: who.user.id, kind: "admin", action: on ? "自動更新を入れる" : "自動更新をやめる", target: row.name });
+    },
+
+    /**
+     * 自動更新(1 分ごとに呼ぶ。画面からは呼ばない): 自動更新を入れたサーバーのうち、前に確かめてから 6 時間たったものを、
+     * 入っているものに新しい版があれば更新する(止めたもの・無効にしたものは除く)。何か変えたとき・失敗したときだけ記録する
+     */
+    async runAutoUpdates(now: Date) {
+      // 動かす前に時刻を書き換え、ほかのプロセスと同じサーバーを 2 回動かさない
+      const due = await db.update(server).set({ autoUpdatedAt: now })
+        .where(and(eq(server.autoUpdate, true), or(isNull(server.autoUpdatedAt), lt(server.autoUpdatedAt, new Date(now.getTime() - AUTO_UPDATE_EVERY)))))
+        .returning({ id: server.id, teamId: server.teamId, name: server.name });
+      for (const s of due) {
+        try {
+          const records = await db.select().from(installedMod).where(eq(installedMod.serverId, s.id));
+          const type = PLATFORMS[(await needProfile(s.id)).platform].type;
+          const r = await applyTo(s.teamId, null, records.map((x) => ({ source: x.source, projectId: x.projectId, title: x.title, projectType: type })), s.id, "sync");
+          if (r.some((x) => x.status !== "present")) await record({ teamId: s.teamId, userId: null, kind: "schedule", action: "自動更新", target: s.name, detail: summary(r) });
+        } catch (e) {
+          if (!(e instanceof HttpError)) console.error("[自動更新] 動かせませんでした:", e);
+          else await record({ teamId: s.teamId, userId: null, kind: "schedule", action: "自動更新", target: s.name, detail: `できませんでした: ${e.message}` });
+        }
+      }
+      return due.map((s) => s.id);
     },
   };
 }

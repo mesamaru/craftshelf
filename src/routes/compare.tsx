@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { identifyMods, installMod, installedMods, libraryCatalog, modVersions, removeMod, setModHold } from "~/lib/library-api";
+import { adoptMod, identifyMods, installMod, installedMods, libraryCatalog, modVersions, removeMod, setModEnabled, setModHold } from "~/lib/library-api";
 import { useCan } from "~/lib/use-can";
 
 export const Route = createFileRoute("/compare")({
@@ -54,7 +54,14 @@ function Compare() {
     .map((name) => ({ name, files: Object.fromEntries(servers.map((s) => [s.id, (unknown[s.id] ?? []).find((f) => baseName(f) === name) ?? ""])) }))
     .filter((r) => !diffOnly || new Set(servers.map((s) => r.files[s.id])).size > 1);
   const installOf = (i: Item, serverId: string) => i.installs.find((x) => x.serverId === serverId);
-  const verOf = (i: Item, serverId: string) => installOf(i, serverId)?.versionNumber;
+  const verOf = (i: Item, serverId: string) => { const x = installOf(i, serverId); return x && `${x.versionNumber}${x.disabled ? " 無効" : ""}`; };
+  // 配布元はわかっているが、ライブラリに無いもの(ライブラリから外したものなど)。配布元・ID ごとに 1 行
+  const orphanRows = [...new Map(data.orphans.filter((o) => sel.includes(o.serverId)).map((o) => [`${o.source}:${o.projectId}`, o.title])).entries()]
+    .sort((a, b) => a[1].localeCompare(b[1]))
+    .map(([key, title]) => ({ key, title, files: Object.fromEntries(servers.map((s) => [s.id, data.orphans.find((o) => o.serverId === s.id && `${o.source}:${o.projectId}` === key)])) }))
+    .filter((r) => !diffOnly || new Set(servers.map((s) => r.files[s.id]?.versionNumber ?? "")).size > 1);
+  // 取り込んだ・切り替えたあと: ライブラリと、配布元のわからないものを読み直す
+  const refresh = () => { setUnknown({}); setTick((x) => x + 1); router.invalidate(); };
   const rows = data.items.filter((i) => !diffOnly || new Set(servers.map((s) => verOf(i, s.id) ?? "")).size > 1);
   const setPick = (key: string, p: Pick | null) => setPicks((m) => {
     const n = new Map(m);
@@ -116,7 +123,7 @@ function Compare() {
                 </tr>
               </thead>
               <tbody>
-                {rows.length === 0 && unknownRows.length === 0 && <tr><td colSpan={servers.length + 1} className="muted">{diffOnly ? "違いはありません" : "ライブラリに何もありません"}</td></tr>}
+                {rows.length === 0 && unknownRows.length === 0 && orphanRows.length === 0 && <tr><td colSpan={servers.length + 1} className="muted">{diffOnly ? "違いはありません" : "ライブラリに何もありません"}</td></tr>}
                 {rows.map((i) => (
                   <tr key={i.id}>
                     <td translate="no">{i.title}</td>
@@ -128,6 +135,7 @@ function Compare() {
                           <td key={s.id}>
                             {edit ? <Installed serverId={s.id} item={i} version={inst.versionNumber} filename={inst.filename} onDone={() => router.invalidate()} />
                               : <span className="mono" translate="no">{inst.versionNumber}</span>}
+                            {inst.disabled && <span className="badge muted-badge">無効</span>}
                           </td>
                         );
                       }
@@ -142,13 +150,27 @@ function Compare() {
                     })}
                   </tr>
                 ))}
+                {orphanRows.length > 0 && <tr className="grp"><td colSpan={servers.length + 1}>ライブラリに無いもの(配布元はわかっています)</td></tr>}
+                {orphanRows.map((r) => (
+                  <tr key={`o:${r.key}`}>
+                    <td translate="no">{r.title}</td>
+                    {servers.map((s) => {
+                      const f = r.files[s.id];
+                      if (!f) return <td key={s.id} className="muted">—</td>;
+                      return <td key={s.id}>{edit ? <FileCell serverId={s.id} filename={f.filename} label={f.versionNumber} onDone={refresh} />
+                        : <span className="mono" translate="no">{f.versionNumber}</span>}</td>;
+                    })}
+                  </tr>
+                ))}
                 {unknownRows.length > 0 && <tr className="grp"><td colSpan={servers.length + 1}>配布元がわからないもの(手で置いた jar など)</td></tr>}
                 {unknownRows.map((r) => (
                   <tr key={`n:${r.name}`}>
                     <td translate="no">{r.name}</td>
-                    {servers.map((s) => (
-                      <td key={s.id} className={r.files[s.id] ? "small mono" : "muted"} translate="no">{r.files[s.id] || "—"}</td>
-                    ))}
+                    {servers.map((s) => {
+                      const f = r.files[s.id];
+                      if (!f) return <td key={s.id} className="muted">—</td>;
+                      return <td key={s.id} className="small mono" translate="no">{edit ? <FileCell serverId={s.id} filename={f} label={f} onDone={refresh} /> : f}</td>;
+                    })}
                   </tr>
                 ))}
               </tbody>
@@ -164,9 +186,7 @@ function Compare() {
                   let found = 0;
                   for (const s of servers.filter((x) => (unknown[x.id] ?? []).length)) found += (await identify({ data: { id: s.id } })).found.length;
                   setNote(`${found} 個の配布元が見つかりました`);
-                  setUnknown({});
-                  setTick((x) => x + 1);
-                  await router.invalidate();
+                  refresh();
                 } catch (e) {
                   setError(message(e));
                 } finally {
@@ -175,6 +195,7 @@ function Compare() {
               }}>{busy ? "ファイルの中身から探しています…" : "配布元がわからないものを、ファイルの中身から探す"}</button>
             </section>
           )}
+          <p className="foot">入っているもの・ライブラリに無いものを押すと、無効にする(消さずに止める)・有効にする・ライブラリに取り込むもできます。配布元のわからないものは、ファイルの中身から探し、見つからなければアップロードしたものとして取り込みます(自分用の版)。</p>
           <p className="foot">「導入」を押すと、そのサーバーに入れるものとして選べます(いちばん新しい版。タグのボタンで別の版も選べます。もう一度押すと選ぶのをやめます)。入っている版を押すと、版を変える・外すができます。古い版を選んだものは「更新を止める」にします。サーバーの種類に合わないところは「—」です。</p>
           {picks.size > 0 && (
             <section className="group">
@@ -216,6 +237,8 @@ function Installed({ serverId, item, version, filename, onDone }: { serverId: st
   const install = useServerFn(installMod);
   const remove = useServerFn(removeMod);
   const hold = useServerFn(setModHold);
+  const toggle = useServerFn(setModEnabled);
+  const off = filename.toLowerCase().endsWith(".disabled");
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -234,7 +257,7 @@ function Installed({ serverId, item, version, filename, onDone }: { serverId: st
   };
   return (
     <span className="port-line">
-      <button type="button" className="pc" translate="no" aria-expanded={open} title="版を変える・外す" disabled={busy} onClick={() => setOpen((x) => !x)}>{version}</button>
+      <button type="button" className="pc" translate="no" aria-expanded={open} title="版を変える・無効にする・外す" disabled={busy} onClick={() => setOpen((x) => !x)}>{version}</button>
       {open && !busy && (
         <>
           <VersionSelect serverId={serverId} item={item} pick={null} onPick={(p) => {
@@ -246,8 +269,50 @@ function Installed({ serverId, item, version, filename, onDone }: { serverId: st
               });
             }
           }} />
+          <button type="button" className="link small" onClick={() => act(() => toggle({ data: { id: serverId, filename, enable: off } }))}>{off ? "有効にする" : "無効にする"}</button>
           <button type="button" className="link small danger" onClick={() => {
             if (confirm(`${item.title} を外しますか?(「変更の履歴」から元に戻せます)`)) act(() => remove({ data: { id: serverId, filename } }));
+          }}>外す</button>
+        </>
+      )}
+      {busy && <span className="small muted">変えています…</span>}
+      {error && <span className="small err" role="alert">{error}</span>}
+    </span>
+  );
+}
+
+// ライブラリに無いもののマス(配布元のわからない jar・ライブラリから外したもの): 押すと、ライブラリに取り込む・無効にする・外す
+function FileCell({ serverId, filename, label, onDone }: { serverId: string; filename: string; label: string; onDone: () => void }) {
+  const adopt = useServerFn(adoptMod);
+  const toggle = useServerFn(setModEnabled);
+  const remove = useServerFn(removeMod);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const off = filename.toLowerCase().endsWith(".disabled");
+  const act = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    setError("");
+    try {
+      await fn();
+      setOpen(false);
+      onDone();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <span className="port-line">
+      <button type="button" className="pc" translate="no" aria-expanded={open} title="ライブラリに取り込む・無効にする・外す" disabled={busy} onClick={() => setOpen((x) => !x)}>{label}</button>
+      {off && <span className="badge muted-badge">無効</span>}
+      {open && !busy && (
+        <>
+          <button type="button" className="link small" onClick={() => act(() => adopt({ data: { id: serverId, filename } }))}>ライブラリに取り込む</button>
+          <button type="button" className="link small" onClick={() => act(() => toggle({ data: { id: serverId, filename, enable: off } }))}>{off ? "有効にする" : "無効にする"}</button>
+          <button type="button" className="link small danger" onClick={() => {
+            if (confirm(`${filename} を外しますか?(「変更の履歴」から元に戻せます)`)) act(() => remove({ data: { id: serverId, filename } }));
           }}>外す</button>
         </>
       )}
@@ -292,5 +357,5 @@ function TagIcon() {
 
 // jar の名前から版を除いた名前(サーバーどうしで同じものを並べるため。例 LuckPerms-Bukkit-5.5.71.jar → LuckPerms-Bukkit)
 function baseName(filename: string) {
-  return filename.replace(/\.jar$/i, "").replace(/[-_ ]v?\d+(\.\d+)*([-+.][\w.]*)?$/i, "") || filename;
+  return filename.replace(/\.disabled$/i, "").replace(/\.jar$/i, "").replace(/[-_ ]v?\d+(\.\d+)*([-+.][\w.]*)?$/i, "") || filename;
 }

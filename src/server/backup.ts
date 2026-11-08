@@ -1,50 +1,179 @@
 // パネルのバックアップと復元(自分用の版・PGlite だけ。管理者以上)。
 // バックアップは 1 つの tar.gz: db.tar.gz(PGlite のデータの書き出し)・secret(保存した API キーなどを解く鍵)・library(パネルの中に置いたアドオン)。
-// 戻すときは restore-pending.tar.gz として置いて再起動し、次の起動で入れ替える(今のデータは before-restore-… に移して残す)
+// 戻すときは restore-pending.tar.gz として置いて再起動し、次の起動で入れ替える(今のデータは before-restore-… に移して残す)。
+// 定期バックアップ(03.53.00 から): 毎日決めた時刻に作る。置き場所はパネルの中か保存先(SMB・WebDAV・フォルダ)、残す数も選べる
 import { execFile } from "node:child_process";
-import { copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { copyFileSync, cpSync, createReadStream, createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 import { promisify } from "node:util";
+import { and, eq, isNull, lt, or } from "drizzle-orm";
+import { backupSchedule, storageTarget } from "./db/schema";
 import { eventService } from "./events";
 import { HttpError, requireTeam } from "./guard";
+import { localParts } from "./schedule";
 import type { Deps } from "./servers";
 import { v02DirOf } from "./env";
+import { fileStore, fromStorage } from "./uploads";
 
 const run = promisify(execFile);
-export const BACKUP_KEEP = 5;
+export const BACKUP_KEEP = 5; // 残す数の既定
+export const BACKUP_KEEP_MAX = 60;
+const DIR = "_craftshelf_backup"; // 保存先の中の場所(v02 と同じ。v02 のものは名前が違うので混ざらない)
+const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+const DEFAULT = { enabled: false, time: "04:00", tz: "Asia/Tokyo", keep: BACKUP_KEEP, targetId: null as string | null, lastRunAt: null as Date | null };
 export const BACKUP_MAX_BYTES = 2 * 1024 * 1024 * 1024;
 const NAME = /^craftshelf-v03-\d{8}-\d{6}\.tar\.gz$/;
 const PENDING = "restore-pending.tar.gz";
 const REIMPORT = "reimport-pending"; // 置いておくと、次の起動で v02 から取り込み直す
 const stampOf = (d = new Date()) => d.toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
+// 名前の日時(UTC)
+const atOf = (name: string) => {
+  const m = name.match(/(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})\.tar\.gz$/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z` : "";
+};
 
 type Dumpable = { dumpDataDir?: (c: "gzip") => Promise<Blob> };
 
 export function backupService(deps: Deps) {
+  const { db } = deps;
   const { record } = eventService(deps);
+  const { storeOf } = fileStore(deps);
   const v03Dir = () => {
     if (!deps.local) throw new HttpError(400, "バックアップは、自分用の版だけで使えます");
     return join(deps.local.dataDir, "v03");
   };
   const backupsDir = () => join(v03Dir(), "backups");
   const admin = (headers: Headers) => requireTeam(deps.auth, headers, { member: ["update"] });
-  const pathOf = (name: string) => {
+  const checkName = (name: string) => {
     if (!NAME.test(name)) throw new HttpError(400, "バックアップの名前が正しくありません");
-    const p = join(backupsDir(), name);
-    if (!existsSync(p)) throw new HttpError(404, "バックアップが見つかりません");
-    return p;
+    return name;
   };
   const listOf = () => (existsSync(backupsDir()) ? readdirSync(backupsDir()) : []).filter((n) => NAME.test(n)).sort().reverse()
     .map((name) => { const s = statSync(join(backupsDir(), name)); return { name, size: s.size, at: s.mtime.toISOString() }; });
+  const scheduleOf = async (teamId: string) => (await db.select().from(backupSchedule).where(eq(backupSchedule.teamId, teamId)))[0] ?? { ...DEFAULT, teamId };
+  // 保存先にあるもの(新しい順)
+  const storedOf = async (teamId: string, targetId: string) =>
+    (await fromStorage(async () => (await storeOf(teamId, targetId)).list(DIR))).filter((n) => NAME.test(n)).sort().reverse();
+
+  /** 読む: パネルの中にあればそれ、無ければ置き場所の保存先から */
+  async function openOf(teamId: string, name: string): Promise<Readable> {
+    const p = join(backupsDir(), checkName(name));
+    if (existsSync(p)) return createReadStream(p);
+    const s = await scheduleOf(teamId);
+    if (!s.targetId) throw new HttpError(404, "バックアップが見つかりません");
+    return fromStorage(async () => (await storeOf(teamId, s.targetId)).read(`${DIR}/${name}`));
+  }
+
+  /** 作る(手でも予約でも)。置き場所・残す数は定期バックアップの設定のもの。失敗したら記録し、エラーとしても知らせる */
+  async function make(teamId: string, userId: string | null) {
+    const v03 = v03Dir();
+    const client = (deps.db as unknown as { $client?: Dumpable }).$client;
+    if (!client?.dumpDataDir) throw new HttpError(400, "このデータベースはここではバックアップできません(PostgreSQL は、そちらのバックアップを使ってください)");
+    const s = await scheduleOf(teamId);
+    const name = `craftshelf-v03-${stampOf()}.tar.gz`;
+    mkdirSync(backupsDir(), { recursive: true });
+    const work = mkdtempSync(join(v03, "backup-"));
+    let place = "パネルの中";
+    try {
+      writeFileSync(join(work, "db.tar.gz"), Buffer.from(await (await client.dumpDataDir("gzip")).arrayBuffer()));
+      if (existsSync(join(v03, "secret"))) copyFileSync(join(v03, "secret"), join(work, "secret"));
+      if (existsSync(join(v03, "library"))) cpSync(join(v03, "library"), join(work, "library"), { recursive: true });
+      // 相対パスで渡す(Windows の C: を、GNU tar がリモートのホストと読まないように)
+      await run("tar", ["-czf", join("..", "backups", name), "."], { cwd: work });
+      if (s.targetId) {
+        // 保存先に置いて、パネルの中のものは消す(残すのは保存先の新しい keep 個)
+        const [t] = await db.select({ name: storageTarget.name }).from(storageTarget).where(eq(storageTarget.id, s.targetId));
+        place = `保存先「${t?.name ?? ""}」`;
+        const store = await storeOf(teamId, s.targetId);
+        await fromStorage(() => store.putFile(`${DIR}/${name}`, join(backupsDir(), name)));
+        rmSync(join(backupsDir(), name), { force: true });
+        for (const old of (await storedOf(teamId, s.targetId)).slice(s.keep)) await fromStorage(() => store.remove(`${DIR}/${old}`)).catch(() => {});
+      } else {
+        for (const old of listOf().slice(s.keep)) rmSync(join(backupsDir(), old.name), { force: true });
+      }
+    } catch (e) {
+      rmSync(join(backupsDir(), name), { force: true });
+      await record({ teamId, userId, kind: "admin", also: ["backup", "errors"], action: "バックアップを作れませんでした", target: place, detail: e instanceof Error ? e.message : String(e) });
+      throw e instanceof HttpError ? e : new HttpError(500, "バックアップを作れませんでした");
+    } finally {
+      rmSync(work, { recursive: true, force: true });
+    }
+    await record({ teamId, userId, kind: "admin", also: ["backup"], action: "バックアップを作る", target: name, detail: place });
+    return { name };
+  }
 
   return {
-    /** パネルの中にあるバックアップ(新しい順)と、次の起動で戻すもの・取り込み直すものがあるか */
+    /** パネルの中・置き場所の保存先にあるバックアップ(新しい順)・定期バックアップの設定と、次の起動で戻すもの・取り込み直すものがあるか */
     async list(headers: Headers) {
-      await admin(headers);
+      const { teamId } = await admin(headers);
+      const s = await scheduleOf(teamId);
+      let stored: { name: string; at: string }[] = [];
+      let storageError = "";
+      if (s.targetId) {
+        try {
+          stored = (await storedOf(teamId, s.targetId)).map((name) => ({ name, at: atOf(name) }));
+        } catch (e) {
+          storageError = e instanceof Error ? e.message : String(e);
+        }
+      }
+      const targets = await db.select({ id: storageTarget.id, name: storageTarget.name }).from(storageTarget).where(eq(storageTarget.teamId, teamId)).orderBy(storageTarget.createdAt);
       return {
-        backups: listOf(), pending: existsSync(join(v03Dir(), PENDING)), reimport: existsSync(join(v03Dir(), REIMPORT)),
+        backups: listOf(), stored, storageError, targets,
+        schedule: { enabled: s.enabled, time: s.time, tz: s.tz, keep: s.keep, targetId: s.targetId, lastRunAt: s.lastRunAt?.toISOString() ?? null },
+        pending: existsSync(join(v03Dir(), PENDING)), reimport: existsSync(join(v03Dir(), REIMPORT)),
         v02: existsSync(join(v02DirOf(deps.local!.dataDir), "index.db")),
       };
+    },
+
+    /** 定期バックアップ・置き場所・残す数を決める。tz は画面の時間帯 */
+    async setSchedule(headers: Headers, input: { enabled: boolean; time: string; keep: number; targetId: string | null; tz: string }) {
+      const who = await admin(headers);
+      v03Dir();
+      if (!TIME.test(input.time)) throw new HttpError(400, "時刻は 04:00 のように入力してください");
+      if (!Number.isInteger(input.keep) || input.keep < 1 || input.keep > BACKUP_KEEP_MAX) throw new HttpError(400, `残す数は 1〜${BACKUP_KEEP_MAX} にしてください`);
+      try {
+        localParts(new Date(), input.tz);
+      } catch {
+        throw new HttpError(400, "時間帯が正しくありません");
+      }
+      let place = "パネルの中";
+      if (input.targetId) {
+        const [t] = await db.select().from(storageTarget).where(and(eq(storageTarget.id, input.targetId), eq(storageTarget.teamId, who.teamId)));
+        if (!t) throw new HttpError(404, "保存先が見つかりません");
+        place = `保存先「${t.name}」`;
+      }
+      const values = { teamId: who.teamId, enabled: input.enabled, time: input.time, keep: input.keep, targetId: input.targetId || null, tz: input.tz, updatedAt: new Date() };
+      await db.insert(backupSchedule).values(values).onConflictDoUpdate({ target: backupSchedule.teamId, set: values });
+      await record({ teamId: who.teamId, userId: who.user.id, kind: "admin", action: input.enabled ? "定期バックアップを設定" : "定期バックアップを止める",
+        detail: `${input.enabled ? `毎日 ${input.time}・` : ""}${place}・${input.keep} 個残す` });
+    },
+
+    /** 1 分ごとに呼ぶ。時刻になったら定期バックアップを作る(自分用の版だけ) */
+    async tick(now: Date) {
+      if (!deps.local) return 0;
+      let made = 0;
+      for (const s of await db.select().from(backupSchedule).where(eq(backupSchedule.enabled, true))) {
+        let local;
+        try {
+          local = localParts(now, s.tz);
+        } catch {
+          continue;
+        }
+        if (local.time !== s.time) continue;
+        const claimed = await db.update(backupSchedule).set({ lastRunAt: now })
+          .where(and(eq(backupSchedule.teamId, s.teamId), or(isNull(backupSchedule.lastRunAt), lt(backupSchedule.lastRunAt, new Date(now.getTime() - 90_000)))))
+          .returning({ teamId: backupSchedule.teamId });
+        if (!claimed.length) continue;
+        try {
+          await make(s.teamId, null);
+          made++;
+        } catch (e) {
+          console.error("[定期バックアップ] 作れませんでした:", e instanceof Error ? e.message : e);
+        }
+      }
+      return made;
     },
 
     /**
@@ -58,43 +187,28 @@ export function backupService(deps: Deps) {
       await record({ teamId: who.teamId, userId: who.user.id, kind: "admin", action: "v02 から取り込み直す" });
     },
 
-    /** 今のデータのバックアップを作る(新しい 5 個を残す) */
+    /** 今のデータのバックアップを作る(置き場所・残す数は定期バックアップの設定のもの) */
     async create(headers: Headers) {
       const who = await admin(headers);
-      const v03 = v03Dir();
-      const client = (deps.db as unknown as { $client?: Dumpable }).$client;
-      if (!client?.dumpDataDir) throw new HttpError(400, "このデータベースはここではバックアップできません(PostgreSQL は、そちらのバックアップを使ってください)");
-      const name = `craftshelf-v03-${stampOf()}.tar.gz`;
-      mkdirSync(backupsDir(), { recursive: true });
-      const work = mkdtempSync(join(v03, "backup-"));
-      try {
-        writeFileSync(join(work, "db.tar.gz"), Buffer.from(await (await client.dumpDataDir("gzip")).arrayBuffer()));
-        if (existsSync(join(v03, "secret"))) copyFileSync(join(v03, "secret"), join(work, "secret"));
-        if (existsSync(join(v03, "library"))) cpSync(join(v03, "library"), join(work, "library"), { recursive: true });
-        // 相対パスで渡す(Windows の C: を、GNU tar がリモートのホストと読まないように)
-        await run("tar", ["-czf", join("..", "backups", name), "."], { cwd: work });
-      } catch (e) {
-        rmSync(join(backupsDir(), name), { force: true });
-        await record({ teamId: who.teamId, userId: who.user.id, kind: "admin", also: ["backup", "errors"], action: "バックアップを作れませんでした", detail: e instanceof Error ? e.message : String(e) });
-        throw new HttpError(500, "バックアップを作れませんでした");
-      } finally {
-        rmSync(work, { recursive: true, force: true });
-      }
-      for (const old of listOf().slice(BACKUP_KEEP)) rmSync(join(backupsDir(), old.name), { force: true });
-      await record({ teamId: who.teamId, userId: who.user.id, kind: "admin", also: ["backup"], action: "バックアップを作る", target: name });
-      return { name };
+      return make(who.teamId, who.user.id);
     },
 
-    /** ダウンロードするファイルの場所 */
-    async file(headers: Headers, name: string) {
-      await admin(headers);
-      return pathOf(name);
+    /** ダウンロードする中身(パネルの中か、置き場所の保存先) */
+    async open(headers: Headers, name: string) {
+      const { teamId } = await admin(headers);
+      return openOf(teamId, name);
     },
 
-    /** パネルの中のバックアップから戻す(次の起動で入れ替える。再起動は呼ぶ側で) */
+    /** バックアップから戻す(パネルの中か、置き場所の保存先のもの。次の起動で入れ替える。再起動は呼ぶ側で) */
     async restore(headers: Headers, name: string) {
       const who = await admin(headers);
-      copyFileSync(pathOf(name), join(v03Dir(), PENDING));
+      const pending = join(v03Dir(), PENDING);
+      try {
+        await pipeline(await openOf(who.teamId, name), createWriteStream(pending));
+      } catch (e) {
+        rmSync(pending, { force: true });
+        throw e;
+      }
       await record({ teamId: who.teamId, userId: who.user.id, kind: "admin", action: "バックアップから戻す", target: name });
     },
 

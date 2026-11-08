@@ -29,5 +29,8 @@ describe("英語表示", () => {
     expect(translate("1 個")).toBe("1 item");
     expect(translate("自動")).toBe("Auto");
     expect(translate("新しいバージョンがあります")).toBe("New versions available");
+    expect(translate("水曜日")).toBe("Wed");
+    expect(translate("保存先「NAS」のバックアップ(新しい 5 個)")).toBe("Backups in storage “NAS” (newest 5)");
+    expect(translate("作れませんでした: 時間帯が正しくありません")).toBe("Failed: Invalid time zone");
   });
 });

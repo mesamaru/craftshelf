@@ -43,6 +43,7 @@ import { Route as ApiLibraryUploadRouteImport } from './routes/api/library/uploa
 import { Route as ApiV1SplatRouteImport } from './routes/api/v1/$'
 import { Route as ServersIdFilesRouteImport } from './routes/servers_.$id_.files'
 import { Route as ApiLibraryFilesIdRouteImport } from './routes/api/library/files.$id'
+import { Route as ApiWorldsIdNameRouteImport } from './routes/api/worlds/$id.$name'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -214,6 +215,11 @@ const ApiLibraryFilesIdRoute = ApiLibraryFilesIdRouteImport.update({
   path: '/api/library/files/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiWorldsIdNameRoute = ApiWorldsIdNameRouteImport.update({
+  id: '/api/worlds/$id/$name',
+  path: '/api/worlds/$id/$name',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -250,6 +256,7 @@ export interface FileRoutesByFullPath {
   '/api/v1/$': typeof ApiV1SplatRoute
   '/servers/$id/files': typeof ServersIdFilesRoute
   '/api/library/files/$id': typeof ApiLibraryFilesIdRoute
+  '/api/worlds/$id/$name': typeof ApiWorldsIdNameRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -286,6 +293,7 @@ export interface FileRoutesByTo {
   '/api/v1/$': typeof ApiV1SplatRoute
   '/servers/$id/files': typeof ServersIdFilesRoute
   '/api/library/files/$id': typeof ApiLibraryFilesIdRoute
+  '/api/worlds/$id/$name': typeof ApiWorldsIdNameRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -323,6 +331,7 @@ export interface FileRoutesById {
   '/api/v1/$': typeof ApiV1SplatRoute
   '/servers_/$id_/files': typeof ServersIdFilesRoute
   '/api/library/files/$id': typeof ApiLibraryFilesIdRoute
+  '/api/worlds/$id/$name': typeof ApiWorldsIdNameRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -361,6 +370,7 @@ export interface FileRouteTypes {
     | '/api/v1/$'
     | '/servers/$id/files'
     | '/api/library/files/$id'
+    | '/api/worlds/$id/$name'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -397,6 +407,7 @@ export interface FileRouteTypes {
     | '/api/v1/$'
     | '/servers/$id/files'
     | '/api/library/files/$id'
+    | '/api/worlds/$id/$name'
   id:
     | '__root__'
     | '/'
@@ -433,6 +444,7 @@ export interface FileRouteTypes {
     | '/api/v1/$'
     | '/servers_/$id_/files'
     | '/api/library/files/$id'
+    | '/api/worlds/$id/$name'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -470,6 +482,7 @@ export interface RootRouteChildren {
   ApiV1SplatRoute: typeof ApiV1SplatRoute
   ServersIdFilesRoute: typeof ServersIdFilesRoute
   ApiLibraryFilesIdRoute: typeof ApiLibraryFilesIdRoute
+  ApiWorldsIdNameRoute: typeof ApiWorldsIdNameRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -712,6 +725,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiLibraryFilesIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/worlds/$id/$name': {
+      id: '/api/worlds/$id/$name'
+      path: '/api/worlds/$id/$name'
+      fullPath: '/api/worlds/$id/$name'
+      preLoaderRoute: typeof ApiWorldsIdNameRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -750,6 +770,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiV1SplatRoute: ApiV1SplatRoute,
   ServersIdFilesRoute: ServersIdFilesRoute,
   ApiLibraryFilesIdRoute: ApiLibraryFilesIdRoute,
+  ApiWorldsIdNameRoute: ApiWorldsIdNameRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

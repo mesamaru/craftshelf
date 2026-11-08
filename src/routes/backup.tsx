@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { cancelRestore, createBackup, listBackups, reimportV02, restoreBackup } from "~/lib/backup-api";
+import { cancelRestore, createBackup, listBackups, reimportV02, restoreBackup, setBackupSchedule } from "~/lib/backup-api";
 
 export const Route = createFileRoute("/backup")({
   beforeLoad: ({ context }) => {
@@ -21,10 +21,12 @@ function Backup() {
   const restore = useServerFn(restoreBackup);
   const cancel = useServerFn(cancelRestore);
   const reimport = useServerFn(reimportV02);
+  const saveSchedule = useServerFn(setBackupSchedule);
+  const [draft, setDraft] = useState<Awaited<ReturnType<typeof listBackups>>["schedule"] | null>(null);
   const [data, setData] = useState<Awaited<ReturnType<typeof listBackups>> | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  const reload = () => load().then(setData, (e) => setError(message(e)));
+  const reload = () => load().then((d) => { setData(d); setDraft((old) => old ?? d.schedule); }, (e) => setError(message(e)));
   useEffect(() => { reload(); }, []);
 
   const run = async (label: string, fn: () => Promise<unknown>) => {
@@ -63,6 +65,25 @@ function Backup() {
     await waitRestart();
   };
 
+  const row = (name: string, at: string, bytes: number | null) => (
+    <div className="row" key={name}>
+      <span className="main"><span translate="no">{at ? new Date(at).toLocaleString("ja-JP") : ""}</span><span className="muted small" translate="no">{name}{bytes !== null ? ` · ${size(bytes)}` : ""}</span></span>
+      <a className="trail link" href={`/api/backup/${name}`} download>ダウンロード</a>
+      <button className="link" type="button" disabled={!!busy} onClick={async () => {
+        if (!confirm("このバックアップから戻しますか?パネルが再起動し、今のデータと入れ替えます(今のデータは消さずに残します)")) return;
+        setBusy("切り替えています…");
+        setError("");
+        try {
+          await restore({ data: { name } });
+          await waitRestart();
+        } catch (e) {
+          setBusy("");
+          setError(message(e));
+        }
+      }}>戻す</button>
+    </div>
+  );
+
   return (
     <main className="page narrow">
       <header className="bar">
@@ -77,29 +98,59 @@ function Backup() {
       <section className="group">
         <button className="row link" type="button" disabled={!!busy || !data} onClick={() => run("作っています…", () => create())}>{busy === "作っています…" ? busy : "今のデータのバックアップを作る"}</button>
       </section>
-      <div className="group-title">パネルの中のバックアップ(新しい 5 個)</div>
+      {data && draft && (
+        <>
+          <div className="group-title">定期バックアップ</div>
+          <section className="group form">
+            <label className="row">
+              <span>毎日バックアップを作る</span>
+              <input className="trail" type="checkbox" checked={draft.enabled} onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })} />
+            </label>
+            {draft.enabled && (
+              <div className="row">
+                <span>時刻</span>
+                <input className="trail" type="time" value={draft.time} aria-label="バックアップする時刻" onChange={(e) => setDraft({ ...draft, time: e.target.value })} />
+              </div>
+            )}
+            <div className="row">
+              <span>置き場所</span>
+              <select className="trail" value={draft.targetId ?? ""} aria-label="バックアップの置き場所" onChange={(e) => setDraft({ ...draft, targetId: e.target.value || null })}>
+                <option value="">パネルの中</option>
+                {data.targets.map((t) => <option key={t.id} value={t.id} translate="no">{t.name}</option>)}
+              </select>
+            </div>
+            <div className="row">
+              <span>残す数</span>
+              <select className="trail" value={draft.keep} aria-label="残すバックアップの数" onChange={(e) => setDraft({ ...draft, keep: Number(e.target.value) })}>
+                {[1, 2, 3, 5, 7, 10, 14, 20, 30, 60].map((n) => <option key={n} value={n}>{`${n} 個`}</option>)}
+              </select>
+            </div>
+            {data.schedule.lastRunAt && <div className="row muted">{`前に予約で動いたとき: ${new Date(data.schedule.lastRunAt).toLocaleString("ja-JP")}`}</div>}
+            <button className="row link" type="button" disabled={!!busy} onClick={() => run("保存しています…", async () => {
+              await saveSchedule({ data: { ...draft, tz: Intl.DateTimeFormat().resolvedOptions().timeZone } });
+              setDraft(null);
+            })}>保存</button>
+          </section>
+          <p className="foot">手で作るときも、ここで選んだ置き場所・残す数を使います。保存先(NAS など)は「保存先」で足せます。時刻は、保存したときのブラウザの時間帯です。作れなかったときは、お知らせと Discord(「エラー」「バックアップ」を選んでいれば)で知らせます。</p>
+        </>
+      )}
+      {data?.schedule.targetId && (
+        <>
+          <div className="group-title">{`保存先「${data.targets.find((t) => t.id === data.schedule.targetId)?.name ?? ""}」のバックアップ(新しい ${data.schedule.keep} 個)`}</div>
+          <section className="group">
+            {data.storageError && <div className="row error" role="alert">{data.storageError}</div>}
+            {!data.storageError && data.stored.length === 0 && <div className="row muted">まだありません。</div>}
+            {data.stored.map((b) => row(b.name, b.at, null))}
+          </section>
+        </>
+      )}
+      <div className="group-title">{data?.schedule.targetId ? "パネルの中のバックアップ" : `パネルの中のバックアップ(新しい ${data?.schedule.keep ?? 5} 個)`}</div>
       <section className="group">
         {!data && !error && <div className="row muted">読み込み中…</div>}
         {data?.backups.length === 0 && <div className="row muted">まだありません。</div>}
-        {data?.backups.map((b) => (
-          <div className="row" key={b.name}>
-            <span className="main"><span translate="no">{new Date(b.at).toLocaleString("ja-JP")}</span><span className="muted small" translate="no">{b.name} · {size(b.size)}</span></span>
-            <a className="trail link" href={`/api/backup/${b.name}`} download>ダウンロード</a>
-            <button className="link" type="button" disabled={!!busy} onClick={async () => {
-              if (!confirm("このバックアップから戻しますか?パネルが再起動し、今のデータと入れ替えます(今のデータは消さずに残します)")) return;
-              setBusy("切り替えています…");
-              setError("");
-              try {
-                await restore({ data: { name: b.name } });
-                await waitRestart();
-              } catch (e) {
-                setBusy("");
-                setError(message(e));
-              }
-            }}>戻す</button>
-          </div>
-        ))}
+        {data?.backups.map((b) => row(b.name, b.at, b.size))}
       </section>
+
       <div className="group-title">手元のファイルから戻す</div>
       <section className="group">
         <label className="row link">

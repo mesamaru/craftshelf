@@ -23,7 +23,7 @@ const safeFilename = (name: string) => {
   return SAFE_JAR.test(n) ? n : `upload-${Date.now()}.jar`;
 };
 
-async function fromStorage<T>(fn: () => Promise<T>): Promise<T> {
+export async function fromStorage<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (e) {

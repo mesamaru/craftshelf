@@ -452,24 +452,77 @@ export async function maybeImportV02AutoUpdate(db: Db, opts: { v02Dir: string; v
   try {
     const report = { at: new Date().toISOString(), servers: [] as string[] };
     for (const s of has(v02, "servers", "auto_update") ? all(v02, "SELECT * FROM servers WHERE auto_update='auto' ORDER BY id") : []) {
-      let ids: string[] = [];
-      if ((str(s.kind) || "ptero") === "ptero") {
-        ids = (await db.select({ id: schema.server.id }).from(schema.server)
-          .where(and(eq(schema.server.kind, "ptero"), eq(schema.server.remoteId, str(s.identifier))))).map((x) => x.id);
-      } else {
-        let root: string;
-        try {
-          root = checkRoot(str(s.root_dir), opts.dataDir ?? opts.v02Dir);
-        } catch {
-          continue; // 取り込めなかったフォルダのサーバー
-        }
-        ids = (await db.select({ id: schema.localServer.serverId }).from(schema.localServer).where(eq(schema.localServer.rootDir, root))).map((x) => x.id);
-      }
+      const ids = await v03ServerIds(db, s, opts);
       if (!ids.length) continue;
       await db.update(schema.server).set({ autoUpdate: true }).where(inArray(schema.server.id, ids));
       report.servers.push(str(s.name));
     }
     writeFileSync(autoUpdateReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
+    return report;
+  } finally {
+    v02.close();
+  }
+}
+
+// v02 のサーバーを、取り込んだ v03 のサーバーから探す(Pterodactyl は識別子、フォルダのサーバーはフォルダの場所。取り込めなかったものは空)
+async function v03ServerIds(db: Db, s: Row, opts: { v02Dir: string; dataDir?: string }) {
+  if ((str(s.kind) || "ptero") === "ptero") {
+    return (await db.select({ id: schema.server.id }).from(schema.server)
+      .where(and(eq(schema.server.kind, "ptero"), eq(schema.server.remoteId, str(s.identifier))))).map((x) => x.id);
+  }
+  let root: string;
+  try {
+    root = checkRoot(str(s.root_dir), opts.dataDir ?? opts.v02Dir);
+  } catch {
+    return [];
+  }
+  return (await db.select({ id: schema.localServer.serverId }).from(schema.localServer).where(eq(schema.localServer.rootDir, root))).map((x) => x.id);
+}
+
+// パネルの定期バックアップと、ワールドのバックアップの予約(03.53.00 から)。自動更新の取り込みのあとで一度だけ(前に取り込んだパネルも、次の起動で)。
+// 置き場所は、v02 の保存先を取り込んだもの(「v02: 名前」)があればそれ、無ければパネルの中。v02 の曜日は月曜 = 0、v03 は日曜 = 0
+export const backupReportPath = (v03Dir: string) => join(v03Dir, "import-v02-backup.json");
+
+export async function maybeImportV02Backups(db: Db, opts: { v02Dir: string; v03Dir: string; dataDir?: string }): Promise<{ at: string; panel: boolean; worlds: string[] } | null> {
+  const dbFile = join(opts.v02Dir, "index.db");
+  if (!existsSync(dbFile) || !existsSync(autoUpdateReportPath(opts.v03Dir)) || existsSync(backupReportPath(opts.v03Dir))) return null;
+  const [team] = await db.select({ id: schema.organization.id }).from(schema.organization).orderBy(asc(schema.organization.createdAt)).limit(1);
+  if (!team) return null;
+  const v02 = new DatabaseSync(dbFile, { readOnly: true });
+  try {
+    const report = { at: new Date().toISOString(), panel: false, worlds: [] as string[] };
+    const setting = (key: string) => (has(v02, "settings") ? str((v02.prepare("SELECT value FROM settings WHERE key=?").get(key) as Row | undefined)?.value) : "");
+    const targetOf = async (v02Id: number) => {
+      const t = v02Id && has(v02, "storage_targets") ? (v02.prepare("SELECT name, protocol FROM storage_targets WHERE id=?").get(v02Id) as Row | undefined) : undefined;
+      if (!t) return null;
+      const [row] = await db.select({ id: schema.storageTarget.id }).from(schema.storageTarget)
+        .where(and(eq(schema.storageTarget.teamId, team.id), eq(schema.storageTarget.name, `v02: ${str(t.name) || str(t.protocol)}`.slice(0, 60))));
+      return row?.id ?? null;
+    };
+    const backupTarget = Number(setting("backup_target_id")) || 0;
+    if (backupTarget) {
+      const keep = Math.min(60, Math.max(1, Number(setting("backup_keep")) || 14));
+      await db.insert(schema.backupSchedule).values({ teamId: team.id, enabled: true, keep, targetId: await targetOf(backupTarget) }).onConflictDoNothing();
+      report.panel = true;
+    }
+    if (has(v02, "servers", "world_mode")) {
+      // v02 はワールドを、バックアップ先(無ければ今の保存先)に置いていた
+      const active = has(v02, "storage_targets") ? Number((v02.prepare("SELECT id FROM storage_targets WHERE active=1").get() as Row | undefined)?.id ?? 0) : 0;
+      const worldTarget = await targetOf(backupTarget || active);
+      for (const s of all(v02, "SELECT * FROM servers WHERE world_mode IN ('daily', 'weekly') ORDER BY id")) {
+        const ids = await v03ServerIds(db, s, opts);
+        if (!ids.length) continue;
+        const time = /^([01]\d|2[0-3]):[0-5]\d$/.test(str(s.world_time)) ? str(s.world_time) : "05:00";
+        const dow = ((Number(s.world_dow) || 0) + 1) % 7;
+        const keep = Math.min(30, Math.max(1, Number(s.world_keep) || 5));
+        const ptero = (str(s.kind) || "ptero") === "ptero";
+        for (const serverId of ids) {
+          await db.insert(schema.worldBackup).values({ serverId, mode: str(s.world_mode), time, dow, keep, targetId: ptero ? null : worldTarget }).onConflictDoNothing();
+        }
+        report.worlds.push(str(s.name));
+      }
+    }
+    writeFileSync(backupReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
     return report;
   } finally {
     v02.close();

@@ -16,6 +16,7 @@ import { tokenService } from "./tokens";
 import { versionService } from "./versions";
 import { softwareService } from "./software";
 import { backupService } from "./backup";
+import { worldService } from "./worlds";
 import { modpackService } from "./modpack";
 import { telemetryService } from "./telemetry";
 import { teamService } from "./teams";
@@ -64,6 +65,13 @@ if (env.mode === "self") {
   } catch (e) {
     console.error("[v02] 自動更新の取り込みに失敗しました(v02 のデータはそのままです):", e);
   }
+  const { maybeImportV02Backups } = await import("./import-v02");
+  try {
+    const r = await maybeImportV02Backups(db, env);
+    if (r && (r.panel || r.worlds.length)) console.log(`[v02] バックアップの設定を引き継ぎました: ${[r.panel ? "パネルの定期バックアップ" : "", ...r.worlds].filter(Boolean).join("、")}`);
+  } catch (e) {
+    console.error("[v02] バックアップの設定の取り込みに失敗しました(v02 のデータはそのままです):", e);
+  }
 }
 const { resendMailer } = await import("./mail");
 export const mailer = env.mail ? resendMailer(safeFetch, env.mail.resendKey, env.mail.from) : null;
@@ -82,6 +90,7 @@ export const schedules = scheduleService(deps, sets);
 export const files = fileService(deps);
 export const software = softwareService(deps);
 export const backups = backupService(deps);
+export const worlds = worldService(deps);
 export const modpacks = modpackService(deps);
 export const teams = teamService(deps);
 const { agentService } = await import("./agents");

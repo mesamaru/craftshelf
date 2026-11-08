@@ -1,6 +1,54 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  // パネルの定期バックアップ・ワールドのバックアップ
+  "定期バックアップ": "Scheduled backups",
+  "毎日バックアップを作る": "Create a backup every day",
+  "置き場所": "Location",
+  "残す数": "Keep",
+  "バックアップする時刻": "Backup time",
+  "バックアップする曜日": "Backup day",
+  "残すバックアップの数": "Number of backups to keep",
+  "バックアップの置き場所": "Backup location",
+  "パネルの中のバックアップ": "Backups in the panel",
+  "手で作るときも、ここで選んだ置き場所・残す数を使います。保存先(NAS など)は「保存先」で足せます。時刻は、保存したときのブラウザの時間帯です。作れなかったときは、お知らせと Discord(「エラー」「バックアップ」を選んでいれば)で知らせます。":
+    "Manual backups use the same location and count. Add storage (such as a NAS) under “Storage”. The time is in the time zone of the browser you saved from. If a backup fails, you are told in notifications and on Discord (if “Errors” or “Backups” is selected).",
+  "ワールドのバックアップ": "World backups",
+  "フォルダのサーバー・エージェントのワールドのバックアップは、自分用の版だけで使えます。": "World backups for folder and agent servers are available only in the self-hosted edition.",
+  "フォルダのサーバー・エージェントのワールドのバックアップは、自分用の版だけで使えます": "World backups for folder and agent servers are available only in the self-hosted edition",
+  "バックアップしています…(終わると下に出ます)": "Backing up… (it appears below when done)",
+  "いまバックアップする": "Back up now",
+  "作っています": "In progress",
+  "失敗": "Failed",
+  "鍵つき": "Locked",
+  "しない": "Off",
+  "毎日": "Daily",
+  "毎週": "Weekly",
+  "曜日": "Day",
+  "時刻": "Time",
+  "ワールドのバックアップの予約": "World backup schedule",
+  "Pterodactyl のパネルのバックアップを使います。ワールドだけでなく、サーバー全体(.pteroignore で除いたものを除く)が入り、パネルの置き場所に残ります。作れる数の上限はパネルの設定しだいです。残す数を超えたら、このパネルが作った古いもの(鍵つきを除く)を消します。":
+    "Uses Pterodactyl's own backups. They contain the whole server, not just the world (except what .pteroignore excludes), and are kept where the Pterodactyl panel stores backups. The maximum number depends on the panel's settings. Beyond the number to keep, older backups made by CraftShelf (except locked ones) are deleted.",
+  "ワールド(server.properties の level-name と、その _nether・_the_end のフォルダ)を tar.gz にまとめます。RCON が使えれば、まとめる間はワールドの保存を止めます(save-off)。1 つ 100 MB を超えるファイルと読めなかったファイルは飛ばし、操作の記録に書きます。":
+    "Packs the world (the level-name folder in server.properties and its _nether and _the_end folders) into a tar.gz. If RCON is available, world saving is paused while packing (save-off). Files over 100 MB and files that cannot be read are skipped and noted in the activity log.",
+  " 予約の時刻は、保存したときのブラウザの時間帯です。結果は操作の記録に残り、失敗したらお知らせと Discord(「エラー」「バックアップ」を選んでいれば)で知らせます。予約・残す数・置き場所を決められるのは管理者以上です。":
+    " The scheduled time is in the time zone of the browser you saved from. Results are kept in the activity log, and failures are sent to notifications and Discord (if “Errors” or “Backups” is selected). Admins and above can set the schedule, count and location.",
+  "ワールドをバックアップ": "Back up world",
+  "ワールドをバックアップできませんでした": "Could not back up the world",
+  "ワールドのバックアップを消す": "Delete world backup",
+  "ワールドのバックアップの設定": "World backup settings",
+  "定期バックアップを設定": "Set scheduled backups",
+  "定期バックアップを止める": "Stop scheduled backups",
+  "このサーバーのワールドは、いまバックアップしています": "This server's world is being backed up now",
+  "予約の種類を選んでください": "Choose a schedule",
+  "時刻は 05:00 のように入力してください": "Enter the time like 05:00",
+  "曜日を選んでください": "Choose a day",
+  "時間帯が正しくありません": "Invalid time zone",
+  "Pterodactyl のバックアップの数が上限に達しています(残す数を減らすか、パネルで古いものを消してください)": "Pterodactyl's backup limit has been reached (keep fewer, or delete old ones in the panel)",
+  "バックアップの ID が正しくありません": "Invalid backup ID",
+  "保存先に書き込めませんでした(空きと、書き込みの権限を確かめてください)": "Could not write to the storage (check free space and write permission)",
+  "SMB の NAS に書き込めませんでした(書き込みの権限と空きを確かめてください)": "Could not write to the SMB NAS (check write permission and free space)",
+  "WebDAV で読み込みできませんでした": "Could not read from WebDAV",
   // 操作の記録を探す・知らせる種類・お知らせの既読
   "新しいバージョンの発見(サーバーに入っているものの更新)": "New versions found (updates for installed add-ons)",
   "自動で入れた(自動更新・予約でそろえた)": "Installed automatically (auto update, scheduled sync)",
@@ -1048,6 +1096,16 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^作りました: (.+)$/, "Created: $1"],
+  [/^作れませんでした: (.+)$/, "Failed: $1"],
+  [/^前に予約で動いたとき: (.+)$/, "Last scheduled run: $1"],
+  [/^([日月火水木金土])曜日$/, (_, d) => DAY[d]],
+  [/^(.+?) を消しますか[?？]$/, "Delete $1?"],
+  [/^保存先「(.+)」のバックアップ\(新しい (\d+) 個\)$/, "Backups in storage “$1” (newest $2)"],
+  [/^パネルの中のバックアップ\(新しい (\d+) 個\)$/, "Backups in the panel (newest $1)"],
+  [/^ワールドのフォルダ\((.+)\)が見つかりません$/, "World folder ($1) not found"],
+  [/^ワールドのファイルが多すぎます\((\d+) 個まで\)$/, "Too many world files (up to $1)"],
+  [/^残す数は 1〜(\d+) にしてください$/, "Keep between 1 and $1"],
   [/(\d+) 行目: (\S+) の書き方が正しくありません\(/, "Line $1: invalid $2 syntax ("],
   [/(\S+) の書き方が正しくありません\(/, "Invalid $1 syntax ("],
   [/^(\d+) 個$/, (_, n) => `${n} ${n === "1" ? "item" : "items"}`],

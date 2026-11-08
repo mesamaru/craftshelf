@@ -1,5 +1,5 @@
 // アップロードしたアドオン: 受け取り・ライブラリ・サーバーへ送る・保存先(Pterodactyl・WebDAV は偽物の応答で代わりをする)
-import { existsSync, mkdtempSync, readdirSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -170,5 +170,37 @@ describe("保存先のあいだでファイルを移す", () => {
     const item = (await lib.catalog(owner)).items.find((i) => i.title === "MyPlugin")!;
     const oldest = (await up.files(owner, item.id)).at(-1)!;
     expect(Buffer.from((await up.download(owner, oldest.id)).data).toString("latin1")).toContain("class 1.0");
+  });
+});
+
+describe("大きいファイル(バックアップ)の送り・読み・一覧", () => {
+  it("WebDAV: ファイルから少しずつ送り、少しずつ読み、PROPFIND でフォルダの中のファイルを並べる", async () => {
+    const files = new Map<string, Uint8Array>();
+    const davFake: FetchLike = async (url, init) => {
+      const u = new URL(url);
+      const m = init?.method ?? "GET";
+      if (m === "MKCOL") return new Response(null, { status: 405 });
+      if (m === "PUT") { files.set(decodeURIComponent(u.pathname), new Uint8Array(await new Response(init!.body).arrayBuffer())); return new Response(null, { status: 201 }); }
+      if (m === "PROPFIND") {
+        const dir = decodeURIComponent(u.pathname);
+        const inside = [...files.keys()].filter((k) => k.startsWith(dir) && !k.slice(dir.length).includes("/"));
+        if (!inside.length) return new Response(null, { status: 404 });
+        const hrefs = [dir, ...inside, `${dir}sub/`].map((h) => `<d:response><d:href>${h.split("/").map(encodeURIComponent).join("/")}</d:href></d:response>`).join("");
+        return new Response(`<?xml version="1.0"?><d:multistatus xmlns:d="DAV:">${hrefs}</d:multistatus>`, { status: 207 });
+      }
+      const f = files.get(decodeURIComponent(u.pathname));
+      return f ? new Response(new Uint8Array(f)) : new Response(null, { status: 404 });
+    };
+    const s = webdavStore("https://dav.example.test/files", "me", "pw", davFake);
+    const src = join(mkdtempSync(join(tmpdir(), "cs-big-")), "big.bin");
+    const data = new Uint8Array(3 * 1024 * 1024).map((_, i) => i % 251);
+    writeFileSync(src, data);
+    expect(await s.list("_craftshelf_backup")).toEqual([]);
+    await s.putFile("_craftshelf_backup/a b.tar.gz", src);
+    expect(await s.list("_craftshelf_backup")).toEqual(["a b.tar.gz"]);
+    const chunks: Buffer[] = [];
+    for await (const c of await s.read("_craftshelf_backup/a b.tar.gz")) chunks.push(c as Buffer);
+    expect(Buffer.concat(chunks).equals(Buffer.from(data))).toBe(true);
+    await expect(s.read("_craftshelf_backup/none.tar.gz")).rejects.toThrow();
   });
 });

@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 import { signupOpen } from "~/server/auth";
 import { addonSet, addonSetItem, libraryFile, libraryItem, localServer, pteroConnection, server, serverProfile, storageTarget } from "~/server/db/schema";
 import * as schema from "~/server/db/schema";
-import { maybeImportV02, maybeImportV02AutoUpdate, maybeImportV02Library, type ImportReport } from "~/server/import-v02";
+import { maybeImportV02, maybeImportV02AutoUpdate, maybeImportV02Backups, maybeImportV02Library, type ImportReport } from "~/server/import-v02";
 import { totpCode } from "~/server/legacy";
 import { open } from "~/server/secrets";
 import { TEST_SECRET, setup } from "./helpers";
@@ -59,6 +59,12 @@ function makeV02(dir: string) {
   d.exec("INSERT INTO passkeys VALUES (1, 1, 'x'); ");
   d.exec("ALTER TABLE servers ADD COLUMN auto_update TEXT NOT NULL DEFAULT 'off'"); // 01.17 の自動更新
   d.exec("UPDATE servers SET auto_update='auto' WHERE identifier IN ('abcd1234', 'local-1', 'local-2')");
+  // 01.17 のワールドのバックアップ(曜日は月曜 = 0)と、パネルの定期バックアップ(置き場所 = 保存先 1)
+  for (const col of ["world_mode TEXT NOT NULL DEFAULT 'off'", "world_time TEXT NOT NULL DEFAULT '05:00'", "world_dow INTEGER NOT NULL DEFAULT 0", "world_keep INTEGER NOT NULL DEFAULT 5"]) d.exec(`ALTER TABLE servers ADD COLUMN ${col}`);
+  d.exec("UPDATE servers SET world_mode='weekly', world_time='03:30', world_dow=0, world_keep=3 WHERE identifier='local-1'");
+  d.exec("UPDATE servers SET world_mode='daily' WHERE identifier='abcd1234'");
+  set.run("backup_target_id", "1");
+  set.run("backup_keep", "7");
   // 保存先: 1 = パネルの中 / 2 = SMB(v03 はまだつなげない)。自作は 1 に、NASだけ は 2 にだけ版がある
   d.exec(`
     INSERT INTO storage_targets (name, protocol, server, share, active) VALUES ('パネルの中', 'local', '', '', 1), ('家の NAS', 'smb', 'nas.example.test', 'share', 0);
@@ -214,6 +220,21 @@ describe("v02 の自動更新の取り込み", () => {
     const on = await t.db.select({ name: server.name }).from(server).where(eq(server.autoUpdate, true));
     expect(on.map((x) => x.name).sort()).toEqual(["サバイバル", "家のサーバー"].sort());
     expect(await maybeImportV02AutoUpdate(t.db, { v02Dir, v03Dir, dataDir: v03Dir })).toBeNull();
+    expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
+  });
+});
+
+describe("v02 のバックアップの設定の取り込み", () => {
+  it("パネルの定期バックアップと、ワールドのバックアップの予約を引き継ぐ(置き場所は取り込んだ保存先。曜日を v03 の数え方に)。一度だけ", async () => {
+    const r = (await maybeImportV02Backups(t.db, { v02Dir, v03Dir, dataDir: v03Dir }))!;
+    expect(r).toMatchObject({ panel: true, worlds: ["サバイバル", "家のサーバー"] });
+    const [target] = await t.db.select().from(storageTarget).where(eq(storageTarget.name, "v02: パネルの中"));
+    const [panel] = await t.db.select().from(schema.backupSchedule);
+    expect(panel).toMatchObject({ enabled: true, keep: 7, time: "04:00", targetId: target.id });
+    const rows = await t.db.select({ name: server.name, w: schema.worldBackup }).from(schema.worldBackup).innerJoin(server, eq(schema.worldBackup.serverId, server.id));
+    expect(rows.find((x) => x.name === "家のサーバー")?.w).toMatchObject({ mode: "weekly", time: "03:30", dow: 1, keep: 3, targetId: target.id });
+    expect(rows.find((x) => x.name === "サバイバル")?.w).toMatchObject({ mode: "daily", time: "05:00", targetId: null });
+    expect(await maybeImportV02Backups(t.db, { v02Dir, v03Dir, dataDir: v03Dir })).toBeNull();
     expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
   });
 });

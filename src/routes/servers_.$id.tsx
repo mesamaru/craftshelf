@@ -10,6 +10,7 @@ import { bindServerSet, copyServer, listSets, setAutoUpdate, syncServerSet } fro
 import { SOURCE_LABEL, type Source, pageUrl } from "~/lib/sources";
 import { useCan } from "~/lib/use-can";
 import { rollbackSoftware, softwareInfo, updateSoftware } from "~/lib/software-api";
+import { createWorldBackup, removeWorldBackup, setWorldBackup, worldBackups } from "~/lib/worlds-api";
 
 export const Route = createFileRoute("/servers_/$id")({
   beforeLoad: ({ context, params }) => {
@@ -51,6 +52,7 @@ function ServerPage() {
 
       <Profile id={server.id} profile={server.profile} editable={can({ server: ["update"] })} />
       {server.kind === "local" && can({ server: ["update"] }) && <LocalControl id={server.id} />}
+      {can({ server: ["control"] }) && <Worlds id={server.id} admin={can({ server: ["update"] })} />}
 
       {server.profile && (
         <>
@@ -626,6 +628,134 @@ function Changes({ id, edit, items, onChange }: { id: string; edit: boolean; ite
       </section>
       <p className="foot">外したファイルは消さずに名前を変えて残すので、元に戻せます(1 台につき新しい 30 件まで)。変更はサーバーの再起動で反映されます。</p>
       <p className="foot">プラグインを外す・入れ替えるときは、設定フォルダ(plugins/〈名前〉/)も plugins/.craftshelf-config に退避し、元に戻すと設定も戻します(ファイルが 100 個・20 MB を超えるフォルダは退避しません)。</p>
+    </>
+  );
+}
+
+const DAY_NAMES = ["日", "月", "火", "水", "木", "金", "土"];
+const sizeOf = (n: number | null) => (n === null ? "" : n >= 1024 * 1024 * 1024 ? `${(n / 1024 / 1024 / 1024).toFixed(1)} GB` : n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB`);
+
+// ワールドのバックアップ(編集者以上が作る・消す・ダウンロード。予約・残す数・置き場所は管理者以上)
+function Worlds({ id, admin }: { id: string; admin: boolean }) {
+  const load = useServerFn(worldBackups);
+  const create = useServerFn(createWorldBackup);
+  const remove = useServerFn(removeWorldBackup);
+  const save = useServerFn(setWorldBackup);
+  const [d, setD] = useState<Awaited<ReturnType<typeof worldBackups>> | null>(null);
+  const [draft, setDraft] = useState<Awaited<ReturnType<typeof worldBackups>>["settings"] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const reload = () => load({ data: { id } }).then((x) => { setD(x); setDraft((old) => old ?? x.settings); }, (e) => setError(message(e)));
+  useEffect(() => { reload(); }, [id]);
+  // 作っている間は、終わるまで一覧を読み直す
+  useEffect(() => {
+    if (!d?.running) return;
+    const t = setTimeout(reload, 3000);
+    return () => clearTimeout(t);
+  }, [d]);
+  if (!d || !draft) return error ? <p className="row error" role="alert">{error}</p> : null;
+
+  const act = async (fn: () => Promise<unknown>, done = "") => {
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      await fn();
+      setNote(done);
+      await reload();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const ptero = d.kind === "ptero";
+  return (
+    <>
+      <div className="group-title">ワールドのバックアップ</div>
+      <section className="group">
+        {!d.available && <div className="row muted">フォルダのサーバー・エージェントのワールドのバックアップは、自分用の版だけで使えます。</div>}
+        {d.available && (
+          <button className="row link" type="button" disabled={busy || d.running} onClick={() => act(() => create({ data: { id } }), "")}>
+            {d.running ? "バックアップしています…(終わると下に出ます)" : "いまバックアップする"}
+          </button>
+        )}
+        {!d.running && d.last && (d.last.ok
+          ? <div className="row muted" role="status">{`作りました: ${new Date(d.last.at).toLocaleString("ja-JP")}`}</div>
+          : <div className="row error" role="alert">{`作れませんでした: ${d.last.message}`}</div>)}
+        {d.error && <div className="row error" role="alert">{d.error}</div>}
+        {d.available && !d.error && d.backups.length === 0 && <div className="row muted">まだありません。</div>}
+        {d.backups.map((b) => (
+          <div className="row" key={b.name}>
+            <span className="main">
+              <span>{b.at ? new Date(b.at).toLocaleString("ja-JP") : ""}</span>
+              <span className="muted small" translate="no">{b.label}{b.size !== null ? ` · ${sizeOf(b.size)}` : ""}</span>
+            </span>
+            {!b.done && <span className="badge">作っています</span>}
+            {b.done && !b.ok && <span className="badge muted-badge">失敗</span>}
+            {b.locked && <span className="badge muted-badge">鍵つき</span>}
+            {b.done && b.ok && <a className="trail link" href={`/api/worlds/${id}/${b.name}`} download>ダウンロード</a>}
+            {!b.locked && b.done && (
+              <button className="link danger" type="button" disabled={busy} onClick={() => {
+                if (confirm(`${b.label} を消しますか?`)) act(() => remove({ data: { id, name: b.name } }), "消しました");
+              }}>消す</button>
+            )}
+          </div>
+        ))}
+        {note && <p className="row muted" role="status">{note}</p>}
+        {error && <p className="row error" role="alert">{error}</p>}
+      </section>
+      {admin && d.available && (
+        <section className="group form">
+          <div className="row">
+            <span>予約</span>
+            <select className="trail" value={draft.mode} aria-label="ワールドのバックアップの予約" onChange={(e) => setDraft({ ...draft, mode: e.target.value })}>
+              <option value="off">しない</option>
+              <option value="daily">毎日</option>
+              <option value="weekly">毎週</option>
+            </select>
+          </div>
+          {draft.mode === "weekly" && (
+            <div className="row">
+              <span>曜日</span>
+              <select className="trail" value={draft.dow} aria-label="バックアップする曜日" onChange={(e) => setDraft({ ...draft, dow: Number(e.target.value) })}>
+                {DAY_NAMES.map((n, i) => <option key={i} value={i}>{`${n}曜日`}</option>)}
+              </select>
+            </div>
+          )}
+          {draft.mode !== "off" && (
+            <div className="row">
+              <span>時刻</span>
+              <input className="trail" type="time" value={draft.time} aria-label="バックアップする時刻" onChange={(e) => setDraft({ ...draft, time: e.target.value })} />
+            </div>
+          )}
+          <div className="row">
+            <span>残す数</span>
+            <select className="trail" value={draft.keep} aria-label="残すバックアップの数" onChange={(e) => setDraft({ ...draft, keep: Number(e.target.value) })}>
+              {[1, 2, 3, 5, 7, 10, 14, 20, 30].map((n) => <option key={n} value={n}>{`${n} 個`}</option>)}
+            </select>
+          </div>
+          {!ptero && (
+            <div className="row">
+              <span>置き場所</span>
+              <select className="trail" value={draft.targetId ?? ""} aria-label="バックアップの置き場所" onChange={(e) => setDraft({ ...draft, targetId: e.target.value || null })}>
+                <option value="">パネルの中</option>
+                {d.targets.map((t) => <option key={t.id} value={t.id} translate="no">{t.name}</option>)}
+              </select>
+            </div>
+          )}
+          {d.settings.lastRunAt && <div className="row muted">{`前に予約で動いたとき: ${new Date(d.settings.lastRunAt).toLocaleString("ja-JP")}`}</div>}
+          <button className="row link" type="button" disabled={busy} onClick={() => act(async () => {
+            await save({ data: { id, ...draft, tz: Intl.DateTimeFormat().resolvedOptions().timeZone } });
+            setDraft(null);
+          }, "保存しました")}>保存</button>
+        </section>
+      )}
+      <p className="foot">{ptero
+        ? "Pterodactyl のパネルのバックアップを使います。ワールドだけでなく、サーバー全体(.pteroignore で除いたものを除く)が入り、パネルの置き場所に残ります。作れる数の上限はパネルの設定しだいです。残す数を超えたら、このパネルが作った古いもの(鍵つきを除く)を消します。"
+        : "ワールド(server.properties の level-name と、その _nether・_the_end のフォルダ)を tar.gz にまとめます。RCON が使えれば、まとめる間はワールドの保存を止めます(save-off)。1 つ 100 MB を超えるファイルと読めなかったファイルは飛ばし、操作の記録に書きます。"}
+        {" 予約の時刻は、保存したときのブラウザの時間帯です。結果は操作の記録に残り、失敗したらお知らせと Discord(「エラー」「バックアップ」を選んでいれば)で知らせます。予約・残す数・置き場所を決められるのは管理者以上です。"}</p>
     </>
   );
 }

@@ -466,3 +466,30 @@ export const agentServer = pgTable("agent_server", {
   agentId: text("agent_id").notNull().references(() => agent.id, { onDelete: "cascade" }),
   key: text("key").notNull(),
 });
+
+// パネルの定期バックアップ(自分用の版だけ。03.53.00 から)。毎日 time(tz の時刻)に作り、新しい keep 個を残す。
+// target_id は置き場所の保存先(null = パネルの中)。手で作るときも同じ置き場所・残す数を使う
+export const backupSchedule = pgTable("backup_schedule", {
+  teamId: text("team_id").primaryKey().references(() => organization.id, { onDelete: "cascade" }),
+  enabled: boolean("enabled").notNull().default(false),
+  time: text("time").notNull().default("04:00"),
+  tz: text("tz").notNull().default("Asia/Tokyo"),
+  keep: integer("keep").notNull().default(5),
+  targetId: text("target_id").references(() => storageTarget.id, { onDelete: "set null" }),
+  lastRunAt: timestamp("last_run_at"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// ワールドのバックアップの設定(サーバーごと。03.53.00 から)。mode = off / daily / weekly(dow の曜日、0 = 日曜)、time は tz の時刻、
+// keep は残す数。target_id は置き場所の保存先(null = パネルの中)。Pterodactyl はパネルのバックアップを使うので、置き場所は使わない
+export const worldBackup = pgTable("world_backup", {
+  serverId: text("server_id").primaryKey().references(() => server.id, { onDelete: "cascade" }),
+  mode: text("mode").notNull().default("off"),
+  time: text("time").notNull().default("05:00"),
+  dow: integer("dow").notNull().default(0),
+  tz: text("tz").notNull().default("Asia/Tokyo"),
+  keep: integer("keep").notNull().default(5),
+  targetId: text("target_id").references(() => storageTarget.id, { onDelete: "set null" }),
+  lastRunAt: timestamp("last_run_at"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});

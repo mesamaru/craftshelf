@@ -135,6 +135,10 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 - ライブラリに取り込む(`library.adopt`、比較の表から): 配布元がわかっていてライブラリに無いもの(`catalog.orphans`)はそのまま載せる。記録の無い jar は `identifyIn` で中身から探し、見つからなければ `uploads.fromServer`(自分用の版だけ)。
 
 - バックアップ(`backup.ts`、自分用の版・PGlite だけ): PGlite の `dumpDataDir`・`secret`・`library` を `tar` でまとめ、`/data/v03/backups` に新しい 5 個を残す。戻すときは `restore-pending.tar.gz` を置いて終了し、次の起動で(データベースを開く前・鍵を読む前に)`applyPendingRestore` が入れ替える。今のデータは `before-restore-<日時>` に移し、失敗したら元に戻して `restore-failed-…` に名前を変える。
+  - 定期バックアップ(表 `backup_schedule`、03.53.00 から): 毎日 `time`(`tz` は保存したブラウザの時間帯)に作る。置き場所は `target_id` の保存先(`_craftshelf_backup/`。v02 と同じ場所で、名前が違うので混ざらない)か、null ならパネルの中。新しい `keep` 個を残す(手で作るときも同じ)。保存先に置いたものは一覧(`Store.list`)から、ダウンロード・戻すもできる。
+- ワールドのバックアップ(`worlds.ts`、表 `world_backup`、03.53.00 から): Pterodactyl はパネルのバックアップ(Client API の backups。サーバー全体)を作り、名前が `CraftShelf ` で始まるもの(このアプリが作ったもの)だけを、鍵つき・作っている途中を除いて `keep` 個まで残す。ダウンロードは Wings の署名付きの URL へ移す。フォルダのサーバー・エージェント(自分用の版だけ)は、`level-name` と `_nether`・`_the_end` を `listFiles`・`readBytes` で 1 ファイルずつ読み、`tar.ts` で tar.gz に少しずつ書く(メモリは 1 ファイルぶん。100 MB を超えるもの・読めないものは飛ばして記録に書く。`session.lock` は入れない)。RCON・コンソールが使えれば `save-off`・`save-all flush` のあとで読み、終わったら `save-on`。置き場所は保存先(`_craftshelf_worlds/<サーバーの ID>/`)かパネルの中(`/data/v03/worlds/<サーバーの ID>/`)。大きいファイルを送る・読むのは `Store.putFile`・`Store.read`(ストリーム)。手で作るときは始めたらすぐ返し、終わると一覧・操作の記録(種類 `backup`、失敗は `errors` も)に出る。予約は 1 分ごとの `tick` で、`last_run_at` を条件付きで書き換えてから始める(終わるのは待たない)。
+
+- 時刻: 表の時刻は `timestamp`(時間帯なし)で、Drizzle は UTC として読み書きする。データベースのつなぎの時間帯を UTC にしている(`db/index.ts`。PGlite はパソコン・コンテナの時間帯を使うため。移行は切り替える前に流し、`0025_time_utc` がそれまでの時間帯で `now()` が入れた時刻を UTC に直した)。画面では利用者の時刻で出す。
 
 - Modpack(`modpack.ts`): ファイルを持たないので、.mrpack は `modrinth.index.json` の mods/ の SHA-1 で Modrinth の版を探し(env.server が unsupported のものは飛ばす)、CurseForge は `manifest.json` の projectID を使う。名前はまとめて取り(Modrinth `/projects`・CurseForge `POST /mods`)、ライブラリに Mod として載せ、同じ名前のセットを作る。overrides は、サーバーを選んだときだけ、テキストの設定ファイル(`files.editable`)を 300 個まで書き込む(上書きする前の中身は `server_file_history` に残す)。
 

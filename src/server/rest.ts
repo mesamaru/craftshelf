@@ -24,6 +24,8 @@ export const ROUTES: Route[] = [
   { method: "POST", path: "/servers/:id/copy", summary: "このサーバーの構成を、ほかのサーバーにそろえる(to: サーバーの ID の配列、mode: update / add / mirror)", handler: (s, h, [id], b) => s.sets.copy(h, id, Array.isArray(b.to) ? b.to.map(String) : [], str(b.mode)) },
   { method: "POST", path: "/servers/:id/auto-update", summary: "自動更新を入れる・やめる(enabled: true / false)", handler: (s, h, [id], b) => s.sets.setAutoUpdate(h, id, b.enabled === true) },
   { method: "POST", path: "/servers/:id/sync", summary: "結び付けたセットでそろえる(removeExtra: セットに無いものを外す)", handler: (s, h, [id], b) => s.sets.sync(h, id, b.removeExtra === true) },
+  { method: "GET", path: "/servers/:id/worlds", summary: "ワールドのバックアップの一覧と設定(編集者以上。Pterodactyl はパネルのバックアップ)", handler: (s, h, [id]) => s.worlds.get(h, id) },
+  { method: "POST", path: "/servers/:id/worlds", summary: "ワールドのバックアップを始める(終わると一覧と操作の記録に出る)", handler: async (s, h, [id]) => { await s.worlds.create(h, id); return { started: true }; } },
   { method: "GET", path: "/library", summary: "ライブラリ(チームの Mod・プラグイン)", handler: (s, h) => s.library.catalog(h) },
   { method: "GET", path: "/sets", summary: "セットの一覧", handler: (s, h) => s.sets.list(h) },
   { method: "GET", path: "/events", summary: "操作の記録(管理者以上)", handler: (s, h) => s.events.list(h) },

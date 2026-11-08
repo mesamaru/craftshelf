@@ -26,3 +26,8 @@ export const reimportV02 = createServerFn({ method: "POST" }).handler(async () =
 });
 
 export const cancelRestore = createServerFn({ method: "POST" }).handler(async () => (await svc()).cancel(headers()));
+
+// 定期バックアップ・置き場所・残す数(tz は画面の時間帯)
+export const setBackupSchedule = createServerFn({ method: "POST" })
+  .validator(z.object({ enabled: z.boolean(), time: z.string().max(5), keep: z.number().int(), targetId: z.string().max(64).nullable(), tz: z.string().max(64) }))
+  .handler(async ({ data }) => (await svc()).setSchedule(headers(), data));

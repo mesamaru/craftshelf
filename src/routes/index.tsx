@@ -10,7 +10,7 @@ import { createShare } from "~/lib/shares-api";
 import { useCan } from "~/lib/use-can";
 import { Bell } from "~/lib/bell";
 import { OPEN_PALETTE } from "~/lib/palette";
-import { recentEvents } from "~/lib/events-api";
+import { markNoticesSeen, recentEvents } from "~/lib/events-api";
 import { listSets, toggleSetItem } from "~/lib/sets-api";
 
 export const Route = createFileRoute("/")({
@@ -438,23 +438,23 @@ function Upload({ onDone }: { onDone: () => void }) {
   );
 }
 
-// お知らせ: 最近の出来事。前に開いたあとのものを数える(ブラウザごと)
-const SEEN = "craftshelf.notices-seen";
+// お知らせ: 最近の出来事。前に開いたあとのものを数える(どこまで読んだかはサーバーに残し、どの端末でも同じ)
+const SEEN = "craftshelf.notices-seen"; // 03.50.00 まではブラウザごとに残していた(サーバーにまだ無いときだけ使う)
 function Notices() {
   const load = useServerFn(recentEvents);
-  const [list, setList] = useState<Awaited<ReturnType<typeof recentEvents>> | null>(null);
+  const mark = useServerFn(markNoticesSeen);
+  const [list, setList] = useState<Awaited<ReturnType<typeof recentEvents>>["items"] | null>(null);
   const [open, setOpen] = useState(false);
   const [seen, setSeen] = useState("");
   useEffect(() => {
-    setSeen(localStorage.getItem(SEEN) ?? "");
-    load().then(setList, () => setList([]));
+    load().then((r) => { setList(r.items); setSeen(r.seenAt ?? localStorage.getItem(SEEN) ?? ""); }, () => setList([]));
   }, []);
   const unread = (list ?? []).filter((e) => e.at > seen).length;
   const toggle = (v: boolean) => {
     setOpen(v);
-    if (v && list?.length) {
-      localStorage.setItem(SEEN, list[0].at);
+    if (v && list?.length && list[0].at > seen) {
       setSeen(list[0].at);
+      mark({ data: { at: list[0].at } }).catch(() => {});
     }
   };
   return (

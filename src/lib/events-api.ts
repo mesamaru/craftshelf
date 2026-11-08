@@ -7,15 +7,23 @@ const svc = async () => (await import("~/server/instance")).events;
 const headers = () => getRequest().headers;
 
 export const listEvents = createServerFn({ method: "GET" })
-  .validator(z.object({ before: z.string().max(40).optional() }))
-  .handler(async ({ data }) => (await svc()).list(headers(), data.before));
+  .validator(z.object({ before: z.string().max(40).optional(), q: z.string().max(100).optional() }))
+  .handler(async ({ data }) => (await svc()).list(headers(), data.before, data.q));
 
 export const notifySettings = createServerFn({ method: "GET" }).handler(async () => (await svc()).notifySettings(headers()));
 
 export const setNotify = createServerFn({ method: "POST" })
-  .validator(z.object({ url: z.string().max(300).nullable(), kinds: z.array(z.string().max(20)).max(10) }))
+  .validator(z.object({ url: z.string().max(300).nullable(), kinds: z.array(z.string().max(20)).max(20) }))
   .handler(async ({ data }) => (await svc()).setNotify(headers(), data));
 
 export const testNotify = createServerFn({ method: "POST" }).handler(async () => (await svc()).testNotify(headers()));
 
-export const recentEvents = createServerFn({ method: "GET" }).handler(async () => (await svc()).recent(headers()));
+// お知らせと、どこまで読んだか(利用者ごとにサーバーに残す)
+export const recentEvents = createServerFn({ method: "GET" }).handler(async () => {
+  const s = await svc();
+  return { items: await s.recent(headers()), seenAt: await s.seen(headers()) };
+});
+
+export const markNoticesSeen = createServerFn({ method: "POST" })
+  .validator(z.object({ at: z.string().max(40) }))
+  .handler(async ({ data }) => (await svc()).markSeen(headers(), data.at));

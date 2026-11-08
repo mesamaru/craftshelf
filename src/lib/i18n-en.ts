@@ -1,6 +1,20 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  // 操作の記録を探す・知らせる種類・お知らせの既読
+  "新しいバージョンの発見(サーバーに入っているものの更新)": "New versions found (updates for installed add-ons)",
+  "自動で入れた(自動更新・予約でそろえた)": "Installed automatically (auto update, scheduled sync)",
+  "エラー(予約・自動更新・バックアップの失敗)": "Errors (failed schedules, auto updates and backups)",
+  "バックアップ(作った・失敗)": "Backups (created, failed)",
+  "パネルの更新(v03 の新しい版)": "Panel updates (new v03 versions)",
+  "操作・対象・詳しく・人の名前で探す": "Search by action, target, details or person",
+  "操作の記録を探す": "Search the activity log",
+  "一致する記録はありません。": "No matching records.",
+  "新しいバージョンがあります": "New versions available",
+  "パネルの新しい版があります": "A new panel version is available",
+  "バックアップを作る": "Create backup",
+  "バックアップを作れませんでした": "Could not create the backup",
+  "日時が正しくありません": "Invalid date and time",
   // 無効にする・設定フォルダの退避・ほかのサーバーにそろえる・ライブラリに取り込む・自動更新
   "無効にする": "Disable",
   "「無効にする」と、ファイルを消さずに名前の最後に .disabled を付けて止めます(更新・自動更新の対象からも外れます)。自動更新は、ライブラリ(配布元・アップロード)に新しい版が出たら入れます。「更新を止める」にしたもの・無効にしたものは入れ替えません。":
@@ -985,6 +999,7 @@ export const EN: Record<string, string> = {
 };
 /** 1 文字だけのもの(曜日など)。文全体が一致したときだけ置き換える */
 export const EN_WHOLE: Record<string, string> = {
+  "自動": "Auto",
   "無効": "Disabled",
   "自動更新": "Auto update",
   "同じ": "Identical",

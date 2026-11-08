@@ -5,7 +5,7 @@ import { teamSchedule } from "./db/schema";
 import { eventService } from "./events";
 import { HttpError, requireTeam } from "./guard";
 import type { Deps } from "./servers";
-import type { setService } from "./sets";
+import { alsoOf, type setService } from "./sets";
 
 export const SCHEDULE_MODES = { check: "更新を確かめるだけ", sync: "セットでそろえる" } as const;
 type Mode = keyof typeof SCHEDULE_MODES;
@@ -39,7 +39,7 @@ export function scheduleService(deps: Deps, sets: ReturnType<typeof setService>)
     const changed = servers.filter((s) => s.error || s.results.some((r) => !["present", "skipped"].includes(r.status)));
     const detail = [lines.join("\n"), ...changed.filter((s) => !s.error).map((s) => `\n${s.server}\n${summary(s.results).split("\n").slice(1).join("\n")}`)].join("\n");
     await record({
-      teamId, userId: null, kind: "schedule", action: mode === "sync" ? "予約でそろえる" : "予約で更新を確かめる",
+      teamId, userId: null, kind: "schedule", also: [...alsoOf(servers.flatMap((s) => s.results)), ...(servers.some((s) => s.error) ? ["errors" as const] : [])], action: mode === "sync" ? "予約でそろえる" : "予約で更新を確かめる",
       target: `${servers.length} 台`, detail: servers.length ? detail : "セットを結び付けたサーバーがありません",
     });
     return servers;

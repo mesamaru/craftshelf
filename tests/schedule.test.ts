@@ -14,11 +14,17 @@ const SECRET = "test-secret-0123456789-0123456789-abcd";
 const PLUGIN = "Vebnzrzj";
 const files = new Map<string, string[]>([["plugins", []]]);
 const pulls: string[] = [];
+const sent: string[] = [];
+const HOOK = "https://discord.com/api/webhooks/123456789012345678/abcdefghijklmnopqrstuvwxyz_0123456789";
 let latest = { id: "ver00001", number: "5.4.0" };
 
 const fake: FetchLike = async (url, init) => {
   const u = new URL(url);
   const json = (b: unknown, status = 200) => Response.json(b, { status });
+  if (u.host === "discord.com") {
+    sent.push(JSON.parse(String(init?.body)).content);
+    return new Response(null, { status: 204 });
+  }
   if (u.host === "api.modrinth.com") {
     if (u.pathname === `/v2/project/${PLUGIN}`) return json({ title: "LuckPerms", slug: "luckperms", project_type: "plugin" });
     if (u.pathname === `/v2/project/${PLUGIN}/version`) {
@@ -54,6 +60,8 @@ let ev: ReturnType<typeof eventService>;
 let owner: Headers;
 let editor: Headers;
 let teamId: string;
+let sets: ReturnType<typeof setService>;
+let serverId: string;
 const code = (p: Promise<unknown>) => p.then(() => 200, (e) => (e instanceof HttpError ? e.status : (console.error(e), 500)));
 
 beforeAll(async () => {
@@ -61,7 +69,7 @@ beforeAll(async () => {
   const deps = { db: t.db, auth: t.auth, secret: SECRET, fetch: fake };
   const servers = serverService(deps);
   const lib = libraryService(deps);
-  const sets = setService(deps);
+  sets = setService(deps);
   sched = scheduleService(deps, sets);
   ev = eventService(deps);
   owner = t.headers(await t.signUp("オーナー", "owner@example.com"));
@@ -73,6 +81,7 @@ beforeAll(async () => {
   const setId = (await sets.create(owner, "基本")).id;
   await sets.toggleItem(owner, setId, (await lib.catalog(owner)).items[0].id, true);
   await sets.bind(owner, id, setId);
+  serverId = id;
   const team = await (await t.get("/organization/get-full-organization", owner.get("cookie")!)).json();
   teamId = team.id;
   const inv = await (await t.call("/organization/invite-member", { email: "editor@example.com", role: "editor" }, owner.get("cookie")!)).json();
@@ -109,7 +118,8 @@ describe("予約", () => {
     expect(r.detail).toContain("LuckPerms: 入っていません");
   });
 
-  it("「そろえる」なら入れ、新しい版が出れば次の回に更新する", async () => {
+  it("「そろえる」なら入れ、新しい版が出れば次の回に更新する。入れたら「自動で入れた」を選んだ Discord に知らせる", async () => {
+    await ev.setNotify(owner, { url: HOOK, kinds: ["auto"] });
     await sched.set(owner, { enabled: true, mode: "sync", time: "04:00", days: [0] });
     expect(await sched.tick(later(60 * 24 * 7))).toEqual([teamId]);
     expect(pulls).toEqual(["LuckPerms-5.4.0.jar"]);
@@ -117,10 +127,41 @@ describe("予約", () => {
     expect(await sched.tick(later(60 * 24 * 14))).toEqual([teamId]);
     expect(files.get("plugins")).toEqual(["LuckPerms-5.5.0.jar"]);
     expect((await ev.list(owner))[0].detail).toContain("LuckPerms: 5.4.0 → 5.5.0");
+    expect(sent.filter((x) => x.startsWith("**予約でそろえる**")).length).toBe(2);
+    await ev.setNotify(owner, { url: null, kinds: [] });
   });
 
   it("止めると動かない", async () => {
     await sched.set(owner, { enabled: false, mode: "sync", time: "04:00", days: [0] });
     expect(await sched.tick(later(60 * 24 * 21))).toEqual([]);
+  });
+});
+
+describe("新しい版の見回り", () => {
+  const at = (hours: number) => new Date(SUN_0400.getTime() + 60 * 24 * 30 * 60_000 + hours * 60 * 60_000);
+
+  it("前に知らせていない新しい版だけを記録する。1 日に 1 度だけ確かめる。編集者のお知らせにも出る", async () => {
+    await ev.setNotify(owner, { url: HOOK, kinds: ["updates"] });
+    sent.length = 0;
+    latest = { id: "ver00003", number: "5.6.0" };
+    expect(await sets.runUpdateChecks(at(0))).toEqual([serverId]);
+    const [r] = await ev.list(owner);
+    expect([r.kind, r.action, r.target, r.detail]).toEqual(["updates", "新しいバージョンがあります", "ロビー", "・LuckPerms: 5.5.0 → 5.6.0"]);
+    expect(sent).toEqual(["**新しいバージョンがあります** ロビー(自動)\n・LuckPerms: 5.5.0 → 5.6.0"]);
+    expect((await ev.recent(editor)).some((e) => e.kind === "updates")).toBe(true);
+    expect(await sets.runUpdateChecks(at(1))).toEqual([]); // 1 日たっていない
+    expect(await sets.runUpdateChecks(at(25))).toEqual([]); // 同じ版はもう知らせない
+    latest = { id: "ver00004", number: "5.7.0" };
+    expect(await sets.runUpdateChecks(at(50))).toEqual([serverId]);
+    expect((await ev.list(owner))[0].detail).toBe("・LuckPerms: 5.5.0 → 5.7.0");
+    expect(pulls.length).toBe(2); // 見回りでは入れない
+    await ev.setNotify(owner, { url: null, kinds: [] });
+  });
+
+  it("自動更新を入れたサーバーは見ない", async () => {
+    await sets.setAutoUpdate(owner, serverId, true);
+    latest = { id: "ver00005", number: "5.8.0" };
+    expect(await sets.runUpdateChecks(at(100))).toEqual([]);
+    await sets.setAutoUpdate(owner, serverId, false);
   });
 });

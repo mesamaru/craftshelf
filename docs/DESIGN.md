@@ -114,9 +114,12 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 
 ## 操作の記録と通知
 
-- 操作の記録(表 `audit_log`。`src/server/events.ts` の `record`)。各サービスの、変える操作の最後に記録する(だれが・何を・どのサーバーに・詳しい内容)。予約で動いたものは user_id が null。見られるのは `member: ["update"]`(管理者以上)。
-- Discord への通知(表 `team_notify`)。Webhook の URL は `seal` で暗号化して保存し、`https://discord.com/api/webhooks/…`(discordapp.com・ptb・canary を含む)だけを受け付ける。記録の種類(`EVENT_KINDS`: changes・sets・schedule・power・admin)のうち、選んだものだけを送る。`allowed_mentions` を空にしてメンションさせない。送れなくても、もとの操作は失敗させない。
+- 操作の記録(表 `audit_log`。`src/server/events.ts` の `record`)。各サービスの、変える操作の最後に記録する(だれが・何を・どのサーバーに・詳しい内容)。予約で動いたものは user_id が null。見られるのは `member: ["update"]`(管理者以上)。画面では操作・対象・詳しく・人の名前で探せる(`list` の `q`、ILIKE。`%`・`_` はそのままの文字)。
+- Discord への通知(表 `team_notify`)。Webhook の URL は `seal` で暗号化して保存し、`https://discord.com/api/webhooks/…`(discordapp.com・ptb・canary を含む)だけを受け付ける。記録の種類(`EVENT_KINDS`: changes・sets・schedule・power・admin・updates・auto・errors・backup・panel)のうち、選んだものだけを送る。記録は 1 つの種類(`kind`)で残し、ほかにも当てはまる種類は `also` で渡す(自動更新・予約で入れた → auto、失敗 → errors、バックアップ → backup。前からの種類を選んだチームにも、前と同じように届く)。`allowed_mentions` を空にしてメンションさせない。送れなくても、もとの操作は失敗させない。
 
+- 新しい版の見回り(`setService.runUpdateChecks`、1 分ごと): 前に確かめてから 1 日(`UPDATE_CHECK_EVERY`)たったサーバーを 1 回に 2 台まで、`update_checked_at` を条件付きで書き換えてから確かめる(配布元へは入っているもの 1 つにつき 1 回。自動更新を入れたサーバーは見ない)。見つけた行を `server.update_notice` に残し、前に知らせていない行だけを `updates` で記録する。
+- パネルの新しい版(自分用の版、`startup.ts`): 6 時間ごとに GitHub のリリースを見て、いまより新しい版があれば `events.announcePanel` ですべてのチームに `panel` で記録する(同じ版は 1 度だけ)。
+- お知らせ(ベル)の既読は、利用者 × チームごとに表 `notice_seen` に残す(どの端末でも同じ。先へ進めるだけ)。
 - ファイル比較(`/compare/files`、`files.configs`): v02 と同じ場所(一番上・plugins は 3 段・config は 4 段・mods/config は 3 段)から、開ける設定ファイルを 1 台 400 個まで集める。一覧では中身を読まず大きさで見る。開いたら全部を読み、行の差分(`src/lib/diff.ts`、Myers の方法)で基準にそろえて並べる。写すのは `files.save`(履歴に残る)。
 
 - サーバーの割り当て(表 `member_server_limit`・`member_server`): `member_server_limit` に行がある閲覧者・編集者は、`member_server` のサーバーだけを使える。確かめるのは `serverOf(deps, who, id)`(`who` は `requireTeam` の結果。チームの ID だけを渡すのは予約などの人でない操作だけ)と `needServerAccess`、一覧は `serverScope` で絞る。管理者・オーナーは制限しない。

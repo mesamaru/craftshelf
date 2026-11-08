@@ -6,13 +6,16 @@ import { addonSet, addonSetItem, installedMod, libraryItem, server, serverHold, 
 import { HttpError, requireTeam } from "./guard";
 import { isItemSource } from "~/lib/sources";
 import { isDisabled, modTools } from "./library";
-import { eventService } from "./events";
+import { type EventKind, eventService } from "./events";
 import { type Deps, serverOf, needServerAccess, serverScope } from "./servers";
 
 // 無料で使える範囲
 export const SET_LIMITS = { setsPerTeam: 50, itemsPerSet: 200 };
 // 自動更新を入れたサーバーを確かめる間隔
 export const AUTO_UPDATE_EVERY = 6 * 60 * 60_000;
+// 新しい版の見回り: 1 台を確かめる間隔と、1 分に確かめる台数(配布元へ問い合わせすぎないように)
+export const UPDATE_CHECK_EVERY = 24 * 60 * 60_000;
+export const UPDATE_CHECK_BATCH = 2;
 
 // missing・available は「確かめるだけ」のときの、入っていない・新しい版がある
 export type ApplyResult = { title: string; status: "installed" | "updated" | "present" | "skipped" | "failed" | "missing" | "available" | "removed"; detail: string };
@@ -23,6 +26,12 @@ export const COPY_MODES = ["update", "add", "mirror"] as const;
 export type CopyMode = (typeof COPY_MODES)[number];
 type SetLike = { source: string; projectId: string; title: string; projectType: string };
 
+/** 結果から、記録の種類のほかに知らせる種類: 入れた・更新した・外した → auto、失敗 → errors、新しい版がある → updates */
+export function alsoOf(list: ApplyResult[]): EventKind[] {
+  const has = (...st: ApplyResult["status"][]) => list.some((x) => st.includes(x.status));
+  return [...(has("installed", "updated", "removed") ? ["auto" as const] : []), ...(has("failed") ? ["errors" as const] : []), ...(has("available") ? ["updates" as const] : [])];
+}
+
 const cleanName = (name: string) => {
   const n = name.trim().slice(0, 60);
   if (!n) throw new HttpError(400, "セットの名前を入力してください");
@@ -31,7 +40,7 @@ const cleanName = (name: string) => {
 
 export function setService(deps: Deps) {
   const { db, auth } = deps;
-  const { latestFile, fileById, versionsOf, needProfile, installInto, holdsOf, removeFrom } = modTools(deps);
+  const { latestFile, fileById, versionsOf, needProfile, installInto, holdsOf, updatesOf, removeFrom } = modTools(deps);
   const { record } = eventService(deps);
   // 結果のまとめ(通知・記録に使う)。変わったもの・失敗したものだけを並べる
   const summary = (list: ApplyResult[]) => {
@@ -348,13 +357,42 @@ export function setService(deps: Deps) {
           const records = await db.select().from(installedMod).where(eq(installedMod.serverId, s.id));
           const type = PLATFORMS[(await needProfile(s.id)).platform].type;
           const r = await applyTo(s.teamId, null, records.map((x) => ({ source: x.source, projectId: x.projectId, title: x.title, projectType: type })), s.id, "sync");
-          if (r.some((x) => x.status !== "present")) await record({ teamId: s.teamId, userId: null, kind: "schedule", action: "自動更新", target: s.name, detail: summary(r) });
+          if (r.some((x) => x.status !== "present")) await record({ teamId: s.teamId, userId: null, kind: "schedule", also: alsoOf(r), action: "自動更新", target: s.name, detail: summary(r) });
         } catch (e) {
           if (!(e instanceof HttpError)) console.error("[自動更新] 動かせませんでした:", e);
-          else await record({ teamId: s.teamId, userId: null, kind: "schedule", action: "自動更新", target: s.name, detail: `できませんでした: ${e.message}` });
+          else await record({ teamId: s.teamId, userId: null, kind: "schedule", also: ["errors"], action: "自動更新", target: s.name, detail: `できませんでした: ${e.message}` });
         }
       }
       return due.map((s) => s.id);
+    },
+
+    /**
+     * 新しい版の見回り(1 分ごとに呼ぶ。画面からは呼ばない): 前に確かめてから 1 日たったサーバーを、1 回に UPDATE_CHECK_BATCH 台まで確かめ、
+     * 前に知らせていない新しい版があれば記録する(知らせる種類 updates)。自動更新を入れたサーバーは、そちらで入るので見ない
+     */
+    async runUpdateChecks(now: Date) {
+      const stale = or(isNull(server.updateCheckedAt), lt(server.updateCheckedAt, new Date(now.getTime() - UPDATE_CHECK_EVERY)));
+      const due = await db.select({ id: server.id }).from(server).where(and(eq(server.autoUpdate, false), stale)).limit(UPDATE_CHECK_BATCH);
+      const found: string[] = [];
+      for (const { id } of due) {
+        // 動かす前に時刻を書き換え、ほかのプロセスと同じサーバーを 2 回確かめない
+        const [s] = await db.update(server).set({ updateCheckedAt: now }).where(and(eq(server.id, id), stale))
+          .returning({ id: server.id, teamId: server.teamId, name: server.name, notice: server.updateNotice });
+        if (!s) continue;
+        try {
+          const lines = (await updatesOf(s.id, await needProfile(s.id), s.teamId, true)).map((u) => `・${u.title}: ${u.current} → ${u.latest}`);
+          const before = new Set(s.notice.split("\n"));
+          const fresh = lines.filter((l) => !before.has(l));
+          await db.update(server).set({ updateNotice: lines.join("\n") }).where(eq(server.id, s.id));
+          if (fresh.length) {
+            await record({ teamId: s.teamId, userId: null, kind: "updates", action: "新しいバージョンがあります", target: s.name, detail: fresh.join("\n") });
+            found.push(s.id);
+          }
+        } catch (e) {
+          if (!(e instanceof HttpError)) console.error("[新しい版の見回り] 確かめられませんでした:", e); // 種類を決めていないサーバーなどは飛ばす
+        }
+      }
+      return found;
     },
   };
 }

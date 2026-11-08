@@ -119,3 +119,43 @@ describe("お知らせ", () => {
     expect((await ev.recent(outsider)).length).toBe(0);
   });
 });
+
+describe("操作の記録を探す", () => {
+  it("操作・対象・詳しく・人の名前で探せる。% や _ はそのままの文字として探す。ほかのチームのものは出ない", async () => {
+    expect((await ev.list(owner, undefined, "再起動")).map((r) => r.action)).toEqual(["再起動"]);
+    expect((await ev.list(owner, undefined, "編集者")).every((r) => r.userName === "編集者")).toBe(true);
+    expect((await ev.list(owner, undefined, "paper")).map((r) => r.action)).toEqual(["サーバーの種類を設定", "サーバーの種類を設定"]); // 詳しく(大文字・小文字は問わない)
+    expect(await ev.list(owner, undefined, "%")).toEqual([]);
+    expect(await ev.list(outsider, undefined, "再起動")).toEqual([]);
+    expect(await code(ev.list(editor, undefined, "再起動"))).toBe(403);
+  });
+});
+
+describe("お知らせの既読", () => {
+  it("利用者ごとにサーバーに残し、先へ進めるだけ", async () => {
+    expect(await ev.seen(owner)).toBeNull();
+    await ev.markSeen(owner, "2026-01-02T00:00:00.000Z");
+    await ev.markSeen(owner, "2026-01-01T00:00:00.000Z"); // 戻らない
+    expect(await ev.seen(owner)).toBe("2026-01-02T00:00:00.000Z");
+    expect(await ev.seen(editor)).toBeNull(); // ほかの人は別
+    await ev.markSeen(editor, "2999-01-01T00:00:00.000Z"); // 先の時刻は、いまにする
+    expect(new Date((await ev.seen(editor))!).getTime()).toBeLessThanOrEqual(Date.now());
+    expect(await code(ev.markSeen(owner, "nope"))).toBe(400);
+  });
+});
+
+describe("パネルの新しい版", () => {
+  it("すべてのチームに 1 度だけ知らせる。管理者だけのお知らせに出る", async () => {
+    await ev.announcePanel("03.99.00");
+    await ev.announcePanel("03.99.00");
+    expect((await ev.list(owner)).filter((r) => r.kind === "panel").map((r) => r.target)).toEqual(["v03.99.00"]);
+    expect((await ev.recent(owner)).some((e) => e.kind === "panel")).toBe(true);
+    expect((await ev.recent(editor)).some((e) => e.kind === "panel")).toBe(false);
+    expect((await ev.recent(outsider)).filter((e) => e.kind === "panel").length).toBe(1); // 部外者は自分のチームで受け取る
+  });
+
+  it("サービス版の通知の設定には、パネルの更新は出ない", async () => {
+    expect(Object.keys((await ev.notifySettings(owner)).kinds)).not.toContain("panel");
+    expect(Object.keys((await eventService({ db: t.db, auth: t.auth, secret: SECRET, fetch: fake, local: { dataDir: "." } }).notifySettings(owner)).kinds)).toContain("panel");
+  });
+});

@@ -73,11 +73,15 @@ export function backupService(deps: Deps) {
         if (existsSync(join(v03, "library"))) cpSync(join(v03, "library"), join(work, "library"), { recursive: true });
         // 相対パスで渡す(Windows の C: を、GNU tar がリモートのホストと読まないように)
         await run("tar", ["-czf", join("..", "backups", name), "."], { cwd: work });
+      } catch (e) {
+        rmSync(join(backupsDir(), name), { force: true });
+        await record({ teamId: who.teamId, userId: who.user.id, kind: "admin", also: ["backup", "errors"], action: "バックアップを作れませんでした", detail: e instanceof Error ? e.message : String(e) });
+        throw new HttpError(500, "バックアップを作れませんでした");
       } finally {
         rmSync(work, { recursive: true, force: true });
       }
       for (const old of listOf().slice(BACKUP_KEEP)) rmSync(join(backupsDir(), old.name), { force: true });
-      await record({ teamId: who.teamId, userId: who.user.id, kind: "admin", action: "バックアップを作る", target: name });
+      await record({ teamId: who.teamId, userId: who.user.id, kind: "admin", also: ["backup"], action: "バックアップを作る", target: name });
       return { name };
     },
 

@@ -314,6 +314,25 @@ export function modTools(deps: Deps) {
   const holdsOf = async (serverId: string) =>
     new Set((await db.select().from(serverHold).where(eq(serverHold.serverId, serverId))).map((h) => `${h.source}:${h.projectId}`));
 
+  // このアプリで入れたものの新しい版(止めているもの・無効にしたものは確かめない)。skipFailed なら確かめられないものを飛ばす
+  async function updatesOf(serverId: string, p: Profile, teamId: string, skipFailed = false) {
+    const records = await db.select().from(installedMod).where(eq(installedMod.serverId, serverId));
+    const holds = await holdsOf(serverId);
+    const out: { source: ItemSource; projectId: string; title: string; filename: string; current: string; latest: string }[] = [];
+    for (const r of records) {
+      if (!isItemSource(r.source) || holds.has(`${r.source}:${r.projectId}`) || isDisabled(r.filename)) continue;
+      let f;
+      try {
+        f = await latestFile(r.source, r.projectId, p, teamId);
+      } catch (e) {
+        if (skipFailed && e instanceof HttpError) continue;
+        throw e;
+      }
+      if (f && f.versionId !== r.versionId) out.push({ source: r.source, projectId: r.projectId, title: r.title, filename: r.filename, current: r.versionNumber, latest: f.versionNumber });
+    }
+    return out;
+  }
+
   /**
    * このアプリで入れていない jar(only を渡すとその名前だけ)の配布元を、中身から探す(Modrinth は SHA-1、CurseForge はフィンガープリント)。
    * 見つかったものは、このアプリで入れたものとして記録し、ライブラリにも載せる
@@ -349,13 +368,13 @@ export function modTools(deps: Deps) {
     return { checked: hashes.length, found, missing: hashes.filter((h) => !found.some((f) => f.filename === h.filename)).map((h) => h.filename), curseforge: !!key };
   }
 
-  return { modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, logChange, removeFrom, restoreConfig, identifyIn };
+  return { modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn };
 }
 
 export function libraryService(deps: Deps) {
   const { db, auth } = deps;
   const { record } = eventService(deps);
-  const { modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, logChange, removeFrom, restoreConfig, identifyIn } = modTools(deps);
+  const { modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn } = modTools(deps);
   // このチームで探せる配布元(CurseForge は API キーを設定したときだけ)
   const sourcesOf = async (teamId: string) => ["modrinth", "spigot", ...((await cfKeyOf(teamId)) ? ["curseforge"] : [])];
   const sourceOf = (v: string) => {
@@ -805,16 +824,7 @@ export function libraryService(deps: Deps) {
       const who = await requireTeam(auth, headers);
       const { teamId } = who;
       const { row } = await serverOf(deps, who, id);
-      const p = await needProfile(row.id);
-      const records = await db.select().from(installedMod).where(eq(installedMod.serverId, row.id));
-      const holds = await holdsOf(row.id);
-      const out: { source: ItemSource; projectId: string; filename: string; current: string; latest: string }[] = [];
-      for (const r of records) {
-        if (!isItemSource(r.source) || holds.has(`${r.source}:${r.projectId}`) || isDisabled(r.filename)) continue; // 止めているもの・無効にしたものは確かめない
-        const f = await latestFile(r.source, r.projectId, p, teamId);
-        if (f && f.versionId !== r.versionId) out.push({ source: r.source, projectId: r.projectId, filename: r.filename, current: r.versionNumber, latest: f.versionNumber });
-      }
-      return out;
+      return (await updatesOf(row.id, await needProfile(row.id), teamId)).map(({ title: _, ...u }) => u);
     },
   };
 }

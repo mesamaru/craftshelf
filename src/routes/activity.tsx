@@ -99,29 +99,37 @@ function Log() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [more, setMore] = useState(false);
   const [error, setError] = useState("");
+  const [q, setQ] = useState("");
   const fetchPage = async (before?: string) => {
     try {
-      const r = await load({ data: { before } });
+      const r = await load({ data: { before, q: q.trim() || undefined } });
       setRows((p) => (before ? [...(p ?? []), ...r] : r));
       setMore(r.length === 100);
+      setError("");
     } catch (e) {
       setError(message(e));
     }
   };
-  useEffect(() => { fetchPage(); }, []);
+  // 打ち終わるのを少し待ってから探す
+  useEffect(() => {
+    const t = setTimeout(() => fetchPage(), q ? 300 : 0);
+    return () => clearTimeout(t);
+  }, [q]);
 
   return (
     <>
       <div className="group-title">操作の記録</div>
       <section className="group">
+        <input className="row" type="search" value={q} maxLength={100} onChange={(e) => setQ(e.target.value)}
+          placeholder="操作・対象・詳しく・人の名前で探す" aria-label="操作の記録を探す" />
         {!rows && !error && <div className="row muted">読み込んでいます…</div>}
-        {rows?.length === 0 && <div className="row muted">まだ記録がありません。</div>}
+        {rows?.length === 0 && <div className="row muted">{q.trim() ? "一致する記録はありません。" : "まだ記録がありません。"}</div>}
         {rows?.map((r) => (
           <div className="row" key={r.id}>
             <span className="main">
               <span>{r.action} <span translate="no">{r.target}</span></span>
               {r.detail && <span className="muted pre" translate="no">{r.detail}</span>}
-              <span className="muted">{new Date(r.at).toLocaleString("ja-JP")} · <span translate="no">{r.userName || "予約"}</span></span>
+              <span className="muted">{new Date(r.at).toLocaleString("ja-JP")} · {r.userName ? <span translate="no">{r.userName}</span> : r.kind === "schedule" ? "予約" : "自動"}</span>
             </span>
           </div>
         ))}

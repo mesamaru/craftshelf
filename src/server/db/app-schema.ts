@@ -32,6 +32,9 @@ export const server = pgTable(
     // 自動更新(03.49.00 から): 入れておくと、6 時間ごとに新しい版があれば入れる。auto_updated_at は最後に確かめた時刻
     autoUpdate: boolean("auto_update").notNull().default(false),
     autoUpdatedAt: timestamp("auto_updated_at"),
+    // 新しい版の見回り(03.51.00 から): 最後に確かめた時刻と、そのとき知らせた「新しい版」の行(同じものを 2 度知らせない)
+    updateCheckedAt: timestamp("update_checked_at"),
+    updateNotice: text("update_notice").notNull().default(""),
   },
   (t) => [
     index("server_team_idx").on(t.teamId),
@@ -230,6 +233,17 @@ export const teamNotify = pgTable("team_notify", {
   kinds: text("kinds").notNull().default("[]"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// お知らせ(ベル)をどこまで読んだか(利用者 × チーム。どの端末でも同じにする)
+export const noticeSeen = pgTable(
+  "notice_seen",
+  {
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    teamId: text("team_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    seenAt: timestamp("seen_at").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.teamId] })],
+);
 
 // チームの予約: 決めた曜日・時刻に、セットを結び付けたサーバーをそろえる(mode = sync)か、確かめるだけ(check)。
 // days は曜日(0 = 日曜)の JSON の配列、time は "HH:MM"(tz の時刻)

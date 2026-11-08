@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { listShares, removeShare } from "~/lib/shares-api";
+import { listShares, removeShare, stopShare } from "~/lib/shares-api";
 
 export const Route = createFileRoute("/shares")({
   beforeLoad: ({ context }) => {
@@ -17,6 +17,7 @@ const message = (e: unknown) => (e instanceof Error ? e.message : "うまくい�
 function Shares() {
   const load = useServerFn(listShares);
   const remove = useServerFn(removeShare);
+  const stop = useServerFn(stopShare);
   const [rows, setRows] = useState<Awaited<ReturnType<typeof listShares>> | null>(null);
   const [error, setError] = useState("");
   const reload = () => load().then(setRows, (e) => setError(message(e)));
@@ -29,23 +30,28 @@ function Shares() {
       </header>
       <section className="group">
         {!rows && !error && <div className="row muted">読み込んでいます…</div>}
-        {rows?.length === 0 && <div className="row muted">まだありません。ライブラリのアップロードしたものの「版を見る」から作れます。</div>}
+        {rows?.length === 0 && <div className="row muted">まだありません。ライブラリのアップロードしたものの「版を見る」か、選んだものから作れます。</div>}
         {rows?.map((s) => (
           <div className="row" key={s.id}>
             <span className="main">
               <span translate="no">{s.name}</span>
               <span className="muted">
-                {s.count} 件 · {s.expired ? "期限切れ" : `${new Date(s.expiresAt).toLocaleString("ja-JP")} まで`} · ダウンロード {s.downloads} 回
+                {s.count} 件 · {s.expired ? "止めました・期限切れ" : s.used ? "回数を使い切りました" : s.expiresAt ? `${new Date(s.expiresAt).toLocaleString("ja-JP")} まで` : "無期限"}
+                {s.maxDownloads ? ` · ダウンロード ${s.downloads} / ${s.maxDownloads} 回` : ` · ダウンロード ${s.downloads} 回`}
                 {s.createdBy && <> · <span translate="no">{s.createdBy}</span></>}
               </span>
             </span>
-            <button className="trail link danger" type="button"
+            {!s.expired && !s.used && (
+              <button className="trail link" type="button"
+                onClick={() => confirm(`共有リンク「${s.name}」を止めますか?(リンクは使えなくなります。一覧には残ります)`) && stop({ data: { id: s.id } }).then(reload, (e) => setError(message(e)))}>止める</button>
+            )}
+            <button className={`${s.expired || s.used ? "trail " : ""}link danger`} type="button"
               onClick={() => confirm(`共有リンク「${s.name}」を消しますか?(リンクは使えなくなります)`) && remove({ data: { id: s.id } }).then(reload, (e) => setError(message(e)))}>消す</button>
           </div>
         ))}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">リンクの URL は作ったときにしか表示しません(このアプリには、URL の鍵のハッシュだけを残します)。期限が切れたリンクは使えません。</p>
+      <p className="foot">リンクの URL は作ったときにしか表示しません(このアプリには、URL の鍵のハッシュだけを残します)。期限が切れたリンク・回数を使い切ったリンク・止めたリンクは使えません。</p>
     </main>
   );
 }

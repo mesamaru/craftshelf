@@ -35,8 +35,8 @@ export const bindServerSet = createServerFn({ method: "POST" })
   .handler(async ({ data }) => (await svc()).bind(headers(), data.serverId, data.setId));
 
 export const syncServerSet = createServerFn({ method: "POST" })
-  .validator(z.object({ serverId: sid, removeExtra: z.boolean().default(false) }))
-  .handler(async ({ data }) => (await svc()).sync(headers(), data.serverId, data.removeExtra));
+  .validator(z.object({ serverId: sid, removeExtra: z.boolean().default(false), mode: z.enum(["update", "add", "mirror"]).optional() }))
+  .handler(async ({ data }) => (await svc()).sync(headers(), data.serverId, data.mode ?? data.removeExtra));
 
 export const copyServer = createServerFn({ method: "POST" })
   .validator(z.object({ from: sid, to: z.array(sid).min(1).max(50), mode: z.enum(["update", "add", "mirror"]) }))
@@ -45,3 +45,15 @@ export const copyServer = createServerFn({ method: "POST" })
 export const setAutoUpdate = createServerFn({ method: "POST" })
   .validator(z.object({ serverId: sid, on: z.boolean() }))
   .handler(async ({ data }) => (await svc()).setAutoUpdate(headers(), data.serverId, data.on));
+
+export const updateServers = createServerFn({ method: "POST" })
+  .validator(z.object({ ids: z.array(sid).max(100) }))
+  .handler(async ({ data }) => (await svc()).updateServers(headers(), data.ids));
+
+export const setMissingDeps = createServerFn({ method: "GET" })
+  .validator(z.object({ id: sid, platform: z.string().max(20) }))
+  .handler(async ({ data }) => (await svc()).missingDeps(headers(), data.id, data.platform));
+
+export const addSetDeps = createServerFn({ method: "POST" })
+  .validator(z.object({ id: sid, platform: z.string().max(20), list: z.array(z.object({ source: z.enum(["modrinth", "curseforge"]), projectId: sid })).min(1).max(100) }))
+  .handler(async ({ data }) => (await svc()).addDeps(headers(), data.id, data.list, data.platform));

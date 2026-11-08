@@ -8,7 +8,7 @@ import { libraryService } from "~/server/library";
 import type { FetchLike } from "~/server/net";
 import { serverService } from "~/server/servers";
 import { smbStore, webdavStore } from "~/server/storage";
-import { uploadService } from "~/server/uploads";
+import { UPLOAD_LIMITS, uploadService } from "~/server/uploads";
 import { setup } from "./helpers";
 import { makeZip } from "./zip";
 
@@ -50,6 +50,13 @@ let lib: ReturnType<typeof libraryService>;
 let owner: Headers;
 let viewer: Headers;
 let id: string;
+const bytesOf = async (p: ReturnType<ReturnType<typeof uploadService>["download"]>) => Buffer.concat(await (await p).stream.toArray());
+const webStream = (data: Uint8Array, chunk = 7) => new ReadableStream<Uint8Array>({
+  start(c) {
+    for (let i = 0; i < data.length; i += chunk) c.enqueue(data.subarray(i, i + chunk));
+    c.close();
+  },
+});
 const code = (p: Promise<unknown>) => p.then(() => 200, (e) => (e instanceof HttpError ? e.status : (console.error(e), 500)));
 
 beforeAll(async () => {
@@ -83,6 +90,23 @@ describe("アップロード", () => {
     expect((await up.files(viewer, item.id)).map((f) => f.version)).toEqual(["1.1", "1.0"]);
   });
 
+  it("本文を少しずつ受け取って取り込む(一時ファイルは残さない)。ログインしていない人の本文は受け取らない", async () => {
+    expect(await code(up.receive(new Headers(), "Stream-1.0.jar", webStream(plugin("9.0")) as never))).toBe(401);
+    const big = makeZip({ "plugin.yml": "name: Streamed\nversion: 2.0\nmain: a.B\n", "a/B.class": "x".repeat(50_000) }, false);
+    expect(await up.receive(owner, "Streamed-2.0.jar", webStream(big, 1000) as never)).toMatchObject({ title: "Streamed", version: "2.0", projectType: "plugin" });
+    expect(readdirSync(join(dataDir, "v03", "tmp"))).toEqual([]);
+    const item = (await lib.catalog(owner)).items.find((i) => i.title === "Streamed")!;
+    const [f] = await up.files(owner, item.id);
+    expect(f.size).toBe(big.length);
+    expect(Buffer.compare(await bytesOf(up.download(owner, f.id)), Buffer.from(big))).toBe(0);
+    expect(await code(up.receive(owner, "broken.jar", webStream(new Uint8Array(100)) as never))).toBe(400);
+    const was = UPLOAD_LIMITS.fileBytes;
+    UPLOAD_LIMITS.fileBytes = 10_000; // 上限を超えたら、途中でやめる
+    await expect(up.receive(owner, "Big-3.0.jar", webStream(big, 1000) as never)).rejects.toThrow("MB までです");
+    UPLOAD_LIMITS.fileBytes = was;
+    expect(readdirSync(join(dataDir, "v03", "tmp"))).toEqual([]);
+  });
+
   it("サーバーには新しい版を送る(Pterodactyl にはアップロード)。Paper のサーバーに Mod は送らない", async () => {
     const item = (await lib.catalog(owner)).items.find((i) => i.title === "MyPlugin")!;
     const r = await lib.install(owner, id, item.projectId, "upload");
@@ -97,7 +121,7 @@ describe("アップロード", () => {
   it("ダウンロードでき、版を消すと保存先からも消える", async () => {
     const item = (await lib.catalog(owner)).items.find((i) => i.title === "MyPlugin")!;
     const [newest, older] = await up.files(owner, item.id);
-    expect(Buffer.from((await up.download(viewer, older.id)).data).toString("latin1")).toContain("class 1.0");
+    expect((await bytesOf(up.download(viewer, older.id))).toString("latin1")).toContain("class 1.0");
     expect(await code(up.removeFile(viewer, newest.id))).toBe(403);
     const dir = join(dataDir, "v03", "library", "plugin", "MyPlugin");
     expect(readdirSync(dir).length).toBe(2);
@@ -129,7 +153,7 @@ describe("保存先", () => {
     expect([...dav.keys()].some((k) => k.startsWith("/files/plugin/MyPlugin/"))).toBe(true);
     const item = (await lib.catalog(owner)).items.find((i) => i.title === "MyPlugin")!;
     const f40 = (await up.files(owner, item.id))[0];
-    expect(Buffer.from((await up.download(owner, f40.id)).data).toString("latin1")).toContain("class 4.0");
+    expect((await bytesOf(up.download(owner, f40.id))).toString("latin1")).toContain("class 4.0");
     expect(JSON.stringify(await up.targets(owner))).not.toContain("\"pw\""); // パスワードの値そのもの(一時フォルダの名前にたまたま pw が入ることがある)
   });
 
@@ -169,7 +193,7 @@ describe("保存先のあいだでファイルを移す", () => {
     expect(readdirSync(join(folder, "plugin", "MyPlugin")).length).toBe(before);
     const item = (await lib.catalog(owner)).items.find((i) => i.title === "MyPlugin")!;
     const oldest = (await up.files(owner, item.id)).at(-1)!;
-    expect(Buffer.from((await up.download(owner, oldest.id)).data).toString("latin1")).toContain("class 1.0");
+    expect((await bytesOf(up.download(owner, oldest.id))).toString("latin1")).toContain("class 1.0");
   });
 });
 

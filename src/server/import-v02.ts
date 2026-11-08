@@ -573,3 +573,30 @@ export async function maybeImportV02Software(db: Db, opts: { v02Dir: string; v03
     v02.close();
   }
 }
+
+// サーバーごとの予約(03.55.00 から。v02 の予約同期)。サーバー本体の種類の取り込みのあとで一度だけ(前に取り込んだパネルも、次の起動で)。
+// v02 の予約同期は「入っているものを新しい版にする」なので update にする。v02 の曜日は月曜 = 0、v03 は日曜 = 0
+export const scheduleReportPath = (v03Dir: string) => join(v03Dir, "import-v02-schedule.json");
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+export async function maybeImportV02Schedules(db: Db, opts: { v02Dir: string; v03Dir: string; dataDir?: string }): Promise<{ at: string; servers: string[] } | null> {
+  const dbFile = join(opts.v02Dir, "index.db");
+  if (!existsSync(dbFile) || !existsSync(softwareReportPath(opts.v03Dir)) || existsSync(scheduleReportPath(opts.v03Dir))) return null;
+  const v02 = new DatabaseSync(dbFile, { readOnly: true });
+  try {
+    const report = { at: new Date().toISOString(), servers: [] as string[] };
+    for (const s of has(v02, "servers", "sched_mode") ? all(v02, "SELECT * FROM servers WHERE sched_mode IN ('daily', 'weekly') ORDER BY id") : []) {
+      const ids = await v03ServerIds(db, s, opts);
+      const time = TIME_RE.test(str(s.sched_time)) ? str(s.sched_time) : "04:00";
+      const dow = ((Number(s.sched_dow) || 0) + 1) % 7;
+      for (const serverId of ids) {
+        await db.insert(schema.serverSchedule).values({ serverId, mode: str(s.sched_mode), action: "update", time, dow, restart: Number(s.sched_restart ?? 1) !== 0 }).onConflictDoNothing();
+      }
+      if (ids.length) report.servers.push(str(s.name));
+    }
+    writeFileSync(scheduleReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
+    return report;
+  } finally {
+    v02.close();
+  }
+}

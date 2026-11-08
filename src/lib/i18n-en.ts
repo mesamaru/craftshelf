@@ -865,7 +865,7 @@ export const EN: Record<string, string> = {
   "共有リンクの URL": "Share link URL",
   "共有リンクは、自分用の版だけで使えます": "Share links are available only in the self-hosted edition",
   "共有リンクを作る": "Create share link",
-  "共有リンクを作る(いちばん新しい版・7 日)": "Create a share link (newest version, 7 days)",
+  "共有リンクを作る(いちばん新しい版)": "Create a share link (newest version)",
   "共有リンクを消す": "Delete share link",
   "再読込": "Rescan",
   "再起動": "Restart",
@@ -1058,7 +1058,7 @@ export const EN: Record<string, string> = {
   "選んでください…": "Choose…",
   "配布元": "Source",
   "配布元から足す": "Add from a source",
-  "配布元に無いプラグイン・Mod を、jar のままライブラリに載せます。中の plugin.yml・fabric.mod.json などから名前・版・動くサーバーの種類を読み取り、同じ名前のものは新しい版として足します。置き場所は「チーム」→「保存先」で決められます(100 MB まで)。": "Add plugins and mods that are not on any source to the library as jars. The name, version and supported server types are read from plugin.yml, fabric.mod.json, etc.; a file with the same name is added as a new version. Choose where they are stored under “Team” → “Storage” (up to 100 MB).",
+  "配布元に無いプラグイン・Mod を、jar のままライブラリに載せます。中の plugin.yml・fabric.mod.json などから名前・版・動くサーバーの種類を読み取り、同じ名前のものは新しい版として足します。置き場所は「チーム」→「保存先」で決められます(1 つ 1 GB まで)。": "Add plugins and mods that are not on any source to the library as jars. The name, version and supported server types are read from plugin.yml, fabric.mod.json, etc.; a file with the same name is added as a new version. Choose where they are stored under “Team” → “Storage” (up to 1 GB each).",
   "配布元の外へ転送されたので、取り込みませんでした": "Not fetched because it redirected outside the source",
   "配布元を選んでください": "Choose a source",
   "閉じる": "Close",
@@ -1092,6 +1092,73 @@ export const EN: Record<string, string> = {
   "サービス版では、本人が予備のコードかパスワードの再設定で設定し直してください": "In the hosted version, members reset this themselves with a backup code or password reset",
   "自分の設定は「アカウント」で変えてください": "Change your own settings under “Account”",
   "オーナーの設定は変えられません": "The owner's settings cannot be changed",
+  // 03.55.00: アップロード(複数・フォルダ・ドラッグ&ドロップ)
+  "jar のファイルが見つかりませんでした": "No jar files were found",
+  "フォルダを選ぶ(中の jar をまとめて)": "Choose a folder (all jars inside)",
+  "ここで離すと送ります": "Drop here to upload",
+  "ここに jar かフォルダをドラッグしても送れます": "You can also drag jars or folders here",
+  "ファイルが空です": "The file is empty",
+  "ファイルを受け取れませんでした(途中で切れました)": "The file could not be received (the upload was cut off)",
+  // 03.55.00: 共有リンク(期限・回数・コマンド・止める)
+  "共有リンクを作る(アップロードしたものだけ。2 件以上は zip)": "Create a share link (uploaded items only; 2 or more become a zip)",
+  "1 時間": "1 hour",
+  "1 日": "1 day",
+  "無期限": "No expiry",
+  "上限なし": "No limit",
+  "1 回": "1 time",
+  "共有リンクの期限": "Share link expiry",
+  "ダウンロードできる回数": "Download limit",
+  "リンクを作る": "Create link",
+  "期限はありません": "No expiry",
+  "wget・curl は、サーバーのプラグイン・Mod のフォルダで実行すると、そのまま置けます。止める・消すのは「チーム」→「共有リンク」から。":
+    "Run wget or curl in the server's plugins or mods folder to put the file there directly. Stop or delete links under “Team” → “Share links”.",
+  "まだありません。ライブラリのアップロードしたものの「版を見る」か、選んだものから作れます。": "None yet. Create one from “Versions” of an uploaded item in the library, or from selected items.",
+  "止めました・期限切れ": "Stopped or expired",
+  "回数を使い切りました": "Download limit reached",
+  "止める": "Stop",
+  "リンクの URL は作ったときにしか表示しません(このアプリには、URL の鍵のハッシュだけを残します)。期限が切れたリンク・回数を使い切ったリンク・止めたリンクは使えません。":
+    "The link URL is shown only when it is created (this app keeps only a hash of its key). Expired links, links that reached their download limit and stopped links no longer work.",
+  "足せるのは Modrinth・CurseForge のものだけです": "Only Modrinth and CurseForge projects can be added",
+  // 03.55.00: ユーザーごとの利用状況
+  "ユーザーごと": "Per user",
+  " · 操作はまだありません": " · No actions yet",
+  "ユーザーごとの数は、このチームの中で、その人が登録・アップロード・作成したものと、操作の記録に残った操作の数です。予約・自動更新で動いたものは数えません。":
+    "Per-user numbers are what each person added, uploaded or created in this team, and the actions recorded in the activity log. Scheduled runs and auto updates are not counted.",
+  // 03.55.00: セットの前提・種類での絞り込み
+  "種類で絞り込む": "Filter by type",
+  "すべて": "All",
+  "前提を確かめる": "Check dependencies",
+  "前提を確かめるサーバーの種類": "Server type to check dependencies for",
+  "確かめる": "Check",
+  "前提はそろっています。": "All dependencies are in the set.",
+  " が使います": " uses this",
+  "セットは、ライブラリから選んだ Mod・プラグインの組み合わせです。「サーバーに入れる」で、サーバーの種類に合うもののうち、まだ入っていないものをまとめて入れます(Paper のサーバーに Mod は入れません)。「前提を確かめる」は、選んだ種類のサーバーに入るいちばん新しい版の前提(Modrinth・CurseForge の必須)が、セットに入っているかを見ます。":
+    "A set is a group of mods and plugins chosen from the library. “Install on a server” installs the ones that fit the server type and are not installed yet (mods are not installed on Paper servers). “Check dependencies” checks that the required dependencies (Modrinth, CurseForge) of the newest version for the chosen server type are in the set.",
+  // 03.55.00: セット・ほかのサーバーにそろえる
+  "セット・ほかのサーバーにそろえる": "Sync with a set or another server",
+  "そろえる元": "Sync from",
+  "反映するときのそろえ方": "How to sync when promoting",
+  "「入っているものだけ合わせる」は、入っているものだけを新しい版(ほかのサーバーなら同じ版)にします。「足りないものも入れる」は、無いものも入れます。「まったく同じにする」は、さらにそろえる元に無いもの(このアプリで入れたもの)を外します。セットは、このサーバーの種類に合うものだけを入れます。「更新を止める」にしたもの・無効にしたものは変えません。外したもの・入れ替えたものは「変更の履歴」から元に戻せます。":
+    "“Only match what is installed” brings installed items to the newest version (or the same version as the other server). “Also install missing items” installs missing ones too. “Make identical” also removes items (installed by this app) that the source does not have. A set only installs items that fit this server type. Held and disabled items are not changed. Removed or replaced items can be restored from “Change history”.",
+  "このサーバーに、このアプリで入れたもの(無効にしたものは除く)と同じ版を、選んだサーバーに入れます。そろえ方は上の「そろえる」と同じです。":
+    "Installs the same versions of what this app installed on this server (except disabled items) on the selected servers. The sync options are the same as “Sync” above.",
+  // 03.55.00: サーバーごとの予約
+  "このサーバーの予約": "Schedule for this server",
+  "変えたら再起動する": "Restart if anything changed",
+  "入っているものを最新にする": "Update installed items",
+  "結び付けたセットでそろえる": "Sync with the linked set",
+  "決めた時刻に、このサーバーの Mod・プラグインを新しい版にする(「更新を止める」にしたもの・無効にしたものは除く)か、結び付けたセットでそろえます。何か変えて「変えたら再起動する」を選んでいれば、サーバーを再起動します。セットの画面の予約(チームで 1 つ)とは別に動きます。時刻は保存したときのブラウザの時間帯です。決められるのは管理者以上です。":
+    "At the set time, updates this server's mods and plugins (except held and disabled ones) or syncs it with the linked set. If something changed and “Restart if anything changed” is on, the server restarts. This runs separately from the team schedule on the Sets page. The time uses the browser's time zone when saved. Admins and above can change it.",
+  "決めた曜日・時刻に、セットを結び付けたすべてのサーバーをそろえる(足りないものを入れ、新しい版があれば更新する)か、何も変えずに更新があるかを確かめます。結果は「チーム」→「操作の記録と Discord への通知」に残り、Discord の「予約の結果」を選んでいれば知らせます。決められるのは管理者以上です。サーバーごとの予約(毎日・毎週・変えたら再起動)は、それぞれのサーバーの画面で決められます。":
+    "On the chosen days and time, syncs every server linked to a set (installs missing items and updates to new versions) or only checks for updates without changing anything. Results are kept in “Team” → “Activity log and Discord notifications”, and sent to Discord if “Scheduled results” is selected. Admins and above can change it. Per-server schedules (daily, weekly, restart after changes) are set on each server's page.",
+  // 03.55.00: サーバーの一覧の「すべて最新にする」
+  "最新にしています…": "Updating…",
+  "すべてのサーバーを最新にする": "Update all servers",
+  "最新にした": "Updated",
+  "結果: ": "results: ",
+  "新しい版はありませんでした。": "No new versions.",
+  "このアプリで入れた Mod・プラグインに新しい版があれば入れます。「更新を止める」にしたもの・無効にしたもの・種類を決めていないサーバーは変えません。変更はサーバーの再起動で反映されます。":
+    "Installs new versions of mods and plugins installed by this app. Held and disabled items, and servers without a type, are not changed. Changes take effect after the server restarts.",
 };
 /** 1 文字だけのもの(曜日など)。文全体が一致したときだけ置き換える */
 export const EN_WHOLE: Record<string, string> = {
@@ -1353,6 +1420,31 @@ export const EN_RULES: [RegExp, To][] = [
   [/^配布元が Modrinth・SpigotMC・CurseForge とわからず、ファイルも取り込めなかったもの\(保存先の方式が使えない・版が無いなど\)です。ファイルは v02 の保存先に残っています: /, "Items whose source is not Modrinth, SpigotMC or CurseForge and whose files could not be imported (unsupported storage type, no version, etc.). The files remain in v02's storage: "],
   [/。v03 で使えない方式\(NFS など\)なので取り込んでいません\(NAS をマウントしてフォルダとして足せます\)$/, ". These use methods v03 cannot use (NFS, etc.), so they were not imported (mount the NAS and add it as a folder)"],
   [/^SMB のサーバー名\(または IP アドレス\)を入力してください.*$/, "Enter the SMB server name (or IP address); no \\\\ or / needed"],
+  // 03.55.00
+  [/^送っています… (\d+) \/ (\d+)$/, "Uploading… $1 / $2"],
+  [/^(\d+) 個のうち (\d+) 個を載せました$/, "Added $2 of $1"],
+  [/^(.+?) まで使えます(?:\((\d+) 回まで\))?。この URL は今だけ表示します。$/, (_, d, n) => `Valid until ${d}${n ? ` (up to ${n} downloads)` : ""}. This URL is shown only now.`],
+  [/^期限はありません(?:\((\d+) 回まで\))?。この URL は今だけ表示します。$/, (_, n) => `No expiry${n ? ` (up to ${n} downloads)` : ""}. This URL is shown only now.`],
+  [/^共有リンクの (URL|wget|curl)$/, "Share link $1"],
+  [/^共有リンク「(.+?)」を止めますか[?？]\(リンクは使えなくなります。一覧には残ります\)$/, "Stop share link “$1”? (The link stops working. It stays in the list.)"],
+  [/^ · ダウンロード (\d+) \/ (\d+) 回$/, " · $1 / $2 downloads"],
+  [/^ · ダウンロード (\d+) 回$/, " · $1 downloads"],
+  [/^回数の上限は 1〜(\d+) 回にしてください$/, "Set the download limit between 1 and $1"],
+  [/^(\d+) 回$/, "$1 times"],
+  [/^登録 (\d+) 件$/, "Added $1"],
+  [/^ · アップロード (\d+) 個・(.+?) · セット (\d+) 個 · 共有リンク (\d+) 個$/, " · Uploaded $1 ($2) · Sets $3 · Share links $4"],
+  [/^操作 (\d+) 回\(30 日で (\d+) 回\)$/, "$1 actions ($2 in the last 30 days)"],
+  [/^ · 最後の操作 (.+)$/, " · Last action $1"],
+  [/^前に動いたとき: (.+)$/, "Last run: $1"],
+  [/^結び付けたセット\((.+)\)$/, "Linked set ($1)"],
+  [/^前提が足りません\((\d+) 件\)$/, "Missing dependencies ($1)"],
+  [/^足りない (\d+) 件をすべて足す$/, "Add all $1 missing"],
+  [/^(.+?) を種類で絞り込む$/, "Filter $1 by type"],
+  [/^選んだ (\d+) 台を最新にする$/, "Update $1 selected servers"],
+  [/^選んだ (\d+) 台の Mod・プラグインを最新にしますか[?？]$/, "Update mods and plugins on $1 selected servers?"],
+  [/^すべてのサーバー\((\d+) 台\)の Mod・プラグインを最新にしますか[?？]$/, "Update mods and plugins on all servers ($1)?"],
+  [/^「(.+?)」を(.+?)にそろえ、そろえる元に無いもの\(このアプリで入れたもの\)を外します。よろしいですか[?？]$/, "Sync “$1” with $2 and remove items (installed by this app) that the source does not have?"],
+  [/^「(.+?)」を(.+?)にそろえますか[?？]\((.+)\)$/, (_, a, b, m) => `Sync “${a}” with ${b}? (${EN[m] ?? m})`],
   [/^・アップロードしたもの (\d+) 件$/, "· Uploaded: $1"],
   [/^・フォルダのサーバー (\d+) 台$/, "· Folder servers: $1"],
   [/(\d+) 件/g, "$1 items"],

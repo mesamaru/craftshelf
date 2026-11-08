@@ -5,6 +5,8 @@ import {
   addConnection, addLocalServer, addServers, browseHost, listConnections, listServers, localEnabled, powerServer, remoteServers, removeConnection, removeServer, serverStatus,
 } from "~/lib/servers-api";
 import { useCan } from "~/lib/use-can";
+import { ApplyResults } from "~/lib/apply-results";
+import { updateServers } from "~/lib/sets-api";
 import { addAgentServer, createAgent, listAgents, removeAgent } from "~/lib/agents-api";
 
 export const Route = createFileRoute("/servers")({
@@ -25,6 +27,8 @@ function Servers() {
   const { can } = useCan(user.id);
   const router = useRouter();
   const reload = () => router.invalidate();
+  const edit = can({ library: ["edit"] });
+  const [picked, setPicked] = useState<Set<string>>(new Set());
 
   return (
     <main className="page narrow">
@@ -40,9 +44,11 @@ function Servers() {
         {servers.length === 0 && <div className="row muted">まだサーバーがありません。下で Pterodactyl パネルをつなぐと追加できます。</div>}
         {servers.map((s) => (
           <ServerRow key={s.id} id={s.id} name={s.name} source={s.connection ?? ""}
-            control={can({ server: ["control"] })} removable={can({ server: ["delete"] })} onDone={reload} />
+            control={can({ server: ["control"] })} removable={can({ server: ["delete"] })} onDone={reload}
+            picked={edit ? picked.has(s.id) : null} onPick={(on) => setPicked((p) => { const n = new Set(p); if (on) n.add(s.id); else n.delete(s.id); return n; })} />
         ))}
       </section>
+      {edit && servers.length > 0 && <UpdateAll ids={[...picked]} all={servers.length} onPickAll={(on) => setPicked(on ? new Set(servers.map((s) => s.id)) : new Set())} />}
 
       {(connections.length > 0 || can({ server: ["create"] })) && <div className="group-title">Pterodactyl パネル</div>}
       {connections.map((c) => (
@@ -58,8 +64,44 @@ function Servers() {
 type Status = { state: string; cpu: number | null; memory: number | null; ping: { online: number; max: number; latency: number; sample: string[] } | null };
 const STATE_LABELS: Record<string, string> = { running: "動いています", starting: "起動中", stopping: "停止中", offline: "止まっています" };
 
-function ServerRow({ id, name, source, control, removable, onDone }:
-  { id: string; name: string; source: string; control: boolean; removable: boolean; onDone: () => void }) {
+// サーバーの一覧の「すべて最新にする」(v02): 選んだ(選んでいなければすべての)サーバーの Mod・プラグインを新しい版にする
+function UpdateAll({ ids, all, onPickAll }: { ids: string[]; all: number; onPickAll: (on: boolean) => void }) {
+  const run = useServerFn(updateServers);
+  const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState<Awaited<ReturnType<typeof updateServers>> | null>(null);
+  const [error, setError] = useState("");
+  const go = async () => {
+    if (!confirm(ids.length ? `選んだ ${ids.length} 台の Mod・プラグインを最新にしますか?` : `すべてのサーバー(${all} 台)の Mod・プラグインを最新にしますか?`)) return;
+    setBusy(true);
+    setError("");
+    setResults(null);
+    try {
+      setResults(await run({ data: { ids } }));
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <section className="group">
+        <button className="row link" type="button" disabled={busy} onClick={() => onPickAll(ids.length < all)}>{ids.length < all ? "すべて選ぶ" : "選ぶのをやめる"}</button>
+        <button className="row link" type="button" disabled={busy} onClick={go}>
+          {busy ? "最新にしています…" : ids.length ? `選んだ ${ids.length} 台を最新にする` : "すべてのサーバーを最新にする"}
+        </button>
+        {results?.map((r) => (r.error
+          ? <p className="row error" key={r.serverId}><span translate="no">{r.server}</span>: {r.error}</p>
+          : <ApplyResults key={r.serverId} server={r.server} verb="最新にした" list={r.results} empty="新しい版はありませんでした。" />))}
+        {error && <p className="row error" role="alert">{error}</p>}
+      </section>
+      <p className="foot">このアプリで入れた Mod・プラグインに新しい版があれば入れます。「更新を止める」にしたもの・無効にしたもの・種類を決めていないサーバーは変えません。変更はサーバーの再起動で反映されます。</p>
+    </>
+  );
+}
+
+function ServerRow({ id, name, source, control, removable, onDone, picked, onPick }:
+  { id: string; name: string; source: string; control: boolean; removable: boolean; onDone: () => void; picked: boolean | null; onPick: (on: boolean) => void }) {
   const status = useServerFn(serverStatus);
   const power = useServerFn(powerServer);
   const remove = useServerFn(removeServer);
@@ -98,6 +140,7 @@ function ServerRow({ id, name, source, control, removable, onDone }:
   const state = st?.state ?? "unknown";
   return (
     <div className="row server">
+      {picked !== null && <input type="checkbox" checked={picked} onChange={(e) => onPick(e.target.checked)} aria-label={`${name} を選ぶ`} />}
       <span className={`dot ${state}`} aria-hidden="true" />
       <span className="main">
         <Link to="/servers/$id" params={{ id }} className="name" translate="no">{name}</Link>

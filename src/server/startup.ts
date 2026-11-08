@@ -24,6 +24,7 @@ export default function startup() {
       // 予約と、サーバーごとの自動更新・新しい版の見回り・定期バックアップ(ワールドは始めるだけで、終わるのを待たない)
       Promise.all([
         schedules.tick(now).catch((e) => console.error("[予約] 確かめられませんでした:", e)),
+        schedules.serverTick(now).catch((e) => console.error("[サーバーの予約] 確かめられませんでした:", e)),
         sets.runAutoUpdates(now).catch((e) => console.error("[自動更新] 確かめられませんでした:", e)),
         sets.runUpdateChecks(now).catch((e) => console.error("[新しい版の見回り] 確かめられませんでした:", e)),
         backups.tick(now).catch((e) => console.error("[定期バックアップ] 確かめられませんでした:", e)),

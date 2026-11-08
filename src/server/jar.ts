@@ -1,5 +1,6 @@
 // アップロードされた jar(zip)の中の、プラグイン・Mod の説明ファイルを読む(名前・版・動くサーバーの種類)。
 // zip の目次(セントラルディレクトリ)だけを見て、決まったファイルだけを取り出す(全体は展開しない)
+import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 import { inflateRawSync } from "node:zlib";
 
 export type JarInfo = { name: string; version: string; projectType: "plugin" | "mod" | null; loaders: string[]; mcVersions: string[] };
@@ -7,16 +8,43 @@ export type JarInfo = { name: string; version: string; projectType: "plugin" | "
 const MAX_ENTRY = 1024 * 1024; // 説明ファイルは 1 MB まで
 const WANTED = ["plugin.yml", "paper-plugin.yml", "bungee.yml", "velocity-plugin.json", "fabric.mod.json", "quilt.mod.json", "META-INF/mods.toml", "META-INF/neoforge.mods.toml"];
 
+// 読む元: メモリの中身か、ディスクのファイル(大きいアップロードを、全体を読み込まずに調べる)
+type ZipSource = { size: number; read(pos: number, len: number): Buffer };
+const MAX_DIR = 64 * 1024 * 1024; // 目次は 64 MB まで
+
+/** ファイルを、必要なところだけ読む元にする(使い終わったら close) */
+export function fileSource(path: string): ZipSource & { close(): void } {
+  const fd = openSync(path, "r");
+  return {
+    size: fstatSync(fd).size,
+    read(pos, len) {
+      const b = Buffer.alloc(Math.max(0, len));
+      return b.subarray(0, readSync(fd, b, 0, b.length, pos));
+    },
+    close: () => closeSync(fd),
+  };
+}
+
 /** zip から、名前の決まったファイルの中身(テキスト)を取り出す。zip でなければ null */
-export function readZipTexts(buf: Uint8Array, names: string[] | ((name: string) => boolean) = WANTED): Map<string, string> | null {
+export function readZipTexts(buf: Uint8Array | ZipSource, names: string[] | ((name: string) => boolean) = WANTED): Map<string, string> | null {
   const want = typeof names === "function" ? names : (n: string) => names.includes(n);
-  const b = Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength);
+  let src: ZipSource;
+  if (buf instanceof Uint8Array) {
+    const all = Buffer.from(buf.buffer, buf.byteOffset, buf.byteLength);
+    src = { size: all.length, read: (pos, len) => all.subarray(pos, pos + len) };
+  } else src = buf;
   // 目次の終わり(EOCD)を後ろから探す
-  let eocd = -1;
-  for (let i = b.length - 22; i >= Math.max(0, b.length - 22 - 65535); i--) if (b.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
-  if (eocd < 0) return null;
-  const count = b.readUInt16LE(eocd + 10);
-  let p = b.readUInt32LE(eocd + 16);
+  const tailAt = Math.max(0, src.size - 22 - 65535);
+  const tail = src.read(tailAt, src.size - tailAt);
+  let e = -1;
+  for (let i = tail.length - 22; i >= 0; i--) if (tail.readUInt32LE(i) === 0x06054b50) { e = i; break; }
+  if (e < 0) return null;
+  const count = tail.readUInt16LE(e + 10);
+  const dirSize = tail.readUInt32LE(e + 12);
+  const dirAt = tail.readUInt32LE(e + 16);
+  if (dirSize > MAX_DIR || dirAt + dirSize > src.size) return null;
+  const b = src.read(dirAt, dirSize);
+  let p = 0;
   const out = new Map<string, string>();
   for (let n = 0; n < count && p + 46 <= b.length; n++) {
     if (b.readUInt32LE(p) !== 0x02014b50) return null;
@@ -29,9 +57,10 @@ export function readZipTexts(buf: Uint8Array, names: string[] | ((name: string) 
     const local = b.readUInt32LE(p + 42);
     const name = b.subarray(p + 46, p + 46 + nlen).toString("utf8");
     p += 46 + nlen + xlen + clen;
-    if (!want(name) || usize > MAX_ENTRY || local + 30 > b.length || b.readUInt32LE(local) !== 0x04034b50) continue;
-    const start = local + 30 + b.readUInt16LE(local + 26) + b.readUInt16LE(local + 28);
-    const data = b.subarray(start, start + csize);
+    if (!want(name) || usize > MAX_ENTRY || csize > 2 * MAX_ENTRY || local + 30 > src.size) continue;
+    const head = src.read(local, 30);
+    if (head.length < 30 || head.readUInt32LE(0) !== 0x04034b50) continue;
+    const data = src.read(local + 30 + head.readUInt16LE(26) + head.readUInt16LE(28), csize);
     try {
       const raw = method === 0 ? data : method === 8 ? inflateRawSync(data, { maxOutputLength: MAX_ENTRY }) : null;
       if (raw) out.set(name, raw.toString("utf8"));
@@ -53,7 +82,7 @@ const json = (text: string) => {
 };
 
 /** jar を調べる。プラグイン・Mod として読めなければ projectType が null */
-export function analyzeJar(buf: Uint8Array, filename: string): JarInfo {
+export function analyzeJar(buf: Uint8Array | ZipSource, filename: string): JarInfo {
   const files = readZipTexts(buf) ?? new Map<string, string>();
   const loaders = new Set<string>();
   let name = "";

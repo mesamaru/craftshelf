@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 import { signupOpen } from "~/server/auth";
 import { addonSet, addonSetItem, libraryFile, libraryItem, localServer, pteroConnection, server, serverProfile, storageTarget } from "~/server/db/schema";
 import * as schema from "~/server/db/schema";
-import { maybeImportV02, maybeImportV02AutoUpdate, maybeImportV02Backups, maybeImportV02Library, maybeImportV02Software, type ImportReport } from "~/server/import-v02";
+import { maybeImportV02, maybeImportV02AutoUpdate, maybeImportV02Backups, maybeImportV02Library, maybeImportV02Schedules, maybeImportV02Software, type ImportReport } from "~/server/import-v02";
 import { totpCode } from "~/server/legacy";
 import { open } from "~/server/secrets";
 import { TEST_SECRET, setup } from "./helpers";
@@ -63,6 +63,10 @@ function makeV02(dir: string) {
   for (const col of ["world_mode TEXT NOT NULL DEFAULT 'off'", "world_time TEXT NOT NULL DEFAULT '05:00'", "world_dow INTEGER NOT NULL DEFAULT 0", "world_keep INTEGER NOT NULL DEFAULT 5"]) d.exec(`ALTER TABLE servers ADD COLUMN ${col}`);
   d.exec("UPDATE servers SET world_mode='weekly', world_time='03:30', world_dow=0, world_keep=3 WHERE identifier='local-1'");
   d.exec("UPDATE servers SET world_mode='daily' WHERE identifier='abcd1234'");
+  // 予約同期(曜日は月曜 = 0。再起動は既定でする)
+  for (const col of ["sched_mode TEXT NOT NULL DEFAULT 'off'", "sched_time TEXT NOT NULL DEFAULT '04:00'", "sched_dow INTEGER NOT NULL DEFAULT 0", "sched_restart INTEGER NOT NULL DEFAULT 1"]) d.exec(`ALTER TABLE servers ADD COLUMN ${col}`);
+  d.exec("UPDATE servers SET sched_mode='weekly', sched_time='02:15', sched_dow=6, sched_restart=0 WHERE identifier='local-1'");
+  d.exec("UPDATE servers SET sched_mode='daily' WHERE identifier='abcd1234'");
   set.run("backup_target_id", "1");
   set.run("backup_keep", "7");
   // 保存先: 1 = パネルの中 / 2 = SMB(v03 はまだつなげない)。自作は 1 に、NASだけ は 2 にだけ版がある
@@ -246,6 +250,18 @@ describe("v02 のサーバー本体の種類の取り込み", () => {
     const rows = await t.db.select({ name: server.name, sw: schema.serverSoftware.software }).from(schema.serverSoftware).innerJoin(server, eq(schema.serverSoftware.serverId, server.id));
     expect(rows).toEqual([{ name: "プロキシ", sw: "waterfall" }]);
     expect(await maybeImportV02Software(t.db, { v02Dir, v03Dir, dataDir: v03Dir })).toBeNull();
+    expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
+  });
+});
+
+describe("v02 のサーバーごとの予約の取り込み", () => {
+  it("予約同期を、入っているものを最新にする予約として引き継ぐ(曜日を v03 の数え方に・再起動するか)。一度だけ", async () => {
+    const r = (await maybeImportV02Schedules(t.db, { v02Dir, v03Dir, dataDir: v03Dir }))!;
+    expect(r.servers).toEqual(["サバイバル", "家のサーバー"]);
+    const rows = await t.db.select({ name: server.name, s: schema.serverSchedule }).from(schema.serverSchedule).innerJoin(server, eq(schema.serverSchedule.serverId, server.id));
+    expect(rows.find((x) => x.name === "家のサーバー")?.s).toMatchObject({ mode: "weekly", action: "update", time: "02:15", dow: 0, restart: false });
+    expect(rows.find((x) => x.name === "サバイバル")?.s).toMatchObject({ mode: "daily", action: "update", time: "04:00", restart: true });
+    expect(await maybeImportV02Schedules(t.db, { v02Dir, v03Dir, dataDir: v03Dir })).toBeNull();
     expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
   });
 });

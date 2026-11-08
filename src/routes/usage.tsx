@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { SOURCE_LABEL, isItemSource } from "~/lib/sources";
+import { roleLabel } from "~/lib/permissions";
 import { teamUsage } from "~/lib/shares-api";
 
 export const Route = createFileRoute("/usage")({
@@ -12,6 +13,7 @@ export const Route = createFileRoute("/usage")({
   component: Usage,
 });
 
+const TYPE_LABEL: Record<string, string> = { plugin: "プラグイン", mod: "Mod" };
 const size = (b: number) => (b >= 1024 ** 3 ? `${(b / 1024 ** 3).toFixed(1)} GB` : b >= 1024 ** 2 ? `${(b / 1024 ** 2).toFixed(1)} MB` : `${Math.ceil(b / 1024)} KB`);
 
 // チームの利用状況(管理者以上)
@@ -53,6 +55,24 @@ function Usage() {
             <div className="row"><span>メンバー</span><span className="trail">{u.members} 人</span></div>
             <div className="row"><span>共有リンク</span><span className="trail">{u.shareLinks} 個</span></div>
           </section>
+          <div className="group-title">ユーザーごと</div>
+          <section className="group">
+            {u.users.map((m) => (
+              <div className="row" key={m.id}>
+                <span className="main">
+                  <span><span translate="no">{m.name || m.email}</span> <span className="muted small">{m.role.split(",").map(roleLabel).join("・")}</span></span>
+                  <span className="muted small">
+                    {`登録 ${m.items} 件`}{Object.keys(m.types).length > 0 && `(${Object.entries(m.types).map(([k, n]) => `${TYPE_LABEL[k] ?? k} ${n}`).join("・")})`}
+                    {` · アップロード ${m.files} 個・${size(m.bytes)} · セット ${m.sets} 個 · 共有リンク ${m.shareLinks} 個`}
+                  </span>
+                  <span className="muted small">
+                    {`操作 ${m.actions} 回(30 日で ${m.recentActions} 回)`}{m.lastActionAt ? ` · 最後の操作 ${new Date(m.lastActionAt).toLocaleString("ja-JP")}` : " · 操作はまだありません"}
+                  </span>
+                </span>
+              </div>
+            ))}
+          </section>
+          <p className="foot">ユーザーごとの数は、このチームの中で、その人が登録・アップロード・作成したものと、操作の記録に残った操作の数です。予約・自動更新で動いたものは数えません。</p>
         </>
       )}
     </main>

@@ -236,3 +236,11 @@ pre.log .err { color: var(--danger); } pre.log .warn { color: #c27c00; }
 .star[aria-pressed="true"] { color: #ff9f0a; }
 button.badge { border: 0; font: inherit; font-size: 12px; cursor: pointer; margin: 2px 6px 2px 0; }
 .hit .badge { margin: 2px 6px 2px 0; }
+/* ドラッグ&ドロップで受けるところ(ファイルを重ねている間) */
+.group.drop-on { box-shadow: 0 0 0 2px var(--accent); }
+/* 行のリンク(.link が枠を消すので、グループの区切り線を戻す) */
+button.row.link, label.row.link { border-bottom: 1px solid var(--line); }
+button.row.link:last-child, label.row.link:last-child { border-bottom: 0; }
+.share-maker { display: flex; flex-direction: column; gap: 4px; min-width: 0; flex: 1; }
+.share-maker .actions { align-items: center; flex-wrap: wrap; }
+.share-maker .actions .share-url { flex: 1; min-width: 0; width: auto; }

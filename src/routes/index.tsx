@@ -6,7 +6,7 @@ import { addLibraryItem, favoriteLibraryItem, installMod, libraryCatalog, outdat
 import { localEnabled } from "~/lib/servers-api";
 import { SOURCE_LABEL, type ItemSource, type Source, isItemSource, pageUrl } from "~/lib/sources";
 import { removeUploadedFile, uploadedFiles } from "~/lib/uploads-api";
-import { createShare } from "~/lib/shares-api";
+import { ShareMaker } from "~/lib/share-maker";
 import { useCan } from "~/lib/use-can";
 import { Bell } from "~/lib/bell";
 import { OPEN_PALETTE } from "~/lib/palette";
@@ -89,7 +89,7 @@ function Filters({ cat, f, setF }: { cat: Catalog; f: Filter; setF: (fn: (f: Fil
 }
 
 // チェックで選んだものをまとめて: タグを付ける・セットに足す・ライブラリから外す
-function Bulk({ ids, onDone }: { ids: string[]; onDone: (clear: boolean) => void }) {
+function Bulk({ ids, share, onDone }: { ids: string[]; share: boolean; onDone: (clear: boolean) => void }) {
   const tag = useServerFn(tagLibraryItems);
   const toSet = useServerFn(toggleSetItem);
   const remove = useServerFn(removeLibraryItem);
@@ -142,6 +142,7 @@ function Bulk({ ids, onDone }: { ids: string[]; onDone: (clear: boolean) => void
         )}
         <button className="link danger" type="button" disabled={busy} onClick={removeAll}>ライブラリから外す</button>
       </div>
+      {share && <div className="row"><ShareMaker key={ids.join()} itemIds={ids} name="" label="共有リンクを作る(アップロードしたものだけ。2 件以上は zip)" /></div>}
       {note && <p className="row muted" role="status">{note}</p>}
       {error && <p className="row error" role="alert">{error}</p>}
     </section>
@@ -193,7 +194,7 @@ function Home() {
 
       <div className="group-title">Mod・プラグイン</div>
       {cat && cat.items.length > 0 && <Filters cat={cat} f={f} setF={setF} />}
-      {edit && picked.size > 0 && <Bulk ids={[...picked]} onDone={(clear) => { if (clear) setPicked(new Set()); reload(); }} />}
+      {edit && picked.size > 0 && <Bulk ids={[...picked]} share={uploads} onDone={(clear) => { if (clear) setPicked(new Set()); reload(); }} />}
       <section className="group">
         {!cat && !error && <div className="row muted">読み込んでいます…</div>}
         {cat?.items.length === 0 && <div className="row muted">まだ何もありません。サーバーに入れたものは自動でここに載ります。下の「配布元から足す」でも登録できます。</div>}
@@ -368,8 +369,6 @@ function AddFromSource({ sources, have, onAdded }: { sources: Source[]; have: Se
 function Files({ itemId, title, edit }: { itemId: string; title: string; edit: boolean }) {
   const load = useServerFn(uploadedFiles);
   const remove = useServerFn(removeUploadedFile);
-  const share = useServerFn(createShare);
-  const [link, setLink] = useState("");
   const [files, setFiles] = useState<Awaited<ReturnType<typeof uploadedFiles>> | null>(null);
   const [error, setError] = useState("");
   const reload = () => { load({ data: { itemId } }).then(setFiles, (e) => setError(message(e))); };
@@ -384,33 +383,51 @@ function Files({ itemId, title, edit }: { itemId: string; title: string; edit: b
             onClick={() => confirm(`${f.filename} を消しますか?(保存先からも消えます。サーバーに入っているものはそのままです)`) && remove({ data: { fileId: f.id } }).then(reload, (e) => setError(message(e)))}>消す</button></>}
         </span>
       ))}
-      {edit && files && files.length > 0 && (
-        <button className="link small" type="button"
-          onClick={() => share({ data: { itemIds: [itemId], hours: 168, name: title } }).then((r) => setLink(r.url), (e) => setError(message(e)))}>
-          共有リンクを作る(いちばん新しい版・7 日)
-        </button>
-      )}
-      {link && (
-        <span className="muted">
-          <input className="codes share-url" readOnly value={link} onFocus={(e) => e.currentTarget.select()} aria-label="共有リンクの URL" />
-          {" "}<button className="link small" type="button" onClick={() => navigator.clipboard?.writeText(link)}>コピー</button>
-          {" "}(この URL は今だけ表示します。消すのは「チーム」→「共有リンク」から)
-        </span>
-      )}
+      {edit && files && files.length > 0 && <ShareMaker itemIds={[itemId]} name={title} label="共有リンクを作る(いちばん新しい版)" />}
       {error && <span className="error" role="alert">{error}</span>}
     </span>
   );
 }
 
-// ファイルをアップロード(自分用の版だけ)。jar を調べて、名前と版・動くサーバーの種類を読み取る
+// ファイルをアップロード(自分用の版だけ)。jar を調べて、名前と版・動くサーバーの種類を読み取る。
+// いくつでも・フォルダごと(中の .jar だけ)・ドラッグ&ドロップでも選べる。1 つずつ順に送る
+const isJar = (f: File) => /[.]jar$/i.test(f.name);
+async function droppedFiles(dt: DataTransfer): Promise<File[]> {
+  type Entry = { isFile: boolean; isDirectory: boolean; file?: (ok: (f: File) => void, ng: () => void) => void;
+    createReader?: () => { readEntries: (ok: (l: Entry[]) => void, ng: () => void) => void } };
+  const out: File[] = [];
+  const walk = async (e: Entry, inDir: boolean): Promise<void> => {
+    if (e.isFile && e.file) {
+      const f = await new Promise<File | null>((ok) => e.file!(ok, () => ok(null)));
+      if (f && (!inDir || isJar(f))) out.push(f);
+    } else if (e.isDirectory && e.createReader) {
+      const reader = e.createReader();
+      for (;;) {
+        const batch = await new Promise<Entry[]>((ok) => reader.readEntries(ok, () => ok([])));
+        if (!batch.length) break;
+        for (const x of batch) await walk(x, true);
+      }
+    }
+  };
+  const entries = Array.from(dt.items ?? []).filter((i) => i.kind === "file")
+    .map((i) => (i as DataTransferItem & { webkitGetAsEntry?: () => Entry | null }).webkitGetAsEntry?.() ?? null);
+  if (!entries.length || entries.some((e) => !e)) return Array.from(dt.files ?? []);
+  for (const e of entries) await walk(e!, false);
+  return out;
+}
+
 function Upload({ onDone }: { onDone: () => void }) {
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState("");
+  const [over, setOver] = useState(false);
   const [results, setResults] = useState<{ name: string; ok: boolean; text: string }[]>([]);
-  const send = async (list: FileList | null) => {
-    if (!list?.length) return;
-    setBusy(true);
+  const send = async (list: File[]) => {
+    if (!list.length) {
+      setResults([{ name: "", ok: false, text: "jar のファイルが見つかりませんでした" }]);
+      return;
+    }
     const out: typeof results = [];
-    for (const f of Array.from(list)) {
+    for (const [i, f] of list.entries()) {
+      setBusy(`送っています… ${i + 1} / ${list.length}`);
       try {
         const res = await fetch(`/api/library/upload?filename=${encodeURIComponent(f.name)}`, { method: "POST", body: f });
         const j = await res.json();
@@ -420,20 +437,34 @@ function Upload({ onDone }: { onDone: () => void }) {
       }
       setResults([...out]);
     }
-    setBusy(false);
+    setBusy("");
     onDone();
   };
+  const pick = (files: FileList | null, folder: boolean) => {
+    const l = Array.from(files ?? []);
+    if (l.length) send(folder ? l.filter(isJar) : l);
+  };
+  const ok = results.filter((r) => r.ok).length;
   return (
     <>
       <div className="group-title">ファイルをアップロード</div>
-      <section className="group form">
+      <section className={`group form${over ? " drop-on" : ""}`}
+        onDragOver={(e) => { if (busy || !e.dataTransfer.types.includes("Files")) return; e.preventDefault(); setOver(true); }}
+        onDragLeave={() => setOver(false)}
+        onDrop={(e) => { if (busy) return; e.preventDefault(); setOver(false); droppedFiles(e.dataTransfer).then(send); }}>
         <label className="row link">
-          {busy ? "送っています…" : "jar を選ぶ(いくつでも)"}
-          <input type="file" accept=".jar" multiple hidden disabled={busy} onChange={(e) => { send(e.target.files); e.target.value = ""; }} />
+          {busy || "jar を選ぶ(いくつでも)"}
+          <input type="file" accept=".jar" multiple hidden disabled={!!busy} onChange={(e) => { pick(e.target.files, false); e.target.value = ""; }} />
         </label>
-        {results.map((r, i) => <p key={i} className={`row ${r.ok ? "muted" : "error"}`} translate="no">{r.name}: {r.ok ? `載せました — ${r.text}` : r.text}</p>)}
+        <label className="row link">
+          {busy ? "" : "フォルダを選ぶ(中の jar をまとめて)"}
+          <input type="file" multiple hidden disabled={!!busy} {...{ webkitdirectory: "" }} onChange={(e) => { pick(e.target.files, true); e.target.value = ""; }} />
+        </label>
+        <div className="row muted">{over ? "ここで離すと送ります" : "ここに jar かフォルダをドラッグしても送れます"}</div>
+        {results.length > 1 && <p className="row muted">{`${results.length} 個のうち ${ok} 個を載せました`}</p>}
+        {results.map((r, i) => <p key={i} className={`row ${r.ok ? "muted" : "error"}`} translate="no">{r.name ? `${r.name}: ` : ""}{r.ok ? `載せました — ${r.text}` : r.text}</p>)}
       </section>
-      <p className="foot">配布元に無いプラグイン・Mod を、jar のままライブラリに載せます。中の plugin.yml・fabric.mod.json などから名前・版・動くサーバーの種類を読み取り、同じ名前のものは新しい版として足します。置き場所は「チーム」→「保存先」で決められます(100 MB まで)。</p>
+      <p className="foot">配布元に無いプラグイン・Mod を、jar のままライブラリに載せます。中の plugin.yml・fabric.mod.json などから名前・版・動くサーバーの種類を読み取り、同じ名前のものは新しい版として足します。置き場所は「チーム」→「保存先」で決められます(1 つ 1 GB まで)。</p>
     </>
   );
 }

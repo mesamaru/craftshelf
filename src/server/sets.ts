@@ -1,7 +1,7 @@
 // セット: ライブラリから選んだものの組み合わせ。サーバーにまとめて入れる。どの処理も、選んでいるチームの中だけを読み書きする
 import { randomUUID } from "node:crypto";
 import { and, asc, count, eq, inArray, isNull, lt, or } from "drizzle-orm";
-import { PLATFORMS } from "~/lib/platforms";
+import { PLATFORMS, isPlatform } from "~/lib/platforms";
 import { addonSet, addonSetItem, installedMod, libraryItem, server, serverHold, serverSet } from "./db/schema";
 import { HttpError, requireTeam } from "./guard";
 import { isItemSource } from "~/lib/sources";
@@ -20,8 +20,8 @@ export const UPDATE_CHECK_BATCH = 2;
 
 // missing・available は「確かめるだけ」のときの、入っていない・新しい版がある
 export type ApplyResult = { title: string; status: "installed" | "updated" | "present" | "skipped" | "failed" | "missing" | "available" | "removed"; detail: string };
-// add = 足りないものを入れる / sync = それに加えて更新する / check = 確かめるだけ(何も変えない)
-export type ApplyMode = "add" | "sync" | "check";
+// add = 足りないものを入れる / sync = それに加えて更新する / update = 入っているものだけ更新する(足りないものは入れない) / check = 確かめるだけ(何も変えない)
+export type ApplyMode = "add" | "sync" | "update" | "check";
 // ほかのサーバーにそろえるときの、そろえ方: update = 入っているものだけ同じ版に / add = 足りないものも入れる / mirror = さらに、そろえる元に無いものを外す
 export const COPY_MODES = ["update", "add", "mirror"] as const;
 export type CopyMode = (typeof COPY_MODES)[number];
@@ -41,7 +41,7 @@ const cleanName = (name: string) => {
 
 export function setService(deps: Deps) {
   const { db, auth } = deps;
-  const { latestFile, fileById, versionsOf, needProfile, installInto, holdsOf, updatesOf, removeFrom } = modTools(deps);
+  const { latestFile, fileById, versionsOf, needProfile, installInto, holdsOf, updatesOf, removeFrom, project, remember } = modTools(deps);
   const { record } = eventService(deps);
   // 結果のまとめ(通知・記録に使う)。変わったもの・失敗したものだけを並べる
   const summary = (list: ApplyResult[]) => {
@@ -69,7 +69,7 @@ export function setService(deps: Deps) {
     const out: ApplyResult[] = [];
     for (const it of items) {
       const now = present.get(`${it.source}:${it.projectId}`);
-      if (!isItemSource(it.source)) continue;
+      if (!isItemSource(it.source) || (!now && mode === "update")) continue; // update は入っているものだけ
       if (it.projectType !== type) {
         out.push({ title: it.title, status: "skipped", detail: `${it.projectType === "mod" ? "Mod " : "プラグイン"}なので、${PLATFORMS[p.platform].label} のサーバーには入れません` });
         continue;
@@ -165,6 +165,13 @@ export function setService(deps: Deps) {
     }
     if (mode === "mirror") await removeExtras(target, p, userId, records, new Set(from.rows.map((r) => `${r.source}:${r.projectId}`)), out);
     return out;
+  }
+
+  // 入っているもの(このアプリで入れたもの)に新しい版があれば更新する。止めたもの・無効にしたものは変えない(自動更新・まとめて最新に・予約で使う)
+  async function updateInstalled(teamId: string, userId: string | null, serverId: string) {
+    const records = await db.select().from(installedMod).where(eq(installedMod.serverId, serverId));
+    const type = PLATFORMS[(await needProfile(serverId)).platform].type;
+    return applyTo(teamId, userId, records.map((x) => ({ source: x.source, projectId: x.projectId, title: x.title, projectType: type })), serverId, "sync");
   }
 
   const serverName = async (serverId: string) => (await db.select({ name: server.name }).from(server).where(eq(server.id, serverId)))[0]?.name ?? "";
@@ -267,8 +274,14 @@ export function setService(deps: Deps) {
       await record({ teamId, userId: user.id, kind: "admin", action: "セットを結び付ける", target: `${await serverName(serverId)} ← ${set.name}` });
     },
 
-    /** 結び付けたセットでそろえる: 足りないものを入れ、入っているものに新しい版があれば更新する */
-    async sync(headers: Headers, serverId: string, removeExtra = false): Promise<ApplyResult[]> {
+    /**
+     * 結び付けたセットでそろえる。そろえ方(how)は「ほかのサーバーにそろえる」と同じ 3 通り:
+     * update = 入っているものだけ新しい版に / add = 足りないものも入れる(既定)/ mirror = さらに、セットに無いもの(このアプリで入れたもの)を外す。
+     * 03.54.00 までの removeExtra(true / false)も受け付ける(true = mirror)
+     */
+    async sync(headers: Headers, serverId: string, how: boolean | string = false): Promise<ApplyResult[]> {
+      const mode = how === true ? "mirror" : how === false ? "add" : how;
+      if (!(COPY_MODES as readonly string[]).includes(mode)) throw new HttpError(400, "そろえ方を選んでください");
       const who = await requireTeam(auth, headers, { library: ["edit"] });
       const { teamId, user } = who;
       await serverInTeam(teamId, serverId); // ほかのチームのサーバーは「見つからない」
@@ -276,9 +289,68 @@ export function setService(deps: Deps) {
       const [b] = await db.select({ setId: serverSet.setId }).from(serverSet).where(eq(serverSet.serverId, serverId));
       if (!b) throw new HttpError(400, "このサーバーにはセットを結び付けていません");
       const set = await setOf(teamId, b.setId);
-      const r = await applyTo(teamId, user.id, await itemsOf(set.id), serverId, "sync", removeExtra);
+      const r = await applyTo(teamId, user.id, await itemsOf(set.id), serverId, mode === "update" ? "update" : "sync", mode === "mirror");
       await record({ teamId, userId: user.id, kind: "sets", action: "セットでそろえる", target: `${await serverName(serverId)}(${set.name})`, detail: summary(r) });
       return r;
+    },
+
+    /**
+     * セットの前提(Modrinth・CurseForge の必須)のうち、セットに入っていないもの(v02 02.21 の「前提が足りません」)。
+     * platform のサーバーに入る、いちばん新しい版の前提で見る。配布元につながらなかったものは errors に
+     */
+    async missingDeps(headers: Headers, id: string, platform: string) {
+      const { teamId } = await requireTeam(auth, headers);
+      const set = await setOf(teamId, id);
+      if (!isPlatform(platform)) throw new HttpError(400, "サーバーの種類を選んでください");
+      const p = { platform, mcVersion: null };
+      const items = await itemsOf(set.id);
+      const have = new Set(items.map((i) => `${i.source}:${i.projectId}`));
+      const need = new Map<string, { source: "modrinth" | "curseforge"; projectId: string; by: string[] }>();
+      const errors: string[] = [];
+      const todo = items.filter((i) => (i.source === "modrinth" || i.source === "curseforge") && i.projectType === PLATFORMS[platform].type);
+      for (let k = 0; k < todo.length; k += 8) {
+        await Promise.all(todo.slice(k, k + 8).map(async (it) => {
+          try {
+            const f = await latestFile(it.source as "modrinth", it.projectId, p, teamId);
+            for (const d of f?.deps ?? []) {
+              const key = `${it.source}:${d}`;
+              if (have.has(key)) continue;
+              const e = need.get(key) ?? { source: it.source as "modrinth", projectId: d, by: [] };
+              e.by.push(it.title);
+              need.set(key, e);
+            }
+          } catch (e) {
+            if (!(e instanceof HttpError)) throw e;
+            errors.push(`${it.title}: ${e.message}`);
+          }
+        }));
+      }
+      const missing = [];
+      for (const n of need.values()) {
+        const info = await project(n.source, n.projectId, teamId).catch(() => null);
+        missing.push({ ...n, title: info?.title ?? n.projectId, iconUrl: info?.iconUrl ?? "", by: n.by.sort() });
+      }
+      return { missing: missing.sort((a, b) => a.title.localeCompare(b.title)), errors };
+    },
+
+    /** 足りない前提を、ライブラリに載せてセットに足す(編集者以上)。種類は platform のサーバーのもの */
+    async addDeps(headers: Headers, id: string, list: { source: string; projectId: string }[], platform: string) {
+      const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
+      const set = await setOf(teamId, id);
+      if (!isPlatform(platform)) throw new HttpError(400, "サーバーの種類を選んでください");
+      const [{ c }] = await db.select({ c: count() }).from(addonSetItem).where(eq(addonSetItem.setId, id));
+      if (c + list.length > SET_LIMITS.itemsPerSet) throw new HttpError(400, `1 つのセットに入れられるのは ${SET_LIMITS.itemsPerSet} 件までです`);
+      const added: string[] = [];
+      for (const d of list) {
+        if (d.source !== "modrinth" && d.source !== "curseforge") throw new HttpError(400, "足せるのは Modrinth・CurseForge のものだけです");
+        const info = await project(d.source, d.projectId, teamId);
+        if (!info) throw new HttpError(404, `${d.projectId} が配布元に見つかりません`);
+        const itemId = await remember(teamId, user.id, d.source, d.projectId, { title: info.title, slug: info.slug, iconUrl: info.iconUrl, projectType: PLATFORMS[platform].type });
+        await db.insert(addonSetItem).values({ setId: id, itemId }).onConflictDoNothing();
+        added.push(info.title);
+      }
+      if (added.length) await record({ teamId, userId: user.id, kind: "admin", action: "セットに前提を足す", target: set.name, detail: added.join("、") });
+      return { added };
     },
 
     /**
@@ -336,6 +408,45 @@ export function setService(deps: Deps) {
       return out;
     },
 
+    /**
+     * サーバーの一覧の「すべて最新にする」(v02、編集者以上): 選んだサーバー(ids が空なら、使えるすべてのサーバー)の、
+     * 入っているものを新しい版にする(止めたもの・無効にしたものは除く)。種類を決めていないサーバーは飛ばす。1 台が失敗しても残りは続ける
+     */
+    async updateServers(headers: Headers, ids: string[]) {
+      const who = await requireTeam(auth, headers, { library: ["edit"] });
+      const scope = await serverScope(deps, who);
+      const rows = ids.length ? [] : await db.select({ id: server.id }).from(server).where(eq(server.teamId, who.teamId)).orderBy(asc(server.name));
+      const list = ids.length ? [...new Set(ids)] : rows.map((r) => r.id).filter((id) => !scope || scope.has(id));
+      const targets = [];
+      for (const id of list) targets.push((await serverOf(deps, who, id)).row); // 変える前に、どれも使えるサーバーか確かめる
+      const out: { serverId: string; server: string; results: ApplyResult[]; error: string }[] = [];
+      for (const t of targets) {
+        let results: ApplyResult[] = [];
+        let error = "";
+        try {
+          results = (await updateInstalled(who.teamId, who.user.id, t.id)).filter((r) => r.status !== "present");
+        } catch (e) {
+          if (!(e instanceof HttpError)) throw e;
+          error = e.message;
+        }
+        out.push({ serverId: t.id, server: t.name, results, error });
+        if (error || results.length) await record({ teamId: who.teamId, userId: who.user.id, kind: "sets", also: alsoOf(results), action: "まとめて最新にする", target: t.name, detail: error || summary(results) });
+      }
+      return out;
+    },
+
+    /** 予約で、入っているものを新しい版にする(画面からは呼ばない。権限の確認は予約を決めたときに済ませている) */
+    updateForSchedule: (teamId: string, serverId: string) => updateInstalled(teamId, null, serverId),
+
+    /** 予約で、結び付けたセットでそろえる(足りないものを入れ、新しい版にする。画面からは呼ばない) */
+    async syncForSchedule(teamId: string, serverId: string) {
+      const [b] = await db.select({ setId: serverSet.setId }).from(serverSet).where(eq(serverSet.serverId, serverId));
+      if (!b) throw new HttpError(400, "このサーバーにはセットを結び付けていません");
+      return applyTo(teamId, null, await itemsOf(b.setId), serverId, "sync");
+    },
+
+    summary,
+
     /** 自動更新を入れる・やめる(編集者以上): 入れたサーバーは 6 時間ごとに、新しい版があれば入れる */
     async setAutoUpdate(headers: Headers, serverId: string, on: boolean) {
       const who = await requireTeam(auth, headers, { library: ["edit"] });
@@ -355,9 +466,7 @@ export function setService(deps: Deps) {
         .returning({ id: server.id, teamId: server.teamId, name: server.name });
       for (const s of due) {
         try {
-          const records = await db.select().from(installedMod).where(eq(installedMod.serverId, s.id));
-          const type = PLATFORMS[(await needProfile(s.id)).platform].type;
-          const r = await applyTo(s.teamId, null, records.map((x) => ({ source: x.source, projectId: x.projectId, title: x.title, projectType: type })), s.id, "sync");
+          const r = await updateInstalled(s.teamId, null, s.id);
           if (r.some((x) => x.status !== "present")) await record({ teamId: s.teamId, userId: null, kind: "schedule", also: alsoOf(r), action: "自動更新", target: s.name, detail: summary(r) });
         } catch (e) {
           if (!(e instanceof HttpError)) console.error("[自動更新] 動かせませんでした:", e);

@@ -9,8 +9,9 @@ export const Route = createFileRoute("/api/library/files/$id")({
         const { HttpError } = await import("~/server/guard");
         try {
           const f = await uploads.download(request.headers, params.id);
-          return new Response(new Uint8Array(f.data), { headers: {
-            "Content-Type": "application/java-archive", "Content-Disposition": `attachment; filename="${f.filename}"`, "Cache-Control": "no-store",
+          const { Readable } = await import("node:stream");
+          return new Response(Readable.toWeb(f.stream) as ReadableStream, { headers: {
+            "Content-Type": "application/java-archive", "Content-Length": String(f.size), "Content-Disposition": `attachment; filename="${f.filename}"`, "Cache-Control": "no-store",
           } });
         } catch (e) {
           if (e instanceof HttpError) return Response.json({ message: e.message }, { status: e.status });

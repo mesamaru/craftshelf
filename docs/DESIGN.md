@@ -105,6 +105,9 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 - 「前の版に戻す」: `installInto` が更新で入れ替えた版を表 `install_history` に残す(1 つにつき 10 件)。`rollback` はいちばん新しい前の版を `fileById`(Modrinth は `/version/<ID>`、CurseForge は `/files/<ID>`、アップロードは版の行)で取り直して入れ、使った記録と戻す前の版の記録を消し、`server_hold` を付ける。SpigotMC は古い版を取ってこられないので戻せない。
 - 前提: Modrinth の版の `dependencies` のうち `required` のもの(CurseForge は `relationType: 3`)を `FileChoice.deps` で返し、同じ配布元から、`installInto` がまだ入っていないものを入れる(2 段まで。入れられなくても本体はそのまま)。
 - 「セットに無いものを外す」(`sync` の `removeExtra`)は、`installed_mod` の記録があるもの(このアプリで入れたもの)のうち、セットに無いものだけを外す。手で置いたファイルは記録が無いので触らない。予約では外さない(気づかないうちに消えないように)。
+- そろえ方(03.55.00 から、「ほかのサーバーにそろえる」と同じ 3 通り): `sync` の `how` が `update`(`applyTo` の `update`。入っているものだけ新しい版に)/ `add`(既定。足りないものも入れる)/ `mirror`(さらにセットに無いものを外す = 前の `removeExtra: true`)。画面ではそろえる元に、結び付けたセットかほかのサーバー(`copy`)を選ぶ。
+- セットの前提(`missingDeps`、03.55.00 から): セットの Modrinth・CurseForge のもののうち、選んだサーバーの種類に合うものの `latestFile` の `deps` を見て、セットに無いものを、使うものの名前と一緒に返す。`addDeps`(`library: ["edit"]`)はライブラリに載せて(種類は選んだサーバーの種類)セットに足す。
+- まとめて最新にする(`updateServers`、03.55.00 から。サーバーの一覧): 選んだサーバー(空なら割り当てで使えるすべて)の入っているものを `applyTo`(`sync`)で新しい版にする(自動更新と同じ `updateInstalled`)。変えたもの・失敗したものだけを返し、記録する。
 
 - **SpigotMC**(`src/server/spiget.ts`): Spiget(SpigotMC の公開 API)で探し、Pterodactyl に `https://api.spiget.org/v2/resources/<数字の ID>/download`(Spiget の CDN へ転送される)を取り込ませる。URL はこちらで組み立てるものだけ。SpigotMC の外のサイトで配っているもの(external)・有料のもの(premium)・プラグインではないカテゴリー(Standalone・Web・DataPack)は扱わない。
   - 動くサーバーはカテゴリーで決める(`spigetFits`): サーバー用 → Paper・Purpur・Spigot、プロキシ用 → BungeeCord、Universal → 両方。Folia・Velocity は見分けられないので入れない。Minecraft のバージョンでは絞らない(SpigotMC の対応バージョンは作者の自己申告で粗いため)。版はいちばん新しいものだけ(古い版は Spiget から取り込めない)。
@@ -159,6 +162,7 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 - チームごとに 1 つ(表 `team_schedule`)。曜日・時刻(`tz`、いまは日本時間)・すること(`check` = 確かめるだけ / `sync` = そろえる)。決めるのは `server: ["update"]`。
 - `src/server/startup.ts` が 1 分ごとに `tick` を呼ぶ(前の回が終わっていなければ飛ばす)。時刻になったチームは、動かす前に `last_run_at` を条件付きで書き換え、書き換えられたときだけ動かす(同じ分に 2 回・複数のプロセスで重ねて動かさない)。
 - 中身は `setService.runForSchedule`(画面からは呼ばない)。セットを結び付けたサーバーを 1 台ずつ `applyTo` し、1 台が失敗しても残りは続ける。結果は `schedule` の種類で記録する(user_id は null)。
+- サーバーごとの予約(表 `server_schedule`、03.55.00 から。v02 の予約同期): `mode` = off / daily / weekly(`dow`)、`time`(`tz`)、すること `action` = update(入っているものを最新に)/ sync(結び付けたセットでそろえる)、`restart` = 何か変えたら再起動する。決めるのは `server: ["update"]`。`serverTick` が 1 分ごとに、チームの予約と同じく `last_run_at` を条件付きで書き換えてから動かし、結果をいつも `schedule` の種類で記録する。チームの予約(`team_schedule`)とは別に動く。v02 の `sched_*` は `maybeImportV02Schedules` で一度だけ update として引き継ぐ(結果は `/data/v03/import-v02-schedule.json`)。
 - サーバーごとの自動更新(`server.auto_update`、入れる・やめるのは `library: ["edit"]`): 同じ 1 分ごとの見回りで `setService.runAutoUpdates` を呼ぶ。前に確かめてから 6 時間(`AUTO_UPDATE_EVERY`)たったサーバーを、`auto_updated_at` を条件付きで書き換えてから動かし、入っているものを `applyTo`(`sync`)で新しい版にする(止めたもの・無効にしたものは除く)。何か変えたとき・失敗したときだけ記録する。v02 で自動更新をオンにしていたサーバーは `maybeImportV02AutoUpdate` で一度だけ引き継ぐ(結果は `/data/v03/import-v02-auto-update.json`)。
 
 ## ファイルとコマンド
@@ -187,11 +191,12 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 - サーバーへは `installInto` が、サーバーの種類に合う作り(`loaders`)のいちばん新しい版を、保存先から読んで送る。Pterodactyl は `files/upload` の署名付きの先へ multipart で送る(undici の fetch には undici の FormData を使う)。フォルダのサーバーは書き込む。
 - v02 からの取り込み(`importUploads`、ライブラリ・セットより先に行う): 配布元がわからないプラグイン・Mod を `upload` の項目にし、版は v02 の保存先のファイルをそのまま指す(コピーしない)。v02 のパネルの中(`/data`、中の場所は `library/<relpath>`)・WebDAV・SMB を v03 の保存先として登録する(使う保存先にはしない)。NFS など v03 に無い方式は飛ばす。動くサーバーの種類は v02 の `meta.loader` の表示から決める。
 - アップロード・ダウンロードはファイルをそのまま送るので、サーバーの関数ではなく `/api/library/upload`・`/api/library/files/<ID>` の口を使う(権限の確認は `uploadService`)。
+- 1 つ 1 GB まで(v02 と同じ。`UPLOAD_LIMITS.fileBytes`)。`receive` は権限を確かめてから、本文を `/data/v03/tmp` に少しずつ書き(上限を超えたらやめる)、jar はファイルの目次と説明ファイルだけを読み(`jar.ts` の `fileSource`)、保存先へは `putFile` で送る。ダウンロード・共有リンク(1 つのとき)は `Store.read` で少しずつ返す。サーバーへ送るとき(`installInto`)と、サーバーの jar を取り込むとき(100 MB まで)はメモリに読む。画面は、いくつでも・フォルダごと(中の .jar だけ)・ドラッグ&ドロップで選べ、1 つずつ順に送る。
 
 ## 共有リンクと利用状況
 
-- 共有リンク(表 `share_link`、自分用の版だけ): アップロードしたもののいちばん新しい版を、ログインしていない人に渡す。トークンは 24 バイトの乱数で、SHA-256 のハッシュだけを保存する(URL は作ったときにだけ返す)。期限は 1 時間〜30 日。いくつかなら圧縮しない zip(`src/server/zip.ts`)。URL は `/s/<トークン>/<ファイル名>`(wget などでも元の名前で保存されるように)。作るのは `library: ["edit"]`、一覧・削除は作った人(管理者はすべて)。
-- 利用状況(`usage`、管理者以上): ライブラリの件数(配布元ごと)・アップロードした版の数と大きさ(保存先ごと)・サーバー・入れたもの・セット・メンバー・共有リンクの数。
+- 共有リンク(表 `share_link`、自分用の版だけ): アップロードしたもののいちばん新しい版を、ログインしていない人に渡す。トークンは 24 バイトの乱数で、SHA-256 のハッシュだけを保存する(URL は作ったときにだけ返す)。期限は 1 時間〜30 日か無期限(`expires_at` を 9999 年にする。前の版でも期限内として読める)。回数の上限(`max_downloads`、1〜1000 回、null は上限なし)は、数えるのと同じ 1 つの UPDATE で確かめる。「止める」は期限を今にする(一覧に残る)。画面は URL と wget・curl のコマンドを出す。いくつかなら圧縮しない zip(`src/server/zip.ts`)。URL は `/s/<トークン>/<ファイル名>`(wget などでも元の名前で保存されるように)。作るのは `library: ["edit"]`、一覧・削除は作った人(管理者はすべて)。
+- 利用状況(`usage`、管理者以上): ライブラリの件数(配布元ごと)・アップロードした版の数と大きさ(保存先ごと)・サーバー・入れたもの・セット・メンバー・共有リンクの数。ユーザーごと(`perUser`、03.55.00 から): 登録したもの(種類ごと)・アップロードした版と大きさ・作ったセット・共有リンク・操作の記録の数(すべてと 30 日)・最後の操作。どれもこのチームの中だけを数える。
 
 ## API と API トークン
 

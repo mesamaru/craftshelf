@@ -12,6 +12,7 @@ import { useCan } from "~/lib/use-can";
 import { detectSoftware, installSoftware, rollbackSoftware, setSoftware, softwareBuilds, softwareInfo, updateSoftware } from "~/lib/software-api";
 import { SOFTWARE, SOFTWARE_IDS } from "~/lib/software";
 import { createWorldBackup, removeWorldBackup, restoreWorldBackup, setWorldBackup, worldBackups } from "~/lib/worlds-api";
+import { getServerSchedule, setServerSchedule } from "~/lib/schedule-api";
 
 export const Route = createFileRoute("/servers_/$id")({
   beforeLoad: ({ context, params }) => {
@@ -61,6 +62,7 @@ function ServerPage() {
         <>
           <SetBinding id={server.id} name={server.name} edit={edit} onSynced={reload} />
           {edit && <CopyServers id={server.id} name={server.name} onDone={reload} />}
+          <ServerSchedule id={server.id} admin={can({ server: ["update"] })} />
           <Installed id={server.id} items={items} error={error} edit={edit} local={app.mode === "self"} auto={server.autoUpdate}
             dir={PLATFORMS[server.profile.platform].dir} onChange={reload} />
           <Changes id={server.id} edit={edit} items={items} onChange={reload} />
@@ -318,19 +320,29 @@ function Search({ id, installed, sources, onInstalled }: { id: string; installed
   );
 }
 
-// このサーバーに結び付けたセット。「セットでそろえる」で、足りないものを入れ、新しい版があれば更新する
+// このサーバーに結び付けたセットと、そろえる。そろえる元は結び付けたセットか、ほかのサーバー。
+// そろえ方は 3 通り(入っているものだけ合わせる・足りないものも入れる・まったく同じにする)
+type CopyMode = "update" | "add" | "mirror";
+const COPY_LABEL: Record<CopyMode, string> = { update: "入っているものだけ合わせる", add: "足りないものも入れる", mirror: "まったく同じにする" };
+
 function SetBinding({ id, name, edit, onSynced }: { id: string; name: string; edit: boolean; onSynced: () => void }) {
   const load = useServerFn(listSets);
+  const loadServers = useServerFn(listServers);
   const bind = useServerFn(bindServerSet);
   const sync = useServerFn(syncServerSet);
+  const copy = useServerFn(copyServer);
   const [sets, setSets] = useState<Awaited<ReturnType<typeof listSets>> | null>(null);
+  const [others, setOthers] = useState<{ id: string; name: string }[]>([]);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  const [results, setResults] = useState<Awaited<ReturnType<typeof syncServerSet>> | null>(null);
-  const [removeExtra, setRemoveExtra] = useState(false);
+  const [results, setResults] = useState<{ server: string; list: Awaited<ReturnType<typeof syncServerSet>> } | null>(null);
+  const [mode, setMode] = useState<CopyMode>("add");
+  const [from, setFrom] = useState("set");
   const reload = () => { load().then(setSets, (e) => setError(message(e))); };
   useEffect(reload, [id]);
+  useEffect(() => { if (edit) loadServers().then((l) => setOthers(l.filter((x) => x.id !== id)), () => setOthers([])); }, [id, edit]);
   const current = sets?.find((x) => x.servers.some((v) => v.id === id)) ?? null;
+  const source = from === "set" ? (current ? "set" : others[0]?.id ?? "") : from;
 
   const run = async (key: string, fn: () => Promise<unknown>) => {
     setBusy(key);
@@ -343,11 +355,26 @@ function SetBinding({ id, name, edit, onSynced }: { id: string; name: string; ed
       setBusy("");
     }
   };
+  const doSync = () => {
+    const what = source === "set" ? `セット「${current?.name}」` : `「${others.find((o) => o.id === source)?.name}」`;
+    if (!confirm(mode === "mirror"
+      ? `「${name}」を${what}にそろえ、そろえる元に無いもの(このアプリで入れたもの)を外します。よろしいですか?`
+      : `「${name}」を${what}にそろえますか?(${COPY_LABEL[mode]})`)) return;
+    run("sync", async () => {
+      if (source === "set") setResults({ server: name, list: await sync({ data: { serverId: id, mode } }) });
+      else {
+        const [r] = await copy({ data: { from: source, to: [id], mode } });
+        if (r?.error) throw new Error(r.error);
+        setResults({ server: name, list: r?.results ?? [] });
+      }
+      onSynced();
+    });
+  };
 
   if (!sets || (!edit && !current)) return null;
   return (
     <>
-      <div className="group-title">セット</div>
+      <div className="group-title">セット・ほかのサーバーにそろえる</div>
       <section className="group">
         <div className="row">
           <span>結び付けるセット</span>
@@ -359,81 +386,72 @@ function SetBinding({ id, name, edit, onSynced }: { id: string; name: string; ed
             </select>
           ) : <span className="trail" translate="no">{current?.name}</span>}
         </div>
-        {edit && current && (
-          <button className="row link" type="button" disabled={!!busy}
-            onClick={() => (!removeExtra || confirm("セットに無いもの(このアプリで入れたもの)をサーバーから外します。よろしいですか?"))
-              && run("sync", async () => { setResults(await sync({ data: { serverId: id, removeExtra } })); onSynced(); })}>
-            {busy === "sync" ? "そろえています…" : "セットでそろえる"}
-          </button>
-        )}
-        {edit && current && (
-          <label className="row">
-            <span>セットに無いものを外す(このアプリで入れたものだけ)</span>
-            <input className="trail" type="checkbox" checked={removeExtra} onChange={(e) => setRemoveExtra(e.target.checked)} />
-          </label>
+        {edit && (current || others.length > 0) && (
+          <>
+            <div className="row">
+              <span>そろえる元</span>
+              <select className="trail" value={source} disabled={!!busy} aria-label="そろえる元" onChange={(e) => setFrom(e.target.value)}>
+                {current && <option value="set">{`結び付けたセット(${current.name})`}</option>}
+                {others.map((o) => <option key={o.id} value={o.id} translate="no">{o.name}</option>)}
+              </select>
+            </div>
+            <div className="row">
+              <span>そろえ方</span>
+              <select className="trail" value={mode} disabled={!!busy} aria-label="そろえ方" onChange={(e) => setMode(e.target.value as CopyMode)}>
+                {(Object.keys(COPY_LABEL) as CopyMode[]).map((k) => <option key={k} value={k}>{COPY_LABEL[k]}</option>)}
+              </select>
+            </div>
+            <button className="row link" type="button" disabled={!!busy || !source} onClick={doSync}>
+              {busy === "sync" ? "そろえています…" : "そろえる"}
+            </button>
+          </>
         )}
         {edit && sets.length === 0 && <div className="row muted">まだセットがありません。トップの「セット」で作れます。</div>}
-        {results && <ApplyResults server={name} verb="そろえた" list={results} />}
+        {results && <ApplyResults server={results.server} verb="そろえた" list={results.list} empty="変えるものはありませんでした。" />}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">「セットでそろえる」は、セットのうちこのサーバーの種類に合うもので、足りないものを入れ、入っているものに新しい版があれば更新します。セットに無いものは外しません。</p>
+      <p className="foot">「入っているものだけ合わせる」は、入っているものだけを新しい版(ほかのサーバーなら同じ版)にします。「足りないものも入れる」は、無いものも入れます。「まったく同じにする」は、さらにそろえる元に無いもの(このアプリで入れたもの)を外します。セットは、このサーバーの種類に合うものだけを入れます。「更新を止める」にしたもの・無効にしたものは変えません。外したもの・入れ替えたものは「変更の履歴」から元に戻せます。</p>
     </>
   );
 }
 
-// ほかのサーバーとそろえる: このサーバーを、ほかのサーバーの構成に合わせる / このサーバー(検証用)の構成を、本番のサーバーへ反映する
+// 検証用から本番へ反映: このサーバーの構成を、選んだほかのサーバーへそろえる
 function CopyServers({ id, name, onDone }: { id: string; name: string; onDone: () => void }) {
   const load = useServerFn(listServers);
   const copy = useServerFn(copyServer);
   const [others, setOthers] = useState<{ id: string; name: string }[] | null>(null);
-  const [mode, setMode] = useState<"update" | "add" | "mirror">("add");
-  const [from, setFrom] = useState("");
+  const [mode, setMode] = useState<CopyMode>("add");
   const [to, setTo] = useState<Set<string>>(new Set());
-  const [busy, setBusy] = useState("");
+  const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<Awaited<ReturnType<typeof copyServer>> | null>(null);
   const [error, setError] = useState("");
   useEffect(() => { load().then((l) => setOthers(l.filter((s) => s.id !== id)), (e) => setError(message(e))); }, [id]);
   if (!others?.length) return null;
 
-  const run = async (key: string, ask: string, data: { from: string; to: string[] }) => {
-    if (!confirm(ask)) return;
-    setBusy(key);
+  const run = async () => {
+    if (!confirm(`「${name}」の構成を、選んだ ${to.size} 台へ反映しますか?`)) return;
+    setBusy(true);
     setError("");
     setResults(null);
     try {
-      setResults(await copy({ data: { ...data, mode } }));
+      setResults(await copy({ data: { from: id, to: [...to], mode } }));
       onDone();
     } catch (e) {
       setError(message(e));
     } finally {
-      setBusy("");
+      setBusy(false);
     }
   };
-  const nameOf = (x: string) => others.find((o) => o.id === x)?.name ?? "";
   return (
     <>
-      <div className="group-title">ほかのサーバーとそろえる</div>
+      <div className="group-title">検証用から本番へ反映</div>
       <section className="group form">
         <div className="row">
           <span>そろえ方</span>
-          <select className="trail" value={mode} aria-label="そろえ方" onChange={(e) => setMode(e.target.value as typeof mode)}>
-            <option value="update">入っているものだけ合わせる</option>
-            <option value="add">足りないものも入れる</option>
-            <option value="mirror">まったく同じにする</option>
+          <select className="trail" value={mode} aria-label="反映するときのそろえ方" onChange={(e) => setMode(e.target.value as CopyMode)}>
+            {(Object.keys(COPY_LABEL) as CopyMode[]).map((k) => <option key={k} value={k}>{COPY_LABEL[k]}</option>)}
           </select>
         </div>
-        <div className="row">
-          <span>このサーバーを、次のサーバーにそろえる</span>
-          <select className="trail" value={from} aria-label="そろえる元のサーバー" onChange={(e) => setFrom(e.target.value)}>
-            <option value="">選んでください…</option>
-            {others.map((o) => <option key={o.id} value={o.id} translate="no">{o.name}</option>)}
-          </select>
-        </div>
-        <button className="row link" type="button" disabled={!from || !!busy}
-          onClick={() => run("from", `「${name}」を「${nameOf(from)}」にそろえますか?`, { from, to: [id] })}>
-          {busy === "from" ? "そろえています…" : "そろえる"}
-        </button>
-        <div className="row muted">検証用から本番へ反映(このサーバーの構成を、選んだサーバーへそろえる)</div>
         {others.map((o) => (
           <label className="row" key={o.id}>
             <span translate="no">{o.name}</span>
@@ -441,16 +459,90 @@ function CopyServers({ id, name, onDone }: { id: string; name: string; onDone: (
               onChange={(e) => setTo((x) => { const n = new Set(x); if (e.target.checked) n.add(o.id); else n.delete(o.id); return n; })} />
           </label>
         ))}
-        <button className="row link" type="button" disabled={!to.size || !!busy}
-          onClick={() => run("to", `「${name}」の構成を、選んだ ${to.size} 台へ反映しますか?`, { from: id, to: [...to] })}>
-          {busy === "to" ? "反映しています…" : `選んだ ${to.size} 台へ反映`}
+        <button className="row link" type="button" disabled={!to.size || busy} onClick={run}>
+          {busy ? "反映しています…" : `選んだ ${to.size} 台へ反映`}
         </button>
         {results?.map((r) => (r.error
           ? <p className="row error" key={r.serverId}><span translate="no">{r.server}</span>: {r.error}</p>
           : <ApplyResults key={r.serverId} server={r.server} verb="そろえた" list={r.results} empty="変えるものはありませんでした。" />))}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">そろえる元のサーバーに、このアプリで入れたもの(無効にしたものは除く)と同じ版を入れます。「まったく同じにする」は、そろえる元に無いもの(このアプリで入れたもの)を外します。「更新を止める」にしたもの・無効にしたものは変えません。外したもの・入れ替えたものは「変更の履歴」から元に戻せます。</p>
+      <p className="foot">このサーバーに、このアプリで入れたもの(無効にしたものは除く)と同じ版を、選んだサーバーに入れます。そろえ方は上の「そろえる」と同じです。</p>
+    </>
+  );
+}
+
+// サーバーごとの予約(v02 の予約同期): 毎日・毎週の時刻に、入っているものを最新にする・結び付けたセットでそろえる。変えたら再起動もできる
+function ServerSchedule({ id, admin }: { id: string; admin: boolean }) {
+  const load = useServerFn(getServerSchedule);
+  const save = useServerFn(setServerSchedule);
+  const [d, setD] = useState<Awaited<ReturnType<typeof getServerSchedule>> | null>(null);
+  const [draft, setDraft] = useState<Awaited<ReturnType<typeof getServerSchedule>> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const reload = () => load({ data: { id } }).then((x) => { setD(x); setDraft(x); }, (e) => setError(message(e)));
+  useEffect(() => { reload(); }, [id]);
+  if (!d || !draft) return error ? <p className="row error" role="alert">{error}</p> : null;
+  if (!admin && d.mode === "off") return null;
+  const submit = async () => {
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      await save({ data: { id, mode: draft.mode, action: draft.action, time: draft.time, dow: draft.dow, restart: draft.restart, tz: Intl.DateTimeFormat().resolvedOptions().timeZone } });
+      setNote("保存しました");
+      await reload();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <div className="group-title">このサーバーの予約</div>
+      <section className="group form">
+        <div className="row">
+          <span>予約</span>
+          <select className="trail" value={draft.mode} disabled={!admin} aria-label="このサーバーの予約" onChange={(e) => setDraft({ ...draft, mode: e.target.value })}>
+            <option value="off">しない</option>
+            <option value="daily">毎日</option>
+            <option value="weekly">毎週</option>
+          </select>
+        </div>
+        {draft.mode === "weekly" && (
+          <div className="row">
+            <span>曜日</span>
+            <select className="trail" value={draft.dow} disabled={!admin} aria-label="予約の曜日" onChange={(e) => setDraft({ ...draft, dow: Number(e.target.value) })}>
+              {DAY_NAMES.map((n, i) => <option key={i} value={i}>{`${n}曜日`}</option>)}
+            </select>
+          </div>
+        )}
+        {draft.mode !== "off" && (
+          <>
+            <div className="row">
+              <span>時刻</span>
+              <input className="trail" type="time" value={draft.time} disabled={!admin} aria-label="予約の時刻" onChange={(e) => setDraft({ ...draft, time: e.target.value })} />
+            </div>
+            <div className="row">
+              <span>すること</span>
+              <select className="trail" value={draft.action} disabled={!admin} aria-label="予約ですること" onChange={(e) => setDraft({ ...draft, action: e.target.value })}>
+                {Object.entries(d.actions).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+              </select>
+            </div>
+            <label className="row">
+              <span>変えたら再起動する</span>
+              <input className="trail" type="checkbox" checked={draft.restart} disabled={!admin} onChange={(e) => setDraft({ ...draft, restart: e.target.checked })} />
+            </label>
+          </>
+        )}
+        {d.lastRunAt && <div className="row muted">{`前に動いたとき: ${new Date(d.lastRunAt).toLocaleString("ja-JP")}`}</div>}
+        {admin && <button className="row link" type="button" disabled={busy} onClick={submit}>{busy ? "保存しています…" : "保存"}</button>}
+        {note && <p className="row muted" role="status">{note}</p>}
+        {error && <p className="row error" role="alert">{error}</p>}
+      </section>
+      <p className="foot">決めた時刻に、このサーバーの Mod・プラグインを新しい版にする(「更新を止める」にしたもの・無効にしたものは除く)か、結び付けたセットでそろえます。何か変えて「変えたら再起動する」を選んでいれば、サーバーを再起動します。セットの画面の予約(チームで 1 つ)とは別に動きます。時刻は保存したときのブラウザの時間帯です。決められるのは管理者以上です。</p>
     </>
   );
 }

@@ -381,6 +381,8 @@ export const shareLink = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
     expiresAt: timestamp("expires_at").notNull(),
     downloads: integer("downloads").notNull().default(0),
+    // ダウンロードできる回数の上限(03.55.00 から。null = 上限なし)。無期限のリンクは expires_at を 9999 年にする
+    maxDownloads: integer("max_downloads"),
   },
   (t) => [uniqueIndex("share_link_token_uq").on(t.tokenHash), index("share_link_team_idx").on(t.teamId)],
 );
@@ -494,6 +496,20 @@ export const worldBackup = pgTable("world_backup", {
   tz: text("tz").notNull().default("Asia/Tokyo"),
   keep: integer("keep").notNull().default(5),
   targetId: text("target_id").references(() => storageTarget.id, { onDelete: "set null" }),
+  lastRunAt: timestamp("last_run_at"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// サーバーごとの予約(v02 の予約同期。03.55.00 から)。mode = off / daily / weekly(dow の曜日、0 = 日曜)、time は tz の時刻。
+// action = update(入っているものを最新に)/ sync(結び付けたセットでそろえる)。restart = 何か変えたら再起動する。チームの予約(team_schedule)とは別に動く
+export const serverSchedule = pgTable("server_schedule", {
+  serverId: text("server_id").primaryKey().references(() => server.id, { onDelete: "cascade" }),
+  mode: text("mode").notNull().default("off"),
+  action: text("action").notNull().default("update"),
+  time: text("time").notNull().default("04:00"),
+  dow: integer("dow").notNull().default(0),
+  tz: text("tz").notNull().default("Asia/Tokyo"),
+  restart: boolean("restart").notNull().default(false),
   lastRunAt: timestamp("last_run_at"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

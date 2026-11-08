@@ -35,6 +35,12 @@ describe("英語表示", () => {
     expect(translate(" · 3 / 20 人 · 12 ms")).toBe(" · 3 / 20 players · 12 ms");
     expect(translate("232(試験版)(今)")).toBe("232 (experimental, current)");
     expect(translate("選んだ 2 台をまとめて最新にする(最新のものは飛ばす)")).toBe("Update 2 selected servers to the newest builds (skip up-to-date ones)");
+    expect(translate("送っています… 2 / 5")).toBe("Uploading… 2 / 5");
+    expect(translate("2026/1/4 4:00:00 まで使えます(5 回まで)。この URL は今だけ表示します。")).toBe("Valid until 2026/1/4 4:00:00 (up to 5 downloads). This URL is shown only now.");
+    expect(translate("期限はありません。この URL は今だけ表示します。")).toBe("No expiry. This URL is shown only now.");
+    expect(translate("操作 12 回(30 日で 3 回)")).toBe("12 actions (3 in the last 30 days)");
+    expect(translate("「ロビー」を「検証」にそろえますか?(入っているものだけ合わせる)")).toBe("Sync “ロビー” with “検証”? (Only match what is installed)");
+    expect(translate("5 回")).toBe("5 times");
     expect(translate("戻しました(12 ファイル)。前のワールドは world.craftshelf-before-restore-1 に残しています")).toBe("Restored (12 files). The previous world is kept as world.craftshelf-before-restore-1");
   });
 });

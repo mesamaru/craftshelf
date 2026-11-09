@@ -10,6 +10,8 @@ import { localEnabled } from "~/lib/servers-api";
 import { CHANNELS, SOURCE_LABEL, type Channel, type ItemSource, type Source, isItemSource, pageUrl } from "~/lib/sources";
 import { removeUploadedFile, uploadedFiles } from "~/lib/uploads-api";
 import { ShareMaker } from "~/lib/share-maker";
+import { saveVersion, setItemSaved, zipPlan } from "~/lib/saved-api";
+import { downloadZip } from "~/lib/zip-download";
 import { useCan } from "~/lib/use-can";
 import { Bell } from "~/lib/bell";
 import { OPEN_PALETTE } from "~/lib/palette";
@@ -113,6 +115,7 @@ function Filters({ cat, f, setF }: { cat: Catalog; f: Filter; setF: (fn: (f: Fil
 // チェックで選んだものをまとめて: タグを付ける・セットに足す・ライブラリから外す
 function Bulk({ ids, share, onDone }: { ids: string[]; share: boolean; onDone: (clear: boolean) => void }) {
   const tag = useServerFn(tagLibraryItems);
+  const plan = useServerFn(zipPlan);
   const toSet = useServerFn(toggleSetItem);
   const remove = useServerFn(removeLibraryItem);
   const loadSets = useServerFn(listSets);
@@ -162,9 +165,10 @@ function Bulk({ ids, share, onDone }: { ids: string[]; share: boolean; onDone: (
             {sets.map((s) => <option key={s.id} value={s.id} translate="no">{s.name}</option>)}
           </select>
         )}
+        {share && <button className="link" type="button" disabled={busy} onClick={() => downloadZip(plan, { itemIds: ids }).catch((e) => setError(message(e)))}>zip でダウンロード</button>}
         <button className="link danger" type="button" disabled={busy} onClick={removeAll}>ライブラリから外す</button>
       </div>
-      {share && <div className="row"><ShareMaker key={ids.join()} itemIds={ids} name="" label="共有リンクを作る(アップロードしたものだけ。2 件以上は zip)" /></div>}
+      {share && <div className="row"><ShareMaker key={ids.join()} itemIds={ids} name="" label="共有リンクを作る(アップロード・保存した版のあるものだけ。2 件以上は zip)" /></div>}
       {note && <p className="row muted" role="status">{note}</p>}
       {error && <p className="row error" role="alert">{error}</p>}
     </section>
@@ -215,6 +219,7 @@ function Home() {
       <section className="group">
         <Link to="/servers" className="row link">サーバー(起動・停止・パネルの登録)</Link>
         <Link to="/sets" className="row link">セット(まとめてサーバーに入れる)</Link>
+        {edit && <Link to="/cleanup" className="row link">アドオンの整理(古い版・重複・使っていないもの)</Link>}
       </section>
 
       <div className="group-title">Mod・プラグインなど</div>
@@ -229,12 +234,12 @@ function Home() {
             {shown.every((i) => picked.has(i.id)) ? "選ぶのをやめる" : `表示している ${shown.length} 件をすべて選ぶ`}
           </button>
         )}
-        {cat && shown.map((i) => <Item key={i.id} item={i} cat={cat} servers={cat.servers} edit={edit} admin={can({ member: ["update"] })} depInfo={f.depIds?.get(i.id)}
+        {cat && shown.map((i) => <Item key={i.id} item={i} cat={cat} servers={cat.servers} edit={edit} admin={can({ member: ["update"] })} local={uploads} depInfo={f.depIds?.get(i.id)}
           onChange={reload} onDeps={refreshDeps} onFavorite={() => toggleFavorite(i)}
           picked={picked.has(i.id)} onPick={(on) => setPicked((p) => { const n = new Set(p); if (on) n.add(i.id); else n.delete(i.id); return n; })} />)}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">チームで使う Mod・プラグインの一覧です。Modrinth・SpigotMC のものは、サーバーが配布元から直接取り込みます(アップロードしたものは、保存先から送ります)。入れる版は、サーバーの種類とバージョンに合うものを選びます(Paper のサーバーには Paper 向けの作りを優先)。</p>
+      <p className="foot">チームで使う Mod・プラグインの一覧です。Modrinth・SpigotMC のものは、サーバーが配布元から直接取り込みます(アップロードしたもの・保存した版は、保存先から送ります)。入れる版は、サーバーの種類とバージョンに合うものを選びます(Paper のサーバーには Paper 向けの作りを優先)。</p>
       <p className="foot">データパックは、サーバーのワールド(server.properties の level-name)の datapacks に入れます。リソースパック・シェーダーはクライアントで使うものなので、ライブラリで持ち、「詳しく」の版からダウンロードできます。Modパックからは、セットを作ったり、サーバーに中の Mod と設定ファイルを入れたりできます(新しい版が出たらお知らせします)。</p>
 
       {can({ member: ["update"] }) && cat && <TeamChannel value={cat.channel} onDone={reload} />}
@@ -244,8 +249,8 @@ function Home() {
   );
 }
 
-function Item({ item, cat, servers, edit, admin, depInfo, onChange, onDeps, onFavorite, picked, onPick }:
-  { item: CatItem; cat: Catalog; servers: Catalog["servers"]; edit: boolean; admin: boolean; depInfo?: DepInfo; onChange: () => void; onDeps: () => void; onFavorite: () => void;
+function Item({ item, cat, servers, edit, admin, local, depInfo, onChange, onDeps, onFavorite, picked, onPick }:
+  { item: CatItem; cat: Catalog; servers: Catalog["servers"]; edit: boolean; admin: boolean; local: boolean; depInfo?: DepInfo; onChange: () => void; onDeps: () => void; onFavorite: () => void;
     picked: boolean; onPick: (on: boolean) => void }) {
   const [detail, setDetail] = useState(false);
   const channel: Channel = item.channel || cat.channel;
@@ -314,7 +319,9 @@ function Item({ item, cat, servers, edit, admin, depInfo, onChange, onDeps, onFa
         {error && <span className="error" role="alert">{error}</span>}
         {pack && edit && <button className="link small" type="button" disabled={!!busy} onClick={() => packRun()}>{newer ? "新しい版でセットを作る" : "セットを作る"}</button>}
         {item.source === "upload" && <button className="link small" type="button" onClick={() => setShowFiles((v) => !v)}>{showFiles ? "版を閉じる" : "版を見る"}</button>}
-        {showFiles && <Files itemId={item.id} title={item.title} edit={edit} />}
+        {item.source !== "upload" && local && <button className="link small" type="button" onClick={() => setShowFiles((v) => !v)}>
+          {showFiles ? "保存した版を閉じる" : item.files ? `保存した版(${item.files})` : "保存した版"}</button>}
+        {showFiles && <Files item={item} keep={cat.keep} edit={edit} local={local} onChange={onChange} />}
         <button className="link small" type="button" onClick={() => setDetail((v) => !v)}>{detail ? "詳しくを閉じる" : "詳しく(前提・版と変更内容・情報)"}</button>
       </span>
       <button type="button" className="link star" aria-pressed={item.favorite} onClick={onFavorite}
@@ -342,7 +349,7 @@ function Item({ item, cat, servers, edit, admin, depInfo, onChange, onDeps, onFa
       )}
       {/* 前提の警告・詳しくは、行の下に全幅で出す */}
       {depInfo && <div className="full"><DepWarnings servers={depInfo} edit={edit} onInstalled={() => { onChange(); onDeps(); }} /></div>}
-      {detail && <div className="full"><Detail item={item} cat={cat} edit={edit} admin={admin} onChange={onChange} /></div>}
+      {detail && <div className="full"><Detail item={item} cat={cat} edit={edit} admin={admin} local={local} onChange={onChange} /></div>}
     </div>
   );
 }
@@ -379,7 +386,7 @@ function DepWarnings({ servers, edit, onInstalled }: { servers: DepInfo; edit: b
 }
 
 // アイテムの詳しい情報: 前提(手で決めたもの・サーバーに足りないもの)・版と変更内容・情報を直す(管理者以上)
-function Detail({ item, cat, edit, admin, onChange }: { item: CatItem; cat: Catalog; edit: boolean; admin: boolean; onChange: () => void }) {
+function Detail({ item, cat, edit, admin, local, onChange }: { item: CatItem; cat: Catalog; edit: boolean; admin: boolean; local: boolean; onChange: () => void }) {
   const check = useServerFn(libraryMissingDeps);
   const link = useServerFn(linkLibraryDep);
   const [miss, setMiss] = useState<DepInfo | null>(null);
@@ -413,7 +420,7 @@ function Detail({ item, cat, edit, admin, onChange }: { item: CatItem; cat: Cata
       {miss && miss.length > 0 && <DepWarnings servers={miss} edit={edit} onInstalled={() => { onChange(); recheck(); }} />}
       </>}
       {error && <span className="error" role="alert">{error}</span>}
-      {item.source !== "upload" && <Versions item={item} />}
+      {item.source !== "upload" && <Versions item={item} canSave={edit && local && item.source !== "spigot"} onSaved={onChange} />}
       {admin && <EditInfo item={item} teamChannel={cat.channel} onDone={onChange} />}
     </span>
   );
@@ -421,9 +428,17 @@ function Detail({ item, cat, edit, admin, onChange }: { item: CatItem; cat: Cata
 
 // 配布元の版(新しい順)と、版ごとの変更内容(文字として出す)
 const VERSION_TYPE: Record<string, string> = { beta: "ベータ", alpha: "アルファ" };
-function Versions({ item }: { item: CatItem }) {
+function Versions({ item, canSave, onSaved }: { item: CatItem; canSave: boolean; onSaved: () => void }) {
   const load = useServerFn(libraryItemVersions);
   const changelog = useServerFn(libraryItemChangelog);
+  const save = useServerFn(saveVersion);
+  const [saving, setSaving] = useState("");
+  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const doSave = (versionId: string) => {
+    setSaving(versionId);
+    setError("");
+    save({ data: { itemId: item.id, versionId } }).then(() => { setSavedIds((x) => new Set(x).add(versionId)); onSaved(); }, (e) => setError(message(e))).finally(() => setSaving(""));
+  };
   const [list, setList] = useState<Awaited<ReturnType<typeof libraryItemVersions>> | null>(null);
   const [open, setOpen] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
@@ -449,6 +464,8 @@ function Versions({ item }: { item: CatItem }) {
           <span className="muted small">{" "}{v.date ? new Date(v.date).toLocaleDateString("ja-JP") : ""}{v.mcVersions.length ? ` · MC ${mcRange(v.mcVersions)}` : ""}{v.loaders.length ? ` · ${v.loaders.join(" / ")}` : ""}</span>
           {" "}<button className="link small" type="button" aria-expanded={v.versionId in open} onClick={() => toggle(v)}>{v.versionId in open ? "閉じる" : "変更内容"}</button>
           {"url" in v && v.url && <>{" "}<a className="small" href={v.url} target="_blank" rel="noreferrer noopener">ダウンロード</a></>}
+          {canSave && "url" in v && v.url && <>{" "}{savedIds.has(v.versionId) ? <span className="muted small">保存しました</span>
+            : <button className="link small" type="button" disabled={!!saving} onClick={() => doSave(v.versionId)}>{saving === v.versionId ? "保存しています…" : "保存先に保存"}</button>}</>}
           {v.versionId in open && <pre className="changelog" translate="no">{open[v.versionId]}</pre>}
         </span>
       ))}
@@ -658,16 +675,42 @@ function AddFromSource({ sources, have, onAdded }: { sources: Source[]; have: Se
   );
 }
 
-// アップロードしたものの版(ダウンロード・消す)
-function Files({ itemId, title, edit }: { itemId: string; title: string; edit: boolean }) {
+// アップロードしたもの・保存した配布元の版(ダウンロード・消す・共有リンク)と、保存の設定(保存するか・古い版を残す数)
+function Files({ item, keep, edit, local, onChange }: { item: CatItem; keep: Catalog["keep"]; edit: boolean; local: boolean; onChange: () => void }) {
+  const itemId = item.id;
+  const title = item.title;
   const load = useServerFn(uploadedFiles);
   const remove = useServerFn(removeUploadedFile);
+  const save = useServerFn(saveVersion);
+  const setKeep = useServerFn(setItemSaved);
   const [files, setFiles] = useState<Awaited<ReturnType<typeof uploadedFiles>> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const reload = () => { load({ data: { itemId } }).then(setFiles, (e) => setError(message(e))); };
   useEffect(reload, [itemId]);
+  const upstream = item.source !== "upload";
+  const run = async (fn: () => Promise<string>) => {
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      setNote(await fn());
+      reload();
+      onChange();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const changeKeep = (keepFiles: string, keepVersions: number | null) => run(async () => {
+    const r = await setKeep({ data: { itemId, keepFiles: keepFiles as "" | "on" | "off", keepVersions } });
+    return r.removed.length ? `保存しました(古い版 ${r.removed.join("、")} を整理しました)` : "保存しました";
+  });
   return (
     <span className="files">
+      {files?.length === 0 && <span className="muted">{upstream ? "まだ保存した版はありません" : "版がありません"}</span>}
       {files?.map((f) => (
         <span key={f.id} className="muted">
           <span translate="no">{f.version || f.filename}</span>({(f.size / 1024).toFixed(0)} KB・{new Date(f.createdAt).toLocaleDateString("ja-JP")}{f.loaders.length ? `・${f.loaders.join(" / ")}` : ""})
@@ -677,6 +720,28 @@ function Files({ itemId, title, edit }: { itemId: string; title: string; edit: b
         </span>
       ))}
       {edit && files && files.length > 0 && <ShareMaker itemIds={[itemId]} name={title} label="共有リンクを作る(いちばん新しい版)" />}
+      {edit && local && upstream && <button className="link small" type="button" disabled={busy} onClick={() => run(async () => {
+        const r = await save({ data: { itemId } });
+        return `${r.version || r.filename} を保存しました`;
+      })}>{busy ? "しています…" : "いちばん新しい版を保存先に保存"}</button>}
+      {edit && local && (
+        <span className="actions">
+          {upstream && (
+            <select value={item.keepFiles} disabled={busy} aria-label="配布元のファイルを保存するか" onChange={(e) => changeKeep(e.target.value, item.keepVersions)}>
+              <option value="">{`チームの既定(${keep.files ? "保存する" : "保存しない"})`}</option>
+              <option value="on">入れた版を保存する</option>
+              <option value="off">保存しない</option>
+            </select>
+          )}
+          <select value={item.keepVersions === null ? "" : String(item.keepVersions)} disabled={busy} aria-label="古い版を残す数"
+            onChange={(e) => changeKeep(item.keepFiles, e.target.value === "" ? null : Number(e.target.value))}>
+            <option value="">{`古い版: チームの既定(${keep.versions ? `${keep.versions} 個残す` : "整理しない"})`}</option>
+            <option value="0">古い版を整理しない</option>
+            {[1, 2, 3, 5, 10].map((n) => <option key={n} value={n}>{`新しい方から ${n} 個残す`}</option>)}
+          </select>
+        </span>
+      )}
+      {note && <span className="muted" role="status" translate="no">{note}</span>}
       {error && <span className="error" role="alert">{error}</span>}
     </span>
   );

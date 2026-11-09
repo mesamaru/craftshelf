@@ -62,5 +62,20 @@ describe("英語表示", () => {
     expect(translate("固定した版 4.0.0 は、このサーバーの種類・バージョンに合わないので飛ばしました")).toBe("Skipped: the pinned version 4.0.0 does not fit this server's type and version");
     expect(translate("5.4.0 → 5.3.0(固定した版)")).toBe("5.4.0 → 5.3.0 (pinned version)");
     expect(translate("版を固定しています(5.3.0)")).toBe("Pinned (5.3.0)");
+    // 03.61.00: 配布元のファイルの保存など
+    expect(translate("保存した版(2)")).toBe("Saved versions (2)");
+    expect(translate("保存した版")).toBe("Saved versions");
+    expect(translate(" 応答 12 ms")).toBe(" Response 12 ms");
+    expect(translate(" · 容量 1.0 GB(空き 200 MB)")).toBe(" · Capacity 1.0 GB (200 MB free)");
+    expect(translate(" · 登録しているファイル 3 個(4 MB、うち保存した版 2 個)")).toBe(" · Registered files 3 (4 MB, of which 2 saved versions)");
+    expect(translate("3 個を調べ、2 個を取り込みました。取り込めなかったもの: inbox/a.jar(読めません)")).toBe("Checked 3, imported 2. Not imported: inbox/a.jar(読めません)");
+    expect(translate("古い版: チームの既定(3 個残す)")).toBe("Old versions: team default (keep 3)");
+    expect(translate("チームの既定(保存しない)")).toBe("Team default (don't save)");
+    expect(translate("新しい方から 5 個残す")).toBe("Keep the newest 5");
+    expect(translate("2 件が見つかりました(選んだもの 3.0 MB)")).toBe("Found 2 (selected 3.0 MB)");
+    expect(translate("保存していないもの(2 件)は入りません: Alpha、Beta\nほかの 3 件をダウンロードしますか?")).toBe("2 items without saved versions are left out: Alpha, Beta\nDownload the other 3?");
+    expect(translate("どのサーバーにも入っていません(セット「ロビー」に入っています)")).toBe("Not installed on any server (in set “ロビー”)");
+    expect(translate("配布元の最後の更新は 2020-01-01")).toBe("Last updated at the source 2020-01-01");
+    expect(translate("版 1 個・アドオン 2 件を消しました")).toBe("Deleted 1 versions and 2 add-ons");
   });
 });

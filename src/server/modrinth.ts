@@ -118,13 +118,13 @@ export function modrinthClient(fetch: FetchLike) {
     },
 
     /** プロジェクトの名前などを、まとめて取る(ID → 中身) */
-    async projects(ids: string[]): Promise<Map<string, { title: string; slug: string; iconUrl: string; mcVersions: string[] }>> {
-      const out = new Map<string, { title: string; slug: string; iconUrl: string; mcVersions: string[] }>();
+    async projects(ids: string[]): Promise<Map<string, { title: string; slug: string; iconUrl: string; mcVersions: string[]; updated: string }>> {
+      const out = new Map<string, { title: string; slug: string; iconUrl: string; mcVersions: string[]; updated: string }>();
       for (let i = 0; i < ids.length; i += 100) {
         const part = ids.slice(i, i + 100).filter((x) => PROJECT_ID.test(x));
         if (!part.length) continue;
         for (const p of ((await get(`/projects?ids=${encodeURIComponent(JSON.stringify(part))}`)) ?? []) as Record<string, unknown>[]) {
-          out.set(String(p.id), { title: String(p.title ?? ""), slug: String(p.slug ?? ""), iconUrl: icon(p.icon_url), mcVersions: mcClean(p.game_versions) });
+          out.set(String(p.id), { title: String(p.title ?? ""), slug: String(p.slug ?? ""), iconUrl: icon(p.icon_url), mcVersions: mcClean(p.game_versions), updated: String(p.updated ?? "") });
         }
       }
       return out;

@@ -6,9 +6,10 @@ import { join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebStream } from "node:stream/web";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNotNull, isNull, ne } from "drizzle-orm";
 import { PLATFORMS, type Platform, isPlatform } from "~/lib/platforms";
-import { libraryFile, libraryItem, storageTarget, installedMod, serverProfile } from "./db/schema";
+import { addonSetItem, libraryFile, libraryItem, storageTarget, installedMod, server, serverProfile, teamOption } from "./db/schema";
+import { CF_HOSTS } from "./curseforge";
 import { eventService } from "./events";
 import { HttpError, requireTeam } from "./guard";
 import { remote, serverOf, worldOf } from "./servers";
@@ -41,6 +42,7 @@ export async function fromStorage<T>(fn: () => Promise<T>): Promise<T> {
 // 保存先を開く・ファイルを選ぶ(ライブラリ・セットから使う。権限の確認は呼ぶ側で行う)
 export function fileStore(deps: Deps) {
   const { db, secret, fetch } = deps;
+  const { record } = eventService(deps);
   const defaultConfig = (): StorageConfig => {
     if (!deps.local) throw new HttpError(400, "アップロードしたアドオンは、自分用の版だけで使えます");
     return { kind: "local", path: join(deps.local.dataDir, "v03", "library") };
@@ -75,17 +77,183 @@ export function fileStore(deps: Deps) {
 
   const read = async (teamId: string, f: FileRow) => fromStorage(async () => (await storeOf(teamId, f.targetId)).get(f.storageKey));
   const stream = async (teamId: string, f: FileRow) => fromStorage(async () => (await storeOf(teamId, f.targetId)).read(f.storageKey));
-  return { storeOf, pick, choices, read, stream, configOf, defaultConfig };
+  const activeOf = async (teamId: string) => (await db.select().from(storageTarget).where(and(eq(storageTarget.teamId, teamId), eq(storageTarget.active, true))))[0] ?? null;
+  const optionOf = async (teamId: string) => (await db.select({ keepFiles: teamOption.keepFiles, keepVersions: teamOption.keepVersions }).from(teamOption)
+    .where(eq(teamOption.teamId, teamId)))[0] ?? { keepFiles: false, keepVersions: 0 };
+  const itemBy = async (teamId: string, source: string, projectId: string) =>
+    (await db.select().from(libraryItem).where(and(eq(libraryItem.teamId, teamId), eq(libraryItem.source, source), eq(libraryItem.projectId, projectId))))[0] ?? null;
+
+  /** 配布元のファイルを保存先に保存するか(アイテムの設定、無ければチームの既定。自分用の版だけ) */
+  async function keepOf(teamId: string, source: string, projectId: string) {
+    if (!deps.local || source === "upload") return false;
+    const i = await itemBy(teamId, source, projectId);
+    if (i?.keepFiles === "on" || i?.keepFiles === "off") return i.keepFiles === "on";
+    return (await optionOf(teamId)).keepFiles;
+  }
+
+  /** 配布元の版を保存したもの(無ければ null) */
+  async function savedOf(teamId: string, source: string, projectId: string, versionId: string) {
+    const i = await itemBy(teamId, source, projectId);
+    if (!i || !versionId) return null;
+    return (await db.select().from(libraryFile).where(and(eq(libraryFile.itemId, i.id), eq(libraryFile.upstreamVersionId, versionId))))[0] ?? null;
+  }
+
+  /** 保存した版のうち、このサーバーの種類に合ういちばん新しいもの(配布元につながらない・版が消えたときに使う) */
+  async function savedPick(teamId: string, source: string, projectId: string, platform: Platform, kind?: "datapack") {
+    const i = await itemBy(teamId, source, projectId);
+    if (!i) return null;
+    const want: readonly string[] = kind ? [] : PLATFORMS[platform].loaders;
+    const ext = kind ? /\.zip$/i : /\.jar$/i;
+    const rows = await db.select().from(libraryFile).where(and(eq(libraryFile.itemId, i.id), ne(libraryFile.upstreamVersionId, ""))).orderBy(desc(libraryFile.createdAt));
+    const fit = rows.filter((f) => ext.test(f.filename)).map((f) => ({ row: f, loaders: JSON.parse(f.loaders) as string[], date_published: f.createdAt.toISOString() }))
+      .filter((f) => !want.length || !f.loaders.length || f.loaders.some((l) => want.includes(l)));
+    return pickVersion(fit, want)?.row ?? null;
+  }
+
+  /**
+   * 配布元の版のファイルを取ってきて、保存先(使っている保存先か targetId)に保存する(自分用の版だけ)。
+   * 取ってくるのは配布元の CDN からだけ(転送も CDN の中だけ)、パネルの一時フォルダに少しずつ書く。保存してあれば、それを返す
+   */
+  async function saveUpstream(teamId: string, userId: string | null, item: typeof libraryItem.$inferSelect,
+    file: { versionId: string; versionNumber: string; filename: string; url: string }, opts: { targetId?: string | null } = {}) {
+    if (!deps.local) throw new HttpError(400, "配布元のファイルの保存は、自分用の版だけで使えます");
+    const have = await savedOf(teamId, item.source, item.projectId, file.versionId);
+    if (have) return have;
+    if (!file.url || !SAFE_FILE.test(file.filename)) throw new HttpError(400, "この版は、配布元からファイルを取ってこられません");
+    const dir = join(deps.local.dataDir, "v03", "tmp");
+    mkdirSync(dir, { recursive: true });
+    const tmp = join(dir, `save-${randomUUID()}.part`);
+    try {
+      await downloadTo(deps.fetch, file.url, tmp);
+      return await keepSaved(teamId, userId, item, tmp, file, opts.targetId);
+    } finally {
+      rmSync(tmp, { force: true });
+    }
+  }
+
+  /** 一時フォルダのファイル(配布元の版そのもの)を、保存した版として保存先に置く(同じ中身があればそれを返す) */
+  async function keepSaved(teamId: string, userId: string | null, item: typeof libraryItem.$inferSelect, tmp: string,
+    file: { versionId: string; versionNumber: string; filename: string }, target?: string | null) {
+    const src = fileSource(tmp);
+    let info;
+    try {
+      info = /\.jar$/i.test(file.filename) ? analyzeJar(src, file.filename) : analyzePack(src, file.filename);
+    } finally {
+      src.close();
+    }
+    const sha256 = await sha256Of(tmp);
+    const same = (await db.select().from(libraryFile).where(and(eq(libraryFile.itemId, item.id), eq(libraryFile.sha256, sha256))))[0];
+    if (same) return same;
+    const targetId = target !== undefined ? target : (await activeOf(teamId))?.id ?? null;
+    const fileId = randomUUID();
+    const filename = safeFilename(file.filename);
+    const key = `${item.projectType}/${slug(item.title)}/${fileId.slice(0, 8)}-${filename}`;
+    await fromStorage(async () => (await storeOf(teamId, targetId)).putFile(key, tmp));
+    const [row] = await db.insert(libraryFile).values({
+      id: fileId, itemId: item.id, targetId, storageKey: key, filename, size: statSync(tmp).size, sha256, version: file.versionNumber || info.version,
+      loaders: JSON.stringify(info.loaders), mcVersions: JSON.stringify(info.mcVersions), uploadedBy: userId, upstreamVersionId: file.versionId,
+    }).returning();
+    await record({ teamId, userId, kind: "changes", action: "配布元の版を保存", target: item.title, detail: file.versionNumber || file.filename });
+    await prune(teamId, item.id, userId);
+    return row;
+  }
+
+  /** 消さない版(サーバーに入っている版・セットで固定した版の ID。アップロードしたものはファイルの ID、配布元のものは配布元の版の ID) */
+  async function keptVersions(teamId: string, item: { id: string; source: string; projectId: string }) {
+    const used = await db.select({ v: installedMod.versionId }).from(installedMod).innerJoin(server, eq(installedMod.serverId, server.id))
+      .where(and(eq(server.teamId, teamId), eq(installedMod.source, item.source), eq(installedMod.projectId, item.projectId)));
+    const pinned = await db.select({ v: addonSetItem.versionId }).from(addonSetItem).where(and(eq(addonSetItem.itemId, item.id), isNotNull(addonSetItem.versionId)));
+    return new Set([...used.map((r) => r.v), ...pinned.map((r) => r.v!)]);
+  }
+
+  /** 版を消す(保存先のファイルも。保存先につながらなくても記録は消す) */
+  async function dropFile(teamId: string, f: FileRow) {
+    try {
+      await (await storeOf(teamId, f.targetId)).remove(f.storageKey);
+    } catch { /* ファイルは保存先に残る(保存先の中身の一覧に「記録の無いもの」として出る) */ }
+    await db.delete(libraryFile).where(eq(libraryFile.id, f.id));
+  }
+
+  /**
+   * 古い版の整理: アイテムの「残す数」(無ければチームの既定。0 は整理しない)を超えた古い版を、保存先からも消す。
+   * サーバーに入っている版・セットで固定した版は残す。消したものの名前を返す
+   */
+  async function prune(teamId: string, itemId: string, userId: string | null) {
+    const [item] = await db.select().from(libraryItem).where(and(eq(libraryItem.id, itemId), eq(libraryItem.teamId, teamId)));
+    if (!item) return [];
+    const keep = item.keepVersions ?? (await optionOf(teamId)).keepVersions;
+    if (!(keep > 0)) return [];
+    const old = (await db.select().from(libraryFile).where(eq(libraryFile.itemId, itemId)).orderBy(desc(libraryFile.createdAt))).slice(keep);
+    if (!old.length) return [];
+    const kept = await keptVersions(teamId, item);
+    const removed: string[] = [];
+    for (const f of old.filter((x) => !kept.has(x.upstreamVersionId || x.id))) {
+      await dropFile(teamId, f);
+      removed.push(f.version || f.filename);
+    }
+    if (removed.length) await record({ teamId, userId, kind: "changes", action: "古い版を整理", target: item.title, detail: removed.join("、") });
+    return removed;
+  }
+
+  return { storeOf, pick, choices, read, stream, configOf, defaultConfig, activeOf, optionOf, keepOf, savedOf, savedPick, saveUpstream, keepSaved, prune, keptVersions, dropFile };
+}
+
+export async function sha256Of(path: string) {
+  const hash = createHash("sha256");
+  for await (const chunk of createReadStream(path)) hash.update(chunk as Buffer);
+  return hash.digest("hex");
+}
+
+// 配布元のファイルを取ってくる先(配布元の CDN だけ。SpigotMC は spiget の転送の先も)
+const SAVE_HOSTS = new Set(["cdn.modrinth.com", "api.spiget.org", "cdn.spiget.org", ...CF_HOSTS]);
+
+/** 配布元の CDN から、ファイルに少しずつ書く(転送は CDN の中だけ・3 回まで。UPLOAD_LIMITS.fileBytes を超えたらやめる) */
+export async function downloadTo(fetch: Deps["fetch"], url: string, path: string) {
+  for (let hop = 0; hop < 4; hop++) {
+    let u: URL;
+    try {
+      u = new URL(url);
+    } catch {
+      throw new HttpError(502, "配布元のファイルの場所が正しくありません");
+    }
+    if (u.protocol !== "https:" || !SAVE_HOSTS.has(u.host)) throw new HttpError(502, "配布元の外のファイルは取ってきません");
+    let res: Response;
+    try {
+      res = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(30 * 60_000) });
+    } catch {
+      throw new HttpError(502, "配布元からファイルを取ってこられませんでした");
+    }
+    const to = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
+    if (to) {
+      url = new URL(to, url).toString();
+      continue;
+    }
+    if (!res.ok || !res.body) throw new HttpError(502, `配布元からファイルを取ってこられませんでした(HTTP ${res.status})`);
+    let size = 0;
+    const limit = new Transform({
+      transform(chunk: Buffer, _enc, done) {
+        size += chunk.length;
+        done(size > UPLOAD_LIMITS.fileBytes ? new HttpError(400, `ファイルは ${UPLOAD_LIMITS.fileBytes / 1024 / 1024} MB までです`) : null, chunk);
+      },
+    });
+    try {
+      await pipeline(Readable.fromWeb(res.body as WebStream<Uint8Array>), limit, createWriteStream(path));
+    } catch (e) {
+      if (e instanceof HttpError) throw e;
+      throw new HttpError(502, "配布元からファイルを取ってこられませんでした(途中で切れました)");
+    }
+    return;
+  }
+  throw new HttpError(502, "配布元からファイルを取ってこられませんでした(転送が多すぎます)");
 }
 
 export function uploadService(deps: Deps) {
   const { db, auth, secret } = deps;
-  const { storeOf, stream, configOf } = fileStore(deps);
+  const { storeOf, stream, configOf, activeOf, prune } = fileStore(deps);
   const { record } = eventService(deps);
   const needLocal = () => {
     if (!deps.local) throw new HttpError(400, "アップロードしたアドオンは、自分用の版だけで使えます");
   };
-  const activeOf = async (teamId: string) => (await db.select().from(storageTarget).where(and(eq(storageTarget.teamId, teamId), eq(storageTarget.active, true))))[0] ?? null;
 
   function cleanConfig(input: { kind: string; path?: string; url?: string; user?: string; password?: string; host?: string; share?: string; domain?: string }): { config: StorageConfig; summary: string } {
     if (input.kind === "local") {
@@ -229,9 +397,9 @@ export function uploadService(deps: Deps) {
 
     /**
      * アップロードを受け取る(data は中身か、一時フォルダのファイルの場所)。jar を調べ、同じ種類・同じ名前のものがライブラリにあればその新しい版として、無ければ新しく載せる。
-     * 同じ中身のファイルは 2 度入れない
+     * 同じ中身のファイルは 2 度入れない。targetId を渡すと、その保存先に置く(保存先から取り込むとき)
      */
-    async ingest(headers: Headers, filename: string, data: Uint8Array | string) {
+    async ingest(headers: Headers, filename: string, data: Uint8Array | string, opts: { targetId?: string | null } = {}) {
       const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
       needLocal();
       const size = typeof data === "string" ? statSync(data).size : data.byteLength;
@@ -267,18 +435,19 @@ export function uploadService(deps: Deps) {
         const [row] = await db.insert(libraryItem).values({ id: randomUUID(), teamId, source: "upload", projectId: randomUUID().replace(/-/g, "").slice(0, 16), title: info.name, projectType: info.projectType, addedBy: user.id }).returning();
         item = row;
       }
-      const active = await activeOf(teamId);
+      const targetId = opts.targetId !== undefined ? opts.targetId : (await activeOf(teamId))?.id ?? null;
       const fileId = randomUUID();
       const key = `${info.projectType}/${slug(info.name)}/${fileId.slice(0, 8)}-${safeFilename(filename)}`;
       await fromStorage(async () => {
-        const store = await storeOf(teamId, active?.id ?? null);
+        const store = await storeOf(teamId, targetId);
         await (typeof data === "string" ? store.putFile(key, data) : store.put(key, data));
       });
       await db.insert(libraryFile).values({
-        id: fileId, itemId: item.id, targetId: active?.id ?? null, storageKey: key, filename: safeFilename(filename), size, sha256,
+        id: fileId, itemId: item.id, targetId, storageKey: key, filename: safeFilename(filename), size, sha256,
         version: info.version, loaders: JSON.stringify(info.loaders), mcVersions: JSON.stringify(info.mcVersions), uploadedBy: user.id,
       });
       await record({ teamId, userId: user.id, kind: "changes", action: "アップロード", target: info.name, detail: `${info.version || filename}(${info.loaders.join("・") || "種類不明"})` });
+      await prune(teamId, item.id, user.id);
       return { itemId: item.id, projectId: item.projectId, fileId, title: info.name, version: info.version, projectType: info.projectType, loaders: info.loaders };
     },
 
@@ -308,7 +477,8 @@ export function uploadService(deps: Deps) {
       const [item] = await db.select().from(libraryItem).where(and(eq(libraryItem.id, itemId), eq(libraryItem.teamId, teamId)));
       if (!item) throw new HttpError(404, "見つかりません");
       const rows = await db.select().from(libraryFile).where(eq(libraryFile.itemId, itemId)).orderBy(desc(libraryFile.createdAt));
-      return rows.map((f) => ({ id: f.id, filename: f.filename, version: f.version, size: f.size, loaders: JSON.parse(f.loaders) as string[], createdAt: f.createdAt.toISOString() }));
+      return rows.map((f) => ({ id: f.id, filename: f.filename, version: f.version, size: f.size, loaders: JSON.parse(f.loaders) as string[], createdAt: f.createdAt.toISOString(),
+        saved: !!f.upstreamVersionId })); // saved = 配布元の版を保存したもの
     },
 
     /** 版を消す(保存先のファイルも消す。サーバーに入っているものはそのまま) */

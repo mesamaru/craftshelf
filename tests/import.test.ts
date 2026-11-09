@@ -9,7 +9,7 @@ import { eq, inArray } from "drizzle-orm";
 import { signupOpen } from "~/server/auth";
 import { addonSet, addonSetItem, libraryFile, libraryItem, localServer, pteroConnection, server, serverProfile, storageTarget } from "~/server/db/schema";
 import * as schema from "~/server/db/schema";
-import { maybeImportV02, maybeImportV02AutoUpdate, maybeImportV02Backups, maybeImportV02Channels, maybeImportV02Kinds, maybeImportV02Library, maybeImportV02Perms, maybeImportV02Pins, maybeImportV02Prefs, maybeImportV02Schedules, maybeImportV02Software, type ImportReport } from "~/server/import-v02";
+import { maybeImportV02, maybeImportV02AutoUpdate, maybeImportV02Backups, maybeImportV02Channels, maybeImportV02Kinds, maybeImportV02Library, maybeImportV02Perms, maybeImportV02Pins, maybeImportV02Prefs, maybeImportV02Saved, maybeImportV02Schedules, maybeImportV02Software, type ImportReport } from "~/server/import-v02";
 import { totpCode } from "~/server/legacy";
 import { open } from "~/server/secrets";
 import { TEST_SECRET, setup } from "./helpers";
@@ -95,7 +95,9 @@ function makeV02(dir: string) {
     INSERT INTO set_items VALUES (1,1,5),(1,3,6),(1,4,2),(1,6,NULL);
     ALTER TABLE item_sources ADD COLUMN channel TEXT NOT NULL DEFAULT '';
     UPDATE item_sources SET channel='release' WHERE item_id=3;
-    INSERT INTO settings (key, value) VALUES ('stable_only', '0');
+    INSERT INTO settings (key, value) VALUES ('stable_only', '0'), ('auto_download', '1');
+    ALTER TABLE items ADD COLUMN keep_versions INTEGER NOT NULL DEFAULT 0;
+    UPDATE items SET keep_versions=3 WHERE id=4;
   `);
   d.close();
   writeFileSync(join(dir, "secret.key"), V02.fernetKey);
@@ -364,6 +366,31 @@ describe("v02 のユーザーごとの権限の取り込み", () => {
     expect(rows).toEqual([{ name: "編集者", role: "editor", allow: JSON.stringify(["storage:manage"]) }]);
     expect(report!.notes.some((n) => n.includes("個別に付けていた権限"))).toBe(false); // 役割に置き換えず、ここで取り込む
     expect(await maybeImportV02Perms(t.db, { v02Dir, v03Dir })).toBeNull();
+    expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
+  });
+});
+
+describe("v02 の配布元のファイルの取り込み", () => {
+  it("自動ダウンロード → チームの「保存する」、残す数 → アイテムの残す数、配布元のわかるアイテムのファイル → 保存した版(v02 のファイルを指す)。一度だけ", async () => {
+    const fake = async (url: string, init?: RequestInit) => {
+      if (url === "https://api.modrinth.com/v2/version_files") {
+        const { hashes } = JSON.parse(String(init?.body));
+        return Response.json(Object.fromEntries(hashes.filter((h: string) => h === "a".repeat(40)).map((h: string) => [h, { id: "LP053xxx", project_id: "Vebnzrzj", version_number: "5.3" }])));
+      }
+      return Response.json({}, { status: 404 });
+    };
+    const r = (await maybeImportV02Saved(t.db, { v02Dir, v03Dir, secret: TEST_SECRET, fetch: fake }))!;
+    expect(r).toMatchObject({ keepFiles: true, keepVersions: ["自作(3 個)"], files: 3 });
+    const [opt] = await t.db.select().from(schema.teamOption);
+    expect(opt.keepFiles).toBe(true);
+    const files = await t.db.select({ title: libraryItem.title, key: schema.libraryFile.storageKey, up: schema.libraryFile.upstreamVersionId }).from(schema.libraryFile)
+      .innerJoin(libraryItem, eq(libraryItem.id, schema.libraryFile.itemId)).where(eq(libraryItem.source, "modrinth"));
+    expect(files.map((f) => [f.title, f.key, f.up]).sort()).toEqual([
+      ["Lithium", "library/mod/Lithium/lithium-0.1.jar", "v02:6"],
+      ["LuckPerms", "library/plugin/LuckPerms/LuckPerms-5.3.jar", "LP053xxx"],
+      ["LuckPerms", "library/plugin/LuckPerms/LuckPerms-5.4.jar", "v02:1"],
+    ]);
+    expect(await maybeImportV02Saved(t.db, { v02Dir, v03Dir, secret: TEST_SECRET, fetch: fake })).toBeNull();
     expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
   });
 });

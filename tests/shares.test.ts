@@ -68,7 +68,8 @@ describe("共有リンク", () => {
     const r = await shares.create(owner, { itemIds: ids, hours: 1, name: "ロビー用" }, "https://panel.example.test");
     const f = await shares.download(tokenOf(r.url));
     expect(f?.filename).toBe("craftshelf.zip"); // 名前が日本語だけなら、決まった名前にする
-    expect([...(readZipTexts(f!.data!, ["Alpha-1.0.jar", "Beta-1.0.jar"])?.keys() ?? [])].sort()).toEqual(["Alpha-1.0.jar", "Beta-1.0.jar"]);
+    const zip = Buffer.concat(await f!.stream.toArray()); // zip も少しずつ作る
+    expect([...(readZipTexts(zip, ["Alpha-1.0.jar", "Beta-1.0.jar"])?.keys() ?? [])].sort()).toEqual(["Alpha-1.0.jar", "Beta-1.0.jar"]);
     const s = (await shares.list(owner)).find((x) => x.name === "ロビー用")!;
     expect([s.count, s.downloads, s.expired]).toEqual([2, 1, false]);
     await t.db.update(shareLink).set({ expiresAt: new Date(Date.now() - 1000) }).where(eq(shareLink.id, s.id));

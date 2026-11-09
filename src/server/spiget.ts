@@ -27,7 +27,7 @@ export function spigetFits(category: number, platform: Platform) {
   return BUKKIT.includes(platform);
 }
 
-type Resource = { id: number; name: string; tag: string; downloads: number; external: boolean; premium: boolean; category?: { id: number }; version?: { id: number }; testedVersions?: string[] };
+type Resource = { id: number; name: string; tag: string; downloads: number; external: boolean; premium: boolean; category?: { id: number }; version?: { id: number }; testedVersions?: string[]; updateDate?: number };
 
 // 置くファイルの名前: プラグインの名前と版から、安全な文字だけで作る
 const jarName = (id: number, name: string, version: string) => {
@@ -81,7 +81,8 @@ export function spigetClient(fetch: FetchLike) {
     // mcVersions は作者が「試した」と書いたバージョン(1.20 のように、細かい番号の無いことが多い)
     async project(projectId: string) {
       const r = await resource(projectId);
-      return r ? { title: String(r.name ?? ""), slug: "", projectType: installable(r) ? "plugin" : "", iconUrl: "", mcVersions: mcClean(r.testedVersions) } : null;
+      return r ? { title: String(r.name ?? ""), slug: "", projectType: installable(r) ? "plugin" : "", iconUrl: "", mcVersions: mcClean(r.testedVersions),
+        updated: r.updateDate ? new Date(Number(r.updateDate) * 1000).toISOString() : "" } : null;
     },
 
     /** 更新のお知らせ(新しい順・15 件まで)。SpigotMC は版ごとの変更内容が無いので、これを版の一覧の代わりにする */

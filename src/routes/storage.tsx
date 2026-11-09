@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { activateStorageTarget, addStorageTarget, moveStorageFiles, removeStorageTarget, storageTargets } from "~/lib/uploads-api";
+import { savedOptions, scanStorage, setSavedOptions, storageContents, storageStatus } from "~/lib/saved-api";
 
 export const Route = createFileRoute("/storage")({
   beforeLoad: ({ context }) => {
@@ -13,6 +14,7 @@ export const Route = createFileRoute("/storage")({
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
 const KIND_LABEL: Record<string, string> = { local: "フォルダ", webdav: "WebDAV", smb: "SMB" };
+const size = (n: number) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : n >= 1024 ** 2 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${Math.max(1, Math.round(n / 1024))} KB`);
 
 // アップロードしたアドオンの保存先(自分用の版・管理者以上)
 function Storage() {
@@ -22,6 +24,7 @@ function Storage() {
   const [data, setData] = useState<Awaited<ReturnType<typeof storageTargets>> | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [open, setOpen] = useState<string | null>(null); // 状況と中身を開いている保存先("" はパネルの中)
   const reload = () => load().then((d) => { setData(d); setError(""); }, (e) => setError(message(e)));
   useEffect(() => { reload(); }, []);
 
@@ -52,8 +55,10 @@ function Storage() {
             <span className="main"><span>パネルの中(既定)</span><span className="muted">/data/v03/library</span></span>
             {data.usingDefault ? <span className="trail muted">使っています</span>
               : <button className="trail link" type="button" disabled={!!busy} onClick={() => run("default", () => activate({ data: { id: null } }))}>これを使う</button>}
+            <button className="link" type="button" aria-expanded={open === ""} onClick={() => setOpen(open === "" ? null : "")}>{open === "" ? "閉じる" : "状況と中身"}</button>
           </div>
         )}
+        {data && open === "" && <div className="row column"><TargetDetail id={null} /></div>}
         {data?.targets.map((t) => (
           <div className="row" key={t.id}>
             <span className="main">
@@ -62,13 +67,16 @@ function Storage() {
             </span>
             {t.active ? <span className="trail muted">使っています</span>
               : <button className="trail link" type="button" disabled={!!busy} onClick={() => run(t.id, () => activate({ data: { id: t.id } }))}>これを使う</button>}
+            <button className="link" type="button" aria-expanded={open === t.id} onClick={() => setOpen(open === t.id ? null : t.id)}>{open === t.id ? "閉じる" : "状況と中身"}</button>
             <button className="link danger" type="button" disabled={!!busy}
               onClick={() => confirm(`保存先「${t.name}」を消しますか?(ファイルが残っていると消せません)`) && run(`rm:${t.id}`, () => remove({ data: { id: t.id } }))}>消す</button>
           </div>
         ))}
+        {data && open && <div className="row column"><TargetDetail id={open} /></div>}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
       <p className="foot">これからアップロードするものの置き場所です。切り替えても、いままでのファイルは元の保存先に置いたまま使えます。NAS は、SMB で直接つなぐか、パネルのコンテナにマウントして「フォルダ」として足してください。</p>
+      <SavedOptions />
       {data && data.targets.length > 0 && <MoveFiles targets={data.targets} onDone={reload} />}
       <NewTarget onDone={reload} />
     </main>
@@ -181,5 +189,126 @@ function MoveFiles({ targets, onDone }: { targets: { id: string; name: string }[
       </section>
       <p className="foot">1 つずつ、移した先で中身を確かめてから元を消します。移せなかったものは、元の保存先に残ります。</p>
     </>
+  );
+}
+
+// 配布元のファイルの保存と、古い版の整理(チームの既定。アイテムごとに変えられる)
+function SavedOptions() {
+  const load = useServerFn(savedOptions);
+  const save = useServerFn(setSavedOptions);
+  const [opt, setOpt] = useState<{ keepFiles: boolean; keepVersions: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  useEffect(() => { load().then((o) => setOpt({ keepFiles: o.keepFiles, keepVersions: o.keepVersions }), (e) => setError(message(e))); }, []);
+  const submit = async () => {
+    if (!opt) return;
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      const r = await save({ data: opt });
+      setNote(r.removed ? `保存しました(古い版を ${r.removed} 個整理しました)` : "保存しました");
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <>
+      <div className="group-title">配布元のファイルの保存</div>
+      <section className="group form">
+        {!opt && !error && <div className="row muted">読み込んでいます…</div>}
+        {opt && (
+          <>
+            <label className="row">
+              <span className="main"><span>配布元のファイルを保存する(チームの既定)</span><span className="muted">サーバーに入れた版を、使っている保存先にも取っておきます</span></span>
+              <input className="trail" type="checkbox" checked={opt.keepFiles} onChange={(e) => setOpt({ ...opt, keepFiles: e.target.checked })} />
+            </label>
+            <label className="row">
+              <span className="main"><span>古い版を残す数</span><span className="muted">新しく保存した方から。0 は整理しない</span></span>
+              <input className="trail" type="number" min={0} max={100} value={opt.keepVersions} aria-label="古い版を残す数"
+                onChange={(e) => setOpt({ ...opt, keepVersions: Math.max(0, Math.min(100, Math.floor(Number(e.target.value) || 0))) })} />
+            </label>
+            <button className="row link" type="button" disabled={busy} onClick={submit}>{busy ? "保存しています…" : "保存"}</button>
+          </>
+        )}
+        {note && <p className="row muted" role="status">{note}</p>}
+        {error && <p className="row error" role="alert">{error}</p>}
+      </section>
+      <p className="foot">保存した版は、サーバーへ入れるときに配布元から取らず保存先から送ります(配布元が消えても・つながらなくても入れられます)。ライブラリの「保存した版」から、ダウンロード・共有リンク・まとめて zip にもできます。アイテムごとに「保存した版」で変えられます。古い版の整理では、サーバーで使っている版・セットで固定した版は消しません。</p>
+      <section className="group"><Link to="/cleanup" className="row link">アドオンの整理(古い版・重複・使っていないもの)</Link></section>
+    </>
+  );
+}
+
+// 保存先の状況(つながるか・応答の時間・容量)と中身。inbox/ に置いたファイルを取り込める
+function TargetDetail({ id }: { id: string | null }) {
+  const status = useServerFn(storageStatus);
+  const contents = useServerFn(storageContents);
+  const scan = useServerFn(scanStorage);
+  const [st, setSt] = useState<Awaited<ReturnType<typeof storageStatus>> | null>(null);
+  const [list, setList] = useState<Awaited<ReturnType<typeof storageContents>> | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState("");
+  const [error, setError] = useState("");
+  const reload = () => {
+    setError("");
+    status({ data: { id } }).then(setSt, (e) => setError(message(e)));
+    contents({ data: { id } }).then(setList, (e) => setError(message(e)));
+  };
+  useEffect(reload, [id]);
+  const doScan = async () => {
+    setBusy(true);
+    setError("");
+    setNote("");
+    try {
+      const r = await scan({ data: { id } });
+      setNote(`${r.checked} 個を調べ、${r.added.length} 個を取り込みました${r.failed.length ? `。取り込めなかったもの: ${r.failed.map((f) => `${f.name}(${f.message})`).join("、")}` : ""}`);
+      reload();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const unknown = list?.entries.filter((e) => !e.dir && !e.item && !e.inbox) ?? [];
+  return (
+    <span className="files">
+      {!st && !error && <span className="muted">確かめています…</span>}
+      {st && (
+        <span>
+          {st.connected ? <span className="badge state-done">つながります</span> : <span className="badge state-failed">つながりません</span>}
+          <span className="muted">{st.connected ? ` 応答 ${st.latencyMs} ms` : ` ${st.error}`}</span>
+          {st.space && <span className="muted">{` · 容量 ${size(st.space.total)}(空き ${size(st.space.free)})`}</span>}
+          <span className="muted">{` · 登録しているファイル ${st.files} 個(${size(st.bytes)}、うち保存した版 ${st.saved} 個)`}</span>
+        </span>
+      )}
+      {list && (
+        <>
+          <span className="strong">中身</span>
+          {list.entries.length === 0 && <span className="muted">空です</span>}
+          {list.entries.map((e) => (
+            <span key={e.path} className={e.dir ? "muted" : ""}>
+              <span className="codes" translate="no">{e.dir ? `${e.path}/` : e.path}</span>
+              {!e.dir && <span className="muted small">{` ${size(e.size)}`}</span>}
+              {e.item && <span className="badge muted-badge"><span translate="no">{e.item}</span></span>}
+              {e.saved && <span className="badge muted-badge">保存した版</span>}
+              {!e.dir && !e.item && (e.inbox ? <span className="badge">取り込み待ち</span> : <span className="badge miss">記録なし</span>)}
+            </span>
+          ))}
+          {list.truncated && <span className="muted">多いので、ここまでを出しています</span>}
+          {unknown.length > 0 && <span className="muted small">「記録なし」は、このアプリが登録していないファイルです(バックアップ・ほかのアプリのものなど)。取り込むときは inbox/ に移してください。</span>}
+        </>
+      )}
+      <span className="actions">
+        <button className="link small" type="button" disabled={busy} onClick={doScan}>{busy ? "取り込んでいます…" : "inbox/ から取り込む"}</button>
+        <button className="link small" type="button" disabled={busy} onClick={reload}>読み直す</button>
+      </span>
+      <span className="muted small">保存先の inbox/ に .jar・.zip・.mrpack を置いて「取り込む」を押すと、中身から配布元を探して(Modrinth・CurseForge)ライブラリに載せます。見つからないものは、アップロードしたものとして載せます。取り込んだものは inbox/ から消します。</span>
+      {note && <span className="muted" role="status" translate="no">{note}</span>}
+      {error && <span className="error" role="alert">{error}</span>}
+    </span>
   );
 }

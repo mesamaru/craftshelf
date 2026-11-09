@@ -22,6 +22,7 @@ import { telemetryService } from "./telemetry";
 import { teamService } from "./teams";
 import { jobService } from "./jobs";
 import { prefService } from "./prefs";
+import { savedService } from "./saved";
 
 // 本番のビルドでは、このファイルが 2 つの束(サーバーの関数 / サーバーのルートと起動時の処理)に別々に入る。
 // 中身(データベースを開く・v02 の取り込み・エージェントの列)はプロセスで 1 回だけ作り、両方で同じものを使う
@@ -126,6 +127,13 @@ async function build() {
     } catch (e) {
       console.error("[v02] ユーザーごとの権限の取り込みに失敗しました(v02 のデータはそのままです):", e);
     }
+    const { maybeImportV02Saved } = await import("./import-v02");
+    try {
+      const r = await maybeImportV02Saved(db, { ...env, fetch: safeFetch });
+      if (r && (r.files || r.keepFiles || r.keepVersions.length)) console.log(`[v02] 配布元のファイルを引き継ぎました: ${r.files} 個(結果は /data/v03/import-v02-saved.json)`);
+    } catch (e) {
+      console.error("[v02] 配布元のファイルの取り込みに失敗しました(v02 のデータはそのままです):", e);
+    }
   }
   const { resendMailer } = await import("./mail");
   const mailer = env.mail ? resendMailer(safeFetch, env.mail.resendKey, env.mail.from) : null;
@@ -157,14 +165,15 @@ async function build() {
   const ports = portService(deps);
   const jobs = jobService(deps);
   const prefs = prefService(deps);
+  const saved = savedService(deps);
   // 前の起動で途中だった処理(処理の一覧)は「中断」にする(リクエストを受ける前に)
   await jobs.recover().catch((e) => console.error("[処理の一覧] 途中だったものを片付けられませんでした:", e));
 
   // パネルからの版の切り替え(自分用の版だけ。サービス版は Docker のイメージで入れ替える)
   const versions = env.mode === "self" ? versionService({ fetch: safeFetch, dataDir: env.dataDir }) : null;
   versions?.confirmStarted();
-  return { env, db, mailer, auth, hub, servers, library, sets, events, schedules, files, software, backups, worlds, modpacks, teams, agents, telemetry, uploads, shares, tokens, ports, versions, jobs, prefs };
+  return { env, db, mailer, auth, hub, servers, library, sets, events, schedules, files, software, backups, worlds, modpacks, teams, agents, telemetry, uploads, shares, tokens, ports, versions, jobs, prefs, saved };
 }
 type Instance = Awaited<ReturnType<typeof build>>;
 const once = globalThis as { __craftshelf?: Promise<Instance> };
-export const { env, db, mailer, auth, hub, servers, library, sets, events, schedules, files, software, backups, worlds, modpacks, teams, agents, telemetry, uploads, shares, tokens, ports, versions, jobs, prefs } = await (once.__craftshelf ??= build());
+export const { env, db, mailer, auth, hub, servers, library, sets, events, schedules, files, software, backups, worlds, modpacks, teams, agents, telemetry, uploads, shares, tokens, ports, versions, jobs, prefs, saved } = await (once.__craftshelf ??= build());

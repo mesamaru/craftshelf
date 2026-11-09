@@ -1,7 +1,7 @@
 // アップロードしたアドオンの保存先: フォルダ(NAS をマウントしたものでもよい)・WebDAV・SMB(NAS に直接)。
 // 中の場所(key)はこのアプリが作る相対パスだけ(.. や先頭の / は断る)
 import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, readFile, readdir, rename, rm, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, stat, statfs, unlink, writeFile } from "node:fs/promises";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { dirname, isAbsolute, join, resolve, sep } from "node:path";
@@ -17,7 +17,10 @@ export type StorageConfig =
 export type Store = {
   put(key: string, data: Uint8Array): Promise<void>; get(key: string): Promise<Uint8Array>; remove(key: string): Promise<void>; test(): Promise<void>;
   putFile(key: string, path: string): Promise<void>; read(key: string): Promise<Readable>; list(dir: string): Promise<string[]>;
+  // 03.61.00 から。ls はフォルダの中(ファイルとフォルダ。"" はいちばん上。無ければ空)、space は容量と空き(取れなければ null)
+  ls(dir: string): Promise<Entry[]>; space(): Promise<{ total: number; free: number } | null>;
 };
+export type Entry = { name: string; dir: boolean; size: number };
 const LONG = 6 * 60 * 60_000; // 大きいファイルを送る・読むときに待つ長さ
 
 const cleanKey = (key: string) => {
@@ -73,6 +76,20 @@ export function localStore(path: string): Store {
     async list(dir) {
       const d = await readdir(full(dir), { withFileTypes: true }).catch(() => []);
       return d.filter((x) => x.isFile()).map((x) => x.name);
+    },
+    async ls(dir) {
+      const at = dir ? full(dir) : root;
+      const d = await readdir(at, { withFileTypes: true }).catch(() => []);
+      const out: Entry[] = [];
+      for (const x of d) {
+        if (x.isDirectory()) out.push({ name: x.name, dir: true, size: 0 });
+        else if (x.isFile()) out.push({ name: x.name, dir: false, size: (await stat(join(at, x.name)).catch(() => null))?.size ?? 0 });
+      }
+      return out;
+    },
+    async space() {
+      const s = await statfs(root).catch(() => null);
+      return s ? { total: s.blocks * s.bsize, free: s.bavail * s.bsize } : null;
     },
     async test() {
       try {
@@ -150,6 +167,40 @@ export function webdavStore(url: string, user: string, password: string, fetch: 
       check(res, "一覧の読み込み");
       const hrefs = [...(await res.text()).matchAll(/<(?:[A-Za-z0-9]+:)?href>([^<]+)<\/(?:[A-Za-z0-9]+:)?href>/g)].map((m) => m[1].trim());
       return hrefs.filter((h) => !h.endsWith("/")).map((h) => { try { return decodeURIComponent(h.split("/").pop() ?? ""); } catch { return ""; } }).filter(Boolean);
+    },
+    // PROPFIND(Depth: 1)の <response> ごとに、場所・大きさ・フォルダか を読む(自分自身は除く)
+    async ls(dir) {
+      const url = dir ? new URL(cleanKey(dir).split("/").map(encodeURIComponent).join("/") + "/", base) : base;
+      const res = await call("PROPFIND", url.toString(), undefined, { Depth: "1" });
+      if (res.status === 404) return [];
+      check(res, "一覧の読み込み");
+      const self = decodeURIComponent(url.pathname).replace(/\/+$/, "");
+      const out: Entry[] = [];
+      for (const block of (await res.text()).split(/<(?:[A-Za-z0-9]+:)?response[\s>]/).slice(1)) {
+        const href = block.match(/<(?:[A-Za-z0-9]+:)?href>([^<]+)</)?.[1]?.trim();
+        if (!href) continue;
+        let path: string;
+        try {
+          path = decodeURIComponent(new URL(href, url).pathname).replace(/\/+$/, "");
+        } catch {
+          continue;
+        }
+        const name = path.split("/").pop() ?? "";
+        if (!name || path === self) continue;
+        const isDir = /<(?:[A-Za-z0-9]+:)?collection\s*\/?>/.test(block);
+        out.push({ name, dir: isDir, size: isDir ? 0 : Number(block.match(/getcontentlength>\s*(\d+)/)?.[1] ?? 0) });
+      }
+      return out;
+    },
+    // RFC 4331 の quota(答えない WebDAV もある)
+    async space() {
+      const body = '<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:quota-available-bytes/><d:quota-used-bytes/></d:prop></d:propfind>';
+      const res = await call("PROPFIND", base.toString(), new TextEncoder().encode(body), { Depth: "0", "Content-Type": "application/xml" }).catch(() => null);
+      if (!res?.ok) return null;
+      const text = await res.text();
+      const free = Number(text.match(/quota-available-bytes>\s*(\d+)/)?.[1] ?? NaN);
+      const used = Number(text.match(/quota-used-bytes>\s*(\d+)/)?.[1] ?? NaN);
+      return Number.isFinite(free) && free >= 0 ? { total: free + (Number.isFinite(used) ? used : 0), free } : null;
     },
     async test() {
       const key = ".craftshelf-test";
@@ -250,6 +301,14 @@ export function smbStore(c: { host: string; share: string; path: string; user: s
       if (!(await tree.exists(d))) return [];
       return (await tree.readDirectory(d)).filter((e) => e.type === "File").map((e) => e.filename);
     }),
+    ls: (dir) => withTree(async (tree) => {
+      const d = [base, dir ? cleanKey(dir) : ""].filter(Boolean).join("/");
+      if (d && !(await tree.exists(d))) return [];
+      return (await tree.readDirectory(d)).filter((e) => e.filename !== "." && e.filename !== "..")
+        .map((e) => ({ name: e.filename, dir: e.type === "Directory", size: e.type === "File" ? Number(e.fileSize) : 0 }));
+    }),
+    // shortcut: node-smb2 は空き容量を問い合わせられないので出さない(要るなら NAS をマウントしてフォルダとして使う)
+    space: async () => null,
     test: () => withTree(async (tree) => {
       const key = ".craftshelf-test";
       try {

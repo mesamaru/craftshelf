@@ -405,8 +405,6 @@ export async function importUploads(db: Db, v02: DatabaseSync, teamId: string, o
   report.uploads = 0;
   const uploaded = new Map<number, string>();
   if (!has(v02, "items") || !has(v02, "versions", "relpath")) return uploaded;
-  const keyFile = join(opts.v02Dir, "secret.key");
-  const v02Key = existsSync(keyFile) ? readFileSync(keyFile, "utf8") : "";
   const sourced = has(v02, "item_sources");
   const items = all(v02, sourced
     ? "SELECT i.id, i.name, i.category, s.provider, s.project_id FROM items i LEFT JOIN item_sources s ON s.item_id = i.id ORDER BY i.id"
@@ -415,9 +413,43 @@ export async function importUploads(db: Db, v02: DatabaseSync, teamId: string, o
       && !(str(r.provider) === "spigot" && SPIGOT_ID.test(str(r.project_id)) && str(r.category) === "plugin")
       && !(str(r.provider) === "curseforge" && SPIGOT_ID.test(str(r.project_id))));
   if (!items.length) return uploaded;
+  const targets = await v02TargetMap(db, v02, teamId, opts, report);
 
-  // v02 の保存先 → v03 の保存先(SMB はまだつなげないので飛ばす)
+  for (const it of items) {
+    const versions = all(v02, `SELECT * FROM versions WHERE item_id=${Number(it.id)} ORDER BY id`).filter((v) => targets.get(Number(v.target_id ?? 1)));
+    if (!versions.length) continue; // 取り込めなかったものは、importLibrary が知らせる
+    const type = TYPES[str(it.category)];
+    const existing = await db.select().from(schema.libraryItem)
+      .where(and(eq(schema.libraryItem.teamId, teamId), eq(schema.libraryItem.source, "upload"), eq(schema.libraryItem.projectType, type)));
+    let item = existing.find((x) => x.title.toLowerCase() === str(it.name).toLowerCase());
+    if (!item) {
+      [item] = await db.insert(schema.libraryItem).values({ id: randomUUID(), teamId, source: "upload", projectId: randomUUID().replace(/-/g, "").slice(0, 16), title: str(it.name).slice(0, 80), projectType: type }).returning();
+    }
+    for (const v of versions) {
+      const sha = str(v.sha256);
+      const dup = await db.select({ id: schema.libraryFile.id }).from(schema.libraryFile).where(eq(schema.libraryFile.sha256, sha)).limit(1);
+      if (dup.length) continue;
+      let meta: Record<string, unknown> = {};
+      try {
+        meta = JSON.parse(str(v.meta) || "{}");
+      } catch { /* 読めなければ空 */ }
+      await db.insert(schema.libraryFile).values({
+        id: randomUUID(), itemId: item.id, targetId: targets.get(Number(v.target_id ?? 1))!, storageKey: `library/${str(v.relpath).replace(/^\/+/, "")}`,
+        filename: str(v.filename), size: Number(v.size) || 0, sha256: sha, version: str(v.version), loaders: JSON.stringify(loadersOf(str(meta.loader))), mcVersions: "[]",
+        createdAt: new Date(str(v.added_at) || Date.now()),
+      });
+    }
+    uploaded.set(Number(it.id), item.id);
+    report.uploads++;
+  }
+  return uploaded;
+}
+
+// v02 の保存先 → v03 の保存先(前に取り込んだものはそれを使う。NFS など v03 に無い方式は null にして知らせる)
+async function v02TargetMap(db: Db, v02: DatabaseSync, teamId: string, opts: { secret: string; v02Dir: string; dataDir: string }, report: { skipped: { what: string; detail: string }[] }) {
   const targets = new Map<number, string | null>();
+  const keyFile = join(opts.v02Dir, "secret.key");
+  const v02Key = existsSync(keyFile) ? readFileSync(keyFile, "utf8") : "";
   const smb: string[] = [];
   const v02Targets = has(v02, "storage_targets") ? all(v02, "SELECT * FROM storage_targets ORDER BY id") : [];
   if (!v02Targets.length) v02Targets.push({ id: 1, name: "パネルの中", protocol: "local", active: 1 });
@@ -468,35 +500,8 @@ export async function importUploads(db: Db, v02: DatabaseSync, teamId: string, o
     targets.set(Number(t.id), id);
   }
 
-  for (const it of items) {
-    const versions = all(v02, `SELECT * FROM versions WHERE item_id=${Number(it.id)} ORDER BY id`).filter((v) => targets.get(Number(v.target_id ?? 1)));
-    if (!versions.length) continue; // 取り込めなかったものは、importLibrary が知らせる
-    const type = TYPES[str(it.category)];
-    const existing = await db.select().from(schema.libraryItem)
-      .where(and(eq(schema.libraryItem.teamId, teamId), eq(schema.libraryItem.source, "upload"), eq(schema.libraryItem.projectType, type)));
-    let item = existing.find((x) => x.title.toLowerCase() === str(it.name).toLowerCase());
-    if (!item) {
-      [item] = await db.insert(schema.libraryItem).values({ id: randomUUID(), teamId, source: "upload", projectId: randomUUID().replace(/-/g, "").slice(0, 16), title: str(it.name).slice(0, 80), projectType: type }).returning();
-    }
-    for (const v of versions) {
-      const sha = str(v.sha256);
-      const dup = await db.select({ id: schema.libraryFile.id }).from(schema.libraryFile).where(eq(schema.libraryFile.sha256, sha)).limit(1);
-      if (dup.length) continue;
-      let meta: Record<string, unknown> = {};
-      try {
-        meta = JSON.parse(str(v.meta) || "{}");
-      } catch { /* 読めなければ空 */ }
-      await db.insert(schema.libraryFile).values({
-        id: randomUUID(), itemId: item.id, targetId: targets.get(Number(v.target_id ?? 1))!, storageKey: `library/${str(v.relpath).replace(/^\/+/, "")}`,
-        filename: str(v.filename), size: Number(v.size) || 0, sha256: sha, version: str(v.version), loaders: JSON.stringify(loadersOf(str(meta.loader))), mcVersions: "[]",
-        createdAt: new Date(str(v.added_at) || Date.now()),
-      });
-    }
-    uploaded.set(Number(it.id), item.id);
-    report.uploads++;
-  }
   if (smb.length) report.skipped.push({ what: `v02 の保存先(${smb.length} 個)`, detail: `${smb.join("、")}。v03 で使えない方式(NFS など)なので取り込んでいません(NAS をマウントしてフォルダとして足せます)` });
-  return uploaded;
+  return targets;
 }
 
 // サーバーごとの自動更新(03.49.00 から)。ライブラリ(フォルダのサーバー)を取り込んだあとで一度だけ(前に取り込んだパネルも、次の起動で)。
@@ -877,6 +882,90 @@ export async function maybeImportV02Perms(db: Db, opts: { v02Dir: string; v03Dir
       if (done.length) report.users.push({ name, grants });
     }
     writeFileSync(permsReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
+    return report;
+  } finally {
+    v02.close();
+  }
+}
+
+// 配布元のファイルの保存(03.61.00 から。v02 はどのアイテムもファイルを持っていた)。ユーザーごとの権限の取り込みのあとで一度だけ(前に取り込んだパネルも、次の起動で)。
+// ・v02 の「新しいバージョンを自動でダウンロード」(auto_download)→ チームの「配布元のファイルを保存する」
+// ・v02 のアイテムの「残す数」(items.keep_versions)→ アイテムの古い版を残す数(v03 で決めたものは上書きしない)
+// ・配布元のわかるアイテムの v02 のファイル → 保存した版(v02 の保存先のファイルをそのまま指す。コピーしない)。配布元の版は、
+//   Modrinth はファイルの SHA-1 で探し(まとめて 1 回)、わからないものは "v02:<v02 の版の番号>" にする(配布元につながらないときの代わりに使える)
+export type SavedImportReport = { at: string; keepFiles: boolean; keepVersions: string[]; files: number; skipped: { what: string; detail: string }[] };
+export const savedReportPath = (v03Dir: string) => join(v03Dir, "import-v02-saved.json");
+
+export async function maybeImportV02Saved(db: Db, opts: { v02Dir: string; v03Dir: string; secret?: string; dataDir?: string; fetch?: FetchLike }): Promise<SavedImportReport | null> {
+  const dbFile = join(opts.v02Dir, "index.db");
+  if (!existsSync(dbFile) || !existsSync(permsReportPath(opts.v03Dir)) || existsSync(savedReportPath(opts.v03Dir))) return null;
+  const [team] = await db.select({ id: schema.organization.id }).from(schema.organization).orderBy(asc(schema.organization.createdAt)).limit(1);
+  if (!team) return null;
+  const v02 = new DatabaseSync(dbFile, { readOnly: true });
+  try {
+    const report: SavedImportReport = { at: new Date().toISOString(), keepFiles: false, keepVersions: [], files: 0, skipped: [] };
+    const auto = has(v02, "settings") ? (v02.prepare("SELECT value FROM settings WHERE key='auto_download'").get() as Row | undefined)?.value : undefined;
+    if (str(auto) === "1") {
+      await db.insert(schema.teamOption).values({ teamId: team.id, keepFiles: true }).onConflictDoUpdate({ target: schema.teamOption.teamId, set: { keepFiles: true } });
+      report.keepFiles = true;
+    }
+    const sourced = has(v02, "item_sources");
+    const items = has(v02, "items") ? all(v02, sourced
+      ? `SELECT i.id, i.name, i.category, ${has(v02, "items", "keep_versions") ? "i.keep_versions" : "0 AS keep_versions"}, s.provider, s.project_id FROM items i LEFT JOIN item_sources s ON s.item_id = i.id ORDER BY i.id`
+      : `SELECT id, name, category, ${has(v02, "items", "keep_versions") ? "keep_versions" : "0 AS keep_versions"} FROM items ORDER BY id`) : [];
+    const sourceOf = (r: Row) => {
+      const projectId = str(r.project_id);
+      const provider = str(r.provider);
+      return provider === "modrinth" && MODRINTH_ID.test(projectId) ? "modrinth"
+        : provider === "spigot" && SPIGOT_ID.test(projectId) && str(r.category) === "plugin" ? "spigot"
+        : provider === "curseforge" && SPIGOT_ID.test(projectId) ? "curseforge" : "upload";
+    };
+    // v03 のアイテム(配布元のものは配布元と ID、アップロードしたものは種類と名前で)
+    const itemOf = async (r: Row) => {
+      const source = sourceOf(r);
+      if (source !== "upload") {
+        return (await db.select().from(schema.libraryItem).where(and(eq(schema.libraryItem.teamId, team.id), eq(schema.libraryItem.source, source), eq(schema.libraryItem.projectId, str(r.project_id)))))[0];
+      }
+      const type = TYPES[str(r.category)];
+      return (await db.select().from(schema.libraryItem).where(and(eq(schema.libraryItem.teamId, team.id), eq(schema.libraryItem.source, "upload"), eq(schema.libraryItem.projectType, type ?? ""))))
+        .find((x) => x.title.toLowerCase() === str(r.name).toLowerCase());
+    };
+    for (const r of items.filter((x) => Number(x.keep_versions) > 0)) {
+      const it = await itemOf(r);
+      if (!it || it.keepVersions !== null) continue;
+      await db.update(schema.libraryItem).set({ keepVersions: Math.min(100, Number(r.keep_versions)) }).where(eq(schema.libraryItem.id, it.id));
+      report.keepVersions.push(`${it.title}(${Math.min(100, Number(r.keep_versions))} 個)`);
+    }
+    const up = items.filter((r) => sourceOf(r) !== "upload");
+    if (up.length && opts.secret && has(v02, "versions", "relpath")) {
+      const targets = await v02TargetMap(db, v02, team.id, { secret: opts.secret, v02Dir: opts.v02Dir, dataDir: opts.dataDir ?? opts.v02Dir }, report);
+      const sha1Col = has(v02, "versions", "sha1");
+      const versions = all(v02, `SELECT * FROM versions WHERE item_id IN (${up.map((r) => Number(r.id)).join(",")}) ORDER BY id`).filter((v) => targets.get(Number(v.target_id ?? 1)));
+      const sha1s = sha1Col ? [...new Set(versions.map((v) => str(v.sha1).toLowerCase()).filter((h) => /^[0-9a-f]{40}$/.test(h)))] : [];
+      const byHash = sha1s.length && opts.fetch ? await modrinthClient(opts.fetch).byHashes(sha1s).catch(() => new Map<string, { projectId: string; versionId: string; versionNumber: string }>()) : new Map();
+      for (const r of up) {
+        const mine = versions.filter((v) => Number(v.item_id) === Number(r.id));
+        if (!mine.length) continue;
+        const it = await itemOf(r);
+        if (!it) { report.skipped.push({ what: `${str(r.name)} のファイル`, detail: "ライブラリに取り込んでいません" }); continue; }
+        for (const v of mine) {
+          const sha = str(v.sha256);
+          if (sha && (await db.select({ id: schema.libraryFile.id }).from(schema.libraryFile).where(and(eq(schema.libraryFile.itemId, it.id), eq(schema.libraryFile.sha256, sha))).limit(1)).length) continue;
+          let meta: Record<string, unknown> = {};
+          try {
+            meta = JSON.parse(str(v.meta) || "{}");
+          } catch { /* 読めなければ空 */ }
+          const hit = byHash.get(str(v.sha1).toLowerCase());
+          await db.insert(schema.libraryFile).values({
+            id: randomUUID(), itemId: it.id, targetId: targets.get(Number(v.target_id ?? 1))!, storageKey: `library/${str(v.relpath).replace(/^\/+/, "")}`,
+            filename: str(v.filename), size: Number(v.size) || 0, sha256: sha, version: str(v.version), loaders: JSON.stringify(loadersOf(str(meta.loader))), mcVersions: "[]",
+            createdAt: new Date(str(v.added_at) || Date.now()), upstreamVersionId: hit && hit.projectId === str(r.project_id) ? hit.versionId : `v02:${str(v.id)}`,
+          });
+          report.files++;
+        }
+      }
+    }
+    writeFileSync(savedReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
     return report;
   } finally {
     v02.close();

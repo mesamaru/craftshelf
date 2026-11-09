@@ -5,6 +5,7 @@ import { fileService } from "~/server/files";
 import { HttpError } from "~/server/guard";
 import { libraryService } from "~/server/library";
 import type { FetchLike } from "~/server/net";
+import { savedService } from "~/server/saved";
 import { ROUTES, handleRest } from "~/server/rest";
 import { backupService } from "~/server/backup";
 import { jobService } from "~/server/jobs";
@@ -48,7 +49,7 @@ beforeAll(async () => {
   tokens = tokenService(deps);
   const sets = setService(deps);
   services = { servers, library: libraryService(deps), sets, files: fileService(deps), events: eventService(deps), software: softwareService(deps), worlds: worldService(deps),
-    backups: backupService(deps), schedules: scheduleService(deps, sets), jobs: jobService(deps), modpacks: modpackService(deps) } as never;
+    backups: backupService(deps), schedules: scheduleService(deps, sets), jobs: jobService(deps), modpacks: modpackService(deps), saved: savedService(deps) } as never;
   owner = t.headers(await t.signUp("オーナー", "owner@example.com"));
   const c = await servers.addConnection(owner, { name: "", url: "panel.example.com", apiKey: KEY });
   await servers.addServers(owner, c.id, ["abcd1234"]);

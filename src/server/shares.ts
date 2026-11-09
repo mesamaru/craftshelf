@@ -1,4 +1,4 @@
-// 共有リンク(アップロードした版を、ログインしていない人にも渡す。自分用の版だけ)と、チームの利用状況。
+// 共有リンク(アップロードした版・保存した配布元の版を、ログインしていない人にも渡す。自分用の版だけ)と、チームの利用状況。
 // リンクのトークンはハッシュだけを保存し、期限を過ぎたものは渡さない
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { and, asc, count, desc, eq, gt, inArray, isNull, lt, max, or, sql } from "drizzle-orm";
@@ -7,7 +7,7 @@ import { eventService } from "./events";
 import { HttpError, allowed, requireTeam } from "./guard";
 import type { Deps } from "./servers";
 import { fileStore } from "./uploads";
-import { makeZip } from "./zip";
+import { zipStream } from "./zip";
 
 // 期限は 1 時間〜30 日か、無期限(hours = 0。共有リンクは自分用の版だけなので、無期限も自分用の版だけ)。回数の上限は 1〜1000 回か、なし
 export const SHARE_LIMITS = { maxHours: 24 * 30, filesPerLink: 100, linksPerTeam: 200, maxDownloads: 1000 };
@@ -18,14 +18,14 @@ const safeZipName = (s: string) => (s.replace(/[^A-Za-z0-9._-]+/g, "_").replace(
 
 export function shareService(deps: Deps) {
   const { db, auth } = deps;
-  const { read, stream } = fileStore(deps);
+  const { stream } = fileStore(deps);
   const { record } = eventService(deps);
   const needLocal = () => {
     if (!deps.local) throw new HttpError(400, "共有リンクは、自分用の版だけで使えます");
   };
 
   return {
-    /** 共有リンクを作る(アップロードしたものの、いちばん新しい版)。URL はこのときだけ返す */
+    /** 共有リンクを作る(アップロードしたもの・保存した配布元の版の、いちばん新しい版)。URL はこのときだけ返す */
     async create(headers: Headers, input: { itemIds: string[]; hours: number; name: string; maxDownloads?: number | null }, origin: string) {
       const { teamId, user: me } = await requireTeam(auth, headers, { library: ["edit"] });
       needLocal();
@@ -35,16 +35,17 @@ export function shareService(deps: Deps) {
       if (max !== null && !(max >= 1 && max <= SHARE_LIMITS.maxDownloads)) throw new HttpError(400, `回数の上限は 1〜${SHARE_LIMITS.maxDownloads} 回にしてください`);
       const ids = [...new Set(input.itemIds)].slice(0, SHARE_LIMITS.filesPerLink);
       if (!ids.length) throw new HttpError(400, "共有するものを選んでください");
-      const items = await db.select().from(libraryItem).where(and(eq(libraryItem.teamId, teamId), eq(libraryItem.source, "upload"), inArray(libraryItem.id, ids)));
+      const items = await db.select().from(libraryItem).where(and(eq(libraryItem.teamId, teamId), inArray(libraryItem.id, ids)));
       const files: (typeof libraryFile.$inferSelect)[] = [];
       for (const it of items) {
         const [f] = await db.select().from(libraryFile).where(eq(libraryFile.itemId, it.id)).orderBy(desc(libraryFile.createdAt)).limit(1);
         if (f) files.push(f);
       }
-      if (!files.length) throw new HttpError(400, "共有できるのは、アップロードしたものだけです");
+      if (!files.length) throw new HttpError(400, "共有できるのは、アップロードしたもの・保存した版があるものだけです");
       const [{ n }] = await db.select({ n: count() }).from(shareLink).where(eq(shareLink.teamId, teamId));
       if (n >= SHARE_LIMITS.linksPerTeam) throw new HttpError(400, `共有リンクは ${SHARE_LIMITS.linksPerTeam} 個までです。古いものを消してください`);
-      const name = String(input.name ?? "").trim().slice(0, 80) || (items.length > 1 ? `${items[0].title} ほか ${items.length - 1} 件` : items[0].title);
+      const named = items.filter((i) => files.some((f) => f.itemId === i.id));
+      const name = String(input.name ?? "").trim().slice(0, 80) || (named.length > 1 ? `${named[0].title} ほか ${named.length - 1} 件` : named[0].title);
       // URL の最後をファイル名にしておくと、wget・curl -O でもそのままの名前で保存される
       const filename = files.length === 1 ? files[0].filename : safeZipName(name);
       const token = randomBytes(24).toString("base64url");
@@ -89,7 +90,7 @@ export function shareService(deps: Deps) {
       await record({ teamId, userId: me.id, kind: "admin", action: "共有リンクを消す", target: s.name });
     },
 
-    /** リンクからダウンロードする(ログイン不要)。無効・期限切れ・回数を使い切ったものは null。1 つなら保存先から少しずつ読む(stream) */
+    /** リンクからダウンロードする(ログイン不要)。無効・期限切れ・回数を使い切ったものは null。保存先から少しずつ読む(いくつかなら zip を少しずつ作る) */
     async download(token: string) {
       if (!deps.local || !/^[A-Za-z0-9_-]{20,64}$/.test(token)) return null;
       const [s] = await db.select().from(shareLink).where(eq(shareLink.tokenHash, hashOf(token)));
@@ -102,9 +103,7 @@ export function shareService(deps: Deps) {
         .where(and(eq(shareLink.id, s.id), or(isNull(shareLink.maxDownloads), lt(shareLink.downloads, shareLink.maxDownloads)))).returning({ id: shareLink.id });
       if (!counted.length) return null;
       if (files.length === 1) return { filename: files[0].filename, size: files[0].size, stream: await stream(s.teamId, files[0]) };
-      const parts = [];
-      for (const f of files) parts.push({ name: f.filename, data: await read(s.teamId, f) });
-      return { filename: s.filename, data: makeZip(parts) };
+      return { filename: s.filename, size: null, stream: zipStream(files.map((f) => ({ name: f.filename, open: () => stream(s.teamId, f) }))) };
     },
 
     /** チームの利用状況(管理者以上) */

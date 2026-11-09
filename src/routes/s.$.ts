@@ -10,7 +10,7 @@ export const Route = createFileRoute("/s/$")({
         const f = await shares.download(token);
         if (!f) return new Response("このリンクは無効か、有効期限が切れています。\nThis link is invalid or has expired.", { status: 404, headers: { "Content-Type": "text/plain; charset=utf-8" } });
         const { Readable } = await import("node:stream");
-        const body = f.stream ? (Readable.toWeb(f.stream) as ReadableStream) : new Uint8Array(f.data!);
+        const body = Readable.toWeb(f.stream) as ReadableStream;
         return new Response(body, { headers: {
           "Content-Type": f.filename.endsWith(".zip") ? "application/zip" : "application/java-archive", ...(f.size != null ? { "Content-Length": String(f.size) } : {}),
           "Content-Disposition": `attachment; filename="${f.filename}"`, "Cache-Control": "no-store", "X-Robots-Tag": "noindex",

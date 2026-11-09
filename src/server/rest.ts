@@ -67,6 +67,13 @@ export const ROUTES: Route[] = [
   { method: "POST", path: "/library/:id/remove", scope: "library", summary: "ライブラリから外す(サーバーに入っているものはそのまま)", example: {}, handler: (s, h, [id]) => s.library.removeItem(h, id) },
   { method: "GET", path: "/library/:id/versions", scope: "read", summary: "アイテムの配布元の版(新しい順)。変更内容は /library/:id/versions/:versionId/changelog", handler: (s, h, [id]) => s.library.itemVersions(h, id) },
   { method: "GET", path: "/library/:id/versions/:versionId/changelog", scope: "read", summary: "版の変更内容(Modrinth・CurseForge。文字だけ)", handler: (s, h, [id, v]) => s.library.itemChangelog(h, id, v) },
+  { method: "POST", path: "/library/:id/save", scope: "library", summary: "配布元の版を保存先に保存する(自分用の版。versionId を省くと、受け取る版のとおりのいちばん新しい版)", example: { versionId: "" }, handler: (s, h, [id], b) => s.saved.save(h, id, str(b.versionId) || undefined) },
+  { method: "POST", path: "/library/:id/keep", scope: "library", summary: "アイテムの保存の設定(keepFiles: \"\" = チームの既定 / on / off、keepVersions: 古い版を残す数。null = チームの既定・0 = 整理しない)", example: { keepFiles: "on", keepVersions: 3 }, handler: (s, h, [id], b) => s.saved.setItem(h, id, { keepFiles: str(b.keepFiles), keepVersions: b.keepVersions === null || b.keepVersions === undefined ? null : num(b.keepVersions, 0) }) },
+  { method: "GET", path: "/library/cleanup", scope: "library", summary: "アドオンの整理: 条件(cond: old = 古い版 / dup = 同じ版の重複 / stale = 長く更新の無いもの / unused = どのサーバーにも入っていないもの、n = 残す数か月数)に当てはまるもの", handler: (s, h, _p, b) => s.saved.cleanup(h, str(b.cond) as never, num(b.n, 3)) },
+  { method: "POST", path: "/library/cleanup/delete", scope: "library", summary: "アドオンの整理で選んだものを消す(fileIds: 版の ID の配列、itemIds: ライブラリから外すアイテムの ID の配列)", example: { fileIds: [], itemIds: [] }, handler: (s, h, _p, b) => s.saved.cleanupRemove(h, { fileIds: ids(b.fileIds), itemIds: ids(b.itemIds) }) },
+  { method: "GET", path: "/storage/:id/status", scope: "admin", summary: "保存先の状況(つながるか・応答の時間・容量と空き・使っている数。id = default でパネルの中)", handler: (s, h, [id]) => s.saved.status(h, id === "default" ? null : id) },
+  { method: "GET", path: "/storage/:id/contents", scope: "admin", summary: "保存先の中身(フォルダとファイル。登録しているものはアイテムの名前つき。id = default でパネルの中)", handler: (s, h, [id]) => s.saved.contents(h, id === "default" ? null : id) },
+  { method: "POST", path: "/storage/:id/scan", scope: "admin", summary: "保存先の inbox/ に置いたファイルをライブラリに取り込む(中身から配布元を探す。id = default でパネルの中)", example: {}, handler: (s, h, [id]) => s.saved.scan(h, id === "default" ? null : id) },
   // セット
   { method: "GET", path: "/sets", scope: "read", summary: "セットの一覧", handler: (s, h) => s.sets.list(h) },
   { method: "POST", path: "/sets", scope: "library", summary: "セットを作る(name)", example: { name: "ロビー用" }, handler: (s, h, _p, b) => s.sets.create(h, str(b.name)) },

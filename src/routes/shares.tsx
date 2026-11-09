@@ -30,7 +30,7 @@ function Shares() {
       </header>
       <section className="group">
         {!rows && !error && <div className="row muted">読み込んでいます…</div>}
-        {rows?.length === 0 && <div className="row muted">まだありません。ライブラリのアップロードしたものの「版を見る」か、選んだものから作れます。</div>}
+        {rows?.length === 0 && <div className="row muted">まだありません。ライブラリのアップロードしたものの「版を見る」・「保存した版」か、選んだものから作れます。</div>}
         {rows?.map((s) => (
           <div className="row" key={s.id}>
             <span className="main">

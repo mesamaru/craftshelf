@@ -251,6 +251,7 @@ button.row.link:last-child, label.row.link:last-child { border-bottom: 0; }
 .share-maker .actions .share-url { flex: 1; min-width: 0; width: auto; }
 
 /* アイテムの詳しい情報(前提・版と変更内容・情報を直す) */
+.files .actions { flex-wrap: wrap; row-gap: 4px; }
 .files.detail { gap: 4px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--line); }
 .edit-field { display: flex; flex-direction: column; gap: 2px; }
 .edit-field input, .edit-field select { font: inherit; padding: 4px 8px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: inherit; max-width: 360px; }

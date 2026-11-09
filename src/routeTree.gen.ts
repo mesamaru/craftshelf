@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as ActivityRouteImport } from './routes/activity'
 import { Route as ApiDocsRouteImport } from './routes/api-docs'
 import { Route as BackupRouteImport } from './routes/backup'
+import { Route as CleanupRouteImport } from './routes/cleanup'
 import { Route as CompareRouteImport } from './routes/compare'
 import { Route as ForgotRouteImport } from './routes/forgot'
 import { Route as JobsRouteImport } from './routes/jobs'
@@ -42,6 +43,7 @@ import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as ApiBackupNameRouteImport } from './routes/api/backup/$name'
 import { Route as ApiBackupRestoreRouteImport } from './routes/api/backup/restore'
 import { Route as ApiLibraryUploadRouteImport } from './routes/api/library/upload'
+import { Route as ApiLibraryZipRouteImport } from './routes/api/library/zip'
 import { Route as ApiV1SplatRouteImport } from './routes/api/v1/$'
 import { Route as ServersIdFilesRouteImport } from './routes/servers_.$id_.files'
 import { Route as ApiLibraryFilesIdRouteImport } from './routes/api/library/files.$id'
@@ -65,6 +67,11 @@ const ApiDocsRoute = ApiDocsRouteImport.update({
 const BackupRoute = BackupRouteImport.update({
   id: '/backup',
   path: '/backup',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const CleanupRoute = CleanupRouteImport.update({
+  id: '/cleanup',
+  path: '/cleanup',
   getParentRoute: () => rootRouteImport,
 } as any)
 const CompareRoute = CompareRouteImport.update({
@@ -212,6 +219,11 @@ const ApiLibraryUploadRoute = ApiLibraryUploadRouteImport.update({
   path: '/api/library/upload',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiLibraryZipRoute = ApiLibraryZipRouteImport.update({
+  id: '/api/library/zip',
+  path: '/api/library/zip',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiV1SplatRoute = ApiV1SplatRouteImport.update({
   id: '/api/v1/$',
   path: '/api/v1/$',
@@ -238,6 +250,7 @@ export interface FileRoutesByFullPath {
   '/activity': typeof ActivityRoute
   '/api-docs': typeof ApiDocsRoute
   '/backup': typeof BackupRoute
+  '/cleanup': typeof CleanupRoute
   '/compare': typeof CompareRoute
   '/forgot': typeof ForgotRoute
   '/jobs': typeof JobsRoute
@@ -267,6 +280,7 @@ export interface FileRoutesByFullPath {
   '/api/backup/$name': typeof ApiBackupNameRoute
   '/api/backup/restore': typeof ApiBackupRestoreRoute
   '/api/library/upload': typeof ApiLibraryUploadRoute
+  '/api/library/zip': typeof ApiLibraryZipRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/servers/$id/files': typeof ServersIdFilesRoute
   '/api/library/files/$id': typeof ApiLibraryFilesIdRoute
@@ -277,6 +291,7 @@ export interface FileRoutesByTo {
   '/activity': typeof ActivityRoute
   '/api-docs': typeof ApiDocsRoute
   '/backup': typeof BackupRoute
+  '/cleanup': typeof CleanupRoute
   '/compare': typeof CompareRoute
   '/forgot': typeof ForgotRoute
   '/jobs': typeof JobsRoute
@@ -306,6 +321,7 @@ export interface FileRoutesByTo {
   '/api/backup/$name': typeof ApiBackupNameRoute
   '/api/backup/restore': typeof ApiBackupRestoreRoute
   '/api/library/upload': typeof ApiLibraryUploadRoute
+  '/api/library/zip': typeof ApiLibraryZipRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/servers/$id/files': typeof ServersIdFilesRoute
   '/api/library/files/$id': typeof ApiLibraryFilesIdRoute
@@ -317,6 +333,7 @@ export interface FileRoutesById {
   '/activity': typeof ActivityRoute
   '/api-docs': typeof ApiDocsRoute
   '/backup': typeof BackupRoute
+  '/cleanup': typeof CleanupRoute
   '/compare': typeof CompareRoute
   '/forgot': typeof ForgotRoute
   '/jobs': typeof JobsRoute
@@ -346,6 +363,7 @@ export interface FileRoutesById {
   '/api/backup/$name': typeof ApiBackupNameRoute
   '/api/backup/restore': typeof ApiBackupRestoreRoute
   '/api/library/upload': typeof ApiLibraryUploadRoute
+  '/api/library/zip': typeof ApiLibraryZipRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/servers_/$id_/files': typeof ServersIdFilesRoute
   '/api/library/files/$id': typeof ApiLibraryFilesIdRoute
@@ -358,6 +376,7 @@ export interface FileRouteTypes {
     | '/activity'
     | '/api-docs'
     | '/backup'
+    | '/cleanup'
     | '/compare'
     | '/forgot'
     | '/jobs'
@@ -387,6 +406,7 @@ export interface FileRouteTypes {
     | '/api/backup/$name'
     | '/api/backup/restore'
     | '/api/library/upload'
+    | '/api/library/zip'
     | '/api/v1/$'
     | '/servers/$id/files'
     | '/api/library/files/$id'
@@ -397,6 +417,7 @@ export interface FileRouteTypes {
     | '/activity'
     | '/api-docs'
     | '/backup'
+    | '/cleanup'
     | '/compare'
     | '/forgot'
     | '/jobs'
@@ -426,6 +447,7 @@ export interface FileRouteTypes {
     | '/api/backup/$name'
     | '/api/backup/restore'
     | '/api/library/upload'
+    | '/api/library/zip'
     | '/api/v1/$'
     | '/servers/$id/files'
     | '/api/library/files/$id'
@@ -436,6 +458,7 @@ export interface FileRouteTypes {
     | '/activity'
     | '/api-docs'
     | '/backup'
+    | '/cleanup'
     | '/compare'
     | '/forgot'
     | '/jobs'
@@ -465,6 +488,7 @@ export interface FileRouteTypes {
     | '/api/backup/$name'
     | '/api/backup/restore'
     | '/api/library/upload'
+    | '/api/library/zip'
     | '/api/v1/$'
     | '/servers_/$id_/files'
     | '/api/library/files/$id'
@@ -476,6 +500,7 @@ export interface RootRouteChildren {
   ActivityRoute: typeof ActivityRoute
   ApiDocsRoute: typeof ApiDocsRoute
   BackupRoute: typeof BackupRoute
+  CleanupRoute: typeof CleanupRoute
   CompareRoute: typeof CompareRoute
   ForgotRoute: typeof ForgotRoute
   JobsRoute: typeof JobsRoute
@@ -505,6 +530,7 @@ export interface RootRouteChildren {
   ApiBackupNameRoute: typeof ApiBackupNameRoute
   ApiBackupRestoreRoute: typeof ApiBackupRestoreRoute
   ApiLibraryUploadRoute: typeof ApiLibraryUploadRoute
+  ApiLibraryZipRoute: typeof ApiLibraryZipRoute
   ApiV1SplatRoute: typeof ApiV1SplatRoute
   ServersIdFilesRoute: typeof ServersIdFilesRoute
   ApiLibraryFilesIdRoute: typeof ApiLibraryFilesIdRoute
@@ -539,6 +565,13 @@ declare module '@tanstack/react-router' {
       path: '/backup'
       fullPath: '/backup'
       preLoaderRoute: typeof BackupRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/cleanup': {
+      id: '/cleanup'
+      path: '/cleanup'
+      fullPath: '/cleanup'
+      preLoaderRoute: typeof CleanupRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/compare': {
@@ -744,6 +777,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiLibraryUploadRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/library/zip': {
+      id: '/api/library/zip'
+      path: '/api/library/zip'
+      fullPath: '/api/library/zip'
+      preLoaderRoute: typeof ApiLibraryZipRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/v1/$': {
       id: '/api/v1/$'
       path: '/api/v1/$'
@@ -780,6 +820,7 @@ const rootRouteChildren: RootRouteChildren = {
   ActivityRoute: ActivityRoute,
   ApiDocsRoute: ApiDocsRoute,
   BackupRoute: BackupRoute,
+  CleanupRoute: CleanupRoute,
   CompareRoute: CompareRoute,
   ForgotRoute: ForgotRoute,
   JobsRoute: JobsRoute,
@@ -809,6 +850,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiBackupNameRoute: ApiBackupNameRoute,
   ApiBackupRestoreRoute: ApiBackupRestoreRoute,
   ApiLibraryUploadRoute: ApiLibraryUploadRoute,
+  ApiLibraryZipRoute: ApiLibraryZipRoute,
   ApiV1SplatRoute: ApiV1SplatRoute,
   ServersIdFilesRoute: ServersIdFilesRoute,
   ApiLibraryFilesIdRoute: ApiLibraryFilesIdRoute,

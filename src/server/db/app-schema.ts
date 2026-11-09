@@ -101,6 +101,9 @@ export const libraryItem = pgTable(
     // Modパック(03.58.00 から): 最後にセットを作った・サーバーに入れた版と、配布元のいちばん新しい版(JSON の
     // { used: { id, number }, latest: { id, number } }。"" = まだ使っていない)。新しい版を知らせるのに使う
     pack: text("pack").notNull().default(""),
+    // 03.61.00 から。配布元のファイルを保存先に保存するか("" = チームの既定 / on / off)と、古い版を残す数(null = チームの既定・0 = 整理しない)
+    keepFiles: text("keep_files").notNull().default(""),
+    keepVersions: integer("keep_versions"),
   },
   (t) => [uniqueIndex("library_item_team_project_uq").on(t.teamId, t.source, t.projectId)],
 );
@@ -266,6 +269,9 @@ export const teamOption = pgTable("team_option", {
   // 03.56.00 から。受け取る版の既定(release = 正式版だけ / all = ベータ・アルファも)。アイテムごとに変えられる
   channel: text("channel").notNull().default("release"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  // 03.61.00 から。配布元のファイルを保存する(チームの既定)と、古い版を残す数(0 = 整理しない)
+  keepFiles: boolean("keep_files").notNull().default(false),
+  keepVersions: integer("keep_versions").notNull().default(0),
 });
 
 // お知らせ(ベル)をどこまで読んだか(利用者 × チーム。どの端末でも同じにする)
@@ -366,6 +372,8 @@ export const libraryFile = pgTable(
     mcVersions: text("mc_versions").notNull().default("[]"),
     uploadedBy: text("uploaded_by").references(() => user.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
+    // 03.61.00 から。配布元のものを保存した版は、配布元の版の ID("" = アップロードしたもの)
+    upstreamVersionId: text("upstream_version_id").notNull().default(""),
   },
   (t) => [index("library_file_item_idx").on(t.itemId), index("library_file_sha_idx").on(t.sha256)],
 );

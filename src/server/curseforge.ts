@@ -21,7 +21,7 @@ export const CF_KEY = /^\S{20,120}$/;
 export class CurseForgeError extends Error {}
 
 type Mod = { id: number; name: string; slug: string; summary: string; downloadCount: number; classId: number; logo?: { thumbnailUrl?: string } | null; allowModDistribution?: boolean | null;
-  latestFilesIndexes?: { gameVersion?: string }[] };
+  latestFilesIndexes?: { gameVersion?: string }[]; dateModified?: string };
 type File = { id: number; displayName: string; fileName: string; downloadUrl: string | null; fileDate: string; releaseType: number; gameVersions: string[]; fileLength: number;
   dependencies?: { modId: number; relationType: number }[] };
 const REQUIRED = 3; // relationType: 3 = 必須の前提
@@ -130,12 +130,12 @@ export function curseforgeClient(fetch: FetchLike, apiKey: string) {
     },
 
     /** プロジェクトの名前などを、まとめて取る(ID → 中身) */
-    async projects(ids: string[]): Promise<Map<string, { title: string; slug: string; iconUrl: string; mcVersions: string[] }>> {
-      const out = new Map<string, { title: string; slug: string; iconUrl: string; mcVersions: string[] }>();
+    async projects(ids: string[]): Promise<Map<string, { title: string; slug: string; iconUrl: string; mcVersions: string[]; updated: string }>> {
+      const out = new Map<string, { title: string; slug: string; iconUrl: string; mcVersions: string[]; updated: string }>();
       const modIds = ids.filter((x) => CF_ID.test(x)).map(Number);
       for (let i = 0; i < modIds.length; i += 100) {
         for (const m of ((await get("/mods", { modIds: modIds.slice(i, i + 100) }))?.data ?? []) as Mod[]) {
-          out.set(String(m.id), { title: m.name, slug: pathOf(m), iconUrl: icon(m), mcVersions: mcClean((m.latestFilesIndexes ?? []).map((x) => x.gameVersion)) });
+          out.set(String(m.id), { title: m.name, slug: pathOf(m), iconUrl: icon(m), mcVersions: mcClean((m.latestFilesIndexes ?? []).map((x) => x.gameVersion)), updated: m.dateModified ?? "" });
         }
       }
       return out;

@@ -155,7 +155,7 @@ function MemberRow({ member, isMe, editable, removable, onDone }:
   return (
     <div className="row member">
       <span className="main">
-        <span translate="no">{member.user.name}{isMe ? "(自分)" : ""}</span>
+        <span><span translate="no">{member.user.name}</span>{isMe ? "(自分)" : ""}</span>
         <span className="muted" translate="no">{member.user.email}</span>
         {error && <span className="error" role="alert">{error}</span>}
       </span>

@@ -10,6 +10,9 @@ import { ItemIcon } from "~/lib/type-icon";
 import { addSetDeps, applySet, createSet, listSets, pinSetItem, removeSet, renameSet, setMissingDeps, toggleSetItem } from "~/lib/sets-api";
 import { SOURCE_LABEL, isSource } from "~/lib/sources";
 import { useCan } from "~/lib/use-can";
+import { localEnabled } from "~/lib/servers-api";
+import { zipPlan } from "~/lib/saved-api";
+import { downloadZip } from "~/lib/zip-download";
 
 export const Route = createFileRoute("/sets")({
   beforeLoad: ({ context }) => {
@@ -35,6 +38,9 @@ function Sets() {
   const router = useRouter();
   const reload = () => router.invalidate();
   const edit = can({ library: ["edit"] });
+  const isLocal = useServerFn(localEnabled);
+  const [local, setLocal] = useState(false); // zip は保存した版から作るので、自分用の版だけ
+  useEffect(() => { isLocal().then(setLocal, () => setLocal(false)); }, []);
 
   return (
     <main className="page narrow">
@@ -46,7 +52,7 @@ function Sets() {
       {sets.length === 0 && (
         <section className="group"><div className="row muted">まだセットがありません。{edit ? "下で作れます。" : ""}</div></section>
       )}
-      {sets.map((s) => <SetCard key={s.id} set={s} catalog={catalog} edit={edit} onChange={reload} />)}
+      {sets.map((s) => <SetCard key={s.id} set={s} catalog={catalog} edit={edit} local={local} onChange={reload} />)}
       <p className="foot">セットは、ライブラリから選んだ Mod・プラグインの組み合わせです。「サーバーに入れる」で、サーバーの種類に合うもののうち、まだ入っていないものをまとめて入れます(Paper のサーバーに Mod は入れません)。「前提を確かめる」は、選んだ種類のサーバーに入るいちばん新しい版の前提(Modrinth・CurseForge の必須)が、セットに入っているかを見ます。</p>
       <p className="foot">「版を選ぶ」で版を固定すると、セットを入れる・そろえる・予約・自動更新で、新しい版ではなくその版を入れます(サーバーの種類・バージョンに合わない版は、結果に知らせて飛ばします)。セットを結び付けたすべてのサーバーで同じ版になります。サーバーの画面の「更新を止める」は、そのサーバーだけ今入っている版のままにするもので、固定より先に効きます。SpigotMC のものは固定できません(いちばん新しい版だけを入れられます)。</p>
       {edit && <NewSet onCreated={reload} />}
@@ -55,8 +61,9 @@ function Sets() {
   );
 }
 
-function SetCard({ set, catalog, edit, onChange }: { set: SetRow; catalog: Catalog; edit: boolean; onChange: () => void }) {
+function SetCard({ set, catalog, edit, local, onChange }: { set: SetRow; catalog: Catalog; edit: boolean; local: boolean; onChange: () => void }) {
   const toggle = useServerFn(toggleSetItem);
+  const plan = useServerFn(zipPlan);
   const apply = useServerFn(applySet);
   const rename = useServerFn(renameSet);
   const remove = useServerFn(removeSet);
@@ -143,6 +150,9 @@ function SetCard({ set, catalog, edit, onChange }: { set: SetRow; catalog: Catal
         {set.items.some((i) => i.source === "modrinth" || i.source === "curseforge") && <Deps set={set} edit={edit} onChange={onChange} />}
         {busy === "apply" && <div className="row muted">サーバーに入れています…</div>}
         {results && <ApplyResults server={results.server} verb="入れた" list={results.list} />}
+        {local && set.items.length > 0 && (
+          <button className="row link" type="button" disabled={!!busy} onClick={() => downloadZip(plan, { setId: set.id }).catch((e) => setError(message(e)))}>zip でダウンロード(保存した版から)</button>
+        )}
         {edit && (
           <div className="row actions">
             <button className="link" type="button" disabled={!!busy} onClick={() => {

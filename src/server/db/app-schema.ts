@@ -135,6 +135,9 @@ export const addonSetItem = pgTable(
     setId: text("set_id").notNull().references(() => addonSet.id, { onDelete: "cascade" }),
     itemId: text("item_id").notNull().references(() => libraryItem.id, { onDelete: "cascade" }),
     addedAt: timestamp("added_at").defaultNow().notNull(),
+    // 03.59.00 から。この版に固定する(配布元の版の ID・アップロードしたものはファイルの ID。null = いつもサーバーに合う新しい版)
+    versionId: text("version_id"),
+    versionNumber: text("version_number").notNull().default(""),
   },
   (t) => [primaryKey({ columns: [t.setId, t.itemId] })],
 );

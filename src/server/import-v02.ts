@@ -4,7 +4,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { basename, join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { and, asc, count, eq, inArray } from "drizzle-orm";
+import { and, asc, count, eq, inArray, isNull } from "drizzle-orm";
 import { MC_VERSION, type Platform, isPlatform } from "~/lib/platforms";
 import { isSoftware } from "~/lib/software";
 import { APP_NAME, legacyTotpContext } from "./auth";
@@ -12,8 +12,10 @@ import type { Db } from "./db";
 import * as schema from "./db/schema";
 import { decryptV02Secret } from "./legacy";
 import { checkRoot } from "./local";
-import { checkPublicUrl } from "./net";
-import { hint, seal } from "./secrets";
+import { type FetchLike, checkPublicUrl } from "./net";
+import { hint, open, seal } from "./secrets";
+import { modrinthClient } from "./modrinth";
+import { curseforgeClient } from "./curseforge";
 
 export type ImportReport = {
   at: string;
@@ -312,7 +314,6 @@ export async function importLibrary(db: Db, v02: DatabaseSync, teamId: string, u
     report.items = new Set(mapped.values()).size;
 
     if (!has(v02, "sets") || !has(v02, "set_items")) return;
-    let pinned = 0;
     for (const set of all(v02, "SELECT id, name FROM sets ORDER BY id")) {
       const name = (str(set.name) || "セット").slice(0, 60);
       let id: string = randomUUID();
@@ -333,12 +334,10 @@ export async function importLibrary(db: Db, v02: DatabaseSync, teamId: string, u
           missing++;
           continue;
         }
-        if (m.version_id != null) pinned++;
         await tx.insert(schema.addonSetItem).values({ setId: id, itemId }).onConflictDoNothing();
       }
       if (missing) report.skipped.push({ what: `セット「${str(set.name)}」の ${missing} 件`, detail: "ライブラリに取り込めなかったものは入れていません" });
     }
-    if (pinned) report.skipped.push({ what: `セットの版の固定(${pinned} 件)`, detail: "v03 は固定せず、いつもサーバーに合う新しい版を入れます" });
   });
 
   if (unknown.length) {
@@ -717,6 +716,109 @@ export async function maybeImportV02Prefs(db: Db, opts: { v02Dir: string; v03Dir
       if (done.length) report.users.push(str(u.username));
     }
     writeFileSync(prefsReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
+    return report;
+  } finally {
+    v02.close();
+  }
+}
+
+// セットの版の固定(03.59.00 から。v02 の set_items.version_id)。見た目の設定の取り込みのあとで一度だけ(前に取り込んだパネルも、次の起動で)。
+// v02 の版はファイル(versions)なので、v03 の配布元の版に対応を取る: Modrinth はファイルの SHA-1、CurseForge はファイルの名前(新しい 30 件の中)、
+// アップロードしたものは SHA-256 で取り込んだファイル。SpigotMC は v03 では固定できない。対応が取れないものは「固定を引き継げなかったもの」に出す。
+// v03 ですでに固定を決め直したものは上書きしない
+export type PinsImportReport = { at: string; pinned: string[]; skipped: { what: string; detail: string }[] };
+export const pinsReportPath = (v03Dir: string) => join(v03Dir, "import-v02-pins.json");
+
+export function readPinsReport(v03Dir: string): PinsImportReport | null {
+  try {
+    return JSON.parse(readFileSync(pinsReportPath(v03Dir), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+export async function maybeImportV02Pins(db: Db, opts: { v02Dir: string; v03Dir: string; secret?: string; fetch?: FetchLike }): Promise<PinsImportReport | null> {
+  const dbFile = join(opts.v02Dir, "index.db");
+  if (!existsSync(dbFile) || !existsSync(prefsReportPath(opts.v03Dir)) || existsSync(pinsReportPath(opts.v03Dir))) return null;
+  const [team] = await db.select({ id: schema.organization.id }).from(schema.organization).orderBy(asc(schema.organization.createdAt)).limit(1);
+  if (!team) return null;
+  const v02 = new DatabaseSync(dbFile, { readOnly: true });
+  try {
+    const report: PinsImportReport = { at: new Date().toISOString(), pinned: [], skipped: [] };
+    const rows = has(v02, "set_items", "version_id") && has(v02, "versions") ? all(v02, `SELECT s.name AS set_name, i.name AS item_name, i.category, v.version, v.filename, v.sha256,
+        ${has(v02, "versions", "sha1") ? "v.sha1" : "''"} AS sha1, ${has(v02, "item_sources") ? "src.provider, src.project_id" : "'' AS provider, '' AS project_id"}
+      FROM set_items si JOIN sets s ON s.id = si.set_id JOIN items i ON i.id = si.item_id LEFT JOIN versions v ON v.id = si.version_id
+      ${has(v02, "item_sources") ? "LEFT JOIN item_sources src ON src.item_id = i.id" : ""} WHERE si.version_id IS NOT NULL ORDER BY s.id, i.name`) : [];
+    if (!rows.length) {
+      writeFileSync(pinsReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
+      return report;
+    }
+    const skip = (r: Row, detail: string) => report.skipped.push({ what: `固定を引き継げなかったもの: ${str(r.set_name)} / ${str(r.item_name)} ${str(r.version)}`.trim(), detail });
+    const sourceOf = (r: Row) => {
+      const projectId = str(r.project_id);
+      const provider = str(r.provider);
+      return provider === "modrinth" && MODRINTH_ID.test(projectId) ? "modrinth"
+        : provider === "spigot" && SPIGOT_ID.test(projectId) && str(r.category) === "plugin" ? "spigot"
+        : provider === "curseforge" && SPIGOT_ID.test(projectId) ? "curseforge" : "upload";
+    };
+    // Modrinth はまとめて 1 回で問い合わせる
+    const sha1s = [...new Set(rows.filter((r) => sourceOf(r) === "modrinth" && /^[0-9a-f]{40}$/i.test(str(r.sha1))).map((r) => str(r.sha1).toLowerCase()))];
+    let byHash = new Map<string, { projectId: string; versionId: string; versionNumber: string }>();
+    let mrError = "";
+    if (sha1s.length && opts.fetch) byHash = await modrinthClient(opts.fetch).byHashes(sha1s).catch((e) => { mrError = (e as Error).message; return byHash; });
+    let cf: ReturnType<typeof curseforgeClient> | null = null;
+    if (opts.fetch && opts.secret && rows.some((r) => sourceOf(r) === "curseforge")) {
+      const [k] = await db.select().from(schema.teamCurseforge).where(eq(schema.teamCurseforge.teamId, team.id));
+      if (k) cf = curseforgeClient(opts.fetch, open(opts.secret, k.apiKeySealed, `curseforge:${team.id}`));
+    }
+    for (const r of rows) {
+      if (!str(r.filename)) { skip(r, "固定していた版が v02 に残っていません"); continue; }
+      const [set] = await db.select({ id: schema.addonSet.id }).from(schema.addonSet)
+        .where(and(eq(schema.addonSet.teamId, team.id), eq(schema.addonSet.name, (str(r.set_name) || "セット").slice(0, 60)))).limit(1);
+      if (!set) { skip(r, "セットを取り込んでいません"); continue; }
+      const source = sourceOf(r);
+      let itemId: string | null = null;
+      let version: { id: string; label: string } | null = null;
+      if (source === "spigot") { skip(r, "SpigotMC のものは、v03 では版を固定できません(いちばん新しい版を入れます)"); continue; }
+      if (source === "upload") {
+        const [f] = await db.select({ id: schema.libraryFile.id, itemId: schema.libraryFile.itemId, version: schema.libraryFile.version, filename: schema.libraryFile.filename })
+          .from(schema.libraryFile).innerJoin(schema.libraryItem, eq(schema.libraryFile.itemId, schema.libraryItem.id))
+          .where(and(eq(schema.libraryItem.teamId, team.id), eq(schema.libraryFile.sha256, str(r.sha256)))).limit(1);
+        if (f) { itemId = f.itemId; version = { id: f.id, label: f.version || f.filename }; }
+        else { skip(r, "その版のファイルを取り込んでいません"); continue; }
+      } else {
+        const [it] = await db.select({ id: schema.libraryItem.id }).from(schema.libraryItem)
+          .where(and(eq(schema.libraryItem.teamId, team.id), eq(schema.libraryItem.source, source), eq(schema.libraryItem.projectId, str(r.project_id))));
+        if (!it) { skip(r, "ライブラリに取り込んでいません"); continue; }
+        itemId = it.id;
+        if (!opts.fetch) { skip(r, "配布元に問い合わせられませんでした"); continue; }
+        if (source === "modrinth") {
+          const hit = byHash.get(str(r.sha1).toLowerCase());
+          if (hit && hit.projectId === str(r.project_id)) version = { id: hit.versionId, label: hit.versionNumber };
+          else { skip(r, mrError ? `Modrinth につながりませんでした(${mrError})` : "Modrinth に同じファイルの版が見つかりません"); continue; }
+        } else {
+          if (!cf) { skip(r, "CurseForge の API キーが無いので、版を探せませんでした"); continue; }
+          try {
+            const hit = (await cf.allFiles(str(r.project_id))).find((v) => v.filename === str(r.filename));
+            if (hit) version = { id: hit.versionId, label: hit.versionNumber };
+            else { skip(r, "CurseForge の新しい 30 件の中に、同じファイルの版が見つかりません"); continue; }
+          } catch (e) {
+            skip(r, `CurseForge につながりませんでした(${(e as Error).message})`);
+            continue;
+          }
+        }
+      }
+      const done = await db.update(schema.addonSetItem).set({ versionId: version.id, versionNumber: version.label })
+        .where(and(eq(schema.addonSetItem.setId, set.id), eq(schema.addonSetItem.itemId, itemId), isNull(schema.addonSetItem.versionId)))
+        .returning({ id: schema.addonSetItem.itemId });
+      if (done.length) report.pinned.push(`${str(r.set_name)} / ${str(r.item_name)} ${version.label}`);
+      else {
+        const [inSet] = await db.select({ id: schema.addonSetItem.itemId }).from(schema.addonSetItem).where(and(eq(schema.addonSetItem.setId, set.id), eq(schema.addonSetItem.itemId, itemId)));
+        if (!inSet) skip(r, "セットに入っていません");
+        // 入っていれば、v03 で固定を決め直している(上書きしない)
+      }
+    }
+    writeFileSync(pinsReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
     return report;
   } finally {
     v02.close();

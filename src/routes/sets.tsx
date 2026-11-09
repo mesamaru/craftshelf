@@ -2,11 +2,12 @@ import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { ApplyResults } from "~/lib/apply-results";
-import { libraryCatalog } from "~/lib/library-api";
+import { libraryCatalog, libraryItemVersions } from "~/lib/library-api";
+import { uploadedFiles } from "~/lib/uploads-api";
 import { getSchedule, setSchedule } from "~/lib/schedule-api";
 import { ITEM_TYPES, PLATFORMS, PLATFORM_IDS } from "~/lib/platforms";
 import { ItemIcon } from "~/lib/type-icon";
-import { addSetDeps, applySet, createSet, listSets, removeSet, renameSet, setMissingDeps, toggleSetItem } from "~/lib/sets-api";
+import { addSetDeps, applySet, createSet, listSets, pinSetItem, removeSet, renameSet, setMissingDeps, toggleSetItem } from "~/lib/sets-api";
 import { SOURCE_LABEL, isSource } from "~/lib/sources";
 import { useCan } from "~/lib/use-can";
 
@@ -47,6 +48,7 @@ function Sets() {
       )}
       {sets.map((s) => <SetCard key={s.id} set={s} catalog={catalog} edit={edit} onChange={reload} />)}
       <p className="foot">セットは、ライブラリから選んだ Mod・プラグインの組み合わせです。「サーバーに入れる」で、サーバーの種類に合うもののうち、まだ入っていないものをまとめて入れます(Paper のサーバーに Mod は入れません)。「前提を確かめる」は、選んだ種類のサーバーに入るいちばん新しい版の前提(Modrinth・CurseForge の必須)が、セットに入っているかを見ます。</p>
+      <p className="foot">「版を選ぶ」で版を固定すると、セットを入れる・そろえる・予約・自動更新で、新しい版ではなくその版を入れます(サーバーの種類・バージョンに合わない版は、結果に知らせて飛ばします)。セットを結び付けたすべてのサーバーで同じ版になります。サーバーの画面の「更新を止める」は、そのサーバーだけ今入っている版のままにするもので、固定より先に効きます。SpigotMC のものは固定できません(いちばん新しい版だけを入れられます)。</p>
       {edit && <NewSet onCreated={reload} />}
       {edit && <FromModpack onCreated={reload} servers={can({ server: ["update"] }) ? catalog.servers : []} />}
     </main>
@@ -104,9 +106,11 @@ function SetCard({ set, catalog, edit, onChange }: { set: SetRow; catalog: Catal
             <span className="main">
               <span translate="no">{i.title}</span>
               <span className="muted">{TYPE_LABEL[i.projectType] ?? i.projectType} · {isSource(i.source) ? SOURCE_LABEL[i.source] : i.source}</span>
+              {i.versionId && <span className="muted small"><span className="badge">版を固定</span> <span translate="no">{i.versionNumber}</span></span>}
             </span>
+            {edit && i.source !== "spigot" && <Pin setId={set.id} item={i} disabled={!!busy} onDone={onChange} />}
             {edit && (
-              <button className="trail link danger" type="button" disabled={!!busy}
+              <button className={`${i.source === "spigot" ? "trail " : ""}link danger`} type="button" disabled={!!busy}
                 onClick={() => run(i.id, () => toggle({ data: { id: set.id, itemId: i.id, add: false } }))}>外す</button>
             )}
           </div>
@@ -154,6 +158,40 @@ function SetCard({ set, catalog, edit, onChange }: { set: SetRow; catalog: Catal
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
     </>
+  );
+}
+
+// セットのアイテムの版を固定する・やめる(版の一覧は、押したときに配布元から読む)
+function Pin({ setId, item, disabled, onDone }: { setId: string; item: SetRow["items"][number]; disabled: boolean; onDone: () => void }) {
+  const versions = useServerFn(libraryItemVersions);
+  const uploads = useServerFn(uploadedFiles);
+  const pin = useServerFn(pinSetItem);
+  const [list, setList] = useState<{ id: string; label: string }[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const run = async (fn: () => Promise<unknown>) => {
+    setBusy(true);
+    setError("");
+    try {
+      await fn();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  const open = () => run(async () => setList(item.source === "upload"
+    ? (await uploads({ data: { itemId: item.id } })).map((f) => ({ id: f.id, label: f.version || f.filename }))
+    : (await versions({ data: { itemId: item.id } })).map((v) => ({ id: v.versionId, label: v.mcVersions.length ? `${v.versionNumber}(${v.mcVersions.slice(0, 3).join("・")})` : v.versionNumber }))));
+  if (error) return <span className="trail error small" role="alert">{error}</span>;
+  if (!list) return <button className="trail link" type="button" disabled={disabled || busy} onClick={open}>{busy ? "読み込んでいます…" : "版を選ぶ"}</button>;
+  return (
+    <select className="trail" value={item.versionId ?? ""} disabled={disabled || busy} aria-label={`${item.title} の版`}
+      onChange={(e) => run(async () => { await pin({ data: { id: setId, itemId: item.id, versionId: e.target.value || null } }); setList(null); onDone(); })}>
+      <option value="">いつも新しい版(固定しない)</option>
+      {item.versionId && !list.some((v) => v.id === item.versionId) && <option value={item.versionId} translate="no">{item.versionNumber}</option>}
+      {list.map((v) => <option key={v.id} value={v.id} translate="no">{v.label}</option>)}
+    </select>
   );
 }
 

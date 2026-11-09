@@ -260,7 +260,10 @@ function ImportReport({ userId }: { userId: string }) {
         {report.kinds && (
           <div className="row"><span>データパック・リソースパック・シェーダー・Modパック(あとから)</span><span className="trail">{`${report.kinds.items + (report.kinds.uploads ?? 0)} 件`}</span></div>
         )}
-        {[...report.skipped, ...(report.library?.skipped ?? []), ...(report.kinds?.skipped ?? [])].map((x, i) => (
+        {report.pins && report.pins.pinned.length + report.pins.skipped.length > 0 && (
+          <div className="row"><span>セットの版の固定</span><span className="trail">{`${report.pins.pinned.length} 件`}</span></div>
+        )}
+        {[...report.skipped, ...(report.library?.skipped ?? []), ...(report.kinds?.skipped ?? []), ...(report.pins?.skipped ?? [])].map((x, i) => (
           <div className="row" key={i}><span className="main"><span>{x.what}</span><span className="muted" translate="no">{x.detail}</span></span><span className="trail">取り込まず</span></div>
         ))}
         {report.notes.map((n, i) => <p className="row muted" key={`n${i}`}>{n}</p>)}

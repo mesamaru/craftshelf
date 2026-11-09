@@ -230,6 +230,7 @@ function Installed({ id, items, error, edit, local, auto, dir, onChange }:
                     {m.held && <span className="badge muted-badge">更新を止めています</span>}
                   </span>
                 )}
+                {m.pinned && <span className="muted small">結び付けたセットで版を固定しています</span>}
               </span>
               {acts.map((a, i) => (
                 <button key={a.key} className={`${i === 0 ? "trail " : ""}link${a.danger ? " danger" : ""}`} type="button" disabled={!!busy} onClick={a.fn}>{a.label}</button>

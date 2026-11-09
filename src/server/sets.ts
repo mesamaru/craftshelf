@@ -20,13 +20,15 @@ export const UPDATE_CHECK_EVERY = 24 * 60 * 60_000;
 export const UPDATE_CHECK_BATCH = 2;
 
 // missing・available は「確かめるだけ」のときの、入っていない・新しい版がある
-export type ApplyResult = { title: string; status: "installed" | "updated" | "present" | "skipped" | "failed" | "missing" | "available" | "removed"; detail: string };
+export type ApplyResult = { title: string; status: "installed" | "updated" | "present" | "skipped" | "failed" | "missing" | "available" | "removed"; detail: string; pinned?: boolean };
+// pinned = セットで固定した版の結果(固定した版が合わずに飛ばしたものも、まとめ・通知に載せる)
 // add = 足りないものを入れる / sync = それに加えて更新する / update = 入っているものだけ更新する(足りないものは入れない) / check = 確かめるだけ(何も変えない)
 export type ApplyMode = "add" | "sync" | "update" | "check";
 // ほかのサーバーにそろえるときの、そろえ方: update = 入っているものだけ同じ版に / add = 足りないものも入れる / mirror = さらに、そろえる元に無いものを外す
 export const COPY_MODES = ["update", "add", "mirror"] as const;
 export type CopyMode = (typeof COPY_MODES)[number];
-type SetLike = { source: string; projectId: string; title: string; projectType: string };
+// versionId があれば、その版に固定している(セットの版の固定)
+type SetLike = { source: string; projectId: string; title: string; projectType: string; versionId?: string | null; versionNumber?: string };
 
 /** 結果から、記録の種類のほかに知らせる種類: 入れた・更新した・外した → auto、失敗 → errors、新しい版がある → updates */
 export function alsoOf(list: ApplyResult[]): EventKind[] {
@@ -42,7 +44,7 @@ const cleanName = (name: string) => {
 
 export function setService(deps: Deps) {
   const { db, auth } = deps;
-  const { missingOf, latestFile, fileById, versionsOf, needProfile, installInto, holdsOf, updatesOf, removeFrom, project, remember } = modTools(deps);
+  const { missingOf, latestFile, fileById, versionsOf, needProfile, installInto, holdsOf, pinsOf, updatesOf, removeFrom, project, remember } = modTools(deps);
   const { record } = eventService(deps);
   const jobs = jobService(deps);
   // 結果のまとめ(通知・記録に使う)。変わったもの・失敗したものだけを並べる
@@ -51,7 +53,7 @@ export function setService(deps: Deps) {
     const head = n("missing") + n("available")
       ? [`入っていない ${n("missing")}`, `新しい版 ${n("available")}`, `失敗 ${n("failed")}`].join(" / ")
       : [`入れた ${n("installed")}`, `更新 ${n("updated")}`, `失敗 ${n("failed")}`].join(" / ");
-    const lines = list.filter((x) => ["installed", "updated", "failed", "missing", "available", "removed"].includes(x.status)).map((x) => `・${x.title}: ${x.detail}`);
+    const lines = list.filter((x) => ["installed", "updated", "failed", "missing", "available", "removed"].includes(x.status) || x.pinned).map((x) => `・${x.title}: ${x.detail}`);
     return [head, ...lines].join("\n");
   };
 
@@ -80,8 +82,26 @@ export function setService(deps: Deps) {
         out.push({ title: it.title, status: "skipped", detail: `${what}${what === "Mod" ? " " : ""}なので、${PLATFORMS[server.platform].label} のサーバーには入れません` });
         continue;
       }
+      // セットで版を固定したもの: その版にする(無効にしたもの・更新を止めたもの・足りないものを入れるだけのときは、入っている版のまま)
+      const pin = it.versionId && (!now || (mode !== "add" && !isDisabled(now.filename) && !holds.has(`${it.source}:${it.projectId}`)))
+        ? { id: it.versionId, label: it.versionNumber || it.versionId } : null;
       try {
-        if (!now && mode === "check") {
+        if (pin) {
+          if (now?.versionId === pin.id) {
+            out.push({ title: it.title, status: "present", detail: `版を固定しています(${now.versionNumber})` });
+          } else if (!(await versionsOf(it.source, it.projectId, p, teamId)).some((v) => v.versionId === pin.id)) {
+            out.push({ title: it.title, status: "skipped", detail: `固定した版 ${pin.label} は、このサーバーの種類・バージョンに合わないので飛ばしました`, pinned: true });
+          } else if (mode === "check") {
+            out.push(now ? { title: it.title, status: "available", detail: `${now.versionNumber} → ${pin.label}(固定した版)` }
+              : { title: it.title, status: "missing", detail: `入っていません(固定した版 ${pin.label})` });
+          } else {
+            const file = await fileById(it.source, it.projectId, pin.id, teamId);
+            if (!file) throw new HttpError(404, `固定した版 ${pin.label} が見つかりません`);
+            const r = await installInto(teamId, userId, target, p, it.source, it.projectId, { file });
+            out.push({ title: it.title, status: now ? "updated" : "installed", detail: now ? `${now.versionNumber} → ${r.versionNumber}(固定した版)` : `${r.versionNumber}(固定した版)` });
+            for (const d of r.deps) out.push({ title: d.title, status: d.ok ? "installed" : "failed", detail: d.ok ? `${d.detail}(${it.title} の前提)` : d.detail });
+          }
+        } else if (!now && mode === "check") {
           out.push({ title: it.title, status: "missing", detail: "入っていません" });
         } else if (!now) {
           const r = await installInto(teamId, userId, target, p, it.source, it.projectId);
@@ -178,7 +198,8 @@ export function setService(deps: Deps) {
   async function updateInstalled(teamId: string, userId: string | null, serverId: string) {
     const records = await db.select().from(installedMod).where(eq(installedMod.serverId, serverId));
     const type = PLATFORMS[(await needProfile(serverId)).platform].type;
-    return applyTo(teamId, userId, records.map((x) => ({ source: x.source, projectId: x.projectId, title: x.title, projectType: type })), serverId, "sync");
+    const pins = await pinsOf(serverId); // 結び付けたセットで固定した版は、新しい版ではなくその版に
+    return applyTo(teamId, userId, records.map((x) => ({ source: x.source, projectId: x.projectId, title: x.title, projectType: type, ...pins.get(`${x.source}:${x.projectId}`) })), serverId, "sync");
   }
 
   const serverName = async (serverId: string) => (await db.select({ name: server.name }).from(server).where(eq(server.id, serverId)))[0]?.name ?? "";
@@ -186,7 +207,8 @@ export function setService(deps: Deps) {
     const [srv] = await db.select({ id: server.id }).from(server).where(and(eq(server.id, serverId), eq(server.teamId, teamId)));
     if (!srv) throw new HttpError(404, "サーバーが見つかりません");
   }
-  const itemsOf = (setId: string) => db.select({ id: libraryItem.id, source: libraryItem.source, projectId: libraryItem.projectId, title: libraryItem.title, projectType: libraryItem.projectType, iconUrl: libraryItem.iconUrl })
+  const itemsOf = (setId: string) => db.select({ id: libraryItem.id, source: libraryItem.source, projectId: libraryItem.projectId, title: libraryItem.title, projectType: libraryItem.projectType, iconUrl: libraryItem.iconUrl,
+    versionId: addonSetItem.versionId, versionNumber: addonSetItem.versionNumber })
     .from(addonSetItem).innerJoin(libraryItem, eq(addonSetItem.itemId, libraryItem.id))
     .where(eq(addonSetItem.setId, setId)).orderBy(asc(libraryItem.title));
 
@@ -247,6 +269,31 @@ export function setService(deps: Deps) {
       const [{ c }] = await db.select({ c: count() }).from(addonSetItem).where(eq(addonSetItem.setId, id));
       if (c >= SET_LIMITS.itemsPerSet) throw new HttpError(400, `1 つのセットに入れられるのは ${SET_LIMITS.itemsPerSet} 件までです`);
       await db.insert(addonSetItem).values({ setId: id, itemId }).onConflictDoNothing();
+    },
+
+    /**
+     * セットのアイテムを、ある版に固定する(versionId が null なら固定をやめ、いつもサーバーに合う新しい版にする。編集者以上)。
+     * 固定した版は、セットを入れる・そろえる・予約・自動更新で入れる(サーバーの種類・バージョンに合わないときは知らせて飛ばす)。
+     * サーバーごとの「更新を止める」と違い、セットを結び付けたすべてのサーバーで同じ版にする
+     */
+    async pin(headers: Headers, id: string, itemId: string, versionId: string | null) {
+      const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
+      const set = await setOf(teamId, id);
+      const [row] = await db.select({ source: libraryItem.source, projectId: libraryItem.projectId, title: libraryItem.title })
+        .from(addonSetItem).innerJoin(libraryItem, eq(addonSetItem.itemId, libraryItem.id))
+        .where(and(eq(addonSetItem.setId, id), eq(addonSetItem.itemId, itemId), eq(libraryItem.teamId, teamId)));
+      if (!row) throw new HttpError(404, "セットに入っていません");
+      let versionNumber = "";
+      if (versionId) {
+        if (row.source === "spigot") throw new HttpError(400, "SpigotMC のものは版を固定できません(いちばん新しい版だけを入れられます)");
+        if (!isItemSource(row.source)) throw new HttpError(400, "この配布元のものは版を固定できません");
+        const f = await fileById(row.source, row.projectId, versionId, teamId);
+        if (!f || (f.upload && f.upload.itemId !== itemId)) throw new HttpError(404, "その版は見つかりません");
+        versionNumber = f.versionNumber;
+      }
+      await db.update(addonSetItem).set({ versionId: versionId || null, versionNumber }).where(and(eq(addonSetItem.setId, id), eq(addonSetItem.itemId, itemId)));
+      await record({ teamId, userId: user.id, kind: "admin", action: versionId ? "セットの版を固定する" : "セットの版の固定をやめる", target: set.name, detail: versionId ? `${row.title} ${versionNumber}` : row.title });
+      return { versionNumber };
     },
 
     /**

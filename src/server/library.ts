@@ -2,7 +2,7 @@
 // ファイルはこのアプリを通さず、Pterodactyl に配布元から直接取り込ませる
 import { createHash, randomUUID } from "node:crypto";
 import { cfFingerprint } from "./fingerprint";
-import { and, asc, count, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { ITEM_TYPES, PLATFORMS, MC_VERSION, LOADERS, type Platform, isItemType, isPlatform, kindsOf, mcClean, mcCovers } from "~/lib/platforms";
 import { installedMod, libraryItem, server, serverHold, serverProfile, user as userTable } from "./db/schema";
 import { HttpError, requireTeam } from "./guard";
@@ -10,7 +10,7 @@ import { type Channel, type ItemSource, SOURCE_LABEL, isChannel, isItemSource, p
 import { ModrinthError, type ProjectType, modrinthClient } from "./modrinth";
 import { SpigetError, spigetClient } from "./spiget";
 import { CF_KEY, CurseForgeError, curseforgeClient } from "./curseforge";
-import { installHistory, libraryDep, libraryFavorite, libraryFile, libraryTag, serverChange, teamCurseforge, teamOption } from "./db/schema";
+import { addonSetItem, installHistory, libraryDep, libraryFavorite, libraryFile, libraryTag, serverChange, serverSet, teamCurseforge, teamOption } from "./db/schema";
 import { hint, open, seal } from "./secrets";
 import { fileStore, uploadService } from "./uploads";
 import { analyzeJar } from "./jar";
@@ -391,13 +391,21 @@ export function modTools(deps: Deps) {
   const holdsOf = async (serverId: string) =>
     new Set((await db.select().from(serverHold).where(eq(serverHold.serverId, serverId))).map((h) => `${h.source}:${h.projectId}`));
 
-  // このアプリで入れたものの新しい版(止めているもの・無効にしたものは確かめない)。skipFailed なら確かめられないものを飛ばす
+  // 結び付けたセットで版を固定しているもの("配布元:ID" → 版)。結び付けていないサーバーは空
+  const pinsOf = async (serverId: string) =>
+    new Map((await db.select({ source: libraryItem.source, projectId: libraryItem.projectId, versionId: addonSetItem.versionId, versionNumber: addonSetItem.versionNumber })
+      .from(serverSet).innerJoin(addonSetItem, eq(addonSetItem.setId, serverSet.setId)).innerJoin(libraryItem, eq(addonSetItem.itemId, libraryItem.id))
+      .where(and(eq(serverSet.serverId, serverId), isNotNull(addonSetItem.versionId))))
+      .map((r) => [`${r.source}:${r.projectId}`, { versionId: r.versionId!, versionNumber: r.versionNumber }]));
+
+  // このアプリで入れたものの新しい版(止めているもの・セットで版を固定しているもの・無効にしたものは確かめない)。skipFailed なら確かめられないものを飛ばす
   async function updatesOf(serverId: string, p: Profile, teamId: string, skipFailed = false) {
     const records = await db.select().from(installedMod).where(eq(installedMod.serverId, serverId));
     const holds = await holdsOf(serverId);
+    const pins = await pinsOf(serverId);
     const out: { source: ItemSource; projectId: string; title: string; filename: string; current: string; latest: string }[] = [];
     for (const r of records) {
-      if (!isItemSource(r.source) || holds.has(`${r.source}:${r.projectId}`) || isDisabled(r.filename)) continue;
+      if (!isItemSource(r.source) || holds.has(`${r.source}:${r.projectId}`) || pins.has(`${r.source}:${r.projectId}`) || isDisabled(r.filename)) continue;
       let f;
       try {
         f = await latestFile(r.source, r.projectId, fileProfile(p, r.filename), teamId);
@@ -512,13 +520,13 @@ export function modTools(deps: Deps) {
     return { missing: missing.sort((a, b) => a.title.localeCompare(b.title)), errors: [...new Set(errors)] };
   }
 
-  return { missingOf, pickOf, modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn, dirOf, addonsIn, packVersions };
+  return { missingOf, pickOf, modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, pinsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn, dirOf, addonsIn, packVersions };
 }
 
 export function libraryService(deps: Deps) {
   const { db, auth } = deps;
   const { record } = eventService(deps);
-  const { missingOf, modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn, dirOf, addonsIn, packVersions } = modTools(deps);
+  const { missingOf, modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, pinsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn, dirOf, addonsIn, packVersions } = modTools(deps);
   // このチームで探せる配布元(CurseForge は API キーを設定したときだけ)
   const sourcesOf = async (teamId: string) => ["modrinth", "spigot", ...((await cfKeyOf(teamId)) ? ["curseforge"] : [])];
   const sourceOf = (v: string) => {
@@ -991,6 +999,7 @@ export function libraryService(deps: Deps) {
       const datapacks = kindsOf(profile.platform).includes("datapack") ? await dirOf(target, fileProfile(profile, ".zip")) : null;
       const records = new Map((await db.select().from(installedMod).where(eq(installedMod.serverId, row.id))).map((r) => [r.filename, r]));
       const holds = await holdsOf(row.id);
+      const pins = await pinsOf(row.id);
       const history = new Set((await db.select({ source: installHistory.source, projectId: installHistory.projectId }).from(installHistory)
         .where(eq(installHistory.serverId, row.id))).filter((h) => h.source !== "spigot").map((h) => `${h.source}:${h.projectId}`));
       return {
@@ -999,7 +1008,7 @@ export function libraryService(deps: Deps) {
           const r = records.get(f.name);
           return {
             filename: f.name, size: f.size, disabled: isDisabled(f.name), datapack: f.datapack,
-            ...(r ? { source: r.source, projectId: r.projectId, versionId: r.versionId, versionNumber: r.versionNumber, title: r.title, held: holds.has(`${r.source}:${r.projectId}`), canRollback: history.has(`${r.source}:${r.projectId}`) } : {}),
+            ...(r ? { source: r.source, projectId: r.projectId, versionId: r.versionId, versionNumber: r.versionNumber, title: r.title, held: holds.has(`${r.source}:${r.projectId}`), pinned: pins.get(`${r.source}:${r.projectId}`)?.versionNumber ?? null, canRollback: history.has(`${r.source}:${r.projectId}`) } : {}),
           };
         }).sort((a, b) => (a.title ?? a.filename).localeCompare(b.title ?? b.filename)),
       };

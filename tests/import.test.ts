@@ -9,7 +9,7 @@ import { eq, inArray } from "drizzle-orm";
 import { signupOpen } from "~/server/auth";
 import { addonSet, addonSetItem, libraryFile, libraryItem, localServer, pteroConnection, server, serverProfile, storageTarget } from "~/server/db/schema";
 import * as schema from "~/server/db/schema";
-import { maybeImportV02, maybeImportV02AutoUpdate, maybeImportV02Backups, maybeImportV02Channels, maybeImportV02Kinds, maybeImportV02Library, maybeImportV02Prefs, maybeImportV02Schedules, maybeImportV02Software, type ImportReport } from "~/server/import-v02";
+import { maybeImportV02, maybeImportV02AutoUpdate, maybeImportV02Backups, maybeImportV02Channels, maybeImportV02Kinds, maybeImportV02Library, maybeImportV02Pins, maybeImportV02Prefs, maybeImportV02Schedules, maybeImportV02Software, type ImportReport } from "~/server/import-v02";
 import { totpCode } from "~/server/legacy";
 import { open } from "~/server/secrets";
 import { TEST_SECRET, setup } from "./helpers";
@@ -78,7 +78,12 @@ function makeV02(dir: string) {
       (1, 1, '5.4', 'LuckPerms-5.4.jar', 'plugin/LuckPerms/LuckPerms-5.4.jar', 10, 'aaa', '{}', '2025-01-01'),
       (4, 1, '1.0', 'Jisaku-1.0.jar', 'plugin/自作/Jisaku-1.0.jar', 20, 'bbb', '{"loader":"Bukkit / Spigot / Paper"}', '2025-02-01'),
       (7, 2, '2.0', 'NasOnly.jar', 'plugin/NasOnly/NasOnly.jar', 30, 'ccc', '{}', '2025-03-01'),
-      (8, 1, '1.0', 'Tex-1.0.zip', 'resourcepack/テクスチャ/Tex-1.0.zip', 5, 'ddd', '{}', '2025-04-01');
+      (8, 1, '1.0', 'Tex-1.0.zip', 'resourcepack/テクスチャ/Tex-1.0.zip', 5, 'ddd', '{}', '2025-04-01'),
+      (1, 1, '5.3', 'LuckPerms-5.3.jar', 'plugin/LuckPerms/LuckPerms-5.3.jar', 10, 'eee', '{}', '2025-01-01'),
+      (3, 1, '0.1', 'lithium-0.1.jar', 'mod/Lithium/lithium-0.1.jar', 10, 'fff', '{}', '2025-01-01');
+    ALTER TABLE versions ADD COLUMN sha1 TEXT NOT NULL DEFAULT '';
+    UPDATE versions SET sha1='${'a'.repeat(40)}' WHERE id=5;
+    UPDATE versions SET sha1='${'b'.repeat(40)}' WHERE id=6;
   `);
   // 1 = Modrinth のプラグイン / 2 = 別の人が持つ同じプラグイン / 3 = Modrinth の Mod / 4 = アップロードしただけ / 5 = SpigotMC / 6 = Modrinth のデータパック / 8 = アップロードしたリソースパック
   d.exec(`
@@ -87,7 +92,7 @@ function makeV02(dir: string) {
       (3,'modrinth','gvQqBUqZ','Lithium','https://modrinth.com/mod/lithium'),(5,'spigot','9089','EssentialsX',''),
       (6,'modrinth','MURABITO','村人','https://modrinth.com/datapack/murabito');
     INSERT INTO sets (name, owner_id) VALUES ('ロビー', 1);
-    INSERT INTO set_items VALUES (1,1,2),(1,3,NULL),(1,4,NULL),(1,6,NULL);
+    INSERT INTO set_items VALUES (1,1,5),(1,3,6),(1,4,2),(1,6,NULL);
     ALTER TABLE item_sources ADD COLUMN channel TEXT NOT NULL DEFAULT '';
     UPDATE item_sources SET channel='release' WHERE item_id=3;
     INSERT INTO settings (key, value) VALUES ('stable_only', '0');
@@ -207,7 +212,6 @@ describe("v02 のライブラリ・セットの取り込み", () => {
       { key: "library/resourcepack/テクスチャ/Tex-1.0.zip", loaders: "[]", kind: "local", target: `${v03Dir}(v02 のパネルの中)` },
     ]);
     expect(Object.keys(skipped).filter((k) => k.startsWith("種類のわからないもの"))).toEqual([]);
-    expect(skipped["セットの版の固定(1 件)"]).toBeTruthy();
   });
 
   it("v02 のデータには書き込まない。二度目は取り込まない", async () => {
@@ -320,6 +324,32 @@ describe("v02 の見た目の取り込み", () => {
     expect(of("編集者")).toMatchObject({ preset: "aurora", dim: 0, blur: 0 });
     expect(of("viewer")).toMatchObject({ preset: "standard" });
     expect(await maybeImportV02Prefs(t.db, { v02Dir, v03Dir })).toBeNull();
+    expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
+  });
+});
+
+describe("v02 のセットの版の固定の取り込み", () => {
+  it("v02 の版(ファイル)を v03 の配布元の版に対応させて固定する(Modrinth は SHA-1・アップロードしたものは SHA-256)。対応が取れないものは理由を残す。一度だけ", async () => {
+    const asked: string[] = [];
+    const fake = async (url: string, init?: RequestInit) => {
+      asked.push(url);
+      if (url === "https://api.modrinth.com/v2/version_files") {
+        const { hashes } = JSON.parse(String(init?.body));
+        return Response.json(Object.fromEntries(hashes.filter((h: string) => h === "a".repeat(40)).map((h: string) => [h, { id: "LP053xxx", project_id: "Vebnzrzj", version_number: "5.3" }])));
+      }
+      return Response.json({}, { status: 404 });
+    };
+    const r = (await maybeImportV02Pins(t.db, { v02Dir, v03Dir, secret: TEST_SECRET, fetch: fake }))!;
+    expect(r.pinned.sort()).toEqual(["ロビー / LuckPerms 5.3", "ロビー / 自作 1.0"].sort());
+    expect(r.skipped).toEqual([{ what: "固定を引き継げなかったもの: ロビー / Lithium 0.1", detail: "Modrinth に同じファイルの版が見つかりません" }]);
+    expect(asked).toEqual(["https://api.modrinth.com/v2/version_files"]); // まとめて 1 回
+    const rows = await t.db.select({ item: libraryItem.title, versionId: addonSetItem.versionId, versionNumber: addonSetItem.versionNumber }).from(addonSetItem)
+      .innerJoin(libraryItem, eq(libraryItem.id, addonSetItem.itemId));
+    const of = (n: string) => rows.find((x) => x.item === n)!;
+    expect(of("LuckPerms")).toEqual({ item: "LuckPerms", versionId: "LP053xxx", versionNumber: "5.3" });
+    expect(of("自作").versionNumber).toBe("1.0");
+    expect(of("Lithium").versionId).toBeNull();
+    expect(await maybeImportV02Pins(t.db, { v02Dir, v03Dir, secret: TEST_SECRET, fetch: fake })).toBeNull();
     expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
   });
 });

@@ -73,6 +73,7 @@ export const ROUTES: Route[] = [
   { method: "POST", path: "/sets/:id/rename", scope: "library", summary: "セットの名前を変える(name)", example: { name: "ロビー用" }, handler: (s, h, [id], b) => s.sets.rename(h, id, str(b.name)) },
   { method: "POST", path: "/sets/:id/remove", scope: "library", summary: "セットを消す", example: {}, handler: (s, h, [id]) => s.sets.remove(h, id) },
   { method: "POST", path: "/sets/:id/items", scope: "library", summary: "セットにアイテムを入れる・外す(itemId、add: true / false)", example: { itemId: "<アイテムの ID>", add: true }, handler: (s, h, [id], b) => s.sets.toggleItem(h, id, str(b.itemId), b.add === true) },
+  { method: "POST", path: "/sets/:id/pin", scope: "library", summary: "セットのアイテムを版に固定する(itemId、versionId。null で固定をやめ、いつも新しい版に)", example: { itemId: "<アイテムの ID>", versionId: "<版の ID>" }, handler: (s, h, [id], b) => s.sets.pin(h, id, str(b.itemId), str(b.versionId) || null) },
   { method: "POST", path: "/sets/:id/apply", scope: "library", summary: "セットの中身をサーバーに入れる(serverId。足りないものだけ)", example: { serverId: "<サーバーの ID>" }, handler: (s, h, [id], b) => s.sets.apply(h, id, str(b.serverId)) },
   // パネル
   { method: "GET", path: "/jobs", scope: "read", summary: "処理の一覧(導入・そろえる・バックアップなど。待ち・実行中・成功・失敗)", handler: (s, h) => s.jobs.list(h) },

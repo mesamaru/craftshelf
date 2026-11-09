@@ -225,6 +225,13 @@
       "when": 1794216123438,
       "tag": "0031_library_pack",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1794220858918,
+      "tag": "0032_set_item_pin",
+      "breakpoints": true
     }
   ]
 }

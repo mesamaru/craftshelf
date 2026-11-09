@@ -112,6 +112,13 @@ async function build() {
     } catch (e) {
       console.error("[v02] 見た目の設定の取り込みに失敗しました(v02 のデータはそのままです):", e);
     }
+    const { maybeImportV02Pins } = await import("./import-v02");
+    try {
+      const r = await maybeImportV02Pins(db, { ...env, fetch: safeFetch });
+      if (r && (r.pinned.length || r.skipped.length)) console.log(`[v02] セットの版の固定を引き継ぎました: ${r.pinned.length} 件(引き継げなかったもの ${r.skipped.length} 件。結果は /data/v03/import-v02-pins.json)`);
+    } catch (e) {
+      console.error("[v02] セットの版の固定の取り込みに失敗しました(v02 のデータはそのままです):", e);
+    }
   }
   const { resendMailer } = await import("./mail");
   const mailer = env.mail ? resendMailer(safeFetch, env.mail.resendKey, env.mail.from) : null;

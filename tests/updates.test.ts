@@ -13,7 +13,7 @@ import { maybeImportV02SelfUpdate, reportPath } from "~/server/import-v02";
 import { RESET_FILE, applyOwnerReset } from "~/server/owner-reset";
 import { pickAuto, readUpdateState, updateService } from "~/server/updates";
 import type { Release } from "~/server/versions";
-import { defaultDataDir, pickApp } from "../packaging/launcher.mjs";
+import { defaultDataDir, pickApp, startTray } from "../packaging/launcher.mjs";
 import { setup } from "./helpers";
 
 vi.setConfig({ testTimeout: 30_000 });
@@ -199,6 +199,14 @@ describe("ランチャー", () => {
     expect(existsSync(join(ver, ".starting"))).toBe(true);
     expect(pickApp(data, app, () => {})).toBe(app);
     expect(existsSync(join(data, "v03", "versions", "current"))).toBe(false);
+  });
+
+  it("タスクトレイは Windows・macOS だけで、助けのファイルが無ければ出さない。Windows のスクリプトは PowerShell 5.1 が日本語を読める BOM 付き", () => {
+    const opts = { url: "http://127.0.0.1:8765/", dataDir: tmpdir(), icon: "", onQuit: () => {}, log: () => {} };
+    expect(startTray({ ...opts, platform: "linux" })).toBeNull();
+    expect(startTray({ ...opts, platform: "darwin", here: tmpdir() })).toBeNull();
+    expect(startTray({ ...opts, platform: "win32", here: tmpdir() })).toBeNull();
+    expect([...readFileSync(join(process.cwd(), "packaging", "tray.ps1")).subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
   });
 });
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // CraftShelf v03 を Docker なしで起動する(Windows・macOS の配布物と、Linux の install.sh)。v02 の launcher.py の代わり。
 //
-//   node launcher.mjs [--data-dir <フォルダ>] [--host 0.0.0.0] [--port 8765] [--no-browser]
+//   node launcher.mjs [--data-dir <フォルダ>] [--host 0.0.0.0] [--port 8765] [--no-browser] [--no-tray]
 //   node launcher.mjs reset-owner <メールアドレスか名前> [--data-dir <フォルダ>]   … ログインを戻す(下)
 //
 // - データの場所: --data-dir → 環境変数 DATA_DIR → v02 のインストーラー版と同じ場所(Windows は %LOCALAPPDATA%\CraftShelf、
@@ -9,6 +9,8 @@
 // - 待ち受け: --host・--port → 環境変数 HOST・PORT → データの場所の launcher.json({"host": "0.0.0.0", "port": 8765})→ 127.0.0.1:8765(v02 と同じ)。
 // - 版: パネルで選んだ版(<データ>/v03/versions/current)があればそれを、無ければ一緒に入っている版(app/)を起動する。
 //   選んだ版が前回うまく起動しなかった(.starting が消えていない)ときは、入っている版に戻す(docker/start.sh と同じ)。
+// - タスクトレイ(Windows は tray.ps1、macOS は同梱の craftshelf-tray でメニューバー)にアイコンを出す。メニューは「CraftShelf を開く」「保存先フォルダを開く」「終了」(v02 と同じ)。
+//   Windows はコマンドの窓を残さないよう、窓の無いプロセスで動かし直す(記録は craftshelf.log)。--no-tray で出さない(Linux は出さない)
 // - パネルが終了したら(版の切り替え・バックアップから戻すなどの再起動)、もう一度起動する。続けて落ちるときはあきらめる。
 // - reset-owner: 二段階認証の端末も予備のコードもなくしたとき、その人の二段階認証とパスキーを外し、新しいパスワードを出す。
 //   データの場所に頼みごとのファイルを置き、動いているパネルが数秒で片付ける(パネルが止まっていれば、次に起動したとき)。
@@ -25,13 +27,14 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const VERSION = /^\d{2}\.\d{2}\.\d{2}$/;
 
 function parse(argv) {
-  const o = { cmd: "", rest: [], dataDir: "", host: "", port: 0, browser: true };
+  const o = { cmd: "", rest: [], dataDir: "", host: "", port: 0, browser: true, tray: true };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--data-dir") o.dataDir = argv[++i] ?? "";
     else if (a === "--host") o.host = argv[++i] ?? "";
     else if (a === "--port") o.port = Number(argv[++i]);
     else if (a === "--no-browser") o.browser = false;
+    else if (a === "--no-tray") o.tray = false;
     else if (!o.cmd && a === "reset-owner") o.cmd = a;
     else o.rest.push(a);
   }
@@ -83,6 +86,20 @@ function openBrowser(url) {
   try {
     spawn(cmd, args, { stdio: "ignore", detached: true, windowsHide: true }).on("error", () => {}).unref();
   } catch { /* 開けなくても動かし続ける */ }
+}
+
+/** タスクトレイのアイコン(Windows・macOS)。「終了」で onQuit を呼ぶ。出せないときは null */
+export function startTray({ url, dataDir, icon, onQuit, log = console.log, platform = process.platform, here = HERE }) {
+  const helper = join(here, platform === "win32" ? "tray.ps1" : "craftshelf-tray");
+  if ((platform !== "win32" && platform !== "darwin") || !existsSync(helper)) return null;
+  const [cmd, args] = platform === "win32"
+    ? ["powershell.exe", ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-STA", "-WindowStyle", "Hidden", "-File", helper,
+      "-Url", url, "-DataDir", dataDir, "-Icon", icon, "-ParentPid", String(process.pid)]]
+    : [helper, [url, dataDir, icon]];
+  const p = spawn(cmd, args, { stdio: ["pipe", "pipe", "ignore"], windowsHide: true });
+  p.on("error", (e) => log(`[トレイ] アイコンを出せませんでした(${e.message})。止めるときはウィンドウを閉じてください`));
+  p.stdout.on("data", (d) => { if (String(d).includes("quit")) onQuit(); });
+  return p;
 }
 
 async function healthy(port) {
@@ -149,6 +166,26 @@ async function main() {
     return;
   }
 
+  if (process.platform === "win32" && o.tray && !process.env.CRAFTSHELF_BACKGROUND && existsSync(join(HERE, "tray.ps1"))) {
+    // コマンドの窓を残さないよう、窓の無いプロセスで動かし直し、起動を見届けてからこの窓を閉じる。すぐ終わったら窓を残す(CraftShelf.cmd の pause)
+    const bg = spawn(process.execPath, [fileURLToPath(import.meta.url), ...process.argv.slice(2)], {
+      detached: true, stdio: "ignore", windowsHide: true, env: { ...process.env, CRAFTSHELF_BACKGROUND: "1" },
+    });
+    console.log(`CraftShelf をタスクトレイで起動しています…(データ: ${dataDir})`);
+    const exited = new Promise((r) => bg.on("exit", (c) => r(c ?? 1)));
+    for (let i = 0; i < 90; i++) {
+      const code = await Promise.race([exited, sleep(1000).then(() => null)]);
+      if (code !== null) {
+        console.error(`起動できませんでした(終了コード ${code})。${join(dataDir, "craftshelf.log")} を見てください`);
+        process.exit(1);
+      }
+      if (await healthy(port)) break;
+    }
+    console.log("起動しました。止めるときは、タスクトレイの CraftShelf のアイコンを右クリックして「終了」を選びます。");
+    bg.unref();
+    process.exit(0);
+  }
+
   const logFile = createWriteStream(join(dataDir, "craftshelf.log"), { flags: "a" });
   const log = (s) => {
     process.stdout.write(s + "\n");
@@ -165,13 +202,17 @@ async function main() {
   let child = null;
   let fails = 0;
   let opened = !o.browser;
+  let tray = null;
   const stop = () => {
     stopping = true;
     child?.kill();
+    tray?.kill();
     setTimeout(() => process.exit(0), 5000).unref();
   };
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
+
+  if (o.tray) tray = startTray({ url, dataDir, icon: join(appDir, ".output", "public", "icon-192.png"), onQuit: stop, log });
 
   while (!stopping) {
     const dir = pickApp(dataDir, appDir, log);
@@ -205,6 +246,7 @@ async function main() {
     log(code === 0 ? "[起動] パネルを再起動します" : `[起動] パネルが終了しました(終了コード ${code})。もう一度起動します`);
     await sleep(1000);
   }
+  tray?.kill();
   logFile.end();
 }
 

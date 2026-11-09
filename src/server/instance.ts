@@ -142,6 +142,19 @@ async function build() {
     } catch (e) {
       console.error("[v02] 配布元のファイルの取り込みに失敗しました(v02 のデータはそのままです):", e);
     }
+    const { maybeImportV02Deps, maybeImportV02Shares } = await import("./import-v02");
+    try {
+      const r = await maybeImportV02Deps(db, env);
+      if (r && (r.linked.length || r.skipped.length)) console.log(`[v02] 前提の紐付けを引き継ぎました: ${r.linked.length} 件(引き継げなかったもの ${r.skipped.length} 件。結果は /data/v03/import-v02-deps.json)`);
+    } catch (e) {
+      console.error("[v02] 前提の紐付けの取り込みに失敗しました(v02 のデータはそのままです):", e);
+    }
+    try {
+      const r = await maybeImportV02Shares(db, env);
+      if (r && (r.links.length || r.skipped.length)) console.log(`[v02] 共有リンクを引き継ぎました: ${r.links.length} 個(引き継げなかったもの ${r.skipped.length} 件。結果は /data/v03/import-v02-shares.json)`);
+    } catch (e) {
+      console.error("[v02] 共有リンクの取り込みに失敗しました(v02 のデータはそのままです):", e);
+    }
     const { maybeImportV02SelfUpdate } = await import("./import-v02");
     try {
       if (maybeImportV02SelfUpdate(env)?.auto) console.log("[v02] パネルの自動アップデートを引き継ぎました(安定版だけ)");

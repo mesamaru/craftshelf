@@ -14,7 +14,7 @@ export const SHARE_LIMITS = { maxHours: 24 * 30, filesPerLink: 100, linksPerTeam
 const FOREVER = new Date("9999-12-31T00:00:00Z"); // 無期限(前の版でも「期限内」として読めるよう、空にはしない)
 const isForever = (d: Date) => d.getUTCFullYear() >= 9999;
 const hashOf = (token: string) => createHash("sha256").update(token).digest("hex");
-const safeZipName = (s: string) => (s.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^[._]+/, "").slice(0, 60) || "craftshelf") + ".zip";
+export const safeZipName = (s: string) => (s.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^[._]+/, "").slice(0, 60) || "craftshelf") + ".zip";
 
 export function shareService(deps: Deps) {
   const { db, auth } = deps;

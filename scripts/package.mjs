@@ -5,7 +5,8 @@
 //   node scripts/package.mjs win-x64 linux-arm64 …
 //
 // dist/craftshelf-v03-<版>-<OS>-<CPU>.zip / .tar.gz ができる。中身は CraftShelf/ の下に
-//   node/(公式の Node.js。チェックサムで確かめる)・app/(.output・drizzle・VERSION)・launcher.mjs・起動するファイル・README.txt
+//   node/(公式の Node.js。チェックサムで確かめる)・app/(.output・drizzle・VERSION)・launcher.mjs・起動するファイル・README.txt と、
+//   タスクトレイのアイコン(Windows は tray.ps1。macOS は packaging/craftshelf-tray〔CI の macOS で tray-macos.swift からビルドしたもの〕があれば)
 // Node.js の版は、このスクリプトを動かしている Node と同じ(NODE_DIST_VERSION で変えられる)
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -33,7 +34,10 @@ const README = `CraftShelf v03 ${VERSION}
 
 起動: Windows は CraftShelf.cmd、macOS は CraftShelf.command をダブルクリックします(macOS で開けないときは、右クリック →「開く」)。
       Linux は ./craftshelf.sh(サーバーで常駐させるなら install.sh を使ってください)。
-      ブラウザで http://127.0.0.1:8765/ が開きます。止めるときは、出てきたウィンドウを閉じます。
+      ブラウザで http://127.0.0.1:8765/ が開きます。Windows はタスクトレイ、macOS はメニューバーに CraftShelf のアイコンが出ます
+      (「CraftShelf を開く」「保存先フォルダを開く」「終了」)。止めるときは、アイコンの「終了」か、出てきたウィンドウを閉じます。
+      アイコンを出さないときは --no-tray を付けて起動します(Windows は、そのときはウィンドウが出たままになります)。
+      macOS でアイコンが出ないときは、ターミナルで xattr -dr com.apple.quarantine <CraftShelf のフォルダ> を動かしてから起動し直します(署名していないため)。
 データ: Windows は %LOCALAPPDATA%\\CraftShelf、macOS は ~/Library/Application Support/CraftShelf、Linux は ~/.local/share/craftshelf
         (v02 のインストーラー版と同じ場所。v02 のデータがあれば、初めての起動で取り込みます。v02 は先に終了してください)
         ほかの場所にするときは --data-dir <フォルダ> を付けて起動します。
@@ -76,6 +80,15 @@ async function build(target, sums) {
     copyFileSync(join(ROOT, "packaging", "launcher.mjs"), join(stage, "launcher.mjs"));
     copyFileSync(join(ROOT, "LICENSE"), join(stage, "LICENSE"));
     writeFileSync(join(stage, "README.txt"), win ? README.replace(/\n/g, "\r\n") : README);
+    if (win) copyFileSync(join(ROOT, "packaging", "tray.ps1"), join(stage, "tray.ps1"));
+    const macTray = join(ROOT, "packaging", "craftshelf-tray");
+    if (target.startsWith("darwin")) {
+      if (existsSync(macTray)) {
+        copyFileSync(macTray, join(stage, "craftshelf-tray"));
+        chmodSync(join(stage, "craftshelf-tray"), 0o755);
+      } else if (process.env.CI) throw new Error(`${macTray} がありません(.github/workflows の tray-macos のジョブで作ります)`);
+      else console.warn(`${macTray} が無いので、${target} にはメニューバーのアイコンを入れません(macOS で swiftc を使って作ります。.github/workflows の tray-macos)`);
+    }
     if (win) {
       writeFileSync(join(stage, "CraftShelf.cmd"), `@echo off\r\ntitle CraftShelf\r\n"%~dp0node\\node.exe" "%~dp0launcher.mjs" %*\r\nif errorlevel 1 pause\r\n`);
     } else {

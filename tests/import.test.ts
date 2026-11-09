@@ -9,13 +9,16 @@ import { eq, inArray } from "drizzle-orm";
 import { signupOpen } from "~/server/auth";
 import { addonSet, addonSetItem, libraryFile, libraryItem, localServer, pteroConnection, server, serverProfile, storageTarget } from "~/server/db/schema";
 import * as schema from "~/server/db/schema";
-import { maybeImportV02, maybeImportV02AutoUpdate, maybeImportV02Backups, maybeImportV02Channels, maybeImportV02Kinds, maybeImportV02Library, maybeImportV02Perms, maybeImportV02Pins, maybeImportV02Prefs, maybeImportV02Saved, maybeImportV02Schedules, maybeImportV02Software, type ImportReport } from "~/server/import-v02";
+import { maybeImportV02, maybeImportV02AutoUpdate, maybeImportV02Backups, maybeImportV02Channels, maybeImportV02Deps, maybeImportV02Kinds, maybeImportV02Library, maybeImportV02Perms, maybeImportV02Pins, maybeImportV02Prefs, maybeImportV02Saved, maybeImportV02Schedules, maybeImportV02Shares, maybeImportV02Software, type ImportReport } from "~/server/import-v02";
 import { totpCode } from "~/server/legacy";
+import { shareService } from "~/server/shares";
 import { open } from "~/server/secrets";
 import { TEST_SECRET, setup } from "./helpers";
 import { V02 } from "./legacy.test";
 
 const TOTP = "JBSWY3DPEHPK3PXP";
+const V02_SHARE = "V02shareTokenAAAAAAAAAAAAAAAAAAA"; // v02 が配った URL の /s/<トークン>
+const sha256hex = (s: string) => createHash("sha256").update(s).digest("hex");
 
 // v02(02.21)と同じ形の index.db・secret.key
 function makeV02(dir: string) {
@@ -76,8 +79,8 @@ function makeV02(dir: string) {
     INSERT INTO storage_targets (name, protocol, server, share, active) VALUES ('パネルの中', 'local', '', '', 1), ('家の NAS', 'smb', 'nas.example.test', 'share', 0);
     INSERT INTO versions (item_id, target_id, version, filename, relpath, size, sha256, meta, added_at) VALUES
       (1, 1, '5.4', 'LuckPerms-5.4.jar', 'plugin/LuckPerms/LuckPerms-5.4.jar', 10, 'aaa', '{}', '2025-01-01'),
-      (4, 1, '1.0', 'Jisaku-1.0.jar', 'plugin/自作/Jisaku-1.0.jar', 20, 'bbb', '{"loader":"Bukkit / Spigot / Paper"}', '2025-02-01'),
-      (7, 2, '2.0', 'NasOnly.jar', 'plugin/NasOnly/NasOnly.jar', 30, 'ccc', '{}', '2025-03-01'),
+      (4, 1, '1.0', 'Jisaku-1.0.jar', 'plugin/自作/Jisaku-1.0.jar', 20, 'bbb', '{"loader":"Bukkit / Spigot / Paper","depends":["LP-Core","Essentials"],"softdepends":["Lithium Mod"]}', '2025-02-01'),
+      (7, 2, '2.0', 'NasOnly.jar', 'plugin/NasOnly/NasOnly.jar', 30, 'ccc', '{"depends":["LP-Core"]}', '2025-03-01'),
       (8, 1, '1.0', 'Tex-1.0.zip', 'resourcepack/テクスチャ/Tex-1.0.zip', 5, 'ddd', '{}', '2025-04-01'),
       (1, 1, '5.3', 'LuckPerms-5.3.jar', 'plugin/LuckPerms/LuckPerms-5.3.jar', 10, 'eee', '{}', '2025-01-01'),
       (3, 1, '0.1', 'lithium-0.1.jar', 'mod/Lithium/lithium-0.1.jar', 10, 'fff', '{}', '2025-01-01');
@@ -99,6 +102,17 @@ function makeV02(dir: string) {
     ALTER TABLE items ADD COLUMN keep_versions INTEGER NOT NULL DEFAULT 0;
     UPDATE items SET keep_versions=3 WHERE id=4;
   `);
+  // 前提の手での紐付け(保存先 1 だけ。NASだけ〔保存先 2〕の LP-Core は紐付けていない)と、共有リンク
+  d.exec(`
+    CREATE TABLE dep_links (target_id INTEGER NOT NULL, dep_key TEXT NOT NULL, item_id INTEGER NOT NULL, PRIMARY KEY (target_id, dep_key));
+    INSERT INTO dep_links VALUES (1, 'lpcore', 1), (1, 'essentials', 5), (1, 'lithiummod', 3);
+    CREATE TABLE shares (id INTEGER PRIMARY KEY AUTOINCREMENT, token_hash TEXT NOT NULL UNIQUE, name TEXT NOT NULL, target_id INTEGER NOT NULL, versions TEXT NOT NULL DEFAULT '[]',
+      created_by TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, expires_at TEXT NOT NULL, downloads INTEGER NOT NULL DEFAULT 0, owner_id INTEGER NOT NULL DEFAULT 0);
+  `);
+  const share = d.prepare("INSERT INTO shares (token_hash, name, target_id, versions, created_by, created_at, expires_at, downloads, owner_id) VALUES (?,?,1,?,'Owner','2025-05-01T00:00:00Z',?,?,1)");
+  share.run(sha256hex(V02_SHARE), "Lobby pack", "[1, 2, 99]", "2099-01-01T00:00:00Z", 4);
+  share.run(sha256hex("expiredTokenAAAAAAAAAAAAAAAAAAAA"), "古いもの", "[1]", "2020-01-01T00:00:00Z", 0);
+  share.run(sha256hex("missingTokenAAAAAAAAAAAAAAAAAAAA"), "消えたもの", "[99]", "2099-01-01T00:00:00Z", 0);
   d.close();
   writeFileSync(join(dir, "secret.key"), V02.fernetKey);
 }
@@ -391,6 +405,48 @@ describe("v02 の配布元のファイルの取り込み", () => {
       ["LuckPerms", "library/plugin/LuckPerms/LuckPerms-5.4.jar", "v02:1"],
     ]);
     expect(await maybeImportV02Saved(t.db, { v02Dir, v03Dir, secret: TEST_SECRET, fetch: fake })).toBeNull();
+    expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
+  });
+});
+
+describe("v02 の前提の紐付けの取り込み", () => {
+  it("いちばん新しい版の depends に紐付けた名前があれば、v03 の手で決める前提にする(保存先ごと)。任意の前提・取り込んでいないものは理由を残す。一度だけ", async () => {
+    // 紐付け先を v03 で消したことにする(取り込めなかったときの理由を確かめる)
+    await t.db.delete(libraryItem).where(eq(libraryItem.title, "EssentialsX"));
+    const r = (await maybeImportV02Deps(t.db, { v02Dir, v03Dir }))!;
+    expect(r.linked).toEqual(["自作 → LuckPerms"]); // NASだけ(保存先 2)の LP-Core は、保存先 1 の紐付けを使わない
+    expect(r.skipped).toEqual([
+      { what: "前提の紐付け: 自作 → EssentialsX(Essentials)", detail: "「EssentialsX」をライブラリに取り込んでいません" },
+      { what: "前提の紐付け: 自作 → Lithium(Lithium Mod)", detail: "v02 では任意の前提(softdepend)でした。v03 で手で決める前提は必須の前提だけなので、引き継いでいません" },
+    ]);
+    const links = await t.db.select({ item: schema.libraryDep.itemId, dep: schema.libraryDep.depItemId }).from(schema.libraryDep);
+    const title = async (id: string) => (await t.db.select({ t: libraryItem.title }).from(libraryItem).where(eq(libraryItem.id, id)))[0].t;
+    expect(await Promise.all(links.map(async (l) => `${await title(l.item)} → ${await title(l.dep)}`))).toEqual(["自作 → LuckPerms"]);
+    expect(await maybeImportV02Deps(t.db, { v02Dir, v03Dir })).toBeNull();
+    expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
+  });
+});
+
+describe("v02 の共有リンクの取り込み", () => {
+  it("v02 のトークンのハッシュをそのまま引き継ぎ、v02 の URL のトークンで開ける。取り込んでいない版は外し、期限切れ・中身の無いものは引き継がない。一度だけ", async () => {
+    const r = (await maybeImportV02Shares(t.db, { v02Dir, v03Dir }))!;
+    expect(r.links).toEqual(["Lobby pack"]);
+    expect(r.skipped).toEqual([
+      { what: "共有リンク「Lobby pack」の 1 件", detail: "v03 に取り込んでいない版は外しました(ほかは同じ URL で渡せます)" },
+      { what: "共有リンク「古いもの」", detail: "期限が切れています" },
+      { what: "共有リンク「消えたもの」", detail: "共有していた版を v03 に取り込んでいません" },
+    ]);
+    const [s] = await t.db.select().from(schema.shareLink);
+    const [owner] = await t.db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.name, "Owner"));
+    expect({ name: s.name, by: s.createdBy, downloads: s.downloads, max: s.maxDownloads, expires: s.expiresAt.toISOString(), files: JSON.parse(s.fileIds).length })
+      .toEqual({ name: "Lobby pack", by: owner.id, downloads: 4, max: null, expires: "2099-01-01T00:00:00.000Z", files: 2 });
+    const shares = shareService({ db: t.db, auth: t.auth, secret: TEST_SECRET, fetch: async () => Response.json({}, { status: 404 }), local: { dataDir: v03Dir } });
+    const f = await shares.download(V02_SHARE); // v02 の /s/<トークン>/<ファイル名> と同じトークン
+    expect(f?.filename).toBe("Lobby_pack.zip");
+    f?.stream.destroy();
+    expect((await t.db.select().from(schema.shareLink))[0].downloads).toBe(5);
+    expect(await shares.download("expiredTokenAAAAAAAAAAAAAAAAAAAA")).toBeNull();
+    expect(await maybeImportV02Shares(t.db, { v02Dir, v03Dir })).toBeNull();
     expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
   });
 });

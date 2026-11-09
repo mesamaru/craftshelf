@@ -266,7 +266,14 @@ function ImportReport({ userId }: { userId: string }) {
         {report.perms && report.perms.users.length > 0 && (
           <div className="row"><span>ユーザーごとの権限</span><span className="trail" translate="no">{report.perms.users.map((u) => u.name).join("、")}</span></div>
         )}
-        {[...report.skipped, ...(report.library?.skipped ?? []), ...(report.kinds?.skipped ?? []), ...(report.pins?.skipped ?? []), ...(report.perms?.skipped ?? [])].map((x, i) => (
+        {report.deps && report.deps.linked.length > 0 && (
+          <div className="row"><span>前提の紐付け</span><span className="trail">{`${report.deps.linked.length} 件`}</span></div>
+        )}
+        {report.shares && report.shares.links.length > 0 && (
+          <div className="row"><span>共有リンク</span><span className="trail">{`${report.shares.links.length} 個`}</span></div>
+        )}
+        {[...report.skipped, ...(report.library?.skipped ?? []), ...(report.kinds?.skipped ?? []), ...(report.pins?.skipped ?? []), ...(report.perms?.skipped ?? []),
+          ...(report.deps?.skipped ?? []), ...(report.shares?.skipped ?? [])].map((x, i) => (
           <div className="row" key={i}><span className="main"><span>{x.what}</span><span className="muted" translate="no">{x.detail}</span></span><span className="trail">取り込まず</span></div>
         ))}
         {report.notes.map((n, i) => <p className="row muted" key={`n${i}`}>{n}</p>)}

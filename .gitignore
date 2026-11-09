@@ -11,3 +11,4 @@ dist/
 
 # エージェント(npm run build で作る)
 public/agent/
+packaging/craftshelf-tray

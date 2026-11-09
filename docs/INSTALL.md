@@ -33,13 +33,18 @@ GitHub のリリースから、OS に合うものを取ってきて展開しま�
 - Windows: `craftshelf-v03-<版>-win-x64.zip` → 展開した `CraftShelf` フォルダの `CraftShelf.cmd` をダブルクリック
 - macOS: `craftshelf-v03-<版>-darwin-arm64.tar.gz`(Apple シリコン)/ `-darwin-x64`(Intel)→ `CraftShelf.command` をダブルクリック(開けないときは、右クリック →「開く」)
 
-ウィンドウが開いてパネルが起動し、ブラウザで `http://127.0.0.1:8765/` が開きます。**止めるときは、そのウィンドウを閉じます**(タスクトレイのアイコンはありません。動いている間はウィンドウが出ています)。もう一度ダブルクリックすると、動いていればブラウザだけを開きます。
+パネルが起動し、ブラウザで `http://127.0.0.1:8765/` が開きます。もう一度ダブルクリックすると、動いていればブラウザだけを開きます。
+
+- **タスクトレイ(Windows)・メニューバー(macOS)のアイコン**: v02 と同じく、アイコンのメニューに「CraftShelf を開く」「保存先フォルダを開く」(データの場所)「終了」があります。**止めるときは「終了」**を選びます(パネルも止まります)。
+  - Windows: 起動を見届けたら、コマンドの窓は閉じます(記録はデータの場所の `craftshelf.log`)。アイコンは、タスクバーの右の「^」(隠れているアイコン)の中に入ることがあります。いつも見えるようにするには、アイコンをタスクバーへドラッグします。起動できなかったときは窓を残して理由を出します。
+  - macOS: メニューバーにアイコンが出ます。ターミナルのウィンドウを閉じても止まります。**署名していない**ため、ダウンロードしたものをそのまま展開すると、macOS がメニューバーのアイコンの部品(`craftshelf-tray`)を止めることがあります(アイコンが出ないだけで、パネルは動きます)。そのときはターミナルで `xattr -dr com.apple.quarantine <展開した CraftShelf のフォルダ>` を動かしてから起動し直します。
+  - アイコンを出さないときは `--no-tray` を付けて起動します(`CraftShelf.cmd --no-tray`)。そのときは、これまでどおりウィンドウが出たままになり、ウィンドウを閉じると止まります。
 
 - **データの場所**: Windows は `%LOCALAPPDATA%\CraftShelf`、macOS は `~/Library/Application Support/CraftShelf`(v02 のインストーラー版と同じ)。ほかの場所にするときは `CraftShelf.cmd --data-dir D:\CraftShelf` のように起動します(ショートカットのリンク先に足せます)。
 - **LAN のほかの端末から開く**: データの場所の `launcher.json` に `{"host": "0.0.0.0", "port": 8765}` と書きます(v02 と同じ)。
 - **パソコンの起動時に動かす**: Windows は Win+R で `shell:startup` を開いて `CraftShelf.cmd` のショートカットを置きます。macOS は「システム設定」→「一般」→「ログイン項目」に `CraftShelf.command` を足します。
-- 記録は画面のウィンドウと、データの場所の `craftshelf.log` に出ます。
-- **v02 のインストーラー版から移る**: v02 をタスクトレイの「終了」で止め、v02 を自動で起動する設定にしていれば外してから、v03 を起動します。データの場所が同じなので、初めての起動で v02 のデータを取り込みます(ポートも同じ 8765 なので、v02 と同時には動かせません)。v02 に戻すときは、v03 のウィンドウを閉じて v02 を起動します。
+- 記録はデータの場所の `craftshelf.log` に出ます(ウィンドウが出ているときは、そこにも)。
+- **v02 のインストーラー版から移る**: v02 をタスクトレイの「終了」で止め、v02 を自動で起動する設定にしていれば外してから、v03 を起動します。データの場所が同じなので、初めての起動で v02 のデータを取り込みます(ポートも同じ 8765 なので、v02 と同時には動かせません)。v02 に戻すときは、v03 をアイコンの「終了」で止めて v02 を起動します。
 - 更新: パネルの「パネルのバージョン」・自動アップデートで新しい版を取ってきます(データの場所の `v03/versions` に置きます)。中に入っている Node.js は配布物のものなので、Node.js の新しい版が要るようになったら、新しい配布物を取ってきて入れ替えてください。
 
 ## パネルの更新・自動アップデート・この更新の前に戻す
@@ -69,4 +74,4 @@ GitHub のリリースから、OS に合うものを取ってきて展開しま�
 
 ## 配布物を作る(開発する人向け)
 
-`npm run build` のあと `node scripts/package.mjs`(動かしている OS 向け)/ `node scripts/package.mjs all`(全部。Linux で)で `dist/` に作ります。公式の Node.js を取ってきて(チェックサムで確かめる)、`app/`(`.output`・`drizzle`・`VERSION`)・`launcher.mjs`・起動するファイルとまとめます。`v03.xx.xx` のタグ(`release-v03.yml`)と `dev` への push(`image.yml` の開発版のリリース)で、全部の OS 向けに作ってリリースに付けます。
+`npm run build` のあと `node scripts/package.mjs`(動かしている OS 向け)/ `node scripts/package.mjs all`(全部。Linux で)で `dist/` に作ります。公式の Node.js を取ってきて(チェックサムで確かめる)、`app/`(`.output`・`drizzle`・`VERSION`)・`launcher.mjs`・起動するファイル・タスクトレイの部品(Windows は `packaging/tray.ps1`、macOS は `packaging/craftshelf-tray`)とまとめます。macOS の `craftshelf-tray` は macOS で `swiftc` を使って `packaging/tray-macos.swift` から作ります(ワークフローの `tray-macos` のジョブ。手元で作らないときは、macOS 向けにはアイコンを入れずに作ります)。`v03.xx.xx` のタグ(`release-v03.yml`)と `dev` への push(`image.yml` の開発版のリリース)で、全部の OS 向けに作ってリリースに付けます。

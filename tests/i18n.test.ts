@@ -38,6 +38,8 @@ describe("英語表示", () => {
     expect(translate("送っています… 2 / 5")).toBe("Uploading… 2 / 5");
     expect(translate("2026/1/4 4:00:00 まで使えます(5 回まで)。この URL は今だけ表示します。")).toBe("Valid until 2026/1/4 4:00:00 (up to 5 downloads). This URL is shown only now.");
     expect(translate("期限はありません。この URL は今だけ表示します。")).toBe("No expiry. This URL is shown only now.");
+    expect(translate("共有リンク「Lobby」の 2 件")).toBe("2 items in share link “Lobby”"); // v02 から取り込んだ結果
+    expect(translate("前提の紐付け: 自作 → LuckPerms(LP-Core)")).toBe("Dependency link: 自作 → LuckPerms(LP-Core)");
     expect(translate("操作 12 回(30 日で 3 回)")).toBe("12 actions (3 in the last 30 days)");
     expect(translate("「ロビー」を「検証」にそろえますか?(入っているものだけ合わせる)")).toBe("Sync “ロビー” with “検証”? (Only match what is installed)");
     expect(translate("5 回")).toBe("5 times");

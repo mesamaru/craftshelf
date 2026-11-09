@@ -1520,6 +1520,8 @@ export const EN: Record<string, string> = {
   "パネルの自動アップデートができませんでした": "Panel auto update failed",
   "サーバーの上でログインを戻す": "Recover sign-in from the server",
   "二段階認証とパスキーを外し、パスワードを置き換えました(サーバーのコマンドから)": "Removed two-factor authentication and passkeys and replaced the password (from a command on the server)",
+  // 03.64.00: v02 の前提の紐付け・共有リンクの取り込み
+  "前提の紐付け": "Manual dependency links",
 };
 /** 1 文字だけのもの(曜日など)。文全体が一致したときだけ置き換える */
 export const EN_WHOLE: Record<string, string> = {
@@ -1852,6 +1854,10 @@ export const EN_RULES: [RegExp, To][] = [
   [/^足した権限 (\d+)・引いた権限 (\d+)$/, "Added $1 · removed $2"],
   [/^(.+) さんの権限「(.+)」$/, "$1's permission “$2”"],
   [/^(.+) さんの権限$/, "$1's permissions"],
+  // 03.64.00: v02 の前提の紐付け・共有リンクの取り込み
+  [/^前提の紐付け: (.+)$/, "Dependency link: $1"],
+  [/^共有リンク「(.+)」の (\d+) 件$/, "$2 items in share link “$1”"],
+  [/^共有リンク「(.+)」$/, "Share link “$1”"],
   // 03.61.00: 配布元のファイルの保存など
   [/^保存しました\(古い版を (\d+) 個整理しました\)$/, "Saved (cleaned up $1 old versions)"],
   [/^保存しました\(古い版 (.+) を整理しました\)$/, "Saved (cleaned up old versions $1)"],

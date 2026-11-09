@@ -173,14 +173,14 @@ def test_preflight_lists_what_is_not_carried_over():
         CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
         INSERT INTO settings VALUES ('discord_webhook', 'https://discord.com/api/webhooks/x');
         CREATE TABLE users (id INTEGER PRIMARY KEY, perms TEXT, totp_enabled INTEGER);
-        INSERT INTO users (perms, totp_enabled) VALUES ('[]', 0);
+        INSERT INTO users (perms, totp_enabled) VALUES ('["storage"]', 0);
     """)
     notes = v03switch.preflight(conn)
-    assert any("データパック・リソースパックなど 2 件" in x for x in notes)
+    assert not any("データパック" in x for x in notes)  # v03 03.58.00 から取り込む
     assert any(x.startswith("パスキー") for x in notes)
     assert any(x.startswith("Discord") for x in notes)
     assert not any(x.startswith("API トークン") for x in notes)  # 表が無ければ数えない
-    assert not any("個別に付けた権限" in x for x in notes)
+    assert not any("個別に付けた権限" in x for x in notes)  # v03 03.60.00 から取り込む
 
 
 def test_gunicorn_conf_reloads_v03switch(monkeypatch, tmp_path):

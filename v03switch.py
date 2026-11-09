@@ -109,9 +109,6 @@ def preflight(conn):
             return ""
 
     out = []
-    other = n("SELECT COUNT(*) FROM items WHERE category NOT IN ('plugin', 'mod')")
-    if other:
-        out.append(f"データパック・リソースパックなど {other} 件(v03 はプラグインと Mod だけを扱います)")
     if n("SELECT COUNT(*) FROM passkeys"):
         out.append("パスキー(移ったあとで登録し直してください)")
     if n("SELECT COUNT(*) FROM api_tokens"):
@@ -121,9 +118,7 @@ def preflight(conn):
     if setting("discord_webhook"):
         out.append("Discord への通知の設定(v03 の「チーム」で設定し直してください)")
     if n("SELECT COUNT(*) FROM set_items WHERE version_id IS NOT NULL"):
-        out.append("セットの版の固定(v03 はいつもサーバーに合う新しい版を入れます)")
-    if n("SELECT COUNT(*) FROM users WHERE perms IS NOT NULL AND perms != '' AND perms != '[]'"):
-        out.append("ユーザーに個別に付けた権限(v03 の役割に置き換わります)")
+        out.append("セットの版の固定のうち、配布元の版がわからないもの(v03 の取り込みの結果に出ます)")
     if n("SELECT COUNT(*) FROM users WHERE totp_enabled=1"):
         out.append("二段階認証の予備のコード(認証アプリのコードはそのまま使えます)")
     return out

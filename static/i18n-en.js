@@ -13,8 +13,7 @@ window.CS_EN = {
   "API トークン(v03 で作り直してください)": "API tokens (create them again in v03)",
   "共有リンク(v03 で作り直してください)": "Share links (create them again in v03)",
   "Discord への通知の設定(v03 の「チーム」で設定し直してください)": "Discord notification settings (set them again under v03's Team)",
-  "セットの版の固定(v03 はいつもサーバーに合う新しい版を入れます)": "Pinned versions in sets (v03 always installs the newest version that fits the server)",
-  "ユーザーに個別に付けた権限(v03 の役割に置き換わります)": "Per-user permissions (replaced by v03 roles)",
+  "セットの版の固定のうち、配布元の版がわからないもの(v03 の取り込みの結果に出ます)": "Pinned versions in sets whose source version is unknown (listed in v03's import results)",
   "二段階認証の予備のコード(認証アプリのコードはそのまま使えます)": "Two-factor backup codes (authenticator app codes keep working)",
   "切り替える前にいまのデータを退避し、ダウンロード(約 60 MB)のあと再起動します。v02 のデータは書き換えません。": "The current data is backed up first; after downloading (about 60 MB) the panel restarts. v02's data is not changed.",
   "Pterodactyl のサーバー": "Pterodactyl servers",
@@ -1896,7 +1895,6 @@ window.CS_EN = {
 };
 /* 数字と組み合わさる表現(辞書より先に適用) */
 window.CS_EN_RULES = [
-  [/データパック・リソースパックなど (\d+) 件\(v03 はプラグインと Mod だけを扱います\)/g, "$1 data packs, resource packs, etc. (v03 handles only plugins and mods)"],
   [/v03 v([\d.]+) に移りますか[?？]/g, "Move to v03 v$1?"],
   [/「(.+?)」さんが連携$/g, "linked by $1"],
   [/v03.開発版.v([\d.]+) に切り替えますか[?？]/g, "Switch to v03 (development) v$1?"],

@@ -10,8 +10,11 @@ export const EN: Record<string, string> = {
   "サーバー本体の配布元のビルドの一覧(今の Minecraft のバージョンの)と、選べるバージョン": "Builds of the server software from its source (for the current Minecraft version) and selectable versions",
   "サーバー本体を選んだビルドに入れ替える(mc・build を省くといちばん新しいもの。restart: true で再起動も)": "Replace the server software with a chosen build (omit mc and build for the newest; restart: true also restarts)",
   "サーバー本体を残した jar に戻す(file を省くといちばん新しいもの)": "Roll the server software back to a kept jar (omit file for the newest)",
-  "このサーバーに入れられるものを配布元で探す(query、source: modrinth / spigot / curseforge)": "Search the sources for things installable on this server (query, source: modrinth / spigot / curseforge)",
-  "入れる・更新する(source: modrinth / spigot / curseforge / upload、projectId。versionId で版を選べる)": "Install or update (source: modrinth / spigot / curseforge / upload, projectId; versionId picks a version)",
+  "このサーバーに入れられるものを配布元で探す(query、source: modrinth / spigot / curseforge。kind: datapack でデータパック)": "Search the sources for things installable on this server (query, source: modrinth / spigot / curseforge; kind: datapack for data packs)",
+  "入れる・更新する(source: modrinth / spigot / curseforge / upload、projectId。versionId で版を選べる。kind: datapack でデータパックとしてワールドの datapacks に。ライブラリでデータパックにしたものは省いてよい)":
+    "Install or update (source: modrinth / spigot / curseforge / upload, projectId; versionId picks a version; kind: datapack installs into the world's datapacks; may be omitted for items marked as data packs in the library)",
+  "入っている Mod・プラグイン・データパック(datapack: true の行はワールドの datapacks のもの)": "Installed mods, plugins and data packs (rows with datapack: true are in the world's datapacks)",
+  "Modパックのアイテムからセットを作る(serverId を渡すと、そのサーバーに設定ファイルと中身も入れる。管理者以上)": "Create a set from a modpack item (with serverId, also installs its config files and contents on that server; admins and above)",
   "外す(filename)": "Remove (filename)",
   "無効にする・有効にする(filename、enable: true で有効に。無効にしたものは名前の最後が .disabled)": "Disable or enable (filename, enable: true to enable; disabled files end with .disabled)",
   "更新を止める・止めるのをやめる(source、projectId、hold: true / false)": "Hold or release updates (source, projectId, hold: true / false)",
@@ -33,9 +36,10 @@ export const EN: Record<string, string> = {
   "ワールドのバックアップを始める(終わると一覧・処理の一覧・操作の記録に出る)": "Start a world backup (when done it appears in the list, Jobs and the activity log)",
   "ワールドのバックアップを消す(name)": "Delete a world backup (name)",
   "ワールドをバックアップから戻す(name。stop: true で動いていたら止める、truncate: true で Pterodactyl の今のファイルを消してから)": "Restore a world from a backup (name; stop: true stops a running server, truncate: true deletes current Pterodactyl files first)",
-  "ライブラリ(チームの Mod・プラグイン。対応 MC・受け取る版・手で決めた前提を含む)": "Library (the team's mods and plugins, with supported MC, versions to receive and hand-set dependencies)",
-  "ライブラリに足すものを配布元で探す(query、type: plugin / mod、source)": "Search the sources for things to add to the library (query, type: plugin / mod, source)",
-  "配布元のものをライブラリに足す(source・projectId。type: plugin / mod)": "Add a project from a source to the library (source, projectId; type: plugin / mod)",
+  "ライブラリ(チームの Mod・プラグイン・データパック・リソースパック・シェーダー・Modパック。対応 MC・受け取る版・手で決めた前提を含む)":
+    "Library (the team's mods, plugins, data packs, resource packs, shaders and modpacks, with supported MC, versions to receive and hand-set dependencies)",
+  "ライブラリに足すものを配布元で探す(query、type: plugin / mod / datapack / resourcepack / shader / modpack、source)": "Search the sources for things to add to the library (query, type: plugin / mod / datapack / resourcepack / shader / modpack, source)",
+  "配布元のものをライブラリに足す(source・projectId。type: plugin / mod / datapack / resourcepack / shader / modpack)": "Add a project from a source to the library (source, projectId; type: plugin / mod / datapack / resourcepack / shader / modpack)",
   "配布元のページの URL(url。Modrinth・SpigotMC・CurseForge)からライブラリに足す": "Add to the library from a source page URL (url; Modrinth, SpigotMC, CurseForge)",
   "タグを付ける・外す(itemIds: アイテムの ID の配列、tag、on: true / false)": "Add or remove a tag (itemIds: array of item IDs, tag, on: true / false)",
   "どこかのサーバーに新しい版があるアイテム": "Items with a newer version on some server",
@@ -1317,6 +1321,41 @@ export const EN: Record<string, string> = {
   "新しい版はありませんでした。": "No new versions.",
   "このアプリで入れた Mod・プラグインに新しい版があれば入れます。「更新を止める」にしたもの・無効にしたもの・種類を決めていないサーバーは変えません。変更はサーバーの再起動で反映されます。":
     "Installs new versions of mods and plugins installed by this app. Held and disabled items, and servers without a type, are not changed. Changes take effect after the server restarts.",
+  // 03.58.00: データパック・リソースパック・シェーダー・Modパック
+  "データパック": "Data pack",
+  "リソースパック": "Resource pack",
+  "シェーダー": "Shader",
+  "Modパック": "Modpack",
+  "Mod・プラグインなど": "Mods, plugins and more",
+  "クライアントで使うもの": "Used on the client",
+  "Modパックを読んでいます…": "Reading the modpack…",
+  "新しい版でセットを作る": "Create a set from the new version",
+  "Modパックをサーバーに入れる…": "Install the modpack on a server…",
+  "Modパックの中の Mod と設定ファイル(overrides)を、このサーバーに入れますか?(同じ名前のセットも作ります。上書きした設定ファイルは履歴から戻せます)":
+    "Install the modpack's mods and config files (overrides) on this server? (A set with the same name is also created. Overwritten config files can be restored from the history.)",
+  "jar・zip のファイルが見つかりませんでした": "No jar or zip files were found",
+  "ファイルを選ぶ(jar・zip・mrpack。いくつでも)": "Choose files (jar, zip, mrpack; any number)",
+  "フォルダを選ぶ(中の jar・zip をまとめて)": "Choose a folder (all jar and zip files in it)",
+  "ここにファイルかフォルダをドラッグしても送れます": "You can also drag files or a folder here",
+  "配布元に無いプラグイン・Mod(jar)と、データパック・リソースパック・シェーダー・Modパック(zip・mrpack)を、ファイルのままライブラリに載せます。jar は中の plugin.yml・fabric.mod.json などから名前・版・動くサーバーの種類を、zip は pack.mcmeta・shaders/ などから種類を読み取り、同じ名前のものは新しい版として足します。置き場所は「チーム」→「保存先」で決められます(1 つ 1 GB まで)。":
+    "Adds plugins and mods (jar) and data packs, resource packs, shaders and modpacks (zip, mrpack) that are not on a source to the library as files. For jars the name, version and server types are read from plugin.yml, fabric.mod.json and so on; for zips the type is read from pack.mcmeta, shaders/ and so on. Files with the same name are added as new versions. Choose where they are stored in “Team” → “Storage” (up to 1 GB each).",
+  "データパックは、サーバーのワールド(server.properties の level-name)の datapacks に入れます。リソースパック・シェーダーはクライアントで使うものなので、ライブラリで持ち、「詳しく」の版からダウンロードできます。Modパックからは、セットを作ったり、サーバーに中の Mod と設定ファイルを入れたりできます(新しい版が出たらお知らせします)。":
+    "Data packs go into the datapacks folder of the server's world (level-name in server.properties). Resource packs and shaders are used on the client, so they are kept in the library and can be downloaded from the versions under “Details”. From a modpack you can create a set or install its mods and config files on a server (you are notified when a new version comes out).",
+  "データパック・リソースパック・シェーダー・Modパック(あとから)": "Data packs, resource packs, shaders and modpacks (later)",
+  "このサーバーにはワールドが無いので、データパックは入れられません": "This server has no world, so data packs cannot be installed",
+  "Modパックは、ライブラリの「Modパックをサーバーに入れる」から入れてください(中の Mod と設定ファイルを入れます)": "Install modpacks with “Install the modpack on a server” in the library (installs its mods and config files)",
+  "ライブラリに登録できるのは、プラグイン・Mod・データパック・リソースパック・シェーダー・Modパックです": "The library accepts plugins, mods, data packs, resource packs, shaders and modpacks",
+  "外部からのダウンロードを許していないもの・ワールドなど扱えない種類のものは登録できません": "Projects that do not allow third-party downloads, and unsupported kinds such as worlds, cannot be added",
+  "Modパックではありません": "This is not a modpack",
+  "Modパックのファイルがありません": "The modpack has no file",
+  "ダウンロードできる版がありません(CurseForge は、外部からのダウンロードを許していない版を取ってこられません)": "No downloadable version (CurseForge versions that do not allow third-party downloads cannot be fetched)",
+  "この配布元の Modパックは読めません": "Modpacks from this source cannot be read",
+  "配布元の外のファイルは取ってきません": "Files outside the official source are not fetched",
+  "配布元から Modパックのファイルを取ってこられませんでした": "Could not fetch the modpack file from the source",
+  "配布元から Modパックのファイルを取ってこられませんでした(転送が多すぎます)": "Could not fetch the modpack file from the source (too many redirects)",
+  "Modパックのファイルが大きすぎます": "The modpack file is too large",
+  "アップロードできるのは .jar・.zip・.mrpack のファイルだけです": "Only .jar, .zip and .mrpack files can be uploaded",
+  "Modパックに新しい版があります": "A new modpack version is available",
 };
 /** 1 文字だけのもの(曜日など)。文全体が一致したときだけ置き換える */
 export const EN_WHOLE: Record<string, string> = {
@@ -1366,6 +1405,15 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^入っているもの\((.+?)\)$/, "Installed ($1)"],
+  [/^使った版 (.+)$/, "Used version $1"],
+  [/^新しい版 (?!\d+$)(.+)$/, "New version $1"], // 数だけのもの(新しい版 3)は下の規則
+  [/^セット「(.+?)」を作りました\((\d+) 件\)(。サーバーに入れました\(失敗 (\d+) 件\))?$/, (_, n, c, srv, f) => `Created set “${n}” (${c} items)${srv ? `. Installed on the server (${f} failed)` : ""}`],
+  [/^(データパック|リソースパック|シェーダー|Modパック)なので、(.+?) のサーバーには入れません$/, (_, k, p) => `${({ データパック: "Data packs", リソースパック: "Resource packs", シェーダー: "Shaders", Modパック: "Modpacks" } as Record<string, string>)[k]} cannot be installed on ${p} servers`],
+  [/^(リソースパック|シェーダー)はクライアントで使うものなので、サーバーには入れません\(ライブラリで持つ・ダウンロードするだけです\)$/, (_, k) => `${k === "シェーダー" ? "Shaders" : "Resource packs"} are used on the client, so they are not installed on servers (keep and download them from the library)`],
+  [/^(.+?) はデータパック・リソースパック・シェーダー・Modパックとして読めませんでした\(pack\.mcmeta・shaders\/・modrinth\.index\.json などがありません\)$/, "$1 could not be read as a data pack, resource pack, shader or modpack (no pack.mcmeta, shaders/, modrinth.index.json, etc.)"],
+  [/^配布元から Modパックのファイルを取ってこられませんでした\(HTTP (\d+)\)$/, "Could not fetch the modpack file from the source (HTTP $1)"],
+  [/^種類のわからないもの\((\d+) 件\)$/, "Unknown kinds ($1 items)"],
   [/^この API トークンの範囲では、この操作はできません\(要る範囲: (.+)\)$/, "This API token's scopes do not allow this (needs: $1)"],
   [/^あなたの役割では、この範囲のトークンは作れません\((.+)\)$/, "Your role cannot create a token with these scopes ($1)"],
   [/^要る範囲: (.+?)\((.+?)以上\)$/, "Needs: $1 ($2 or higher)"],
@@ -1514,7 +1562,6 @@ export const EN_RULES: [RegExp, To][] = [
   [/^(.+?) さんをチームから外しますか[?？]$/, "Remove $1 from the team?"],
   [/^(.+?) さんの二段階認証を外しますか[?？]\(パスワードだけでログインできるようになります\)$/, "Turn off two-factor authentication for $1? (They can sign in with just their password)"],
   [/^(.+?) さんのパスキーをすべて消しますか[?？]$/, "Delete all passkeys of $1?"],
-  [/^入っているもの\((.+?)\/\)$/, "Installed ($1/)"],
   [/(\d+) 個を移しました/, "Moved $1 files"],
   [/・(\d+) 個は移せませんでした/, ", $1 could not be moved"],
   [/。移せなかったもの: /, ". Not moved: "],

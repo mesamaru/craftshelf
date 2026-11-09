@@ -76,7 +76,7 @@ export const legacyTotp = pgTable("legacy_totp", {
 });
 
 // チームのライブラリ(使う Mod・プラグインの目録)。ファイルは持たず、配布元のプロジェクトだけを記録する。
-// サーバーに入れたものは自動で載る。project_type = "plugin" / "mod"
+// サーバーに入れたものは自動で載る。project_type = "plugin" / "mod"(03.58.00 から "datapack" / "resourcepack" / "shader" / "modpack" も)
 export const libraryItem = pgTable(
   "library_item",
   {
@@ -98,6 +98,9 @@ export const libraryItem = pgTable(
     mcVersions: text("mc_versions").notNull().default(""),
     upstreamMc: text("upstream_mc").notNull().default("[]"),
     infoAt: timestamp("info_at"),
+    // Modパック(03.58.00 から): 最後にセットを作った・サーバーに入れた版と、配布元のいちばん新しい版(JSON の
+    // { used: { id, number }, latest: { id, number } }。"" = まだ使っていない)。新しい版を知らせるのに使う
+    pack: text("pack").notNull().default(""),
   },
   (t) => [uniqueIndex("library_item_team_project_uq").on(t.teamId, t.source, t.projectId)],
 );

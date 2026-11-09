@@ -3,8 +3,9 @@ import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { authClient } from "~/lib/auth-client";
 import { addLibraryItem, addLibraryItemFromUrl, editLibraryItem, favoriteLibraryItem, installMod, libraryCatalog, libraryItemChangelog, libraryItemVersions, libraryMissingDeps,
-  linkLibraryDep, outdatedLibraryItems, relinkLibraryItem, removeLibraryItem, searchCatalog, setLibraryChannel, tagLibraryItems } from "~/lib/library-api";
-import { mcCompare, mcCovers, mcRange } from "~/lib/platforms";
+  linkLibraryDep, modpackFromItem, outdatedLibraryItems, relinkLibraryItem, removeLibraryItem, searchCatalog, setLibraryChannel, tagLibraryItems } from "~/lib/library-api";
+import { ITEM_TYPES, ITEM_TYPE_IDS, type ItemType, mcCompare, mcCovers, mcRange } from "~/lib/platforms";
+import { ItemIcon } from "~/lib/type-icon";
 import { localEnabled } from "~/lib/servers-api";
 import { CHANNELS, SOURCE_LABEL, type Channel, type ItemSource, type Source, isItemSource, pageUrl } from "~/lib/sources";
 import { removeUploadedFile, uploadedFiles } from "~/lib/uploads-api";
@@ -24,7 +25,7 @@ export const Route = createFileRoute("/")({
 });
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
-const TYPE_LABEL: Record<string, string> = { plugin: "プラグイン", mod: "Mod" };
+const TYPE_LABEL: Record<string, string> = ITEM_TYPES;
 
 type Catalog = Awaited<ReturnType<typeof libraryCatalog>>;
 type CatItem = Catalog["items"][number];
@@ -70,8 +71,7 @@ function Filters({ cat, f, setF }: { cat: Catalog; f: Filter; setF: (fn: (f: Fil
       <div className="row filters">
         <select value={f.type} aria-label="種類" onChange={(e) => set({ type: e.target.value })}>
           <option value="">すべての種類</option>
-          <option value="plugin">プラグイン</option>
-          <option value="mod">Mod</option>
+          {ITEM_TYPE_IDS.map((t) => <option key={t} value={t}>{ITEM_TYPES[t]}</option>)}
         </select>
         <select value={f.source} aria-label="配布元" onChange={(e) => set({ source: e.target.value })}>
           <option value="">すべての配布元</option>
@@ -217,7 +217,7 @@ function Home() {
         <Link to="/sets" className="row link">セット(まとめてサーバーに入れる)</Link>
       </section>
 
-      <div className="group-title">Mod・プラグイン</div>
+      <div className="group-title">Mod・プラグインなど</div>
       {cat && cat.items.length > 0 && <Filters cat={cat} f={f} setF={setF} />}
       {edit && picked.size > 0 && <Bulk ids={[...picked]} share={uploads} onDone={(clear) => { if (clear) setPicked(new Set()); reload(); }} />}
       <section className="group">
@@ -235,6 +235,7 @@ function Home() {
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
       <p className="foot">チームで使う Mod・プラグインの一覧です。Modrinth・SpigotMC のものは、サーバーが配布元から直接取り込みます(アップロードしたものは、保存先から送ります)。入れる版は、サーバーの種類とバージョンに合うものを選びます(Paper のサーバーには Paper 向けの作りを優先)。</p>
+      <p className="foot">データパックは、サーバーのワールド(server.properties の level-name)の datapacks に入れます。リソースパック・シェーダーはクライアントで使うものなので、ライブラリで持ち、「詳しく」の版からダウンロードできます。Modパックからは、セットを作ったり、サーバーに中の Mod と設定ファイルを入れたりできます(新しい版が出たらお知らせします)。</p>
 
       {can({ member: ["update"] }) && cat && <TeamChannel value={cat.channel} onDone={reload} />}
       {edit && uploads && <Upload onDone={reload} />}
@@ -255,7 +256,17 @@ function Item({ item, cat, servers, edit, admin, depInfo, onChange, onDeps, onFa
   const [showFiles, setShowFiles] = useState(false);
   const [error, setError] = useState("");
   const have = new Set(item.installs.map((x) => x.serverId));
-  const targets = servers.filter((s) => s.type === item.projectType && !have.has(s.id));
+  // データパックはワールドのあるサーバーに。リソースパック・シェーダーはサーバーに入れない。Modパックは Mod のサーバーに中身を入れる(設定ファイルも書くので管理者以上)
+  const pack = item.projectType === "modpack";
+  const targets = pack ? (admin ? servers.filter((s) => s.type === "mod") : []) : servers.filter((s) => s.kinds.includes(item.projectType as ItemType) && !have.has(s.id));
+  const fromPack = useServerFn(modpackFromItem);
+  const [note, setNote] = useState("");
+  const packRun = (serverId?: string) => run(serverId ?? "pack", async () => {
+    const r = await fromPack({ data: { itemId: item.id, serverId } });
+    const failed = r.applied?.filter((x) => x.status === "failed").length ?? 0;
+    setNote(`セット「${r.name}」を作りました(${r.added} 件)${r.applied ? `。サーバーに入れました(失敗 ${failed} 件)` : ""}`);
+  });
+  const newer = item.pack?.used && item.pack.latest && item.pack.latest.id !== item.pack.used.id ? item.pack.latest : null;
 
   const run = async (key: string, fn: () => Promise<unknown>) => {
     setBusy(key);
@@ -273,16 +284,20 @@ function Item({ item, cat, servers, edit, admin, depInfo, onChange, onDeps, onFa
   return (
     <div className="row hit">
       {edit && <input type="checkbox" checked={picked} onChange={(e) => onPick(e.target.checked)} aria-label={`${item.title} を選ぶ`} />}
-      {item.iconUrl ? <img src={item.iconUrl} alt="" width={40} height={40} loading="lazy" /> : <span className="icon-ph" />}
+      <ItemIcon type={item.projectType} url={item.iconUrl} />
       <span className="main">
         {pageUrl(item.source, item.projectId, item.slug)
           ? <a href={pageUrl(item.source, item.projectId, item.slug)} target="_blank" rel="noreferrer noopener" translate="no">{item.title}</a>
           : <span translate="no" className="strong">{item.title}</span>}
         <span className="muted">
-          {TYPE_LABEL[item.projectType] ?? item.projectType} · {isItemSource(item.source) ? SOURCE_LABEL[item.source] : item.source}{item.mc.length > 0 && ` · MC ${mcRange(item.mc)}`} · {item.installs.length
-            ? <span translate="no">{item.installs.map((x) => `${x.serverName} ${x.versionNumber}`).join("、")}</span>
-            : "どのサーバーにも入っていません"}
+          {TYPE_LABEL[item.projectType] ?? item.projectType} · {isItemSource(item.source) ? SOURCE_LABEL[item.source] : item.source}{item.mc.length > 0 && ` · MC ${mcRange(item.mc)}`}
+          {pack ? (item.pack?.used ? <> · <span translate="no">{`使った版 ${item.pack.used.number}`}</span></> : "")
+            : item.projectType === "resourcepack" || item.projectType === "shader" ? " · クライアントで使うもの"
+            : <> · {item.installs.length
+              ? <span translate="no">{item.installs.map((x) => `${x.serverName} ${x.versionNumber}`).join("、")}</span>
+              : "どのサーバーにも入っていません"}</>}
         </span>
+        {newer && <span><span className="badge" translate="no">{`新しい版 ${newer.number}`}</span></span>}
         {(item.tags.length > 0 || edit) && (
           <span>
             {item.tags.map((t) => edit
@@ -294,8 +309,10 @@ function Item({ item, cat, servers, edit, admin, depInfo, onChange, onDeps, onFa
           </span>
         )}
         {channel === "all" && <span><span className="badge muted-badge">ベータ版も受け取る</span></span>}
-        {busy && busy !== "tag" && <span className="muted">{busy === "remove" ? "外しています…" : "サーバーに入れています…"}</span>}
+        {busy && busy !== "tag" && <span className="muted">{busy === "remove" ? "外しています…" : busy === "pack" ? "Modパックを読んでいます…" : "サーバーに入れています…"}</span>}
+        {note && <span className="muted" role="status" translate="no">{note}</span>}
         {error && <span className="error" role="alert">{error}</span>}
+        {pack && edit && <button className="link small" type="button" disabled={!!busy} onClick={() => packRun()}>{newer ? "新しい版でセットを作る" : "セットを作る"}</button>}
         {item.source === "upload" && <button className="link small" type="button" onClick={() => setShowFiles((v) => !v)}>{showFiles ? "版を閉じる" : "版を見る"}</button>}
         {showFiles && <Files itemId={item.id} title={item.title} edit={edit} />}
         <button className="link small" type="button" onClick={() => setDetail((v) => !v)}>{detail ? "詳しくを閉じる" : "詳しく(前提・版と変更内容・情報)"}</button>
@@ -306,8 +323,14 @@ function Item({ item, cat, servers, edit, admin, depInfo, onChange, onDeps, onFa
       </button>
       {edit && targets.length > 0 && (
         <select className="trail" value="" disabled={!!busy} aria-label={`${item.title} をサーバーに入れる`}
-          onChange={(e) => { const sid = e.target.value; if (sid && isItemSource(item.source)) run(sid, () => install({ data: { id: sid, projectId: item.projectId, source: item.source as ItemSource } })); }}>
-          <option value="">サーバーに入れる…</option>
+          onChange={(e) => {
+            const sid = e.target.value;
+            if (!sid || !isItemSource(item.source)) return;
+            if (pack) {
+              if (confirm("Modパックの中の Mod と設定ファイル(overrides)を、このサーバーに入れますか?(同じ名前のセットも作ります。上書きした設定ファイルは履歴から戻せます)")) packRun(sid);
+            } else run(sid, () => install({ data: { id: sid, projectId: item.projectId, source: item.source as ItemSource } }));
+          }}>
+          <option value="">{pack ? "Modパックをサーバーに入れる…" : "サーバーに入れる…"}</option>
           {targets.map((s) => <option key={s.id} value={s.id} translate="no">{s.name}</option>)}
         </select>
       )}
@@ -361,13 +384,16 @@ function Detail({ item, cat, edit, admin, onChange }: { item: CatItem; cat: Cata
   const link = useServerFn(linkLibraryDep);
   const [miss, setMiss] = useState<DepInfo | null>(null);
   const [error, setError] = useState("");
-  const recheck = () => { check({ data: { itemId: item.id } }).then((r) => setMiss(r.items[0]?.servers ?? []), (e) => setError(message(e))); };
+  // 前提はサーバーに入れるもの(プラグイン・Mod・データパック)だけ
+  const onServer = item.projectType === "plugin" || item.projectType === "mod" || item.projectType === "datapack";
+  const recheck = () => { if (onServer) check({ data: { itemId: item.id } }).then((r) => setMiss(r.items[0]?.servers ?? []), (e) => setError(message(e))); };
   useEffect(recheck, [item.id]);
   const titleOf = (id: string) => cat.items.find((i) => i.id === id)?.title ?? id;
   const others = cat.items.filter((i) => i.id !== item.id && !item.deps.includes(i.id));
   const setLink = (depItemId: string, on: boolean) => link({ data: { itemId: item.id, depItemId, on } }).then(() => { onChange(); recheck(); }, (e) => setError(message(e)));
   return (
     <span className="files detail">
+      {onServer && <>
       <span className="strong">前提</span>
       <span>
         <span className="muted">手で決めた前提: </span>
@@ -385,6 +411,7 @@ function Detail({ item, cat, edit, admin, onChange }: { item: CatItem; cat: Cata
       {miss === null && !error && <span className="muted">入っているサーバーの前提を確かめています…</span>}
       {miss?.length === 0 && <span className="muted">{item.installs.length ? "入っているサーバーに、前提はそろっています" : "どのサーバーにも入っていません"}</span>}
       {miss && miss.length > 0 && <DepWarnings servers={miss} edit={edit} onInstalled={() => { onChange(); recheck(); }} />}
+      </>}
       {error && <span className="error" role="alert">{error}</span>}
       {item.source !== "upload" && <Versions item={item} />}
       {admin && <EditInfo item={item} teamChannel={cat.channel} onDone={onChange} />}
@@ -421,6 +448,7 @@ function Versions({ item }: { item: CatItem }) {
           {VERSION_TYPE[v.type] && <span className="badge muted-badge">{VERSION_TYPE[v.type]}</span>}
           <span className="muted small">{" "}{v.date ? new Date(v.date).toLocaleDateString("ja-JP") : ""}{v.mcVersions.length ? ` · MC ${mcRange(v.mcVersions)}` : ""}{v.loaders.length ? ` · ${v.loaders.join(" / ")}` : ""}</span>
           {" "}<button className="link small" type="button" aria-expanded={v.versionId in open} onClick={() => toggle(v)}>{v.versionId in open ? "閉じる" : "変更内容"}</button>
+          {"url" in v && v.url && <>{" "}<a className="small" href={v.url} target="_blank" rel="noreferrer noopener">ダウンロード</a></>}
           {v.versionId in open && <pre className="changelog" translate="no">{open[v.versionId]}</pre>}
         </span>
       ))}
@@ -465,8 +493,7 @@ function EditInfo({ item, teamChannel, onDone }: { item: CatItem; teamChannel: C
       <label className="edit-field">
         <span className="muted small">種類</span>
         <select value={type} disabled={busy} onChange={(e) => setType(e.target.value)}>
-          <option value="plugin">プラグイン</option>
-          <option value="mod">Mod</option>
+          {ITEM_TYPE_IDS.map((t) => <option key={t} value={t}>{ITEM_TYPES[t]}</option>)}
         </select>
       </label>
       <label className="edit-field">
@@ -559,7 +586,7 @@ function AddFromSource({ sources, have, onAdded }: { sources: Source[]; have: Se
   const search = useServerFn(searchCatalog);
   const add = useServerFn(addLibraryItem);
   const [source, setSource] = useState<Source>("modrinth");
-  const [type, setType] = useState<"plugin" | "mod">("plugin");
+  const [type, setType] = useState<ItemType>("plugin");
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<Awaited<ReturnType<typeof searchCatalog>> | null>(null);
   const [busy, setBusy] = useState("");
@@ -601,9 +628,8 @@ function AddFromSource({ sources, have, onAdded }: { sources: Source[]; have: Se
         </div>
         <div className="row">
           <span>種類</span>
-          <select className="trail" value={type} aria-label="種類" disabled={source === "spigot"} onChange={(e) => { const t = e.target.value as "plugin" | "mod"; setType(t); if (hits) find(t); }}>
-            <option value="plugin">プラグイン</option>
-            <option value="mod">Mod</option>
+          <select className="trail" value={type} aria-label="種類" disabled={source === "spigot"} onChange={(e) => { const t = e.target.value as ItemType; setType(t); if (hits) find(t); }}>
+            {ITEM_TYPE_IDS.map((t) => <option key={t} value={t}>{ITEM_TYPES[t]}</option>)}
           </select>
         </div>
         <input className="row" type="search" placeholder="名前で探す(空なら人気順)" value={query} onChange={(e) => setQuery(e.target.value)} />
@@ -611,7 +637,7 @@ function AddFromSource({ sources, have, onAdded }: { sources: Source[]; have: Se
         {hits?.length === 0 && <p className="row muted">見つかりませんでした。</p>}
         {hits?.map((h) => (
           <div className="row hit" key={h.projectId}>
-            {h.iconUrl ? <img src={h.iconUrl} alt="" width={40} height={40} loading="lazy" /> : <span className="icon-ph" />}
+            <ItemIcon type={type} url={h.iconUrl} />
             <span className="main">
               <a href={pageUrl(source, h.projectId, h.slug)} target="_blank" rel="noreferrer noopener" translate="no">{h.title}</a>
               <span className="muted summary" translate="no">{h.summary}</span>
@@ -658,7 +684,7 @@ function Files({ itemId, title, edit }: { itemId: string; title: string; edit: b
 
 // ファイルをアップロード(自分用の版だけ)。jar を調べて、名前と版・動くサーバーの種類を読み取る。
 // いくつでも・フォルダごと(中の .jar だけ)・ドラッグ&ドロップでも選べる。1 つずつ順に送る
-const isJar = (f: File) => /[.]jar$/i.test(f.name);
+const isAddon = (f: File) => /[.](jar|zip|mrpack)$/i.test(f.name);
 async function droppedFiles(dt: DataTransfer): Promise<File[]> {
   type Entry = { isFile: boolean; isDirectory: boolean; file?: (ok: (f: File) => void, ng: () => void) => void;
     createReader?: () => { readEntries: (ok: (l: Entry[]) => void, ng: () => void) => void } };
@@ -666,7 +692,7 @@ async function droppedFiles(dt: DataTransfer): Promise<File[]> {
   const walk = async (e: Entry, inDir: boolean): Promise<void> => {
     if (e.isFile && e.file) {
       const f = await new Promise<File | null>((ok) => e.file!(ok, () => ok(null)));
-      if (f && (!inDir || isJar(f))) out.push(f);
+      if (f && (!inDir || isAddon(f))) out.push(f);
     } else if (e.isDirectory && e.createReader) {
       const reader = e.createReader();
       for (;;) {
@@ -689,7 +715,7 @@ function Upload({ onDone }: { onDone: () => void }) {
   const [results, setResults] = useState<{ name: string; ok: boolean; text: string }[]>([]);
   const send = async (list: File[]) => {
     if (!list.length) {
-      setResults([{ name: "", ok: false, text: "jar のファイルが見つかりませんでした" }]);
+      setResults([{ name: "", ok: false, text: "jar・zip のファイルが見つかりませんでした" }]);
       return;
     }
     const out: typeof results = [];
@@ -709,7 +735,7 @@ function Upload({ onDone }: { onDone: () => void }) {
   };
   const pick = (files: FileList | null, folder: boolean) => {
     const l = Array.from(files ?? []);
-    if (l.length) send(folder ? l.filter(isJar) : l);
+    if (l.length) send(folder ? l.filter(isAddon) : l);
   };
   const ok = results.filter((r) => r.ok).length;
   return (
@@ -720,18 +746,18 @@ function Upload({ onDone }: { onDone: () => void }) {
         onDragLeave={() => setOver(false)}
         onDrop={(e) => { if (busy) return; e.preventDefault(); setOver(false); droppedFiles(e.dataTransfer).then(send); }}>
         <label className="row link">
-          {busy || "jar を選ぶ(いくつでも)"}
-          <input type="file" accept=".jar" multiple hidden disabled={!!busy} onChange={(e) => { pick(e.target.files, false); e.target.value = ""; }} />
+          {busy || "ファイルを選ぶ(jar・zip・mrpack。いくつでも)"}
+          <input type="file" accept=".jar,.zip,.mrpack" multiple hidden disabled={!!busy} onChange={(e) => { pick(e.target.files, false); e.target.value = ""; }} />
         </label>
         <label className="row link">
-          {busy ? "" : "フォルダを選ぶ(中の jar をまとめて)"}
+          {busy ? "" : "フォルダを選ぶ(中の jar・zip をまとめて)"}
           <input type="file" multiple hidden disabled={!!busy} {...{ webkitdirectory: "" }} onChange={(e) => { pick(e.target.files, true); e.target.value = ""; }} />
         </label>
-        <div className="row muted">{over ? "ここで離すと送ります" : "ここに jar かフォルダをドラッグしても送れます"}</div>
+        <div className="row muted">{over ? "ここで離すと送ります" : "ここにファイルかフォルダをドラッグしても送れます"}</div>
         {results.length > 1 && <p className="row muted">{`${results.length} 個のうち ${ok} 個を載せました`}</p>}
         {results.map((r, i) => <p key={i} className={`row ${r.ok ? "muted" : "error"}`} translate="no">{r.name ? `${r.name}: ` : ""}{r.ok ? `載せました — ${r.text}` : r.text}</p>)}
       </section>
-      <p className="foot">配布元に無いプラグイン・Mod を、jar のままライブラリに載せます。中の plugin.yml・fabric.mod.json などから名前・版・動くサーバーの種類を読み取り、同じ名前のものは新しい版として足します。置き場所は「チーム」→「保存先」で決められます(1 つ 1 GB まで)。</p>
+      <p className="foot">配布元に無いプラグイン・Mod(jar)と、データパック・リソースパック・シェーダー・Modパック(zip・mrpack)を、ファイルのままライブラリに載せます。jar は中の plugin.yml・fabric.mod.json などから名前・版・動くサーバーの種類を、zip は pack.mcmeta・shaders/ などから種類を読み取り、同じ名前のものは新しい版として足します。置き場所は「チーム」→「保存先」で決められます(1 つ 1 GB まで)。</p>
     </>
   );
 }

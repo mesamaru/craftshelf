@@ -4,7 +4,8 @@ import { useServerFn } from "@tanstack/react-start";
 import { identifyMods, serverChanges, undoChange, installMod, installedMods, modUpdates, removeMod, rollbackMod, searchMods, serverDetail, serverMissingDeps, setModEnabled, setModHold, setProfile } from "~/lib/library-api";
 import { importServerFile } from "~/lib/uploads-api";
 import { ApplyResults } from "~/lib/apply-results";
-import { PLATFORMS, PLATFORM_IDS } from "~/lib/platforms";
+import { ITEM_TYPES, PLATFORMS, PLATFORM_IDS, kindsOf } from "~/lib/platforms";
+import { ItemIcon } from "~/lib/type-icon";
 import { listServers, localSettings, serverStatus, setLocalSettings } from "~/lib/servers-api";
 import { bindServerSet, copyServer, listSets, setAutoUpdate, syncServerSet } from "~/lib/sets-api";
 import { SOURCE_LABEL, type Source, pageUrl } from "~/lib/sources";
@@ -35,11 +36,12 @@ function ServerPage() {
   const { can } = useCan(user.id);
   const list = useServerFn(installedMods);
   const [items, setItems] = useState<Installed[] | null>(null);
+  const [datapacks, setDatapacks] = useState<string | null>(null); // ワールドのデータパックのフォルダ
   const [error, setError] = useState("");
 
   const reload = () => {
     if (!server.profile) return;
-    list({ data: { id: server.id } }).then((r) => { setItems(r.items); setError(""); }, (e) => setError(message(e)));
+    list({ data: { id: server.id } }).then((r) => { setItems(r.items); setDatapacks(r.datapacks); setError(""); }, (e) => setError(message(e)));
   };
   useEffect(reload, [server.id, server.profile?.platform, server.profile?.mcVersion]);
 
@@ -64,9 +66,10 @@ function ServerPage() {
           {edit && <CopyServers id={server.id} name={server.name} onDone={reload} />}
           <ServerSchedule id={server.id} admin={can({ server: ["update"] })} />
           <Installed id={server.id} items={items} error={error} edit={edit} local={app.mode === "self"} auto={server.autoUpdate}
-            dir={PLATFORMS[server.profile.platform].dir} onChange={reload} />
+            dir={[PLATFORMS[server.profile.platform].dir, datapacks].filter(Boolean).map((d) => `${d}/`).join("・")} onChange={reload} />
           <Changes id={server.id} edit={edit} items={items} onChange={reload} />
-          {edit && <Search id={server.id} installed={items ?? []}
+          {edit && <Search id={server.id} installed={items ?? []} datapacks={kindsOf(server.profile.platform).includes("datapack")}
+            type={PLATFORMS[server.profile.platform].type}
             sources={(server.sources as Source[]).filter((s) => s !== "spigot" || PLATFORMS[server.profile!.platform].type === "plugin")} onInstalled={reload} />}
         </>
       )}
@@ -177,7 +180,7 @@ function Installed({ id, items, error, edit, local, auto, dir, onChange }:
 
   return (
     <>
-      <div className="group-title">{`入っているもの(${dir}/)`}</div>
+      <div className="group-title">{`入っているもの(${dir})`}</div>
       <section className="group">
         {!items && !error && <div className="row muted">サーバーに問い合わせています…</div>}
         {items?.length === 0 && <div className="row muted">まだ何も入っていません。</div>}
@@ -217,6 +220,7 @@ function Installed({ id, items, error, edit, local, auto, dir, onChange }:
               <span className="main">
                 <span>
                   <span translate="no">{m.title ?? m.filename}</span>
+                  {m.datapack && <span className="badge muted-badge">データパック</span>}
                   {m.disabled && <span className="badge muted-badge">無効</span>}
                 </span>
                 {m.title && (
@@ -262,10 +266,13 @@ function Installed({ id, items, error, edit, local, auto, dir, onChange }:
   );
 }
 
-function Search({ id, installed, sources, onInstalled }: { id: string; installed: Installed[]; sources: Source[]; onInstalled: () => void }) {
+function Search({ id, installed, sources, datapacks, type, onInstalled }:
+  { id: string; installed: Installed[]; sources: Source[]; datapacks: boolean; type: "plugin" | "mod"; onInstalled: () => void }) {
   const search = useServerFn(searchMods);
   const install = useServerFn(installMod);
   const [source, setSource] = useState<Source>("modrinth");
+  const [kind, setKind] = useState<"" | "datapack">(""); // datapack なら、ワールドのデータパックを探して入れる
+  const shown = kind ? sources.filter((s) => s !== "spigot") : sources;
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<Awaited<ReturnType<typeof searchMods>> | null>(null);
   const [busy, setBusy] = useState("");
@@ -275,10 +282,10 @@ function Search({ id, installed, sources, onInstalled }: { id: string; installed
   const key = (src: string, projectId: string) => `${src}:${projectId}`;
   const have = new Set(installed.filter((m) => m.projectId).map((m) => key(m.source ?? "", m.projectId!)));
 
-  const find = async (src = source) => {
+  const find = async (src = source, k = kind) => {
     setError("");
     try {
-      setHits(await search({ data: { id, query, source: src } }));
+      setHits(await search({ data: { id, query, source: src, kind: k || undefined } }));
     } catch (e) {
       setError(message(e));
     }
@@ -289,7 +296,7 @@ function Search({ id, installed, sources, onInstalled }: { id: string; installed
     setBusy(projectId);
     setError("");
     try {
-      const r = await install({ data: { id, projectId, source } });
+      const r = await install({ data: { id, projectId, source, kind: kind || undefined } });
       setDone((d) => new Set(d).add(key(source, projectId)));
       if (r.deps.length) setNote(`前提も入れました: ${r.deps.map((d) => (d.ok ? `${d.title} ${d.detail}` : `${d.title}(入れられません: ${d.detail})`)).join("、")}`);
       onInstalled();
@@ -304,12 +311,22 @@ function Search({ id, installed, sources, onInstalled }: { id: string; installed
     <>
       <div className="group-title">{`${SOURCE_LABEL[source]} から探す`}</div>
       <form className="group form" onSubmit={(e) => (e.preventDefault(), find())}>
-        {sources.length > 1 && (
+        {datapacks && (
+          <div className="row">
+            <span>種類</span>
+            <select className="trail" value={kind} aria-label="種類"
+              onChange={(e) => { const k = e.target.value as "" | "datapack"; const s = k && source === "spigot" ? "modrinth" : source; setKind(k); setSource(s); setHits(null); find(s, k); }}>
+              <option value="">{ITEM_TYPES[type]}</option>
+              <option value="datapack">{ITEM_TYPES.datapack}</option>
+            </select>
+          </div>
+        )}
+        {shown.length > 1 && (
           <div className="row">
             <span>配布元</span>
             <select className="trail" value={source} aria-label="配布元"
               onChange={(e) => { const s = e.target.value as Source; setSource(s); setHits(null); find(s); }}>
-              {sources.map((s) => <option key={s} value={s}>{SOURCE_LABEL[s]}</option>)}
+              {shown.map((s) => <option key={s} value={s}>{SOURCE_LABEL[s]}</option>)}
             </select>
           </div>
         )}
@@ -317,7 +334,7 @@ function Search({ id, installed, sources, onInstalled }: { id: string; installed
         {hits?.length === 0 && <p className="row muted">見つかりませんでした。</p>}
         {hits?.map((h) => (
           <div className="row hit" key={h.projectId}>
-            {h.iconUrl ? <img src={h.iconUrl} alt="" width={40} height={40} loading="lazy" /> : <span className="icon-ph" />}
+            <ItemIcon type={kind || type} url={h.iconUrl} />
             <span className="main">
               <a href={pageUrl(source, h.projectId, h.slug)} target="_blank" rel="noreferrer noopener" translate="no">{h.title}</a>
               <span className="muted summary" translate="no">{h.summary}</span>

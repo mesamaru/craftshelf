@@ -37,16 +37,23 @@ const skip = (el: Element | null) => !!el?.closest("[translate=no], script, styl
 // 属性(placeholder など)は入力欄でも訳す。中身(textarea の文字)は訳さない
 const skipAttr = (el: Element | null) => !!el?.closest("[translate=no], script, style, code");
 
+// サーバーで描いた画面を React が受け取る(ハイドレーション)前に文字を書き換えると、食い違いのエラー(React #418)になる。
+// React は受け取った要素に印(__reactFiber$…)を付けるので、まだのところは飛ばし(pending)、受け取り終わってから訳す
+let pending = false;
+const hydrated = (el: Element | null) => !!el && Object.keys(el).some((k) => k.startsWith("__reactFiber$"));
+
 // 同じ値を書き戻すと監視がまた反応して繰り返すので、変わるときだけ書き換える
 function textNode(n: Node) {
   const v = n.nodeValue;
   if (!v || !JA.test(v) || skip(n.parentElement)) return;
+  if (!hydrated(n.parentElement)) return void (pending = true);
   const t = translate(v);
   if (t !== v) n.nodeValue = t;
 }
 function attr(el: Element, a: string) {
   const v = el.getAttribute(a);
   if (!v || !JA.test(v) || skipAttr(el)) return;
+  if (!hydrated(el)) return void (pending = true);
   const t = translate(v);
   if (t !== v) el.setAttribute(a, t);
 }
@@ -72,5 +79,12 @@ export function startEnglish() {
       else m.addedNodes.forEach(tree);
     }
   }).observe(document.body, { childList: true, subtree: true, characterData: true, attributes: true, attributeFilter: ATTRS });
-  tree(document.body);
+  // まだ受け取っていないところ(あとから読み込む画面の部品)があれば、受け取り終わるまで見直す(15 秒まで)
+  const until = Date.now() + 15_000;
+  const scan = () => {
+    pending = false;
+    tree(document.body);
+    if (pending && Date.now() < until) setTimeout(scan, 100);
+  };
+  scan();
 }

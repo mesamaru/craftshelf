@@ -138,3 +138,43 @@ export function analyzeJar(buf: Uint8Array | ZipSource, filename: string): JarIn
   if (!name) name = filename.replace(/\.(jar|zip)$/i, "").replace(/[-_ ]v?\d+(?:\.\d+)+.*$/, "");
   return { name: name.slice(0, 80), version: version.slice(0, 40), projectType, loaders: [...loaders], mcVersions: [...new Set(mcVersions)] };
 }
+
+export type PackInfo = Omit<JarInfo, "projectType"> & { projectType: "datapack" | "resourcepack" | "shader" | "modpack" | null };
+
+/**
+ * .zip・.mrpack を調べる(v02 の解析と同じ): Modパック(modrinth.index.json・overrides の入った manifest.json)/ シェーダー(shaders/)/
+ * データパック(pack.mcmeta と data/)/ リソースパック(pack.mcmeta と assets/)。読めなければ projectType が null
+ */
+export function analyzePack(buf: Uint8Array | ZipSource, filename: string): PackInfo {
+  const names: string[] = [];
+  const files = readZipTexts(buf, (n) => (names.push(n), n === "modrinth.index.json" || n === "manifest.json")) ?? new Map<string, string>();
+  const stem = filename.replace(/\.(zip|mrpack)$/i, "");
+  let name = stem.replace(/[-_ ]v?\d+(?:\.\d+)+.*$/, "");
+  let version = [...stem.matchAll(/[-_ ]v?(\d+(?:\.\d+)+)/g)].at(-1)?.[1] ?? "";
+  let projectType: PackInfo["projectType"] = null;
+  const mcVersions: string[] = [];
+  const take = (n: unknown, v: unknown, mc: unknown) => {
+    if (typeof n === "string" && n.trim()) name = n.trim();
+    if (typeof v === "string" && v.trim()) version = v.trim();
+    if (typeof mc === "string" && mc) mcVersions.push(mc);
+  };
+  const tops = new Set(names.map((n) => n.split("/")[0]));
+  if (files.has("modrinth.index.json")) {
+    const d = json(files.get("modrinth.index.json")!);
+    projectType = "modpack";
+    take(d.name, d.versionId, (d.dependencies as Record<string, unknown> | undefined)?.minecraft);
+  } else if (files.has("manifest.json") && names.some((n) => n.startsWith("overrides/"))) {
+    const d = json(files.get("manifest.json")!);
+    projectType = "modpack";
+    take(d.name, d.version, (d.minecraft as Record<string, unknown> | undefined)?.version);
+  } else if (tops.has("shaders") || names.some((n) => n.split("/")[1] === "shaders")) {
+    projectType = "shader";
+  } else {
+    // フォルダごと zip にしたもの(<フォルダ>/pack.mcmeta)も読む
+    const meta = names.includes("pack.mcmeta") ? "pack.mcmeta" : names.find((n) => n.endsWith("/pack.mcmeta") && n.split("/").length === 2);
+    const prefix = meta ? meta.slice(0, -"pack.mcmeta".length) : "";
+    if (names.some((n) => n.startsWith(`${prefix}data/`))) projectType = "datapack";
+    else if (names.some((n) => n.startsWith(`${prefix}assets/`))) projectType = "resourcepack";
+  }
+  return { name: (name || stem).slice(0, 80), version: version.slice(0, 40), projectType, loaders: [], mcVersions };
+}

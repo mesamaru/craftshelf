@@ -187,7 +187,7 @@ export async function importFrom(db: Db, v02: DatabaseSync, opts: { secret: stri
 
 // ---------------------------------------------------------------------------
 // ライブラリ・セット(03.07.00 から)。v02 から取り込んだ自分用の版で一度だけ行う(それより前に取り込んだ人も、次の起動で)。
-// v03 はファイルを持たないので、配布元が Modrinth とわかるプラグイン・Mod と、SpigotMC とわかるプラグインだけを目録に載せる
+// 配布元が Modrinth・CurseForge とわかるもの(03.58.00 からはデータパック・リソースパック・シェーダー・Modパックも)と、SpigotMC とわかるプラグインを目録に載せる
 export type LibraryImportReport = { at: string; items: number; sets: number; folders?: number; uploads?: number; skipped: { what: string; detail: string }[] };
 
 export const libraryReportPath = (v03Dir: string) => join(v03Dir, "import-v02-library.json");
@@ -219,6 +219,43 @@ export async function maybeImportV02Library(db: Db, opts: { v02Dir: string; v03D
       await importCurseforgeKey(db, v02, team.id, o, report);
     }
     writeFileSync(libraryReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
+    // データパックなども一緒に取り込んだので、あとからの取り込み(maybeImportV02Kinds)はしない
+    writeFileSync(kindsReportPath(opts.v03Dir), JSON.stringify({ at: report.at, items: 0, uploads: 0, skipped: [], withLibrary: true }, null, 2) + "\n", { mode: 0o600 });
+    return report;
+  } finally {
+    v02.close();
+  }
+}
+
+// データパック・リソースパック・シェーダー・Modパック(03.58.00 から)。03.57.00 までにライブラリを取り込んだパネルで一度だけ
+// (それより後に取り込んだものは、ライブラリと一緒に取り込む)。配布元のわかるものは目録に、わからないものは v02 の保存先のファイルを指す形で載せ、
+// 取り込み済みの同じ名前のセットにも足す。v02 の保存先は、前に取り込んだものを使う
+export const kindsReportPath = (v03Dir: string) => join(v03Dir, "import-v02-kinds.json");
+
+/** あとから取り込んだデータパックなどの結果(ライブラリと一緒に取り込んだときは null) */
+export function readKindsReport(v03Dir: string): LibraryImportReport | null {
+  try {
+    const r = JSON.parse(readFileSync(kindsReportPath(v03Dir), "utf8"));
+    return r.withLibrary ? null : r;
+  } catch {
+    return null;
+  }
+}
+
+export async function maybeImportV02Kinds(db: Db, opts: { v02Dir: string; v03Dir: string; secret?: string; dataDir?: string }): Promise<LibraryImportReport | null> {
+  const dbFile = join(opts.v02Dir, "index.db");
+  if (!existsSync(dbFile) || !existsSync(libraryReportPath(opts.v03Dir)) || existsSync(kindsReportPath(opts.v03Dir))) return null;
+  const [team] = await db.select({ id: schema.organization.id }).from(schema.organization).orderBy(asc(schema.organization.createdAt)).limit(1);
+  if (!team) return null;
+  const v02 = new DatabaseSync(dbFile, { readOnly: true });
+  try {
+    const pre: LibraryImportReport = { at: "", items: 0, sets: 0, skipped: [] };
+    const o = opts.secret ? { secret: opts.secret, v02Dir: opts.v02Dir, dataDir: opts.dataDir ?? opts.v02Dir } : null;
+    const uploaded = o ? await importUploads(db, v02, team.id, o, pre, LATER_TYPES) : new Map<number, string>();
+    const report = await importLibrary(db, v02, team.id, uploaded, LATER_TYPES);
+    report.uploads = pre.uploads;
+    report.skipped.push(...pre.skipped);
+    writeFileSync(kindsReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
     return report;
   } finally {
     v02.close();
@@ -227,11 +264,15 @@ export async function maybeImportV02Library(db: Db, opts: { v02Dir: string; v03D
 
 const MODRINTH_ID = /^[A-Za-z0-9]{8}$/;
 const SPIGOT_ID = /^\d{1,9}$/;
-const TYPES: Record<string, string> = { plugin: "plugin", mod: "mod" };
+// v02 の種類(03.58.00 から、データパック・リソースパック・シェーダー・Modパックも取り込む)
+const TYPES: Record<string, string> = { plugin: "plugin", mod: "mod", datapack: "datapack", resourcepack: "resourcepack", shader: "shader", modpack: "modpack" };
+// 03.57.00 までは取り込まなかった種類(前に取り込んだパネルで、あとから一度だけ取り込む)
+const LATER_TYPES = new Set(["datapack", "resourcepack", "shader", "modpack"]);
 const listOf = (names: string[]) => names.slice(0, 20).join("、") + (names.length > 20 ? ` ほか ${names.length - 20} 件` : "");
 
-// uploaded: アップロードとして取り込んだもの(v02 のアイテムの ID → v03 のライブラリの ID)。セットに入れるのに使う
-export async function importLibrary(db: Db, v02: DatabaseSync, teamId: string, uploaded = new Map<number, string>()): Promise<LibraryImportReport> {
+// uploaded: アップロードとして取り込んだもの(v02 のアイテムの ID → v03 のライブラリの ID)。セットに入れるのに使う。
+// only を渡すと、その種類だけを取り込み、セットは作らずに、取り込み済みの同じ名前のセットに足す(あとから取り込むとき)
+export async function importLibrary(db: Db, v02: DatabaseSync, teamId: string, uploaded = new Map<number, string>(), only?: Set<string>): Promise<LibraryImportReport> {
   const report: LibraryImportReport = { at: new Date().toISOString(), items: 0, sets: 0, skipped: [] };
   if (!has(v02, "items")) return report;
   const sourced = has(v02, "item_sources");
@@ -244,6 +285,7 @@ export async function importLibrary(db: Db, v02: DatabaseSync, teamId: string, u
 
   await db.transaction(async (tx) => {
     for (const r of rows) {
+      if (only && !only.has(str(r.category))) continue;
       const type = TYPES[str(r.category)];
       if (!type) {
         otherKinds.push(str(r.name));
@@ -272,13 +314,21 @@ export async function importLibrary(db: Db, v02: DatabaseSync, teamId: string, u
     if (!has(v02, "sets") || !has(v02, "set_items")) return;
     let pinned = 0;
     for (const set of all(v02, "SELECT id, name FROM sets ORDER BY id")) {
-      const id = randomUUID();
-      await tx.insert(schema.addonSet).values({ id, teamId, name: (str(set.name) || "セット").slice(0, 60) });
-      report.sets++;
+      const name = (str(set.name) || "セット").slice(0, 60);
+      let id: string = randomUUID();
+      if (only) {
+        const [had] = await tx.select({ id: schema.addonSet.id }).from(schema.addonSet).where(and(eq(schema.addonSet.teamId, teamId), eq(schema.addonSet.name, name))).limit(1);
+        if (!had) continue;
+        id = had.id;
+      } else {
+        await tx.insert(schema.addonSet).values({ id, teamId, name });
+        report.sets++;
+      }
       const members = v02.prepare("SELECT item_id, version_id FROM set_items WHERE set_id=?").all(Number(set.id)) as Row[];
       let missing = 0;
       for (const m of members) {
         const itemId = mapped.get(Number(m.item_id)) ?? uploaded.get(Number(m.item_id));
+        if (only && !itemId) continue; // ほかの種類は、前に取り込んだときに入れている
         if (!itemId) {
           missing++;
           continue;
@@ -295,7 +345,7 @@ export async function importLibrary(db: Db, v02: DatabaseSync, teamId: string, u
     report.skipped.push({ what: `ライブラリの ${unknown.length} 件`, detail: `配布元が Modrinth・SpigotMC・CurseForge とわからず、ファイルも取り込めなかったもの(保存先の方式が使えない・版が無いなど)です。ファイルは v02 の保存先に残っています: ${listOf(unknown)}` });
   }
   if (otherKinds.length) {
-    report.skipped.push({ what: `データパックなど(${otherKinds.length} 件)`, detail: `v03 はプラグインと Mod だけを扱います: ${listOf(otherKinds)}` });
+    report.skipped.push({ what: `種類のわからないもの(${otherKinds.length} 件)`, detail: `v03 はプラグイン・Mod・データパック・リソースパック・シェーダー・Modパックを扱います: ${listOf(otherKinds)}` });
   }
   return report;
 }
@@ -343,7 +393,7 @@ export async function importFolders(db: Db, v02: DatabaseSync, teamId: string, o
   }
 }
 
-// アップロードしたアドオン(03.17.00 から)。配布元が Modrinth・SpigotMC とわからないプラグイン・Mod を、v02 の保存先のファイルを
+// アップロードしたアドオン(03.17.00 から)。配布元が Modrinth・SpigotMC とわからないもの(プラグイン・Mod・データパックなど)を、v02 の保存先のファイルを
 // そのまま指す形で取り込む(コピーしない)。v02 のパネルの中の保存先(/data/library)・WebDAV を、v03 の保存先として登録する
 const LOADERS: [RegExp, string[]][] = [
   [/folia/i, ["folia"]], [/bukkit|spigot/i, ["bukkit", "spigot", "paper", "purpur"]], [/paper/i, ["paper", "purpur"]],
@@ -352,7 +402,7 @@ const LOADERS: [RegExp, string[]][] = [
 ];
 const loadersOf = (label: string) => [...new Set(LOADERS.filter(([re]) => re.test(label)).flatMap(([, l]) => l))];
 
-export async function importUploads(db: Db, v02: DatabaseSync, teamId: string, opts: { secret: string; v02Dir: string; dataDir: string }, report: LibraryImportReport) {
+export async function importUploads(db: Db, v02: DatabaseSync, teamId: string, opts: { secret: string; v02Dir: string; dataDir: string }, report: LibraryImportReport, only?: Set<string>) {
   report.uploads = 0;
   const uploaded = new Map<number, string>();
   if (!has(v02, "items") || !has(v02, "versions", "relpath")) return uploaded;
@@ -362,7 +412,7 @@ export async function importUploads(db: Db, v02: DatabaseSync, teamId: string, o
   const items = all(v02, sourced
     ? "SELECT i.id, i.name, i.category, s.provider, s.project_id FROM items i LEFT JOIN item_sources s ON s.item_id = i.id ORDER BY i.id"
     : "SELECT id, name, category FROM items ORDER BY id")
-    .filter((r) => TYPES[str(r.category)] && !(str(r.provider) === "modrinth" && MODRINTH_ID.test(str(r.project_id)))
+    .filter((r) => TYPES[str(r.category)] && (!only || only.has(str(r.category))) && !(str(r.provider) === "modrinth" && MODRINTH_ID.test(str(r.project_id)))
       && !(str(r.provider) === "spigot" && SPIGOT_ID.test(str(r.project_id)) && str(r.category) === "plugin")
       && !(str(r.provider) === "curseforge" && SPIGOT_ID.test(str(r.project_id))));
   if (!items.length) return uploaded;
@@ -403,9 +453,17 @@ export async function importUploads(db: Db, v02: DatabaseSync, teamId: string, o
       targets.set(Number(t.id), null);
       continue;
     }
+    // 前に取り込んだ保存先があれば、それを使う(あとから取り込むとき)
+    const name = `v02: ${str(t.name) || proto}`.slice(0, 60);
+    const [had] = await db.select({ id: schema.storageTarget.id }).from(schema.storageTarget)
+      .where(and(eq(schema.storageTarget.teamId, teamId), eq(schema.storageTarget.name, name), eq(schema.storageTarget.kind, config.kind))).limit(1);
+    if (had) {
+      targets.set(Number(t.id), had.id);
+      continue;
+    }
     const id = randomUUID();
     await db.insert(schema.storageTarget).values({
-      id, teamId, name: `v02: ${str(t.name) || proto}`.slice(0, 60), kind: config.kind, summary,
+      id, teamId, name, kind: config.kind, summary,
       configSealed: seal(opts.secret, JSON.stringify(config), `storage:${teamId}:${id}`), active: false,
     });
     targets.set(Number(t.id), id);

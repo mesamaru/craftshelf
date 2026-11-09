@@ -33,6 +33,13 @@ export async function remote<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
+/** ワールドのフォルダ(server.properties の level-name。読めない・フォルダの外を指すときは world) */
+export async function worldOf(client: PteroClient, remoteId: string) {
+  const props = await client.readFile(remoteId, "server.properties").catch(() => null);
+  const level = props?.match(/^\s*level-name\s*=\s*(.*?)\s*$/m)?.[1].replace(/\\/g, "/").replace(/\/+$/, "") ?? "";
+  return level && !level.startsWith("/") && !level.split("/").includes("..") ? level : "world";
+}
+
 const sealContext = (teamId: string, id: string) => `ptero:${teamId}:${id}`;
 const rconContext = (serverId: string) => `rcon:${serverId}`;
 const CONTROLS = ["none", "command", "docker"] as const;

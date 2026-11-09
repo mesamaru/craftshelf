@@ -62,7 +62,8 @@ function Compare() {
     .filter((r) => !diffOnly || new Set(servers.map((s) => r.files[s.id]?.versionNumber ?? "")).size > 1);
   // 取り込んだ・切り替えたあと: ライブラリと、配布元のわからないものを読み直す
   const refresh = () => { setUnknown({}); setTick((x) => x + 1); router.invalidate(); };
-  const rows = data.items.filter((i) => !diffOnly || new Set(servers.map((s) => verOf(i, s.id) ?? "")).size > 1);
+  // サーバーに入れるもの(プラグイン・Mod・データパック)だけを並べる
+  const rows = data.items.filter((i) => ["plugin", "mod", "datapack"].includes(i.projectType)).filter((i) => !diffOnly || new Set(servers.map((s) => verOf(i, s.id) ?? "")).size > 1);
   const setPick = (key: string, p: Pick | null) => setPicks((m) => {
     const n = new Map(m);
     if (p) n.set(key, p);
@@ -139,7 +140,7 @@ function Compare() {
                           </td>
                         );
                       }
-                      if (!edit || s.type !== i.projectType) return <td key={s.id} className="muted">—</td>;
+                      if (!edit || !s.kinds.includes(i.projectType as never)) return <td key={s.id} className="muted">—</td>;
                       const p = picks.get(key);
                       return (
                         <td key={s.id}>

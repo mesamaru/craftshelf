@@ -16,6 +16,15 @@ export type Platform = keyof typeof PLATFORMS;
 export const PLATFORM_IDS = Object.keys(PLATFORMS) as Platform[];
 export const isPlatform = (v: unknown): v is Platform => typeof v === "string" && v in PLATFORMS;
 
+// ライブラリのアイテムの種類(03.58.00 から、v02 と同じくデータパック・リソースパック・シェーダー・Modパックも)
+export const ITEM_TYPES = { plugin: "プラグイン", mod: "Mod", datapack: "データパック", resourcepack: "リソースパック", shader: "シェーダー", modpack: "Modパック" } as const;
+export type ItemType = keyof typeof ITEM_TYPES;
+export const ITEM_TYPE_IDS = Object.keys(ITEM_TYPES) as ItemType[];
+export const isItemType = (v: unknown): v is ItemType => typeof v === "string" && v in ITEM_TYPES;
+/** サーバーに入れられる種類: サーバーの種類のもの(プラグイン・Mod)と、ワールドのあるサーバー(プロキシ以外)ならデータパック(<level-name>/datapacks/) */
+export const kindsOf = (platform: unknown): ItemType[] =>
+  isPlatform(platform) ? [PLATFORMS[platform].type, ...(platform === "velocity" || platform === "bungeecord" ? [] : ["datapack" as const])] : [];
+
 // 例 1.21.1・1.20・1.8.9、年ごとの新しい番号の 26.3・26.3.1
 export const MC_VERSION = /^(1\.\d{1,2}|\d{2}\.\d{1,2})(\.\d{1,2})?$/;
 

@@ -14,6 +14,7 @@ import { worldService } from "~/server/worlds";
 import { serverService } from "~/server/servers";
 import { setService } from "~/server/sets";
 import { tokenService } from "~/server/tokens";
+import { modpackService } from "~/server/modpack";
 import { setup } from "./helpers";
 
 const KEY = "ptlc_0123456789abcdefghij";
@@ -47,7 +48,7 @@ beforeAll(async () => {
   tokens = tokenService(deps);
   const sets = setService(deps);
   services = { servers, library: libraryService(deps), sets, files: fileService(deps), events: eventService(deps), software: softwareService(deps), worlds: worldService(deps),
-    backups: backupService(deps), schedules: scheduleService(deps, sets), jobs: jobService(deps) } as never;
+    backups: backupService(deps), schedules: scheduleService(deps, sets), jobs: jobService(deps), modpacks: modpackService(deps) } as never;
   owner = t.headers(await t.signUp("オーナー", "owner@example.com"));
   const c = await servers.addConnection(owner, { name: "", url: "panel.example.com", apiKey: KEY });
   await servers.addServers(owner, c.id, ["abcd1234"]);

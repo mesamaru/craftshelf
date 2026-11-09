@@ -1,11 +1,11 @@
 // セット: ライブラリから選んだものの組み合わせ。サーバーにまとめて入れる。どの処理も、選んでいるチームの中だけを読み書きする
 import { randomUUID } from "node:crypto";
 import { and, asc, count, eq, inArray, isNull, lt, or } from "drizzle-orm";
-import { PLATFORMS, isPlatform } from "~/lib/platforms";
+import { ITEM_TYPES, PLATFORMS, isItemType, isPlatform } from "~/lib/platforms";
 import { addonSet, addonSetItem, installedMod, libraryItem, server, serverHold, serverSet } from "./db/schema";
 import { HttpError, requireTeam } from "./guard";
 import { isItemSource } from "~/lib/sources";
-import { isDisabled, modTools } from "./library";
+import { fileProfile, isDisabled, modTools, profileFor } from "./library";
 import { type EventKind, eventService } from "./events";
 import { type Deps, serverOf, needServerAccess, serverScope } from "./servers";
 import { softwareService } from "./software";
@@ -65,8 +65,7 @@ export function setService(deps: Deps) {
   // セットの中身(items)をサーバーに入れる(mode は ApplyMode)
   async function applyTo(teamId: string, userId: string | null, items: SetLike[], serverId: string, mode: ApplyMode, removeExtra = false): Promise<ApplyResult[]> {
     const target = await serverOf(deps, teamId, serverId);
-    const p = await needProfile(target.row.id);
-    const type = PLATFORMS[p.platform].type;
+    const server = await needProfile(target.row.id);
     const records = await db.select().from(installedMod).where(eq(installedMod.serverId, target.row.id));
     const present = new Map(records.map((r) => [`${r.source}:${r.projectId}`, r]));
     const holds = await holdsOf(target.row.id);
@@ -74,8 +73,11 @@ export function setService(deps: Deps) {
     for (const it of items) {
       const now = present.get(`${it.source}:${it.projectId}`);
       if (!isItemSource(it.source) || (!now && mode === "update")) continue; // update は入っているものだけ
-      if (it.projectType !== type) {
-        out.push({ title: it.title, status: "skipped", detail: `${it.projectType === "mod" ? "Mod " : "プラグイン"}なので、${PLATFORMS[p.platform].label} のサーバーには入れません` });
+      // データパックはワールドの datapacks に。サーバーの種類と違うもの・リソースパックなどは入れない
+      const p = now ? fileProfile(server, now.filename) : profileFor(server, it.projectType);
+      if (!p) {
+        const what = isItemType(it.projectType) ? ITEM_TYPES[it.projectType] : it.projectType;
+        out.push({ title: it.title, status: "skipped", detail: `${what}${what === "Mod" ? " " : ""}なので、${PLATFORMS[server.platform].label} のサーバーには入れません` });
         continue;
       }
       try {
@@ -108,7 +110,7 @@ export function setService(deps: Deps) {
       }
     }
     // セットに無いもの(このアプリで入れたものだけ。手で置いたファイルは触らない)を外す
-    if (removeExtra && mode === "sync") await removeExtras(target, p, userId, records, new Set(items.map((it) => `${it.source}:${it.projectId}`)), out);
+    if (removeExtra && mode === "sync") await removeExtras(target, server, userId, records, new Set(items.map((it) => `${it.source}:${it.projectId}`)), out);
     return out;
   }
 
@@ -151,14 +153,15 @@ export function setService(deps: Deps) {
         continue;
       }
       try {
+        const q = fileProfile(p, s.filename); // データパックはワールドの datapacks に
         // そろえる元と同じ版を、このサーバーの種類・バージョンに合うときだけ入れる。SpigotMC はいちばん新しい版だけ
-        const file = s.source === "spigot" ? await latestFile(s.source, s.projectId, p, teamId)
-          : (await versionsOf(s.source, s.projectId, p, teamId)).some((v) => v.versionId === s.versionId) ? await fileById(s.source, s.projectId, s.versionId, teamId) : null;
+        const file = s.source === "spigot" ? await latestFile(s.source, s.projectId, q, teamId)
+          : (await versionsOf(s.source, s.projectId, q, teamId)).some((v) => v.versionId === s.versionId) ? await fileById(s.source, s.projectId, s.versionId, teamId) : null;
         if (!file || file.versionId !== s.versionId) {
           out.push({ title: s.title, status: "failed", detail: s.source === "spigot" ? `SpigotMC のものは、いちばん新しい版しか入れられません(${s.versionNumber})` : `${s.versionNumber} は、このサーバーの種類・バージョンに合いません` });
           continue;
         }
-        const r = await installInto(teamId, userId, target, p, s.source, s.projectId, { file, depth: 0 });
+        const r = await installInto(teamId, userId, target, q, s.source, s.projectId, { file, depth: 0 });
         // そろえる元で更新を止めているもの(古い版にしたもの)は、こちらでも止める(自動更新・予約で戻されないように)
         if (from.holds.has(key)) await db.insert(serverHold).values({ serverId: target.row.id, source: s.source, projectId: s.projectId, createdBy: userId }).onConflictDoNothing();
         out.push({ title: s.title, status: now ? "updated" : "installed", detail: now ? `${now.versionNumber} → ${r.versionNumber}` : r.versionNumber });

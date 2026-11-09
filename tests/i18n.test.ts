@@ -51,5 +51,12 @@ describe("英語表示", () => {
     expect(translate("要る範囲: サーバーの操作(編集者以上)")).toBe("Needs: Server control (Editor or higher)");
     expect(translate("この API トークンの範囲では、この操作はできません(要る範囲: 管理)")).toBe("This API token's scopes do not allow this (needs: Admin)");
     expect(translate("戻しました(12 ファイル)。前のワールドは world.craftshelf-before-restore-1 に残しています")).toBe("Restored (12 files). The previous world is kept as world.craftshelf-before-restore-1");
+    // 03.58.00: データパックなど
+    expect(translate("入っているもの(plugins/・lobby/datapacks/)")).toBe("Installed (plugins/ · lobby/datapacks/)");
+    expect(translate("新しい版 2.0")).toBe("New version 2.0");
+    expect(translate("新しい版 3")).toBe("New versions 3");
+    expect(translate("リソースパックなので、Paper のサーバーには入れません")).toBe("Resource packs cannot be installed on Paper servers");
+    expect(translate("セット「My Pack 1.0」を作りました(4 件)。サーバーに入れました(失敗 0 件)")).toBe("Created set “My Pack 1.0” (4 items). Installed on the server (0 failed)");
+    expect(translate("データパック")).toBe("Data pack");
   });
 });

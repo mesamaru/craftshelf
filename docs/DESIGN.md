@@ -89,7 +89,10 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 
 - チームで使う Mod・プラグインの一覧(表 `library_item`)。**ファイルは持たず**、配布元のプロジェクト(いまは Modrinth)だけを記録する。サーバーに入れたものは自動で載る。
 - 画面(トップ)では、それぞれがどのサーバーにどの版で入っているか(`installed_mod` から)を出し、種類が合うサーバー(プラグインなら plugins/ を使うサーバー)を選んで入れられる。
-- 足すのは `library: ["edit"]`(編集者以上)。プラグインと Mod だけ。外してもサーバーのファイルは消さない。無料の上限は 1 チーム 500 件(`LIBRARY_LIMITS`)。
+- 足すのは `library: ["edit"]`(編集者以上)。種類(`project_type`、`ITEM_TYPES`)はプラグイン・Mod と、03.58.00 からデータパック・リソースパック・シェーダー・Modパック(v02 と同じ)。外してもサーバーのファイルは消さない。無料の上限は 1 チーム 500 件(`LIBRARY_LIMITS`)。
+- データパック(03.58.00 から): ワールドのあるサーバー(プロキシ以外、`kindsOf`)の `<level-name>/datapacks/`(`server.properties` を `worldOf` で読む)に .zip を置く。サーバーにあるファイルの種類は拡張子で決める(.jar = サーバーの種類のフォルダ、.zip = datapacks。`fileProfile`)。入れる・更新・無効・外す・元に戻す・配布元を探す・そろえる・セット・更新の確認は、どれも `Profile.kind = "datapack"` で同じ処理を通る(Modrinth は作り `datapack` の版だけ、CurseForge は分類 6945)。どの種類として入れるかは、`kind` → サーバーに入っているファイル → ライブラリの種類の順に決める(`targetProfile`)。データパックの前提は配布元に問い合わせない。
+- リソースパック・シェーダーはクライアントで使うので、サーバーには入れない(v02 と同じ)。ライブラリで持ち、版の一覧から配布元の CDN のファイルをダウンロードできる(アップロードしたものは保存先から・共有リンクも)。アップロードは .zip・.mrpack も受け付け、中身(pack.mcmeta と data/ か assets/・shaders/・modrinth.index.json・manifest.json)で種類を決める(`analyzePack`)。
+- Modパック(03.58.00 から): アイテムとして持ち、`modpackService.fromItem` が受け取る版のとおりのいちばん新しい版(配布元の CDN から、転送は CDN の中だけ・100 MB まで)か、アップロードしたいちばん新しいファイルを読んで、`import` と同じくセットを作る。サーバーを選ぶと overrides を書き込み(`server: ["update"]`)、セットも入れる。使った版は `library_item.pack` に覚え、`refreshInfo` がいちばん新しい版を取り直して、使った版より新しければ一度だけ「新しい版」の種類で知らせる。
 - タグ(表 `library_tag`、チームの中で共有。付け外しは `library: ["edit"]`、1 つ 30 文字・1 件に 20 個まで)とお気に入り(表 `library_favorite`、利用者ごと。閲覧者もできる。一覧の上に並べる)。
 - 一覧の絞り込み(名前・種類・配布元・タグ)と並べ替え(名前・追加日)は画面の中だけで行う。「更新あり」は押したときだけ `outdated` が配布元に問い合わせる(サーバーの種類とバージョンごとに 1 回。更新を止めたもの・割り当てのないサーバーは見ない)。まとめて操作(タグ・セットに足す・外す)は、選んだものに 1 件ずつ同じ処理を呼ぶ(タグだけは 1 回で付ける)。
 - 前提の確かめ(03.56.00 から。`modTools.missingOf` をセット・ライブラリ・サーバーで共有): 前提は、配布元の必須(Modrinth・CurseForge の、そのサーバーに入るいちばん新しい版の `deps`)と、手で決めた前提(表 `library_dep`、アイテム → 前提のアイテム。配布元が前提を知らない SpigotMC・アップロードしたものにも使える。`linkDep` は `library: ["edit"]`)。ライブラリの「前提が足りない」(`missingDeps`)は押したときだけ配布元に問い合わせ、アイテムの「詳しく」(`missingDeps(itemId)`)とサーバーの画面(`serverDeps`、開いたとき)は自動で確かめる。足りないものは `install` でそのサーバーに入れる。無効にしたものは入っていないものとみなす。
@@ -98,7 +101,7 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 - 対応 MC(`library_item.upstream_mc`・`info_at`): 1 分ごとの `refreshInfo` が、取ってから 1 日たったものを 50 件ずつ取り直す(Modrinth は `/projects` の `game_versions`、CurseForge は `latestFilesIndexes`、SpigotMC は `testedVersions`、アップロードは jar から読んだもの。スナップショットは除く)。一覧は直したもの、無ければこれを出し、MC のバージョンで絞り込める(1.20 は 1.20.x を含む)。
 - 受け取る版(`channel`): release = 正式版だけ(正式版が無いものだけベータ)/ all = ベータ・アルファも含めていちばん新しいもの。チームの既定は `team_option.channel`(管理者以上)、アイテムごとに変えられる。v02 の `stable_only`・`item_sources.channel` は `maybeImportV02Channels` で一度だけ引き継ぐ。
 - URL から足す(`addFromUrl`): Modrinth(slug でも)・SpigotMC・CurseForge(slug を `/mods/search?slug=` で ID に)のページの URL を読む(`parseSourceUrl`)。Hangar はまだ配布元に無いので断る。
-- v02 からの取り込み(`maybeImportV02Library`、結果は `/data/v03/import-v02-library.json`): v02 から移った自分用の版で一度だけ。配布元が Modrinth(ID が 8 文字)とわかるプラグイン・Mod と、SpigotMC(数字の ID)とわかるプラグインだけを載せ、v02 のセットも作る(版の固定は引き継がない)。アップロードしただけのファイル・CurseForge・データパックは、名前を結果に残して飛ばす。
+- v02 からの取り込み(`maybeImportV02Library`、結果は `/data/v03/import-v02-library.json`): v02 から移った自分用の版で一度だけ。配布元が Modrinth(ID が 8 文字)とわかるプラグイン・Mod と、SpigotMC(数字の ID)とわかるプラグインだけを載せ、v02 のセットも作る(版の固定は引き継がない)。03.58.00 からはデータパック・リソースパック・シェーダー・Modパックも取り込む。それより前に取り込んだパネルでは `maybeImportV02Kinds` が一度だけ、その種類だけを取り込み(v02 の保存先は前に登録したものを使う)、取り込み済みの同じ名前のセットに足す(結果は `/data/v03/import-v02-kinds.json`。ライブラリと一緒に取り込んだときは印だけを置く)。
 
 ## セット
 

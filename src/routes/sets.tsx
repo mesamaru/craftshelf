@@ -4,7 +4,8 @@ import { useServerFn } from "@tanstack/react-start";
 import { ApplyResults } from "~/lib/apply-results";
 import { libraryCatalog } from "~/lib/library-api";
 import { getSchedule, setSchedule } from "~/lib/schedule-api";
-import { PLATFORMS, PLATFORM_IDS } from "~/lib/platforms";
+import { ITEM_TYPES, PLATFORMS, PLATFORM_IDS } from "~/lib/platforms";
+import { ItemIcon } from "~/lib/type-icon";
 import { addSetDeps, applySet, createSet, listSets, removeSet, renameSet, setMissingDeps, toggleSetItem } from "~/lib/sets-api";
 import { SOURCE_LABEL, isSource } from "~/lib/sources";
 import { useCan } from "~/lib/use-can";
@@ -19,7 +20,7 @@ export const Route = createFileRoute("/sets")({
 });
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
-const TYPE_LABEL: Record<string, string> = { plugin: "プラグイン", mod: "Mod" };
+const TYPE_LABEL: Record<string, string> = ITEM_TYPES;
 
 type SetRow = Awaited<ReturnType<typeof listSets>>[number];
 type Catalog = Awaited<ReturnType<typeof libraryCatalog>>;
@@ -99,7 +100,7 @@ function SetCard({ set, catalog, edit, onChange }: { set: SetRow; catalog: Catal
         {set.items.length === 0 && <div className="row muted">まだ何も入っていません。{edit && catalog.items.length === 0 ? "先にライブラリに Mod・プラグインを登録すると、ここに足せます。" : ""}</div>}
         {set.items.filter(fits).map((i) => (
           <div className="row hit" key={i.id}>
-            {i.iconUrl ? <img src={i.iconUrl} alt="" width={40} height={40} loading="lazy" /> : <span className="icon-ph" />}
+            <ItemIcon type={i.projectType} url={i.iconUrl} />
             <span className="main">
               <span translate="no">{i.title}</span>
               <span className="muted">{TYPE_LABEL[i.projectType] ?? i.projectType} · {isSource(i.source) ? SOURCE_LABEL[i.source] : i.source}</span>

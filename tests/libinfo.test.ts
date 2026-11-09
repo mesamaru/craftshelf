@@ -206,7 +206,7 @@ describe("アイテムの情報を直す・受け取る版", () => {
     const ok = { projectType: "plugin", loaders: ["spigot"], mcVersions: ["1.21.4"], channel: "all" };
     expect(await code(lib.editItem(editor, lp.id, ok))).toBe(403);
     expect(await code(lib.editItem(outsider, lp.id, ok))).toBe(404);
-    expect(await code(lib.editItem(owner, lp.id, { ...ok, projectType: "datapack" }))).toBe(400);
+    expect(await code(lib.editItem(owner, lp.id, { ...ok, projectType: "world" }))).toBe(400);
     expect(await code(lib.editItem(owner, lp.id, { ...ok, loaders: ["sponge"] }))).toBe(400);
     expect(await code(lib.editItem(owner, lp.id, { ...ok, mcVersions: ["1.21.x"] }))).toBe(400);
     expect(await code(lib.editItem(owner, lp.id, { ...ok, channel: "nightly" }))).toBe(400);

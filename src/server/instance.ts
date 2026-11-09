@@ -63,6 +63,13 @@ async function build() {
     } catch (e) {
       console.error("[v02] ライブラリの取り込みに失敗しました(v02 のデータはそのままです):", e);
     }
+    const { maybeImportV02Kinds } = await import("./import-v02");
+    try {
+      const r = await maybeImportV02Kinds(db, env);
+      if (r && (r.items || r.uploads)) console.log(`[v02] データパックなどを取り込みました: ${r.items + (r.uploads ?? 0)} 件(結果は /data/v03/import-v02-kinds.json)`);
+    } catch (e) {
+      console.error("[v02] データパックなどの取り込みに失敗しました(v02 のデータはそのままです):", e);
+    }
     const { maybeImportV02AutoUpdate } = await import("./import-v02");
     try {
       const r = await maybeImportV02AutoUpdate(db, env);

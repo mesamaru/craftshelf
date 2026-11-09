@@ -1,0 +1,1 @@
+ALTER TABLE "library_item" ADD COLUMN "pack" text DEFAULT '' NOT NULL;

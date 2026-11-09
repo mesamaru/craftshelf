@@ -165,19 +165,26 @@ describe("ライブラリ(チームの目録)", () => {
     await lib.install(editor, id, PID);
     let cat = await lib.catalog(viewer);
     expect(cat.items.map((i) => [i.title, i.projectType, i.installs.map((x) => `${x.serverName} ${x.versionNumber}`)])).toEqual([["LuckPerms", "plugin", ["サバイバル 5.5.0"]]]);
-    expect(cat.servers).toEqual([{ id, name: "サバイバル", type: "plugin" }]);
+    expect(cat.servers).toEqual([{ id, name: "サバイバル", type: "plugin", kinds: ["plugin", "datapack"] }]);
     await lib.remove(editor, id, "LuckPerms-5.5.0.jar");
     cat = await lib.catalog(viewer);
     expect(cat.items[0].installs).toEqual([]);
   });
 
-  it("種類だけで探して足せる。プラグインと Mod 以外は断る。足せるのは編集者以上", async () => {
+  it("種類だけで探して足せる(リソースパックなども。クライアントで使うものはサーバーで動くかで絞らない)。足せるのは編集者以上", async () => {
     await lib.searchCatalog(viewer, "sod", "mod");
     expect(lastSearch).toContain("project_type:mod");
     expect(lastSearch).not.toContain("categories:");
-    expect(await code(lib.searchCatalog(viewer, "", "resourcepack"))).toBe(400);
+    expect(lastSearch).toContain("server_side");
+    await lib.searchCatalog(viewer, "", "resourcepack");
+    expect(lastSearch).toContain("project_type:resourcepack");
+    expect(lastSearch).not.toContain("server_side");
+    expect(await code(lib.searchCatalog(viewer, "", "world"))).toBe(400);
+    expect(await code(lib.searchCatalog(viewer, "", "shader", "spigot"))).toBe(400);
     expect(await code(lib.addItem(viewer, "AANobbMI"))).toBe(403);
-    expect(await code(lib.addItem(editor, "RPRPRPRP"))).toBe(400);
+    const rp = await lib.addItem(editor, "RPRPRPRP");
+    expect((await lib.catalog(viewer)).items.find((i) => i.id === rp.id)?.projectType).toBe("resourcepack");
+    await lib.removeItem(editor, rp.id);
     expect(await code(lib.addItem(editor, "Missing1"))).toBe(404);
     await lib.addItem(editor, "AANobbMI");
     await lib.addItem(editor, "AANobbMI"); // 2 回足しても 1 件

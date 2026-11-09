@@ -218,6 +218,13 @@
       "when": 1794180822321,
       "tag": "0030_jobs_user_pref",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1794216123438,
+      "tag": "0031_library_pack",
+      "breakpoints": true
     }
   ]
 }

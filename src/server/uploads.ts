@@ -11,9 +11,9 @@ import { PLATFORMS, type Platform, isPlatform } from "~/lib/platforms";
 import { libraryFile, libraryItem, storageTarget, installedMod, serverProfile } from "./db/schema";
 import { eventService } from "./events";
 import { HttpError, requireTeam } from "./guard";
-import { remote, serverOf } from "./servers";
-import { analyzeJar, fileSource } from "./jar";
-import { SAFE_JAR, pickVersion } from "./modrinth";
+import { remote, serverOf, worldOf } from "./servers";
+import { analyzeJar, analyzePack, fileSource } from "./jar";
+import { SAFE_FILE, pickVersion } from "./modrinth";
 import { open, seal } from "./secrets";
 import type { Deps } from "./servers";
 import { type StorageConfig, StorageError, storeFor } from "./storage";
@@ -26,7 +26,7 @@ const sealContext = (teamId: string, id: string) => `storage:${teamId}:${id}`;
 const slug = (s: string) => s.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^[._]+/, "").slice(0, 60) || "item";
 const safeFilename = (name: string) => {
   const n = name.replace(/[^A-Za-z0-9._+\- ]+/g, "_").replace(/^[^A-Za-z0-9]+/, "");
-  return SAFE_JAR.test(n) ? n : `upload-${Date.now()}.jar`;
+  return SAFE_FILE.test(n) ? n : `upload-${Date.now()}${name.match(/\.(jar|zip|mrpack)$/i)?.[0].toLowerCase() ?? ".jar"}`;
 };
 
 export async function fromStorage<T>(fn: () => Promise<T>): Promise<T> {
@@ -55,21 +55,21 @@ export function fileStore(deps: Deps) {
     return storeFor(configOf(t), fetch);
   }
 
-  /** このサーバーの種類に合う版(新しい順) */
-  async function choices(teamId: string, projectId: string, platform: Platform) {
+  /** このサーバーの種類に合う版(新しい順)。kind = "datapack" ならデータパック(作りでは絞らない) */
+  async function choices(teamId: string, projectId: string, platform: Platform, kind?: "datapack") {
     const [item] = await db.select().from(libraryItem).where(and(eq(libraryItem.teamId, teamId), eq(libraryItem.source, "upload"), eq(libraryItem.projectId, projectId)));
-    if (!item || item.projectType !== PLATFORMS[platform].type) return { item, files: [] };
-    const want = PLATFORMS[platform].loaders as readonly string[];
+    if (!item || item.projectType !== (kind ?? PLATFORMS[platform].type)) return { item, files: [] };
+    const want: readonly string[] = kind ? [] : PLATFORMS[platform].loaders;
     const files = (await db.select().from(libraryFile).where(eq(libraryFile.itemId, item.id)).orderBy(desc(libraryFile.createdAt)))
       .map((f) => ({ ...f, loaders: JSON.parse(f.loaders) as string[], date_published: f.createdAt.toISOString() }))
-      .filter((f) => !f.loaders.length || f.loaders.some((l) => want.includes(l))); // 調べられなかったものは、種類が合えば使う
+      .filter((f) => !want.length || !f.loaders.length || f.loaders.some((l) => want.includes(l))); // 調べられなかったものは、種類が合えば使う
     return { item, files };
   }
 
   /** このサーバーの種類に合う、いちばん新しい版(無ければ null) */
-  async function pick(teamId: string, projectId: string, platform: Platform) {
-    const { item, files } = await choices(teamId, projectId, platform);
-    const f = pickVersion(files, PLATFORMS[platform].loaders);
+  async function pick(teamId: string, projectId: string, platform: Platform, kind?: "datapack") {
+    const { item, files } = await choices(teamId, projectId, platform, kind);
+    const f = pickVersion(files, kind ? [] : PLATFORMS[platform].loaders);
     return item && f ? { item, file: f as unknown as FileRow } : null;
   }
 
@@ -236,17 +236,23 @@ export function uploadService(deps: Deps) {
       needLocal();
       const size = typeof data === "string" ? statSync(data).size : data.byteLength;
       if (size > UPLOAD_LIMITS.fileBytes) throw new HttpError(400, `ファイルは ${UPLOAD_LIMITS.fileBytes / 1024 / 1024} MB までです`);
-      if (!/\.jar$/i.test(filename)) throw new HttpError(400, "アップロードできるのは .jar のファイルだけです");
+      if (!/\.(jar|zip|mrpack)$/i.test(filename)) throw new HttpError(400, "アップロードできるのは .jar・.zip・.mrpack のファイルだけです");
+      // jar はプラグイン・Mod、zip・mrpack はデータパック・リソースパック・シェーダー・Modパック
+      const jar = /\.jar$/i.test(filename);
+      const analyze = (src: Parameters<typeof analyzeJar>[0]) => (jar ? analyzeJar(src, filename) : analyzePack(src, filename));
       let info;
       if (typeof data === "string") {
         const src = fileSource(data);
         try {
-          info = analyzeJar(src, filename);
+          info = analyze(src);
         } finally {
           src.close();
         }
-      } else info = analyzeJar(data, filename);
-      if (!info.projectType) throw new HttpError(400, `${filename} はプラグイン・Mod として読めませんでした(plugin.yml・fabric.mod.json などがありません)`);
+      } else info = analyze(data);
+      if (!info.projectType) {
+        throw new HttpError(400, jar ? `${filename} はプラグイン・Mod として読めませんでした(plugin.yml・fabric.mod.json などがありません)`
+          : `${filename} はデータパック・リソースパック・シェーダー・Modパックとして読めませんでした(pack.mcmeta・shaders/・modrinth.index.json などがありません)`);
+      }
       const hash = createHash("sha256");
       if (typeof data === "string") for await (const chunk of createReadStream(data)) hash.update(chunk as Buffer);
       else hash.update(data);
@@ -283,13 +289,14 @@ export function uploadService(deps: Deps) {
     async fromServer(headers: Headers, serverId: string, filename: string) {
       const who = await requireTeam(auth, headers, { library: ["edit"] });
       needLocal();
-      if (/[\\/]/.test(filename) || !/\.jar(\.disabled)?$/i.test(filename)) throw new HttpError(400, "ファイルの名前が正しくありません");
+      if (/[\\/]/.test(filename) || !/\.(jar|zip)(\.disabled)?$/i.test(filename)) throw new HttpError(400, "ファイルの名前が正しくありません");
       const { row, client, remoteId } = await serverOf(deps, who, serverId);
       const [p] = await db.select().from(serverProfile).where(eq(serverProfile.serverId, row.id));
       if (!p || !isPlatform(p.platform)) throw new HttpError(400, "先にサーバーの種類を選んでください");
-      const dir = PLATFORMS[p.platform].dir;
+      // .zip はワールドのデータパック(<level-name>/datapacks/)
+      const dir = /\.zip(\.disabled)?$/i.test(filename) ? `${await remote(() => worldOf(client, remoteId))}/datapacks` : PLATFORMS[p.platform].dir;
       const data = await remote(() => client.readBytes(remoteId, `${dir}/${filename}`, UPLOAD_LIMITS.serverFileBytes));
-      const r = await this.ingest(headers, filename.replace(/\.disabled$/i, ""), data); // 無効にしたものも、jar として取り込む
+      const r = await this.ingest(headers, filename.replace(/\.disabled$/i, ""), data); // 無効にしたものも取り込む
       const values = { serverId: row.id, source: "upload", projectId: r.projectId, versionId: r.fileId, versionNumber: r.version || filename, title: r.title, filename, installedBy: who.user.id, installedAt: new Date() };
       await db.insert(installedMod).values({ id: randomUUID(), ...values }).onConflictDoUpdate({ target: [installedMod.serverId, installedMod.filename], set: values });
       return r;

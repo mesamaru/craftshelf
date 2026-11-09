@@ -257,7 +257,10 @@ function ImportReport({ userId }: { userId: string }) {
         {report.library && (
           <div className="row"><span>ライブラリ・セット</span><span className="trail">{report.library.items} 件・セット {report.library.sets} 個{report.library.folders ? `・フォルダのサーバー ${report.library.folders} 台` : ""}{report.library.uploads ? `・アップロードしたもの ${report.library.uploads} 件` : ""}</span></div>
         )}
-        {[...report.skipped, ...(report.library?.skipped ?? [])].map((x, i) => (
+        {report.kinds && (
+          <div className="row"><span>データパック・リソースパック・シェーダー・Modパック(あとから)</span><span className="trail">{`${report.kinds.items + (report.kinds.uploads ?? 0)} 件`}</span></div>
+        )}
+        {[...report.skipped, ...(report.library?.skipped ?? []), ...(report.kinds?.skipped ?? [])].map((x, i) => (
           <div className="row" key={i}><span className="main"><span>{x.what}</span><span className="muted" translate="no">{x.detail}</span></span><span className="trail">取り込まず</span></div>
         ))}
         {report.notes.map((n, i) => <p className="row muted" key={`n${i}`}>{n}</p>)}

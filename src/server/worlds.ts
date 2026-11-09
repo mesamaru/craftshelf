@@ -11,7 +11,7 @@ import { eventService } from "./events";
 import { HttpError, requireTeam } from "./guard";
 import type { PteroBackups, PteroClient } from "./ptero";
 import { localParts } from "./schedule";
-import { type Deps, remote, serverOf } from "./servers";
+import { type Deps, remote, serverOf, worldOf } from "./servers";
 import { tarGz, untarGz } from "./tar";
 import { type Ping, gamePort, ping } from "./mcping";
 import { fileStore, fromStorage } from "./uploads";
@@ -66,9 +66,7 @@ export function worldService(deps: Deps) {
 
   /** ワールドのフォルダを読んで tar.gz にする(1 ファイルずつ読むので、メモリは大きいファイル 1 つぶんまで) */
   async function archive(client: PteroClient, remoteId: string, out: string) {
-    const props = await client.readFile(remoteId, "server.properties").catch(() => null);
-    const level = props?.match(/^\s*level-name\s*=\s*(.*?)\s*$/m)?.[1].replace(/\\/g, "/") ?? "";
-    const world = level && !level.startsWith("/") && !level.split("/").includes("..") ? level : "world";
+    const world = await worldOf(client, remoteId);
     const dirs: string[] = [];
     for (const d of [world, `${world}_nether`, `${world}_the_end`]) if ((await client.listFiles(remoteId, d)).length) dirs.push(d);
     if (!dirs.length) throw new HttpError(404, `ワールドのフォルダ(${world})が見つかりません`);

@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { SOURCE_LABEL, isItemSource } from "~/lib/sources";
+import { ITEM_TYPES } from "~/lib/platforms";
 import { roleLabel } from "~/lib/permissions";
 import { teamUsage } from "~/lib/shares-api";
 
@@ -13,7 +14,7 @@ export const Route = createFileRoute("/usage")({
   component: Usage,
 });
 
-const TYPE_LABEL: Record<string, string> = { plugin: "プラグイン", mod: "Mod" };
+const TYPE_LABEL: Record<string, string> = ITEM_TYPES;
 const size = (b: number) => (b >= 1024 ** 3 ? `${(b / 1024 ** 3).toFixed(1)} GB` : b >= 1024 ** 2 ? `${(b / 1024 ** 2).toFixed(1)} MB` : `${Math.ceil(b / 1024)} KB`);
 
 // チームの利用状況(管理者以上)

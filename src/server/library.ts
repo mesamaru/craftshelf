@@ -44,6 +44,18 @@ const CONFIG_DIR = ".craftshelf-config";
 const CONFIG_LIMITS = { files: 100, bytes: 20 * 1024 * 1024, depth: 6 };
 // 対応 MC を配布元から取り直す間隔と、1 回に取り直す数
 const INFO_EVERY = 24 * 60 * 60_000;
+// 前提の確かめの結果を覚えておく長さ(入っている版ごと。Mod の多いサーバーの画面を開くたびに配布元へ問い合わせないように)。このプロセスの中だけ
+export const DEPS_MEMO_MS = 24 * 60 * 60_000;
+const DEPS_MEMO_MAX = 5000;
+const depsMemo = new Map<string, { at: number; value: unknown }>();
+const memoGet = (key: string) => {
+  const m = depsMemo.get(key);
+  return m && Date.now() - m.at < DEPS_MEMO_MS ? m : undefined;
+};
+const memoSet = (key: string, value: unknown) => {
+  if (depsMemo.size >= DEPS_MEMO_MAX) for (const [k, m] of depsMemo) if (Date.now() - m.at >= DEPS_MEMO_MS || depsMemo.size >= DEPS_MEMO_MAX) depsMemo.delete(k);
+  depsMemo.set(key, { at: Date.now(), value });
+};
 const INFO_BATCH = 50;
 // 前提の確かめの結果の 1 行(have に無いもの)。byKeys は使うものの "配布元:ID"
 export type MissingDep = { source: ItemSource; projectId: string; title: string; iconUrl: string; itemId: string | null; by: string[]; byKeys: string[] };
@@ -370,8 +382,8 @@ export function modTools(deps: Deps) {
 
     // アップロードしたものは、保存先から読んでサーバーに送る。配布元のものは、サーバーに直接取り込ませる
     if (file.upload) {
-      const data = await files.read(teamId, file.upload);
-      await remote(() => client.upload(remoteId, dir, file.filename, data));
+      // 一時フォルダに少しずつ写してから送る(1 GB の jar もメモリに全部を載せない)
+      await files.withTemp(teamId, file.upload, (path) => remote(() => client.upload(remoteId, dir, file.filename, path)));
     } else {
       await remote(() => client.pull(remoteId, file.url, dir, file.filename));
     }
@@ -508,9 +520,10 @@ export function modTools(deps: Deps) {
   /**
    * 前提のうち have("配布元:ID")に無いもの。items は p のサーバーに入れる(入っている)もの。
    * 前提は、配布元の必須(Modrinth・CurseForge の、p のサーバーに入るいちばん新しい版のもの)と、ライブラリで手で決めたもの。
-   * 配布元につながらなかったものは errors に。cache を渡すと、同じ問い合わせをまとめる(何台も確かめるとき)
+   * 配布元につながらなかったものは errors に。cache を渡すと、同じ問い合わせをまとめる(何台も確かめるとき)。
+   * installed(サーバーに入っている版)を渡したものは、同じ版なら DEPS_MEMO_MS のあいだ結果を覚えておき、配布元に問い合わせない
    */
-  async function missingOf(teamId: string, items: { source: string; projectId: string; title: string }[], p: Profile, have: Set<string>,
+  async function missingOf(teamId: string, items: { source: string; projectId: string; title: string; installed?: string }[], p: Profile, have: Set<string>,
     cache = new Map<string, Promise<unknown>>()) {
     const need = new Map<string, { source: ItemSource; projectId: string; by: string[]; byKeys: string[] }>();
     const add = (source: ItemSource, projectId: string, it: { source: string; projectId: string; title: string }) => {
@@ -542,9 +555,17 @@ export function modTools(deps: Deps) {
       await Promise.all(todo.slice(k, k + 8).map(async (it) => {
         const src = it.source as "modrinth" | "curseforge";
         const key = `deps:${src}:${it.projectId}:${p.platform}:${p.mcVersion ?? ""}`;
+        const memo = it.installed ? `${teamId}:${key}:${it.installed}` : "";
+        const hit = memo ? memoGet(memo) : undefined;
+        if (hit) {
+          for (const d of hit.value as string[]) add(src, d, it);
+          return;
+        }
         if (!cache.has(key)) cache.set(key, latestFile(src, it.projectId, p, teamId).then((f) => f?.deps ?? []));
         try {
-          for (const d of (await cache.get(key)) as string[]) add(src, d, it);
+          const list = (await cache.get(key)) as string[];
+          if (memo) memoSet(memo, list);
+          for (const d of list) add(src, d, it);
         } catch (e) {
           if (!(e instanceof HttpError)) throw e;
           errors.push(`${it.title}: ${e.message}`);
@@ -555,8 +576,10 @@ export function modTools(deps: Deps) {
     for (const n of need.values()) {
       const known = byKey.get(`${n.source}:${n.projectId}`);
       const key = `title:${n.source}:${n.projectId}`;
-      if (!known && !cache.has(key)) cache.set(key, project(n.source, n.projectId, teamId).catch(() => null));
-      const info = known ?? ((await cache.get(key)) as { title: string; iconUrl: string } | null);
+      const memo = memoGet(`${teamId}:${key}`);
+      if (!known && !memo && !cache.has(key)) cache.set(key, project(n.source, n.projectId, teamId).catch(() => null));
+      const info = known ?? (memo?.value as { title: string; iconUrl: string } | undefined) ?? ((await cache.get(key)) as { title: string; iconUrl: string } | null);
+      if (!known && !memo && info) memoSet(`${teamId}:${key}`, { title: info.title, iconUrl: info.iconUrl });
       missing.push({ ...n, itemId: known?.id ?? null, title: info?.title || n.projectId, iconUrl: info?.iconUrl ?? "" });
     }
     return { missing: missing.sort((a, b) => a.title.localeCompare(b.title)), errors: [...new Set(errors)] };
@@ -608,7 +631,7 @@ export function libraryService(deps: Deps) {
     const { teamId } = who;
     const scope = await serverScope(deps, who);
     const item = only.itemId ? await itemOf(teamId, only.itemId) : null;
-    const rows = (await db.select({ serverId: server.id, name: server.name, source: installedMod.source, projectId: installedMod.projectId, title: installedMod.title,
+    const rows = (await db.select({ serverId: server.id, name: server.name, source: installedMod.source, projectId: installedMod.projectId, versionId: installedMod.versionId, title: installedMod.title,
       filename: installedMod.filename, platform: serverProfile.platform, mcVersion: serverProfile.mcVersion })
       .from(installedMod).innerJoin(server, eq(installedMod.serverId, server.id)).innerJoin(serverProfile, eq(serverProfile.serverId, server.id))
       .where(and(eq(server.teamId, teamId), ...(only.serverId ? [eq(server.id, only.serverId)] : []))).orderBy(asc(server.name)))
@@ -622,7 +645,7 @@ export function libraryService(deps: Deps) {
       const check = item ? mine.filter((r) => r.source === item.source && r.projectId === item.projectId) : mine;
       if (!check.length) continue;
       const p = { platform: mine[0].platform as Platform, mcVersion: mine[0].mcVersion };
-      const r = await missingOf(teamId, check, p, new Set(mine.map((x) => `${x.source}:${x.projectId}`)), cache);
+      const r = await missingOf(teamId, check.map((x) => ({ ...x, installed: x.versionId })), p, new Set(mine.map((x) => `${x.source}:${x.projectId}`)), cache);
       if (r.missing.length) out.push({ serverId, serverName: mine[0].name, missing: r.missing });
       errors.push(...r.errors.map((e) => `${mine[0].name}: ${e}`));
     }

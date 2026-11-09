@@ -3,6 +3,7 @@ on: [push, pull_request, workflow_call]
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -15,6 +16,7 @@ jobs:
   # 自分用の版: 1 つのコンテナで、設定なしで動くか(最初の 1 人は登録でき、2 人目は招待が要る)
   self:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
       - run: docker build -t craftshelf-self .
@@ -44,6 +46,7 @@ jobs:
   # サービス版の構成(docker-compose.service.yml)を実際に起動して、app・PostgreSQL・バックアップのコンテナが動くか確かめる
   compose:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       COMPOSE_FILE: docker-compose.service.yml
     steps:

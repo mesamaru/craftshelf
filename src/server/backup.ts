@@ -16,11 +16,14 @@ import { HttpError, requireTeam } from "./guard";
 import { localParts } from "./schedule";
 import type { Deps } from "./servers";
 import { v02DirOf } from "./env";
+import { readUpdateState } from "./updates";
 import { fileStore, fromStorage } from "./uploads";
 
 const run = promisify(execFile);
 export const BACKUP_KEEP = 5; // 残す数の既定
 export const BACKUP_KEEP_MAX = 60;
+// パネルの更新の記録の新しい方からこの件数は、更新の前に作ったバックアップを「残す数」に数えず、消さない(「この更新の前に戻す」のため)
+export const BACKUP_UPDATE_REFS = 5;
 const DIR = "_craftshelf_backup"; // 保存先の中の場所(v02 と同じ。v02 のものは名前が違うので混ざらない)
 const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DEFAULT = { enabled: false, time: "04:00", tz: "Asia/Tokyo", keep: BACKUP_KEEP, targetId: null as string | null, lastRunAt: null as Date | null };
@@ -78,6 +81,7 @@ export function backupService(deps: Deps) {
     mkdirSync(backupsDir(), { recursive: true });
     const work = mkdtempSync(join(v03, "backup-"));
     let place = "パネルの中";
+    const forUpdates = new Set(readUpdateState(v03).history.slice(0, BACKUP_UPDATE_REFS).map((e) => e.backup));
     try {
       writeFileSync(join(work, "db.tar.gz"), Buffer.from(await (await client.dumpDataDir("gzip")).arrayBuffer()));
       if (existsSync(join(v03, "secret"))) copyFileSync(join(v03, "secret"), join(work, "secret"));
@@ -91,9 +95,9 @@ export function backupService(deps: Deps) {
         const store = await storeOf(teamId, s.targetId);
         await fromStorage(() => store.putFile(`${DIR}/${name}`, join(backupsDir(), name)));
         rmSync(join(backupsDir(), name), { force: true });
-        for (const old of (await storedOf(teamId, s.targetId)).slice(s.keep)) await fromStorage(() => store.remove(`${DIR}/${old}`)).catch(() => {});
+        for (const old of (await storedOf(teamId, s.targetId)).filter((n) => !forUpdates.has(n)).slice(s.keep)) await fromStorage(() => store.remove(`${DIR}/${old}`)).catch(() => {});
       } else {
-        for (const old of listOf().slice(s.keep)) rmSync(join(backupsDir(), old.name), { force: true });
+        for (const old of listOf().filter((b) => !forUpdates.has(b.name)).slice(s.keep)) rmSync(join(backupsDir(), old.name), { force: true });
       }
     } catch (e) {
       rmSync(join(backupsDir(), name), { force: true });

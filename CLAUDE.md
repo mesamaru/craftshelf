@@ -7,8 +7,11 @@
 - **動き方は 2 つ**(`CRAFTSHELF_MODE`、`src/server/env.ts`): `self` = 自分用(既定。設定なしで動き、データは `/data/v03`。最初の 1 人が管理者、あとは招待された人だけ、チームは 1 つ)/ `service` = サービス版(`APP_URL`・`BETTER_AUTH_SECRET`・`DATABASE_URL` が必須)。どちらでも動くように作る。Docker は自分用が `docker-compose.yml`(イメージ `ghcr.io/mesamaru/craftshelf:dev`。`dev` に push すると `.github/workflows/image.yml` が作る)、サービス版が `docker-compose.service.yml`。
 - **v02 からの取り込み**(`src/server/import-v02.ts`): 自分用の版が初めて起動したとき、v02 の `index.db` を読み取り専用で開いて取り込む(v02 のデータには書き込まない。結果は `/data/v03/import-v02.json`)。v02 のパスワード(Werkzeug の形)・暗号化した値(Fernet)・二段階認証は `src/server/legacy.ts` で読む。v03 に機能を足したら、ここにも取り込みを足す(ライブラリ・セットは `maybeImportV02Library`。前に取り込んだパネルでも一度だけ動くよう、取り込みごとに結果のファイルを分ける)。
 - 自分用の版は家の中のアドレス・http の Pterodactyl にもつなぐ(`lanFetch`)。サービス版は公開されたアドレスの https だけ(`safeFetch`)。
-- **パネルからの版の切り替え**(自分用の版、`src/server/versions.ts`): `dev` に push すると `.github/workflows/image.yml` がビルド済みの一式(`.output`・`drizzle`・`VERSION`)と `SHA256SUMS` を GitHub のプレリリース `dev-v03.xx.xx` に付ける。パネルはそれを `/data/v03/versions/<版>` に置き、`docker/start.sh` が次の起動で使う(起動できなかったらイメージの版に戻す)。前の版に戻しても動くよう、データベースは「足すだけ」を守る。
-- 版は `03.xx.xx`。タグは `dev-v03.01.02`(リリースの仕組みはまだ無い)。
+- **リリース**(版は `03.xx.xx`):
+  - 開発版: `dev` に push すると `.github/workflows/image.yml` が、テストのあと Docker のイメージ(`ghcr.io/mesamaru/craftshelf:dev`・`:dev-03.xx.xx`)と、GitHub のプレリリース `dev-v03.xx.xx`(ビルド済みの一式 `craftshelf-v03-<版>.tar.gz` = `.output`・`drizzle`・`VERSION`、Docker なしの配布物、`SHA256SUMS`)を作る。同じ版のプレリリースがあれば作らないので、版を上げてから push する。
+  - 安定版: `VERSION` と同じ番号のタグ `v03.xx.xx` を push すると `.github/workflows/release-v03.yml` が、イメージ(`:v03`・`:03.xx.xx`)とリリース `v03.xx.xx`(中身は開発版と同じ)を作る。v02 が `main` のあいだは「最新」にしない(v02 のインストーラー版は最新の正式リリースを見るため)。
+  - Docker なしの配布: `scripts/package.mjs` が Node.js ごとまとめた一式(Windows・macOS・Linux の x64 / arm64)を作り、上の 2 つがリリースに付ける。Linux は `install.sh`(`/opt/craftshelf-v03`・systemd)、Windows・macOS はランチャー(`packaging/launcher.mjs`)で起動する。入れ方は `docs/INSTALL.md`。
+- **パネルからの版の切り替え・自動アップデート**(自分用の版、`src/server/versions.ts`・`updates.ts`): パネルは上のリリースの一式を取ってきて(チェックサムで確かめる)`/data/v03/versions/<版>` に置き、Docker は `docker/start.sh`、Docker なしはランチャーが次の起動で使う(起動できなかったら入っている版に戻す)。切り替えの前にパネルのバックアップを作り、「この更新の前に戻す」で版とデータを戻せる。前の版に戻しても動くよう、データベースは「足すだけ」を守る。
 
 - 利用者への説明・UI の文言は日本語。利用者が入力した名前・メモなどには `translate="no"` を付ける。
 - 英語表示は `src/lib/i18n-en.ts` の辞書(日本語 → 英語)で画面の文字を置き換える(`src/lib/i18n.ts`)。**画面に新しい日本語の文言を足したら、この辞書にも英訳を足す。** `{n} 件` のように JSX で分かれる文は訳しにくいので、テンプレート文字列 1 つにして `EN_RULES` で訳す。

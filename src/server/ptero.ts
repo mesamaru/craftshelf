@@ -1,5 +1,10 @@
 // Pterodactyl パネルとの連携(Client API)。CraftShelf 02 の ptero.py と同じ考え方。
 // パネルの「アカウント → API 認証情報」で作る Client API キー(ptlc_…)を使う
+import { createWriteStream, openAsBlob } from "node:fs";
+import { rm } from "node:fs/promises";
+import { Readable, Transform } from "node:stream";
+import { pipeline } from "node:stream/promises";
+import type { ReadableStream as WebStream } from "node:stream/web";
 import type { FetchLike } from "./net";
 import { FormData as UFormData } from "undici";
 
@@ -15,6 +20,27 @@ export const POWER_SIGNALS = ["start", "stop", "restart", "kill"] as const;
 export type PowerSignal = (typeof POWER_SIGNALS)[number];
 
 const IDENT = /^[a-z0-9-]{1,64}$/i;
+// 大きいファイルを送る・読むときに待つ長さ(5 分か、1 MB/秒で送れる長さの長い方)
+export const transferTimeout = (bytes: number) => Math.max(300_000, Math.ceil(bytes / 1_000_000) * 1000);
+
+/** 応答の中身を、maxBytes まで少しずつファイルに書く(超えたら書いたものを消して PteroError) */
+export async function bodyToFile(res: Response, maxBytes: number, path: string) {
+  if (!res.body) throw new PteroError("ファイルを取ってこられませんでした");
+  if (Number(res.headers.get("content-length") ?? 0) > maxBytes) throw new PteroError("ファイルが大きすぎます");
+  let n = 0;
+  const limit = new Transform({
+    transform(chunk: Buffer, _enc, done) {
+      n += chunk.length;
+      done(n > maxBytes ? new PteroError("ファイルが大きすぎます") : null, chunk);
+    },
+  });
+  try {
+    await pipeline(Readable.fromWeb(res.body as WebStream<Uint8Array>), limit, createWriteStream(path));
+  } catch (e) {
+    await rm(path, { force: true });
+    throw e instanceof PteroError ? e : new PteroError("ファイルを取ってこられませんでした(途中で切れました)");
+  }
+}
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
@@ -128,17 +154,18 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
     async writeFile(ident: string, file: string, text: string) {
       await req("POST", srv(ident) + `/files/write?file=${encodeURIComponent(file)}`, text);
     },
-    // ファイルを送る(Wings の、署名付きのアップロード先へ)
-    async upload(ident: string, directory: string, filename: string, data: Uint8Array) {
+    // ファイルを送る(Wings の、署名付きのアップロード先へ)。data が文字列なら、パネルの中のそのファイルを少しずつ読んで送る(メモリに全部を載せない)
+    async upload(ident: string, directory: string, filename: string, data: Uint8Array | string) {
       const d = await (await req("GET", srv(ident) + "/files/upload")).json();
       const url = String(d?.attributes?.url ?? "");
       if (!/^https?:\/\//.test(url)) throw new PteroError("Pterodactyl からアップロード先を受け取れませんでした");
       // undici の fetch(lanFetch・safeFetch)には、undici の FormData を渡す(Node の FormData だと中身が送られない)
       const form = new UFormData();
-      form.append("files", new Blob([new Uint8Array(data)]), filename);
+      const blob = typeof data === "string" ? await openAsBlob(data) : new Blob([new Uint8Array(data)]);
+      form.append("files", blob, filename);
       let res: Response;
       try {
-        res = await fetch(`${url}${url.includes("?") ? "&" : "?"}directory=${encodeURIComponent(directory)}`, { method: "POST", body: form as unknown as BodyInit, signal: AbortSignal.timeout(300_000) });
+        res = await fetch(`${url}${url.includes("?") ? "&" : "?"}directory=${encodeURIComponent(directory)}`, { method: "POST", body: form as unknown as BodyInit, signal: AbortSignal.timeout(transferTimeout(blob.size)) });
       } catch {
         throw new PteroError("Pterodactyl のノード(Wings)に接続できません");
       }
@@ -158,6 +185,20 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
       if (!res.ok) throw new PteroError(`ファイルを取ってこられませんでした(HTTP ${res.status})`);
       if (Number(res.headers.get("content-length") ?? 0) > maxBytes) throw new PteroError("ファイルが大きすぎます");
       return new Uint8Array(await res.arrayBuffer());
+    },
+    // ファイルの中身を、パネルの中の path に少しずつ書く(大きい jar を取り込むとき。メモリに全部を載せない)
+    async readToFile(ident: string, file: string, maxBytes: number, path: string) {
+      const d = await (await req("GET", srv(ident) + "/files/download?file=" + encodeURIComponent(file))).json();
+      const url = String(d?.attributes?.url ?? "");
+      if (!/^https?:\/\//.test(url)) throw new PteroError("Pterodactyl からダウンロード先を受け取れませんでした");
+      let res: Response;
+      try {
+        res = await fetch(url, { signal: AbortSignal.timeout(transferTimeout(maxBytes)) });
+      } catch {
+        throw new PteroError("Pterodactyl のノード(Wings)に接続できません");
+      }
+      if (!res.ok) throw new PteroError(`ファイルを取ってこられませんでした(HTTP ${res.status})`);
+      await bodyToFile(res, maxBytes, path);
     },
     async deleteFiles(ident: string, root: string, files: string[]) {
       if (files.length) await req("POST", srv(ident) + "/files/delete", { root, files });

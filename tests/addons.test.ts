@@ -10,6 +10,8 @@ import type { FetchLike } from "~/server/net";
 import { serverService } from "~/server/servers";
 import { AUTO_UPDATE_EVERY, setService } from "~/server/sets";
 import { eventService } from "~/server/events";
+import { job } from "~/server/db/schema";
+import { eq } from "drizzle-orm";
 import { setup } from "./helpers";
 import { makeZip } from "./zip";
 
@@ -213,10 +215,14 @@ describe("自動更新", () => {
     expect(names(rootB)).toContain("LuckPerms-5.5.0.jar");
     const log = await eventService({ db: t.db, auth: t.auth, secret: SECRET, fetch: fake }).list(owner);
     expect(log.filter((e) => e.action === "自動更新").map((e) => e.target)).toEqual(["本番"]);
+    // 処理の一覧にも、変えた回だけ残す
+    const jobs = async () => (await t.db.select().from(job).where(eq(job.action, "自動更新"))).map((j) => j.state);
+    expect(await jobs()).toEqual(["done"]);
     versions[OT].push(ver(OT, "Other", "2.0", "2026-03-01"));
     await lib.setEnabled(owner, B, "Other-1.0.jar", false);
     expect(await sets.runAutoUpdates(new Date(now.getTime() + 2 * AUTO_UPDATE_EVERY + 120_000))).toEqual([B]);
     expect(names(rootB)).toContain("Other-1.0.jar.disabled");
+    expect(await jobs()).toEqual(["done"]);
     await sets.setAutoUpdate(owner, B, false);
     expect(await sets.runAutoUpdates(new Date(now.getTime() + 5 * AUTO_UPDATE_EVERY))).toEqual([]);
   });

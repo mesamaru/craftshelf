@@ -156,6 +156,10 @@ describe("前提", () => {
     const s = await lib.serverDeps(viewer, serverId);
     expect(s.missing.map((m) => [m.title, m.by, !!m.itemId])).toEqual([["Vault", ["LuckPerms"], true]]);
     expect(await code(lib.serverDeps(outsider, serverId))).toBe(404);
+    // 同じ版のあいだは、開き直しても配布元に問い合わせない
+    const before = asked.length;
+    expect((await lib.serverDeps(viewer, serverId)).missing.map((m) => m.title)).toEqual(["Vault"]);
+    expect(asked.length).toBe(before);
     const all = await lib.missingDeps(viewer);
     const lp = await item("LuckPerms");
     expect(all.items).toEqual([{ itemId: lp.id, servers: [{ serverId, serverName: "ロビー", deps: [expect.objectContaining({ title: "Vault", source: "modrinth", projectId: VAULT })] }] }]);

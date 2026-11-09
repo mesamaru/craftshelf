@@ -1,5 +1,6 @@
 // エージェントとのやりとり(ロングポーリング)。サービス側は頼みごとを列に入れ、エージェントが取りに来て、結果を返す。
 // 家の中のエージェントからの外向きの通信だけで動く(家のポートは開けない)。列はこのプロセスの中に持つ
+import { readFile, stat, writeFile } from "node:fs/promises";
 import type { Ping } from "./mcping";
 import { PteroError, type Allocation, type PowerSignal, type RemoteFile, type RemoteServer, type Resources } from "./ptero";
 
@@ -8,7 +9,10 @@ type Waiting = { req: AgentRequest; resolve: (v: unknown) => void; reject: (e: E
 
 // エージェントにさせてよいこと(ここに無いものは、エージェントも断る)
 export const AGENT_METHODS = ["resources", "command", "power", "listFiles", "pull", "upload", "readFile", "writeFile", "readBytes", "deleteFiles", "rename", "ping"] as const;
-export const AGENT_LIMITS = { pendingPerAgent: 100, pollWaitMs: 25_000, callTimeoutMs: 120_000, onlineMs: 60_000 };
+// fileBytes = やりとりする 1 つのファイルの上限(やりとりは JSON に base64 で入れるので、大きいものは分けずに断る。エージェントの readBytes も同じ上限)
+export const AGENT_LIMITS = { pendingPerAgent: 100, pollWaitMs: 25_000, callTimeoutMs: 120_000, onlineMs: 60_000, fileBytes: 100 * 1024 * 1024 };
+const MB = (n: number) => `${Math.ceil(n / 1024 / 1024)} MB`;
+const tooBig = (size: number) => new PteroError(`エージェントのサーバーへ送れるファイルは ${MB(AGENT_LIMITS.fileBytes)} までです(このファイルは ${MB(size)})。サーバー機のフォルダに直接置いてください`);
 
 let seq = 0;
 
@@ -93,8 +97,16 @@ export function agentClient(hub: AgentHub, agentId: string, key: string) {
     async allocations(): Promise<Allocation[]> { return []; },
     readFile: (_ident: string, file: string) => call<string | null>("readFile", { file }),
     writeFile: async (_ident: string, file: string, text: string) => { await call("writeFile", { file, text }); },
-    upload: async (_ident: string, directory: string, filename: string, data: Uint8Array) => { await call("upload", { directory, filename, data: b64(data) }, 300_000); },
+    // data が文字列なら、パネルの中のそのファイル(上限を超えるものは、読む前に断る)
+    async upload(_ident: string, directory: string, filename: string, data: Uint8Array | string) {
+      const size = typeof data === "string" ? (await stat(data)).size : data.byteLength;
+      if (size > AGENT_LIMITS.fileBytes) throw tooBig(size);
+      await call("upload", { directory, filename, data: b64(typeof data === "string" ? await readFile(data) : data) }, 300_000);
+    },
     readBytes: async (_ident: string, file: string, maxBytes: number) => new Uint8Array(Buffer.from(await call<string>("readBytes", { file, maxBytes }, 300_000), "base64")),
+    readToFile: async (_ident: string, file: string, maxBytes: number, path: string) => {
+      await writeFile(path, Buffer.from(await call<string>("readBytes", { file, maxBytes: Math.min(maxBytes, AGENT_LIMITS.fileBytes) }, 300_000), "base64"));
+    },
     deleteFiles: async (_ident: string, root: string, files: string[]) => { await call("deleteFiles", { root, files }); },
     rename: async (_ident: string, root: string, from: string, to: string) => { await call("rename", { root, from, to }); },
     // エージェントが、自分のサーバー(server.properties のポート)に問い合わせる

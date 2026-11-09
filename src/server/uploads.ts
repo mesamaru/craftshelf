@@ -20,8 +20,8 @@ import type { Deps } from "./servers";
 import { type StorageConfig, StorageError, storeFor } from "./storage";
 
 // fileBytes はアップロード 1 つの上限(v02 と同じ 1 GB。受け取るときはディスクに少しずつ書き、メモリに全部を載せない)。
-// serverFileBytes はサーバーにある jar を取り込むときの上限(こちらはメモリに読む)
-export const UPLOAD_LIMITS = { fileBytes: 1024 * 1024 * 1024, serverFileBytes: 100 * 1024 * 1024, targetsPerTeam: 10 };
+// serverFileBytes はサーバーにある jar を取り込むときの上限(こちらも一時フォルダに少しずつ書く。エージェントのサーバーは AGENT_LIMITS.fileBytes まで)
+export const UPLOAD_LIMITS = { fileBytes: 1024 * 1024 * 1024, serverFileBytes: 1024 * 1024 * 1024, targetsPerTeam: 10 };
 type FileRow = typeof libraryFile.$inferSelect;
 const sealContext = (teamId: string, id: string) => `storage:${teamId}:${id}`;
 const slug = (s: string) => s.replace(/[^A-Za-z0-9._-]+/g, "_").replace(/^[._]+/, "").slice(0, 60) || "item";
@@ -77,6 +77,22 @@ export function fileStore(deps: Deps) {
 
   const read = async (teamId: string, f: FileRow) => fromStorage(async () => (await storeOf(teamId, f.targetId)).get(f.storageKey));
   const stream = async (teamId: string, f: FileRow) => fromStorage(async () => (await storeOf(teamId, f.targetId)).read(f.storageKey));
+  const tempPath = (what: string) => {
+    if (!deps.local) throw new HttpError(400, "アップロードしたアドオンは、自分用の版だけで使えます");
+    const dir = join(deps.local.dataDir, "v03", "tmp");
+    mkdirSync(dir, { recursive: true });
+    return join(dir, `${what}-${randomUUID()}.part`);
+  };
+  /** 保存先のファイルを、パネルの一時フォルダに少しずつ写して fn に渡す(終わったら消す。大きいファイルをメモリに載せずにサーバーへ送るため) */
+  async function withTemp<T>(teamId: string, f: FileRow, fn: (path: string) => Promise<T>): Promise<T> {
+    const tmp = tempPath("send");
+    try {
+      await pipeline(await stream(teamId, f), createWriteStream(tmp));
+      return await fn(tmp);
+    } finally {
+      rmSync(tmp, { force: true });
+    }
+  }
   const activeOf = async (teamId: string) => (await db.select().from(storageTarget).where(and(eq(storageTarget.teamId, teamId), eq(storageTarget.active, true))))[0] ?? null;
   const optionOf = async (teamId: string) => (await db.select({ keepFiles: teamOption.keepFiles, keepVersions: teamOption.keepVersions }).from(teamOption)
     .where(eq(teamOption.teamId, teamId)))[0] ?? { keepFiles: false, keepVersions: 0 };
@@ -195,7 +211,7 @@ export function fileStore(deps: Deps) {
     return removed;
   }
 
-  return { storeOf, pick, choices, read, stream, configOf, defaultConfig, activeOf, optionOf, keepOf, savedOf, savedPick, saveUpstream, keepSaved, prune, keptVersions, dropFile };
+  return { storeOf, pick, choices, read, stream, withTemp, tempPath, configOf, defaultConfig, activeOf, optionOf, keepOf, savedOf, savedPick, saveUpstream, keepSaved, prune, keptVersions, dropFile };
 }
 
 export async function sha256Of(path: string) {
@@ -249,7 +265,7 @@ export async function downloadTo(fetch: Deps["fetch"], url: string, path: string
 
 export function uploadService(deps: Deps) {
   const { db, auth, secret } = deps;
-  const { storeOf, stream, configOf, activeOf, prune } = fileStore(deps);
+  const { storeOf, stream, tempPath, configOf, activeOf, prune } = fileStore(deps);
   const { record } = eventService(deps);
   const needLocal = () => {
     if (!deps.local) throw new HttpError(400, "アップロードしたアドオンは、自分用の版だけで使えます");
@@ -464,8 +480,15 @@ export function uploadService(deps: Deps) {
       if (!p || !isPlatform(p.platform)) throw new HttpError(400, "先にサーバーの種類を選んでください");
       // .zip はワールドのデータパック(<level-name>/datapacks/)
       const dir = /\.zip(\.disabled)?$/i.test(filename) ? `${await remote(() => worldOf(client, remoteId))}/datapacks` : PLATFORMS[p.platform].dir;
-      const data = await remote(() => client.readBytes(remoteId, `${dir}/${filename}`, UPLOAD_LIMITS.serverFileBytes));
-      const r = await this.ingest(headers, filename.replace(/\.disabled$/i, ""), data); // 無効にしたものも取り込む
+      // 一時フォルダに少しずつ書いてから取り込む(大きい jar をメモリに載せない)
+      const tmp = tempPath("server");
+      let r;
+      try {
+        await remote(() => client.readToFile(remoteId, `${dir}/${filename}`, UPLOAD_LIMITS.serverFileBytes, tmp));
+        r = await this.ingest(headers, filename.replace(/\.disabled$/i, ""), tmp); // 無効にしたものも取り込む
+      } finally {
+        rmSync(tmp, { force: true });
+      }
       const values = { serverId: row.id, source: "upload", projectId: r.projectId, versionId: r.fileId, versionNumber: r.version || filename, title: r.title, filename, installedBy: who.user.id, installedAt: new Date() };
       await db.insert(installedMod).values({ id: randomUUID(), ...values }).onConflictDoUpdate({ target: [installedMod.serverId, installedMod.filename], set: values });
       return r;

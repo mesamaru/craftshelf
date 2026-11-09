@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { handle, loadConf, makeClients, reportOf } from "~/agent/main";
-import { agentHub } from "~/server/agent-hub";
+import { AGENT_LIMITS, agentClient, agentHub } from "~/server/agent-hub";
 import { agentService } from "~/server/agents";
 import { fileService } from "~/server/files";
 import { HttpError } from "~/server/guard";
@@ -63,6 +63,22 @@ describe("やりとりの列", () => {
     expect(await p).toEqual(["ok"]);
     const late = h.call("a1", "listFiles", {}, 50);
     await expect(late).rejects.toThrow("返事がありませんでした");
+  });
+
+  it("上限を超えるファイルは、読む前・頼む前に理由を出して断る(やりとりは JSON なので分けて送らない)", async () => {
+    const h = agentHub();
+    void h.poll("a1", 10);
+    const big = join(mkdtempSync(join(tmpdir(), "cs-agent-big-")), "Big.jar");
+    writeFileSync(big, "x".repeat(2048));
+    const keep = AGENT_LIMITS.fileBytes;
+    AGENT_LIMITS.fileBytes = 1024;
+    try {
+      await expect(agentClient(h, "a1", "home").upload("", "plugins", "Big.jar", big)).rejects.toThrow("エージェントのサーバーへ送れるファイルは");
+      await expect(agentClient(h, "a1", "home").upload("", "plugins", "Big.jar", new Uint8Array(2048))).rejects.toBeInstanceOf(PteroError);
+      expect(await h.poll("a1", 10)).toEqual([]);
+    } finally {
+      AGENT_LIMITS.fileBytes = keep;
+    }
   });
 });
 

@@ -1,4 +1,8 @@
-FROM node:24-alpine AS build
+# ビルドの段階は、ビルドする機械の CPU のまま動かす(--platform=$BUILDPLATFORM)。出来たもの(.output)は JS と wasm だけで
+# CPU に依らない(パネルの版の切り替え・Docker なしの配布でも、同じ一式をどの CPU でも使っている)ので、arm64 のイメージでも
+# npm ci・npm run build をエミュレーション(QEMU)で動かさない(前に arm64 のビルドが「rendering chunks」で長く止まったため)。
+# 実行用の段階は npm を動かさず、出来たものを写すだけ
+FROM --platform=$BUILDPLATFORM node:24-alpine AS build
 WORKDIR /src
 COPY package.json package-lock.json ./
 RUN npm ci

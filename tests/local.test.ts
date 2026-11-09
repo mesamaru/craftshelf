@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { fileService } from "~/server/files";
 import { HttpError } from "~/server/guard";
 import { libraryService } from "~/server/library";
-import { detectFromJar } from "~/server/local";
+import { detectFromJar, localClient } from "~/server/local";
 import type { FetchLike } from "~/server/net";
 import { serverService } from "~/server/servers";
 import { setup } from "./helpers";
@@ -135,6 +135,22 @@ describe("フォルダのサーバーのアドオンとファイル", () => {
     await files.save(owner, id, f.path, f.content.replace("Hello", "ようこそ"), f.content);
     expect(readFileSync(join(root, "server.properties"), "utf8")).toContain("motd=ようこそ");
     expect(await code(files.read(owner, id, "../etc/passwd.txt"))).toBe(400);
+  });
+});
+
+describe("大きいファイル", () => {
+  it("パネルの中のファイルを、メモリに読まずに写す・読む(上限を超えるものは断る)", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "cs-big-"));
+    const c = localClient(dir, fetch, { control: "", startCmd: "", stopCmd: "", container: "", rconPort: null, rconPassword: "" });
+    const src = join(mkdtempSync(join(tmpdir(), "cs-bigsrc-")), "Big.jar");
+    writeFileSync(src, "x".repeat(3000));
+    await c.upload("", "plugins", "Big.jar", src);
+    expect(readFileSync(join(dir, "plugins", "Big.jar"), "utf8")).toBe("x".repeat(3000));
+    const out = join(mkdtempSync(join(tmpdir(), "cs-bigout-")), "copy.part");
+    await c.readToFile("", "plugins/Big.jar", 3000, out);
+    expect(readFileSync(out, "utf8").length).toBe(3000);
+    await expect(c.readToFile("", "plugins/Big.jar", 2999, out + "2")).rejects.toThrow("大きすぎます");
+    expect(existsSync(out + "2")).toBe(false);
   });
 });
 

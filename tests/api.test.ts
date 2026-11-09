@@ -99,6 +99,12 @@ describe("API トークン", () => {
   it("範囲を選んだトークンは、その範囲の操作だけができる", async () => {
     const lib = (await tokens.create(owner, { name: "Mod だけ", scopes: ["library"], days: 0 })).key;
     expect((await tokens.list(owner)).find((k) => k.name === "Mod だけ")?.scopes).toEqual(["read", "library"]);
+    // 03.57.00 より前の版(readOnly だけを見る)に戻しても広がらないよう、範囲を絞ったものは readOnly にしておく。全部の範囲なら役割のとおり
+    const keys = (await t.auth.api.listApiKeys({ headers: owner })) as unknown as { name: string; metadata: unknown }[] | { apiKeys: { name: string; metadata: unknown }[] };
+    const meta = (name: string) => { const m = (Array.isArray(keys) ? keys : keys.apiKeys).find((k) => k.name === name)?.metadata; return (typeof m === "string" ? JSON.parse(m) : m) as { readOnly?: boolean }; };
+    expect(meta("Mod だけ").readOnly).toBe(true);
+    expect(meta("見るだけ").readOnly).toBe(true);
+    expect(meta("自動化").readOnly).toBe(false);
     const r = await call("POST", `/servers/${id}/power`, lib, { signal: "stop" });
     expect(r.status).toBe(403);
     expect((await r.json()).message).toContain("この API トークンの範囲では");

@@ -506,8 +506,10 @@ export function setService(deps: Deps) {
         .returning({ id: server.id, teamId: server.teamId, name: server.name });
       for (const s of due) {
         try {
-          const r = await jobs.track({ teamId: s.teamId, userId: null, serverId: s.id, action: "自動更新" }, () => updateInstalled(s.teamId, null, s.id), head);
-          if (r.some((x) => x.status !== "present")) await record({ teamId: s.teamId, userId: null, kind: "schedule", also: alsoOf(r), action: "自動更新", target: s.name, detail: summary(r) });
+          // 処理の一覧にも、何か変えたとき・失敗したときだけ残す(動いている間は出す)
+          const changed = (r: ApplyResult[]) => r.some((x) => x.status !== "present");
+          const r = await jobs.track({ teamId: s.teamId, userId: null, serverId: s.id, action: "自動更新" }, () => updateInstalled(s.teamId, null, s.id), head, changed);
+          if (changed(r)) await record({ teamId: s.teamId, userId: null, kind: "schedule", also: alsoOf(r), action: "自動更新", target: s.name, detail: summary(r) });
         } catch (e) {
           if (!(e instanceof HttpError)) console.error("[自動更新] 動かせませんでした:", e);
           else await record({ teamId: s.teamId, userId: null, kind: "schedule", also: ["errors"], action: "自動更新", target: s.name, detail: `できませんでした: ${e.message}` });

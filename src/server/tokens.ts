@@ -1,7 +1,9 @@
 // API トークン(cs_…)の作成・一覧・削除。トークンは選んでいるチームのもので、作った人のそのチームでの役割で動く。
 // 範囲(読む・Mod・プラグインを変える・サーバーを操作する・管理)を選べ、選ばなかった操作はできない。範囲は作った人の権限(役割とメンバーごとの足し引き)を超えられず、使うときも作った人の今の権限の分だけ。
-// トークンそのものは作ったときにだけ返す
-import { SCOPE_LABELS, type TokenScope, isTokenScope, permsAllowScope } from "~/lib/permissions";
+// トークンそのものは作ったときにだけ返す。
+// 03.57.00 より前の v03 は metadata の readOnly だけを見て、false なら作った人の役割いっぱいで動かす。古い版に戻しても範囲が広がらないよう、
+// 範囲を絞ったトークンには readOnly: true も書いておく(古い版では読み取りだけになる。今の版は scopes を見るので readOnly は使わない)
+import { SCOPE_LABELS, TOKEN_SCOPES, type TokenScope, isTokenScope, permsAllowScope } from "~/lib/permissions";
 import { HttpError, apiKeyOf, memberPerms, requireTeam, scopesOf } from "./guard";
 import type { Deps } from "./servers";
 import { eventService } from "./events";
@@ -53,7 +55,7 @@ export function tokenService(deps: Deps) {
       if (days < 0 || days > TOKEN_LIMITS.maxDays) throw new HttpError(400, `期限は 0(期限なし)〜${TOKEN_LIMITS.maxDays} 日にしてください`);
       if ((await this.list(headers)).length >= TOKEN_LIMITS.perUserTeam) throw new HttpError(400, `トークンは 1 つのチームで ${TOKEN_LIMITS.perUserTeam} 個までです`);
       const r = await auth.api.createApiKey({
-        body: { name, userId: user.id, prefix: "cs_", metadata: { teamId, scopes, readOnly: scopes.length === 1 }, expiresIn: days ? days * 86400 : null,
+        body: { name, userId: user.id, prefix: "cs_", metadata: { teamId, scopes, readOnly: scopes.length < TOKEN_SCOPES.length }, expiresIn: days ? days * 86400 : null,
           rateLimitEnabled: true, rateLimitTimeWindow: 60_000, rateLimitMax: 120 },
       });
       await record({ teamId, userId: user.id, kind: "admin", action: "API トークンを作る", target: name, detail: scopes.map((x) => SCOPE_LABELS[x]).join("、") });

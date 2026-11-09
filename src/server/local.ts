@@ -2,7 +2,7 @@
 // Pterodactyl のクライアント(ptero.ts)と同じ形にして、ライブラリ・セット・予約・ファイルとコマンド・ポートの処理をそのまま使う
 import { spawn } from "node:child_process";
 import { createWriteStream, existsSync, realpathSync, statSync } from "node:fs";
-import { mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { request } from "node:http";
 import { Socket } from "node:net";
 import { isAbsolute, join, resolve, sep, dirname } from "node:path";
@@ -235,13 +235,19 @@ export function localClient(root: string, fetch: FetchLike, control: Control): P
       }
     },
 
-    async upload(_ident: string, directory: string, filename: string, data: Uint8Array) {
+    // data が文字列なら、パネルの中のそのファイルを写す(メモリに全部を載せない)
+    async upload(_ident: string, directory: string, filename: string, data: Uint8Array | string) {
       if (/[\\/]/.test(filename) || filename.startsWith(".")) throw new PteroError("ファイルの名前が正しくありません");
       const dir = inside(root, directory);
       await mkdir(dir, { recursive: true });
       const tmp = join(dir, `.craftshelf-${process.pid}-${Date.now()}.part`);
-      await writeFile(tmp, data);
-      await rename(tmp, join(dir, filename));
+      try {
+        await (typeof data === "string" ? copyFile(data, tmp) : writeFile(tmp, data));
+        await rename(tmp, join(dir, filename));
+      } catch {
+        await rm(tmp, { force: true });
+        throw new PteroError("ファイルを書き込めませんでした(空きと、書き込みの権限を確かめてください)");
+      }
     },
 
     async allocations(): Promise<Allocation[]> {
@@ -270,6 +276,14 @@ export function localClient(root: string, fetch: FetchLike, control: Control): P
       if (!s?.isFile()) throw new PteroError("ファイルが見つかりません");
       if (s.size > maxBytes) throw new PteroError("ファイルが大きすぎます");
       return new Uint8Array(await readFile(full));
+    },
+
+    async readToFile(_ident: string, file: string, maxBytes: number, path: string) {
+      const full = inside(root, file);
+      const s = await stat(full).catch(() => null);
+      if (!s?.isFile()) throw new PteroError("ファイルが見つかりません");
+      if (s.size > maxBytes) throw new PteroError("ファイルが大きすぎます");
+      await copyFile(full, path);
     },
 
     async rename(_ident: string, dirRel: string, from: string, to: string) {

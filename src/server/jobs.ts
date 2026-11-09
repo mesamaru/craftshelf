@@ -27,12 +27,13 @@ export function jobService(deps: Deps) {
   }
   const set = (id: string, values: Partial<typeof job.$inferInsert>) => quiet(db.update(job).set(values).where(eq(job.id, id)));
 
-  /** id の処理を動かす(待ちから実行中へ)。結果を書き、失敗はそのまま投げ直す */
-  async function runAs<T>(id: string, fn: () => Promise<T>, detail?: (r: T) => string): Promise<T> {
+  /** id の処理を動かす(待ちから実行中へ)。結果を書き、失敗はそのまま投げ直す。keep が false を返した成功は、一覧から消す */
+  async function runAs<T>(id: string, fn: () => Promise<T>, detail?: (r: T) => string, keep?: (r: T) => boolean): Promise<T> {
     await set(id, { state: "running", startedAt: new Date() });
     try {
       const r = await fn();
-      await set(id, { state: "done", finishedAt: new Date(), detail: short(detail?.(r) ?? "") });
+      if (keep && !keep(r)) await quiet(db.delete(job).where(eq(job.id, id)));
+      else await set(id, { state: "done", finishedAt: new Date(), detail: short(detail?.(r) ?? "") });
       return r;
     } catch (e) {
       await set(id, { state: "failed", finishedAt: new Date(), detail: short(e instanceof Error ? e.message : String(e)) });
@@ -41,9 +42,9 @@ export function jobService(deps: Deps) {
   }
 
   return {
-    /** 処理を記録しながら動かす(detail は成功したときの結果のまとめ) */
-    async track<T>(info: JobInfo, fn: () => Promise<T>, detail?: (r: T) => string): Promise<T> {
-      return runAs(await add(info, "running"), fn, detail);
+    /** 処理を記録しながら動かす(detail は成功したときの結果のまとめ。keep が false を返したら、終わったあと一覧から消す) */
+    async track<T>(info: JobInfo, fn: () => Promise<T>, detail?: (r: T) => string, keep?: (r: T) => boolean): Promise<T> {
+      return runAs(await add(info, "running"), fn, detail, keep);
     },
 
     /** まとめて動かすものを、先に「待ち」として並べる。返す関数で 1 つずつ動かす */

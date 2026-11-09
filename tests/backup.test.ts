@@ -6,6 +6,7 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { applyPendingReimport, applyPendingRestore, backupService } from "~/server/backup";
 import { HttpError } from "~/server/guard";
 import { localParts } from "~/server/schedule";
+import { writeUpdateState } from "~/server/updates";
 import { uploadService } from "~/server/uploads";
 import { setup } from "./helpers";
 
@@ -128,5 +129,23 @@ describe("定期バックアップ", () => {
     expect(await svc.tick(now)).toBe(0);
     expect((await svc.list(owner)).backups.length).toBe(before + 1);
     expect((await svc.list(owner)).schedule.lastRunAt).toBe(now.toISOString());
+  });
+
+  it("パネルの更新の前に作ったもの(更新の記録の新しい 5 件)は、残す数に数えず消さない", async () => {
+    const tz = "Asia/Tokyo";
+    await svc.setSchedule(owner, { enabled: false, time: "04:00", keep: 1, targetId: null, tz });
+    const first = (await svc.create(owner)).name;
+    const entry = (backup: string | null) => ({ at: new Date().toISOString(), from: "03.61.00", to: "03.62.00", backup, auto: true });
+    writeUpdateState(v03, { auto: false, channel: "stable", lastCheck: "", skip: [], history: [entry(first)] });
+    await new Promise((r) => setTimeout(r, 1100)); // 名前は秒まで
+    await svc.create(owner);
+    await new Promise((r) => setTimeout(r, 1100));
+    const last = (await svc.create(owner)).name;
+    expect((await svc.list(owner)).backups.map((b) => b.name)).toEqual([last, first]);
+    // 記録が新しい 5 件より後ろになったら、普通に消す
+    writeUpdateState(v03, { auto: false, channel: "stable", lastCheck: "", skip: [], history: [...Array(5).fill(entry(null)), entry(first)] });
+    await new Promise((r) => setTimeout(r, 1100));
+    const next = (await svc.create(owner)).name;
+    expect((await svc.list(owner)).backups.map((b) => b.name)).toEqual([next]);
   });
 });

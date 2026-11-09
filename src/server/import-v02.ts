@@ -7,6 +7,7 @@ import { DatabaseSync } from "node:sqlite";
 import { and, asc, count, eq, inArray, isNull } from "drizzle-orm";
 import { MC_VERSION, type Platform, isPlatform } from "~/lib/platforms";
 import { isSoftware } from "~/lib/software";
+import type { Grant } from "~/lib/permissions";
 import { APP_NAME, legacyTotpContext } from "./auth";
 import type { Db } from "./db";
 import * as schema from "./db/schema";
@@ -117,7 +118,6 @@ export async function importFrom(db: Db, v02: DatabaseSync, opts: { secret: stri
         await tx.insert(schema.legacyTotp).values({ userId: id, secretSealed: seal(opts.secret, str(u.totp_secret), legacyTotpContext(id)) });
       }
       report.users.push({ name, role, twoFactor });
-      if (str(u.perms) && str(u.perms) !== "[]") report.notes.push(`${name} さんに個別に付けていた権限は、v03 の役割(${role})に置き換わりました`);
     }
     if (users.some((u) => Number(u.totp_enabled) === 1)) {
       report.notes.push("二段階認証を使っていた人は、v02 と同じ認証アプリのコードでログインできます。予備のコードは引き継げないので、ログインしたら v03 で設定し直してください");
@@ -819,6 +819,64 @@ export async function maybeImportV02Pins(db: Db, opts: { v02Dir: string; v03Dir:
       }
     }
     writeFileSync(pinsReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
+    return report;
+  } finally {
+    v02.close();
+  }
+}
+
+// ユーザーごとの権限(03.60.00 から。v02 の users.perms)。セットの版の固定の取り込みのあとで一度だけ(前に取り込んだパネルも、次の起動で)。
+// v02 の権限を、下の表で v03 のメンバーごとの権限(member_perm の allow)に置き換える。v02 の管理者・オーナーにしたい人は、もともとすべて持つので飛ばす。
+// v03 ですでにメンバーごとの権限を決めた人は上書きしない
+export const V02_PERMS: Record<string, { grants: Grant[]; note?: string }> = {
+  storage: { grants: ["storage:manage"], note: "パネルのバックアップは、v03 では管理者以上だけです" },
+  audit: { grants: ["audit:read"] },
+  integrations: { grants: ["integrations:manage"], note: "Pterodactyl のパネルを登録するのは、v03 では「サーバーを追加する」の権限です(要るなら「チーム」で足してください)" },
+  system: { grants: ["panel:manage"] },
+  users: { grants: [], note: "v03 では、メンバーの招待・役割の変更は管理者以上だけです(要るなら役割を管理者にしてください)" },
+};
+export type PermsImportReport = { at: string; users: { name: string; grants: string[] }[]; skipped: { what: string; detail: string }[] };
+export const permsReportPath = (v03Dir: string) => join(v03Dir, "import-v02-perms.json");
+
+export function readPermsReport(v03Dir: string): PermsImportReport | null {
+  try {
+    return JSON.parse(readFileSync(permsReportPath(v03Dir), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+export async function maybeImportV02Perms(db: Db, opts: { v02Dir: string; v03Dir: string }): Promise<PermsImportReport | null> {
+  const dbFile = join(opts.v02Dir, "index.db");
+  if (!existsSync(dbFile) || !existsSync(pinsReportPath(opts.v03Dir)) || existsSync(permsReportPath(opts.v03Dir))) return null;
+  const [team] = await db.select({ id: schema.organization.id }).from(schema.organization).orderBy(asc(schema.organization.createdAt)).limit(1);
+  if (!team) return null;
+  const v02 = new DatabaseSync(dbFile, { readOnly: true });
+  try {
+    const report: PermsImportReport = { at: new Date().toISOString(), users: [], skipped: [] };
+    for (const u of has(v02, "users", "perms") ? all(v02, "SELECT id, username, perms FROM users ORDER BY id") : []) {
+      let list: unknown = [];
+      try {
+        list = JSON.parse(str(u.perms) || "[]");
+      } catch { /* 読めない権限は無いものとする(v02 と同じ) */ }
+      const perms = Array.isArray(list) ? [...new Set(list.map(String))] : [];
+      if (!perms.length) continue;
+      const [m] = await db.select({ id: schema.member.id, role: schema.member.role }).from(schema.member)
+        .innerJoin(schema.user, eq(schema.member.userId, schema.user.id))
+        .where(and(eq(schema.member.organizationId, team.id), eq(schema.user.email, `u${str(u.id)}@v02.craftshelf.invalid`)));
+      const name = str(u.username);
+      if (!m) { report.skipped.push({ what: `${name} さんの権限`, detail: "v03 のチームにいません" }); continue; }
+      if (m.role.split(",").some((r) => r === "owner" || r === "admin")) continue; // もともとすべて持つ
+      const grants = [...new Set(perms.flatMap((p) => V02_PERMS[p]?.grants ?? []))];
+      for (const p of perms) {
+        const note = V02_PERMS[p] ? V02_PERMS[p].note : "v03 に同じ権限がありません";
+        if (note) report.skipped.push({ what: `${name} さんの権限「${p}」`, detail: note });
+      }
+      if (!grants.length) continue;
+      const done = await db.insert(schema.memberPerm).values({ memberId: m.id, allow: JSON.stringify(grants) }).onConflictDoNothing().returning({ id: schema.memberPerm.memberId });
+      if (done.length) report.users.push({ name, grants });
+    }
+    writeFileSync(permsReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
     return report;
   } finally {
     v02.close();

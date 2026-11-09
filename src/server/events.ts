@@ -78,7 +78,7 @@ export function eventService(deps: Deps) {
 
     /** 操作の記録(新しい順。before より前のもの。q で操作・対象・詳しく・人の名前を探す)。見るのは管理者以上 */
     async list(headers: Headers, before?: string, q?: string) {
-      const { teamId } = await requireTeam(auth, headers, { member: ["update"] });
+      const { teamId } = await requireTeam(auth, headers, { audit: ["read"] });
       const at = before ? new Date(before) : null;
       const like = q?.trim() ? likeOf(q.trim().slice(0, 100)) : null;
       const rows = await db.select({ id: auditLog.id, kind: auditLog.kind, action: auditLog.action, target: auditLog.target, detail: auditLog.detail, at: auditLog.at, userName: user.name })
@@ -95,7 +95,7 @@ export function eventService(deps: Deps) {
      */
     async recent(headers: Headers) {
       const who = await requireTeam(auth, headers);
-      const admin = await allowed(auth, headers, { member: ["update"] });
+      const admin = await allowed(auth, headers, { audit: ["read"] });
       const rows = await db.select({ id: auditLog.id, kind: auditLog.kind, action: auditLog.action, target: auditLog.target, detail: auditLog.detail, at: auditLog.at, userId: auditLog.userId, userName: user.name })
         .from(auditLog).leftJoin(user, eq(auditLog.userId, user.id))
         .where(and(eq(auditLog.teamId, who.teamId), ...(admin ? [] : [inArray(auditLog.kind, MEMBER_KINDS)])))
@@ -138,7 +138,7 @@ export function eventService(deps: Deps) {
 
     /** Discord への通知の設定(URL は最後の 4 文字だけ)。パネルの更新は自分用の版だけ */
     async notifySettings(headers: Headers) {
-      const { teamId } = await requireTeam(auth, headers, { member: ["update"] });
+      const { teamId } = await requireTeam(auth, headers, { integrations: ["manage"] });
       const n = await notifyOf(teamId).catch(() => null);
       const kinds: Partial<Record<EventKind, string>> = { ...EVENT_KINDS };
       if (!deps.local) delete kinds.panel;
@@ -147,7 +147,7 @@ export function eventService(deps: Deps) {
 
     /** 設定する(url を空にすると、いまの URL のまま種類だけ変える)。url が null なら通知をやめる */
     async setNotify(headers: Headers, input: { url: string | null; kinds: string[] }) {
-      const { teamId, user: me } = await requireTeam(auth, headers, { member: ["update"] });
+      const { teamId, user: me } = await requireTeam(auth, headers, { integrations: ["manage"] });
       if (input.url === null) {
         await db.delete(teamNotify).where(eq(teamNotify.teamId, teamId));
         await record({ teamId, userId: me.id, kind: "admin", action: "Discord への通知をやめる" });
@@ -166,7 +166,7 @@ export function eventService(deps: Deps) {
 
     /** 試しに送る */
     async testNotify(headers: Headers) {
-      const { teamId } = await requireTeam(auth, headers, { member: ["update"] });
+      const { teamId } = await requireTeam(auth, headers, { integrations: ["manage"] });
       const n = await notifyOf(teamId);
       if (!n) throw new HttpError(400, "先に Discord の Webhook の URL を設定してください");
       await send(n.url, "CraftShelf からの試しの通知です");

@@ -679,7 +679,7 @@ export function libraryService(deps: Deps) {
 
     /** CurseForge の API キーの設定(自分用の版・管理者以上。キーは最後の 4 文字だけ) */
     async curseforgeKey(headers: Headers) {
-      const { teamId } = await requireTeam(auth, headers, { member: ["update"] });
+      const { teamId } = await requireTeam(auth, headers, { integrations: ["manage"] });
       if (!deps.local) return { enabled: false, hint: "" };
       const [k] = await db.select({ hint: teamCurseforge.apiKeyHint }).from(teamCurseforge).where(eq(teamCurseforge.teamId, teamId));
       return { enabled: true, hint: k?.hint ?? "" };
@@ -687,7 +687,7 @@ export function libraryService(deps: Deps) {
 
     /** CurseForge の API キーを設定する(使えることを確かめてから保存)。null なら消す */
     async setCurseforgeKey(headers: Headers, key: string | null) {
-      const { teamId, user } = await requireTeam(auth, headers, { member: ["update"] });
+      const { teamId, user } = await requireTeam(auth, headers, { integrations: ["manage"] });
       if (!deps.local) throw new HttpError(400, "CurseForge は、自分用の版だけで使えます");
       if (key === null) {
         await db.delete(teamCurseforge).where(eq(teamCurseforge.teamId, teamId));

@@ -1,6 +1,6 @@
 // アプリの表(認証の表は auth-schema.ts)。変更は「足すだけ」
 import { boolean, index, integer, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
-import { organization, user } from "./auth-schema";
+import { member, organization, user } from "./auth-schema";
 
 // チームが登録した Pterodactyl パネル(API キーは暗号化して保存)
 export const pteroConnection = pgTable(
@@ -565,5 +565,14 @@ export const job = pgTable(
 export const userPref = pgTable("user_pref", {
   userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
   theme: text("theme"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// メンバーごとに足した・引いた権限(03.60.00 から)。allow・deny は "server:control" の形の JSON の配列(~/lib/permissions の GRANTS)。
+// チームのメンバー(member)ごとなので、ほかのチームには効かず、チームから外すと一緒に消える。オーナーには効かない
+export const memberPerm = pgTable("member_perm", {
+  memberId: text("member_id").primaryKey().references(() => member.id, { onDelete: "cascade" }),
+  allow: text("allow").notNull().default("[]"),
+  deny: text("deny").notNull().default("[]"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });

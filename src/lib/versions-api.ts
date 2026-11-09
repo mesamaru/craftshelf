@@ -6,7 +6,7 @@ import { z } from "zod";
 async function svc() {
   const { auth, versions } = await import("~/server/instance");
   const { HttpError, requireTeam } = await import("~/server/guard");
-  await requireTeam(auth, getRequest().headers, { organization: ["update"] });
+  await requireTeam(auth, getRequest().headers, { panel: ["manage"] });
   if (!versions) throw new HttpError(400, "この版では、パネルから切り替えられません");
   return versions;
 }

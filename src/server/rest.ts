@@ -46,7 +46,7 @@ export const ROUTES: Route[] = [
   { method: "POST", path: "/servers/:id/sync", scope: "library", summary: "結び付けたセットでそろえる(mode: update = 入っているものだけ / add = 足りないものも入れる(既定)/ mirror = セットに無いものを外す。removeExtra: true は mirror と同じ)", example: { mode: "add" }, handler: (s, h, [id], b) => s.sets.sync(h, id, str(b.mode) || b.removeExtra === true) },
   { method: "POST", path: "/servers/update", scope: "library", summary: "サーバーの Mod・プラグインをまとめて最新にする(ids: サーバーの ID の配列。省くとすべて。止めたもの・無効にしたものは除く)", example: { ids: [] }, handler: (s, h, _p, b) => s.sets.updateServers(h, ids(b.ids)) },
   { method: "GET", path: "/servers/:id/schedule", scope: "read", summary: "サーバーごとの予約(毎日・毎週の時刻・すること・再起動)", handler: (s, h, [id]) => s.schedules.getServer(h, id) },
-  // サーバーのファイル(管理者以上。チームで許していれば、Mod・プラグインを変える範囲の編集者も)
+  // サーバーのファイル(権限「設定ファイルを見る・直す」が要る: 管理者以上・チームで許していれば編集者・メンバーごとに足した人。トークンは管理の範囲)
   { method: "GET", path: "/servers/:id/files", scope: "admin", summary: "フォルダーの中身(dir。省くといちばん上)", handler: (s, h, [id], b) => s.files.list(h, id, str(b.dir)) },
   { method: "GET", path: "/servers/:id/files/read", scope: "admin", summary: "テキストの設定ファイルを読む(path)と、その履歴", handler: (s, h, [id], b) => s.files.read(h, id, str(b.path)) },
   { method: "POST", path: "/servers/:id/files/save", scope: "admin", summary: "設定ファイルを保存する(path・content。base = 読んだときの中身。違っていたら保存しない)", example: { path: "server.properties", content: "…", base: "…" }, handler: (s, h, [id], b) => s.files.save(h, id, str(b.path), str(b.content), str(b.base)) },
@@ -76,6 +76,7 @@ export const ROUTES: Route[] = [
   { method: "POST", path: "/sets/:id/pin", scope: "library", summary: "セットのアイテムを版に固定する(itemId、versionId。null で固定をやめ、いつも新しい版に)", example: { itemId: "<アイテムの ID>", versionId: "<版の ID>" }, handler: (s, h, [id], b) => s.sets.pin(h, id, str(b.itemId), str(b.versionId) || null) },
   { method: "POST", path: "/sets/:id/apply", scope: "library", summary: "セットの中身をサーバーに入れる(serverId。足りないものだけ)", example: { serverId: "<サーバーの ID>" }, handler: (s, h, [id], b) => s.sets.apply(h, id, str(b.serverId)) },
   // パネル
+  { method: "GET", path: "/me/permissions", scope: "read", summary: "自分のこのチームでの権限(役割・チームの設定・メンバーごとの足し引きを合わせたもの。\"種類:操作\" の一覧)", handler: (s, h) => s.teams.myPerms(h) },
   { method: "GET", path: "/jobs", scope: "read", summary: "処理の一覧(導入・そろえる・バックアップなど。待ち・実行中・成功・失敗)", handler: (s, h) => s.jobs.list(h) },
   { method: "GET", path: "/events", scope: "admin", summary: "操作の記録", handler: (s, h) => s.events.list(h) },
   { method: "GET", path: "/backups", scope: "admin", summary: "パネルのバックアップの一覧と定期バックアップの設定(自分用の版)", handler: (s, h) => s.backups.list(h) },

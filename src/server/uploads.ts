@@ -107,7 +107,7 @@ export function uploadService(deps: Deps) {
   return {
     /** 保存先の一覧(パスワードは返さない。見るのは管理者以上) */
     async targets(headers: Headers) {
-      const { teamId } = await requireTeam(auth, headers, { member: ["update"] });
+      const { teamId } = await requireTeam(auth, headers, { storage: ["manage"] });
       needLocal();
       const rows = await db.select().from(storageTarget).where(eq(storageTarget.teamId, teamId)).orderBy(storageTarget.createdAt);
       const active = rows.find((r) => r.active);
@@ -119,7 +119,7 @@ export function uploadService(deps: Deps) {
 
     /** 保存先を足す。つながる・書き込めることを確かめてから保存し、これからのアップロードの保存先にする */
     async addTarget(headers: Headers, input: { name: string; kind: string; path?: string; url?: string; user?: string; password?: string; host?: string; share?: string; domain?: string }) {
-      const { teamId, user } = await requireTeam(auth, headers, { member: ["update"] });
+      const { teamId, user } = await requireTeam(auth, headers, { storage: ["manage"] });
       needLocal();
       const n = await db.select({ id: storageTarget.id }).from(storageTarget).where(eq(storageTarget.teamId, teamId));
       if (n.length >= UPLOAD_LIMITS.targetsPerTeam) throw new HttpError(400, `保存先は ${UPLOAD_LIMITS.targetsPerTeam} 個までです`);
@@ -137,7 +137,7 @@ export function uploadService(deps: Deps) {
 
     /** これからのアップロードの保存先にする(id が null なら、パネルの中の既定のフォルダ)。いまあるファイルは動かさない */
     async activate(headers: Headers, id: string | null) {
-      const { teamId, user } = await requireTeam(auth, headers, { member: ["update"] });
+      const { teamId, user } = await requireTeam(auth, headers, { storage: ["manage"] });
       needLocal();
       if (id) {
         const [t] = await db.select().from(storageTarget).where(and(eq(storageTarget.id, id), eq(storageTarget.teamId, teamId)));
@@ -156,7 +156,7 @@ export function uploadService(deps: Deps) {
      * 失敗したものは元の保存先に残し、理由を返す
      */
     async moveFiles(headers: Headers, from: string | null, to: string | null) {
-      const { teamId, user } = await requireTeam(auth, headers, { member: ["update"] });
+      const { teamId, user } = await requireTeam(auth, headers, { storage: ["manage"] });
       needLocal();
       if (from === to) throw new HttpError(400, "移す先を、移す元と別の保存先にしてください");
       for (const id of [from, to]) {
@@ -189,7 +189,7 @@ export function uploadService(deps: Deps) {
 
     /** 保存先を消す(ファイルが残っているものは消せない) */
     async removeTarget(headers: Headers, id: string) {
-      const { teamId, user } = await requireTeam(auth, headers, { member: ["update"] });
+      const { teamId, user } = await requireTeam(auth, headers, { storage: ["manage"] });
       const [t] = await db.select().from(storageTarget).where(and(eq(storageTarget.id, id), eq(storageTarget.teamId, teamId)));
       if (!t) throw new HttpError(404, "保存先が見つかりません");
       const used = await db.select({ id: libraryFile.id }).from(libraryFile).where(eq(libraryFile.targetId, id)).limit(1);

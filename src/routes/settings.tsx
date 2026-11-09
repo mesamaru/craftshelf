@@ -6,7 +6,7 @@ import { errorText } from "~/lib/errors";
 import { getImportReport } from "~/lib/session";
 import { getVersions, installVersion, useImageVersion } from "~/lib/versions-api";
 import { useCan } from "~/lib/use-can";
-import { SCOPE_LABELS, SCOPE_SHORT, TOKEN_SCOPES, type TokenScope } from "~/lib/permissions";
+import { SCOPE_LABELS, SCOPE_SHORT, TOKEN_SCOPES, type TokenScope, permsAllowScope } from "~/lib/permissions";
 import { useServerFn } from "@tanstack/react-start";
 import { createToken, listTokens, removeToken } from "~/lib/tokens-api";
 import { getLang, setLang } from "~/lib/i18n";
@@ -263,7 +263,10 @@ function ImportReport({ userId }: { userId: string }) {
         {report.pins && report.pins.pinned.length + report.pins.skipped.length > 0 && (
           <div className="row"><span>セットの版の固定</span><span className="trail">{`${report.pins.pinned.length} 件`}</span></div>
         )}
-        {[...report.skipped, ...(report.library?.skipped ?? []), ...(report.kinds?.skipped ?? []), ...(report.pins?.skipped ?? [])].map((x, i) => (
+        {report.perms && report.perms.users.length > 0 && (
+          <div className="row"><span>ユーザーごとの権限</span><span className="trail" translate="no">{report.perms.users.map((u) => u.name).join("、")}</span></div>
+        )}
+        {[...report.skipped, ...(report.library?.skipped ?? []), ...(report.kinds?.skipped ?? []), ...(report.pins?.skipped ?? []), ...(report.perms?.skipped ?? [])].map((x, i) => (
           <div className="row" key={i}><span className="main"><span>{x.what}</span><span className="muted" translate="no">{x.detail}</span></span><span className="trail">取り込まず</span></div>
         ))}
         {report.notes.map((n, i) => <p className="row muted" key={`n${i}`}>{n}</p>)}
@@ -279,7 +282,7 @@ type VersionInfo = Awaited<ReturnType<typeof getVersions>>;
 function Versions({ userId }: { userId: string }) {
   const { app } = Route.useRouteContext();
   const { can } = useCan(userId);
-  const admin = app.mode === "self" && can({ organization: ["update"] });
+  const admin = app.mode === "self" && can({ panel: ["manage"] });
   const [info, setInfo] = useState<VersionInfo | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
@@ -347,11 +350,12 @@ function Versions({ userId }: { userId: string }) {
 
 const tokenMessage = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
 
-// API トークン(外から /api/v1 を呼ぶとき)。選んでいるチームのもので、自分の役割のとおりに動く
+// API トークン(外から /api/v1 を呼ぶとき)。選んでいるチームのもので、自分の権限のとおりに動く
 function ApiTokens({ userId }: { userId: string }) {
-  const { can } = useCan(userId);
-  // 自分の役割で選べる範囲だけを出す(サーバーでも確かめる)
-  const allowed: Record<TokenScope, boolean> = { read: true, library: can({ library: ["edit"] }), control: can({ server: ["control"] }), admin: can({ member: ["update"] }) };
+  const { can, perms } = useCan(userId);
+  // 自分の権限で選べる範囲だけを出す(サーバーでも確かめる。読み込むまでは役割で決める)
+  const allowed: Record<TokenScope, boolean> = perms ? { read: true, library: permsAllowScope(perms, "library"), control: permsAllowScope(perms, "control"), admin: permsAllowScope(perms, "admin") }
+    : { read: true, library: can({ library: ["edit"] }), control: can({ server: ["control"] }), admin: can({ member: ["update"] }) };
   const load = useServerFn(listTokens);
   const create = useServerFn(createToken);
   const remove = useServerFn(removeToken);
@@ -415,7 +419,7 @@ function ApiTokens({ userId }: { userId: string }) {
         )}
         {error && <p className="row error" role="alert">{error}</p>}
       </form>
-      <p className="foot">スクリプトなどから CraftShelf を操作するときに使います(使える API は<Link to="/api-docs">API の説明</Link>にあります)。トークンは x-api-key か Authorization: Bearer で渡します。選んでいるチームのもので、選んだ範囲の中で、あなたの役割のとおりに動きます。</p>
+      <p className="foot">スクリプトなどから CraftShelf を操作するときに使います(使える API は<Link to="/api-docs">API の説明</Link>にあります)。トークンは x-api-key か Authorization: Bearer で渡します。選んでいるチームのもので、選んだ範囲の中で、あなたの権限(役割と、メンバーごとに足し引きした権限)のとおりに動きます。</p>
     </>
   );
 }
@@ -424,7 +428,7 @@ function ApiTokens({ userId }: { userId: string }) {
 function Telemetry({ userId }: { userId: string }) {
   const { app } = Route.useRouteContext();
   const { can } = useCan(userId);
-  const admin = app.mode === "self" && can({ member: ["update"] });
+  const admin = app.mode === "self" && can({ panel: ["manage"] });
   const set = useServerFn(setTelemetry);
   const [info, setInfo] = useState<Awaited<ReturnType<typeof telemetryInfo>> | null>(null);
   const [error, setError] = useState("");

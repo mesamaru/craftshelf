@@ -22,7 +22,7 @@ export type SessionUser = NonNullable<Awaited<ReturnType<typeof getAppState>>["u
 export const getImportReport = createServerFn({ method: "GET" }).handler(async () => {
   const { auth, env } = await import("~/server/instance");
   const { requireTeam } = await import("~/server/guard");
-  const { readKindsReport, readLibraryReport, readPinsReport, readReport } = await import("~/server/import-v02");
+  const { readKindsReport, readLibraryReport, readPermsReport, readPinsReport, readReport } = await import("~/server/import-v02");
   await requireTeam(auth, getRequest().headers, { member: ["update"] });
   const report = env.mode === "self" ? readReport(env.v03Dir) : null;
   if (!report) return null;
@@ -30,5 +30,8 @@ export const getImportReport = createServerFn({ method: "GET" }).handler(async (
   const pins = readPinsReport(env.v03Dir);
   // 03.58.00 までの取り込みは「固定は引き継がない」と書いていた。固定を取り込んだあとは、そちらの結果を出す
   if (library && pins) library.skipped = library.skipped.filter((x) => !x.what.startsWith("セットの版の固定"));
-  return { ...report, library, kinds: readKindsReport(env.v03Dir), pins };
+  const perms = readPermsReport(env.v03Dir);
+  // 03.59.00 までの取り込みは「個別の権限は役割に置き換わった」と書いていた。権限を取り込んだあとは、そちらの結果を出す
+  if (perms) report.notes = report.notes.filter((n) => !n.includes("個別に付けていた権限"));
+  return { ...report, library, kinds: readKindsReport(env.v03Dir), pins, perms };
 });

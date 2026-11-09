@@ -170,7 +170,8 @@ export function createAuth(db: Db, opts: Options) {
       tanstackStartCookies(), // 最後に置く
     ],
   });
-  return auth;
+  // 権限の確かめ(guard.ts)が、メンバーごとの足し引き・チームの設定を読むのに使う
+  return Object.assign(auth, { appDb: db });
 }
 
 export type Auth = ReturnType<typeof createAuth>;

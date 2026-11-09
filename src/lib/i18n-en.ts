@@ -64,8 +64,8 @@ export const EN: Record<string, string> = {
   "範囲(読むことは、どのトークンでもできます)": "Scopes (every token can read)",
   "トークンの範囲を選んでください": "Choose the token scopes",
   "スクリプトなどから CraftShelf を操作するときに使います(使える API は": "Used to operate CraftShelf from scripts and the like (available APIs are in ",
-  "にあります)。トークンは x-api-key か Authorization: Bearer で渡します。選んでいるチームのもので、選んだ範囲の中で、あなたの役割のとおりに動きます。":
-    "). Pass the token with x-api-key or Authorization: Bearer. It belongs to the selected team and works within the chosen scopes, as your role allows.",
+  "にあります)。トークンは x-api-key か Authorization: Bearer で渡します。選んでいるチームのもので、選んだ範囲の中で、あなたの権限(役割と、メンバーごとに足し引きした権限)のとおりに動きます。":
+    "). Pass the token with x-api-key or Authorization: Bearer. It belongs to the selected team and works within the chosen scopes, as your permissions allow (your role plus any per-member changes).",
   "API の説明": "API reference",
   "‹ アカウント": "‹ Account",
   "スクリプトなどから CraftShelf を操作する API です。「アカウント」の「API トークン」で作ったトークン(cs_…)を、x-api-key か Authorization: Bearer で渡します。トークンで使えるのは、作るときに選んだ範囲の中で、作った人の役割でできることだけです。":
@@ -271,8 +271,8 @@ export const EN: Record<string, string> = {
   "元に戻す(Ctrl+Z)": "Undo (Ctrl+Z)",
   "やり直す(Ctrl+Y)": "Redo (Ctrl+Y)",
   "編集者にも、サーバーの設定ファイルを見る・直すのを許す": "Allow editors to view and edit server config files",
-  "設定ファイル(server.properties・plugins の設定など)には、データベースのパスワードや API キーが入っていることがあります。既定では管理者とオーナーだけが見る・直せます。許すと、編集者も「ファイルとコマンド」とファイル比較で見る・直せるようになります(割り当てたサーバーだけ)。":
-    "Config files (server.properties, plugin settings, etc.) may contain database passwords or API keys. By default only admins and the owner can view and edit them. If allowed, editors can also view and edit them in “Files and commands” and the file comparison (only on their assigned servers).",
+  "設定ファイル(server.properties・plugins の設定など)には、データベースのパスワードや API キーが入っていることがあります。既定では管理者とオーナーだけが見る・直せます。許すと、編集者も「ファイルとコマンド」とファイル比較で見る・直せるようになります(割り当てたサーバーだけ)。人ごとに許す・止めるときは「メンバーごとの権限」で決めます。":
+    "Config files (server.properties, plugin settings, etc.) may contain database passwords or API keys. By default only admins and the owner can view and edit them. If allowed, editors can also view and edit them in “Files and commands” and the file comparison (only on their assigned servers). To allow or block it per person, use “Per-member permissions”.",
   "編集者にも設定ファイルを許す": "Allow editors to edit config files",
   "設定ファイルを管理者以上だけにする": "Limit config files to admins",
   "\\u のあとに 16 進数 4 けたが要ります": "\\u must be followed by 4 hex digits",
@@ -1378,6 +1378,33 @@ export const EN: Record<string, string> = {
   "Modrinth に同じファイルの版が見つかりません": "No Modrinth version with the same file was found",
   "CurseForge の API キーが無いので、版を探せませんでした": "Could not look up the version because there is no CurseForge API key",
   "CurseForge の新しい 30 件の中に、同じファイルの版が見つかりません": "No version with the same file among the newest 30 on CurseForge",
+  // 03.60.00: メンバーごとの権限
+  "サーバーの設定ファイルを見る・直す": "View and edit server config files",
+  "サーバーの設定(種類・本体・予約・ポート・ワールドを戻す)": "Server settings (type, server software, schedules, ports, world restore)",
+  "サーバーを追加する(Pterodactyl・フォルダ・エージェント)": "Add servers (Pterodactyl, folders, agents)",
+  "操作の記録を見る": "View the activity log",
+  "保存先を管理する(アップロードしたものの置き場所)": "Manage storage (where uploads are kept)",
+  "連携の設定(Discord への通知・CurseForge の API キー)": "Integrations (Discord notifications, CurseForge API key)",
+  "パネルの設定(版の切り替え・利用状況の送信)": "Panel settings (switching versions, sending usage)",
+  "メンバーごとの権限": "Per-member permissions",
+  "変える": "Change",
+  "役割より多い(足した権限)": "More than the role (added)",
+  "役割より少ない(引いた権限)": "Less than the role (removed)",
+  "役割のとおりに戻す": "Reset to the role",
+  "役割(閲覧者・編集者・管理者)の権限に、メンバーごとに足したり引いたりできます。たとえば「編集者だけど設定ファイルも直せる」「閲覧者だけどサーバーの電源は操作できる」「編集者だけどライブラリは変えられない」のようにできます。チームの設定の「編集者にも設定ファイルを許す」は、編集者みんなの既定です(ここで人ごとに足し引きできます)。メンバーの招待・役割の変更・チームの設定・利用状況・パネルのバックアップは、役割(管理者以上)だけで決まります。オーナーの権限は減らせません。API トークンも、作った人の今の権限の分だけ使えます。":
+    "You can add permissions to or remove them from each member's role (viewer, editor, admin). For example: an editor who can also edit config files, a viewer who can control server power, or an editor who cannot change the library. “Allow editors to edit config files” in the team settings is the default for all editors (you can adjust it per person here). Inviting members, changing roles, team settings, usage and panel backups are decided by role only (admin or higher). The owner's permissions cannot be reduced. API tokens also work only within their creator's current permissions.",
+  "見られるのは、チームの管理者とオーナー(と、権限を足してもらった人)だけです。": "Only the team's admins and owner (and members given the permission) can see this.",
+  "自分の権限は変えられません": "You cannot change your own permissions",
+  "権限の指定が正しくありません": "Invalid permissions",
+  "オーナーの権限は減らせません": "The owner's permissions cannot be reduced",
+  "メンバーの権限を変える": "Change a member's permissions",
+  "自分のこのチームでの権限(役割・チームの設定・メンバーごとの足し引きを合わせたもの。\"種類:操作\" の一覧)": "Your permissions in this team (role, team settings and per-member changes combined; a list of \"kind:action\")",
+  "ユーザーごとの権限": "Per-user permissions",
+  "パネルのバックアップは、v03 では管理者以上だけです": "In v03, panel backups are for admins and above only",
+  "Pterodactyl のパネルを登録するのは、v03 では「サーバーを追加する」の権限です(要るなら「チーム」で足してください)": "In v03, registering a Pterodactyl panel needs the “Add servers” permission (add it under “Team” if needed)",
+  "v03 では、メンバーの招待・役割の変更は管理者以上だけです(要るなら役割を管理者にしてください)": "In v03, only admins and above can invite members and change roles (make them an admin if needed)",
+  "v03 のチームにいません": "Not in the v03 team",
+  "v03 に同じ権限がありません": "v03 has no matching permission",
 };
 /** 1 文字だけのもの(曜日など)。文全体が一致したときだけ置き換える */
 export const EN_WHOLE: Record<string, string> = {
@@ -1437,7 +1464,7 @@ export const EN_RULES: [RegExp, To][] = [
   [/^配布元から Modパックのファイルを取ってこられませんでした\(HTTP (\d+)\)$/, "Could not fetch the modpack file from the source (HTTP $1)"],
   [/^種類のわからないもの\((\d+) 件\)$/, "Unknown kinds ($1 items)"],
   [/^この API トークンの範囲では、この操作はできません\(要る範囲: (.+)\)$/, "This API token's scopes do not allow this (needs: $1)"],
-  [/^あなたの役割では、この範囲のトークンは作れません\((.+)\)$/, "Your role cannot create a token with these scopes ($1)"],
+  [/^あなたの権限では、この範囲のトークンは作れません\((.+)\)$/, "Your permissions do not allow a token with these scopes ($1)"],
   [/^要る範囲: (.+?)\((.+?)以上\)$/, "Needs: $1 ($2 or higher)"],
   [/^(\d+) 個の API$/, "$1 APIs"],
   [/^(\d+) 分 (\d+) 秒$/, "$1 min $2 s"],
@@ -1705,6 +1732,10 @@ export const EN_RULES: [RegExp, To][] = [
   [/^固定を引き継げなかったもの: (.+)$/, "Pin not carried over: $1"],
   [/^Modrinth につながりませんでした\((.+)\)$/, "Could not connect to Modrinth ($1)"],
   [/^CurseForge につながりませんでした\((.+)\)$/, "Could not connect to CurseForge ($1)"],
+  // 03.60.00: メンバーごとの権限
+  [/^足した権限 (\d+)・引いた権限 (\d+)$/, "Added $1 · removed $2"],
+  [/^(.+) さんの権限「(.+)」$/, "$1's permission “$2”"],
+  [/^(.+) さんの権限$/, "$1's permissions"],
   [/(\d+) 件/g, "$1 items"],
   [/(\d+) 台/g, "$1 servers"],
   [/(\d+) 人/g, "$1 people"],

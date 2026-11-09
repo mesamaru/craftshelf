@@ -58,6 +58,8 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 | 閲覧者 | 見るだけ |
 
 - サーバー側の処理では `requireTeam(auth, headers, { server: ["control"] })` のように、選んでいるチームでの権限を必ず確かめる(`src/server/guard.ts`)。
+- 権限の種類(`statements`): Better Auth の `member`・`invitation`・`organization` などに加えて、`server`(create・update・delete・control)・`library`(edit)と、03.60.00 から `files`(edit。設定ファイル)・`audit`(read。操作の記録)・`storage`(manage。保存先)・`integrations`(manage。Discord への通知・CurseForge のキー)・`panel`(manage。版の切り替え・利用状況の送信)。管理者・オーナーはすべて、編集者は `server:control`・`library:edit`、閲覧者は無し。利用状況・パネルのバックアップ・サーバーの割り当て・チームの既定などは `member:update`(管理者以上)のまま。
+- メンバーごとの権限(03.60.00 から。v02 の `users.perms`): 表 `member_perm`(Better Auth の `member` ごと。外部キーでチームから外すと消え、ほかのチームには効かない)の `allow`・`deny`(`"server:control"` の形の JSON の配列)。できることは `permsOf(役割, { allow, deny, editorFiles })` = 役割の権限 + チームの「編集者にも設定ファイル」(`team_option.editor_files`。編集者だけの既定)+ allow − deny。足し引きできるのは `GRANTS`(`library:edit`・`server:*`・`files:edit`・`audit:read`・`storage:manage`・`integrations:manage`・`panel:manage`)だけ。`member`・`invitation`・`organization` は Better Auth が自分の処理(招待・役割の変更・チームの名前)で役割だけを見て確かめるので、足し引きさせない(役割で決まる)。オーナーは足し引きを見ない(減らせない)。`requireTeam` は Better Auth の `hasPermission` の代わりに `memberPerms`(役割・足し引き・チームの設定を 1 回で読む。`auth.appDb` を使う)で確かめ、API トークンもトークンの範囲に加えて、作った人の今の権限で確かめる。決めるのは `teams.setMemberGrants`(`member:update`・ログインしてから・オーナーと自分は不可。持たせるものの一覧を受け取り、役割より多いものを allow、少ないものを deny に覚える)。画面の `useCan` は `myPerms` を読み(読み終わるまでは役割で決める)、チームの画面の「メンバーごとの権限」で人ごとに決める。v02 の権限は `maybeImportV02Perms` が一度だけ `V02_PERMS` の表(storage → storage:manage・audit → audit:read・integrations → integrations:manage・system → panel:manage・users は対応なし)で allow に置き換える(結果は `/data/v03/import-v02-perms.json`。v03 で決めた人は上書きしない)。
 - 招待はリンクで渡す(メールの送信は、送信サービスを決めてから足す)。招待されたメールアドレスでログインした人だけが参加できる。
   - メールアドレスの確認はまだ無いので、招待のリンクを知っている人が、そのアドレスで先に登録すると参加できてしまう。メールの送信を足すときに、確認を必須にする。
 - 無料の上限: 1 人が作れるチームは 5 つ、1 チームの人数は 20 人(`src/server/auth.ts` の `LIMITS`)。
@@ -179,7 +181,7 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 ## ファイルとコマンド
 
 - コマンド(`src/server/files.ts` の `command`)は Pterodactyl の `/command` に送る。1 行・500 文字まで、権限は `server: ["control"]`。出力はウェブソケットが要るので、いまは受け取らない(パネルのコンソールで見る)。
-- 設定ファイルは、サーバーのフォルダーの中の相対パスだけ(`cleanPath`。`..`・`.`・空の区切り・改行を断る)。開けるのはテキストの拡張子(`TEXT_FILE`)で 512 KB までのものだけ。見る・直すのは `server: ["update"]`(パスワードなどが入っていることがあるため)。チームが「編集者にも許す」(表 `team_option.editor_files`、決めるのは `member: ["update"]`、既定はオフ)を選んだときは `library: ["edit"]` でもよい(`files.ts` の `needFiles`。割り当てたサーバーだけ)。
+- 設定ファイルは、サーバーのフォルダーの中の相対パスだけ(`cleanPath`。`..`・`.`・空の区切り・改行を断る)。開けるのはテキストの拡張子(`TEXT_FILE`)で 512 KB までのものだけ。見る・直すのは `files: ["edit"]`(パスワードなどが入っていることがあるため。管理者以上。03.59.00 までは `server: ["update"]`)。チームが「編集者にも許す」(表 `team_option.editor_files`、決めるのは `member: ["update"]`、既定はオフ)を選ぶと、編集者の既定に `files:edit` が入る(`permsOf`。人ごとの足し引きはその上に効く。割り当てたサーバーだけ)。
 - 保存する前に、画面で書き方を確かめる(`src/lib/syntax.ts`: JSON は `JSON.parse` と場所を探す小さな読み手・YAML は `yaml`・TOML は `smol-toml`・properties は `\u` の形だけ)。誤りがあれば行番号つきで知らせ、それでも保存するかを聞く(サーバー側では断らない)。
 - 保存するときは、開いたときの中身(base)とサーバーのいまの中身を比べ、違えば保存しない(409)。保存する前の中身を表 `server_file_history` に残す(1 ファイル 30 件)。
 
@@ -211,8 +213,8 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 
 ## API と API トークン
 
-- トークンは Better Auth の apiKey(`cs_` で始まる。ハッシュだけを保存)。`metadata` にチーム(`teamId`)と範囲(`scopes`。03.57.00 から)を持たせ、作った人のそのチームでの役割で、範囲の中だけ動く。範囲は `read`(いつも付く)・`library`・`control`・`admin`(`src/lib/permissions.ts` の `TOKEN_SCOPES`)で、作った人の役割を超えるものは作れない(編集者は library・control まで、閲覧者は read だけ)。前の版に戻しても狭まるよう `readOnly`(read だけのとき true)も書く。03.56 までのトークン(`scopes` なし)は、`readOnly` なら read、そうでなければすべての範囲。1 分に 120 回まで。作る・消すのはログインしてから(トークンでは作れない)。
-- 確かめるのは `src/server/guard.ts` の `requireUser`・`requireTeam`。`x-api-key` か `Authorization: Bearer cs_…` があればトークンとして確かめ(`verifyApiKey`)、役割の権限は `roles[role].authorize` で見る。トークンの範囲は、処理が求める権限から決める(`scopesFor`: library の権限 → library、server の control → control、それ以外 → admin)。範囲が足りなければ断る(read だけのトークンは、権限を求める操作をすべて断る)。チームを抜けた人のトークンは使えない。Better Auth の「トークンでログインしたことにする」設定は使わない。
+- トークンは Better Auth の apiKey(`cs_` で始まる。ハッシュだけを保存)。`metadata` にチーム(`teamId`)と範囲(`scopes`。03.57.00 から)を持たせ、作った人のそのチームでの今の権限(役割とメンバーごとの足し引き)で、範囲の中だけ動く。範囲は `read`(いつも付く)・`library`・`control`・`admin`(`src/lib/permissions.ts` の `TOKEN_SCOPES`)で、作った人の権限を超えるものは作れない(その範囲で使える権限を 1 つでも持っていれば作れる: `permsAllowScope`。編集者は library・control まで、閲覧者は read だけ。設定ファイルを足した編集者は admin も作れるが、使えるのは持っている権限の分だけ)。前の版に戻しても狭まるよう `readOnly`(read だけのとき true)も書く。03.56 までのトークン(`scopes` なし)は、`readOnly` なら read、そうでなければすべての範囲。1 分に 120 回まで。作る・消すのはログインしてから(トークンでは作れない)。
+- 確かめるのは `src/server/guard.ts` の `requireUser`・`requireTeam`。`x-api-key` か `Authorization: Bearer cs_…` があればトークンとして確かめ(`verifyApiKey`)、権限はログインと同じ `memberPerms` で見る。トークンの範囲は、処理が求める権限から決める(`scopesFor`: library の権限 → library、server の control → control、それ以外 → admin)。範囲が足りなければ断る(read だけのトークンは、権限を求める操作をすべて断る)。チームを抜けた人のトークンは使えない。Better Auth の「トークンでログインしたことにする」設定は使わない。
 - 外から呼べる API(`src/server/rest.ts`、`/api/v1/…`)は、画面と同じサービスの処理を呼ぶだけ(権限の確認もそちら)。ブラウザのログインの Cookie では使わせず、トークンだけを受け付ける(ほかのサイトから呼ばれないように)。GET はクエリー、POST は JSON を受け取る。ルートの定義(`ROUTES`)には、ひとことの説明(`summary`)・要る範囲(`scope`)・POST の中身の例(`example`)を書き、`GET /api/v1` と画面の「API の説明」(`/api-docs`、curl の例つき)はここから作る(手で二重に書かない)。`tests/rest-docs.test.ts` が説明・範囲の無いもの・英訳の無いものを、`tests/api.test.ts` が範囲の無いトークンで説明どおりに断られるかを確かめる。
 
 ## 処理の一覧・個人の設定・ホーム画面に追加(03.57.00 から)

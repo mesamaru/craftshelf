@@ -119,6 +119,13 @@ async function build() {
     } catch (e) {
       console.error("[v02] セットの版の固定の取り込みに失敗しました(v02 のデータはそのままです):", e);
     }
+    const { maybeImportV02Perms } = await import("./import-v02");
+    try {
+      const r = await maybeImportV02Perms(db, env);
+      if (r?.users.length) console.log(`[v02] ユーザーごとの権限を引き継ぎました: ${r.users.map((u) => u.name).join("、")}`);
+    } catch (e) {
+      console.error("[v02] ユーザーごとの権限の取り込みに失敗しました(v02 のデータはそのままです):", e);
+    }
   }
   const { resendMailer } = await import("./mail");
   const mailer = env.mail ? resendMailer(safeFetch, env.mail.resendKey, env.mail.from) : null;

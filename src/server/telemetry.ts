@@ -76,14 +76,14 @@ export function telemetryService(deps: Deps) {
   return {
     /** 送るかどうかの設定と、送る内容(管理者以上) */
     async info(headers: Headers) {
-      await requireTeam(auth, headers, { member: ["update"] });
+      await requireTeam(auth, headers, { panel: ["manage"] });
       const s = read();
       return { available: !!telemetryUrl() && !!deps.local, enabled: s.enabled === true, asked: s.enabled !== null, lastSent: s.lastSent, preview: await payload() };
     },
 
     /** 送るかどうかを決める(管理者以上)。送ると決めたら、すぐに 1 回送る */
     async set(headers: Headers, enabled: boolean) {
-      const who = await requireTeam(auth, headers, { member: ["update"] });
+      const who = await requireTeam(auth, headers, { panel: ["manage"] });
       if (!deps.local) throw new HttpError(400, "自分用の版だけで使えます");
       write({ ...read(), enabled });
       await record({ teamId: who.teamId, userId: who.user.id, kind: "admin", action: enabled ? "利用状況の送信をオンにする" : "利用状況の送信をオフにする" });

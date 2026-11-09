@@ -15,11 +15,12 @@ export const Route = createFileRoute("/activity")({
 const message = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
 type Row = Awaited<ReturnType<typeof listEvents>>[number];
 
-// 操作の記録と Discord への通知(チームの管理者以上)
+// 操作の記録(権限 audit:read)と Discord への通知(権限 integrations:manage)。どちらも管理者以上と、メンバーごとに足した人
 function Activity() {
   const { user } = Route.useRouteContext();
   const { can, me } = useCan(user.id);
-  const admin = can({ member: ["update"] });
+  const log = can({ audit: ["read"] });
+  const notify = can({ integrations: ["manage"] });
   return (
     <main className="page narrow">
       <header className="bar">
@@ -27,8 +28,8 @@ function Activity() {
         <h1>操作の記録と通知</h1>
       </header>
       {!me ? <section className="group"><div className="row muted">読み込んでいます…</div></section>
-        : !admin ? <section className="group"><div className="row muted">見られるのは、チームの管理者とオーナーだけです。</div></section>
-        : <><Notify /><Log /></>}
+        : !log && !notify ? <section className="group"><div className="row muted">見られるのは、チームの管理者とオーナー(と、権限を足してもらった人)だけです。</div></section>
+        : <>{notify && <Notify />}{log && <Log />}</>}
     </main>
   );
 }

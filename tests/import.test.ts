@@ -9,7 +9,7 @@ import { eq, inArray } from "drizzle-orm";
 import { signupOpen } from "~/server/auth";
 import { addonSet, addonSetItem, libraryFile, libraryItem, localServer, pteroConnection, server, serverProfile, storageTarget } from "~/server/db/schema";
 import * as schema from "~/server/db/schema";
-import { maybeImportV02, maybeImportV02AutoUpdate, maybeImportV02Backups, maybeImportV02Channels, maybeImportV02Kinds, maybeImportV02Library, maybeImportV02Pins, maybeImportV02Prefs, maybeImportV02Schedules, maybeImportV02Software, type ImportReport } from "~/server/import-v02";
+import { maybeImportV02, maybeImportV02AutoUpdate, maybeImportV02Backups, maybeImportV02Channels, maybeImportV02Kinds, maybeImportV02Library, maybeImportV02Perms, maybeImportV02Pins, maybeImportV02Prefs, maybeImportV02Schedules, maybeImportV02Software, type ImportReport } from "~/server/import-v02";
 import { totpCode } from "~/server/legacy";
 import { open } from "~/server/secrets";
 import { TEST_SECRET, setup } from "./helpers";
@@ -350,6 +350,20 @@ describe("v02 のセットの版の固定の取り込み", () => {
     expect(of("自作").versionNumber).toBe("1.0");
     expect(of("Lithium").versionId).toBeNull();
     expect(await maybeImportV02Pins(t.db, { v02Dir, v03Dir, secret: TEST_SECRET, fetch: fake })).toBeNull();
+    expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
+  });
+});
+
+describe("v02 のユーザーごとの権限の取り込み", () => {
+  it("v02 の権限を対応表のとおりに v03 のメンバーごとの権限に足す。対応の無いもの・違うものは理由を残す。一度だけ", async () => {
+    const r = (await maybeImportV02Perms(t.db, { v02Dir, v03Dir }))!;
+    expect(r.users).toEqual([{ name: "編集者", grants: ["storage:manage"] }]);
+    expect(r.skipped).toEqual([{ what: "編集者 さんの権限「storage」", detail: "パネルのバックアップは、v03 では管理者以上だけです" }]);
+    const rows = await t.db.select({ name: schema.user.name, role: schema.member.role, allow: schema.memberPerm.allow }).from(schema.memberPerm)
+      .innerJoin(schema.member, eq(schema.member.id, schema.memberPerm.memberId)).innerJoin(schema.user, eq(schema.user.id, schema.member.userId));
+    expect(rows).toEqual([{ name: "編集者", role: "editor", allow: JSON.stringify(["storage:manage"]) }]);
+    expect(report!.notes.some((n) => n.includes("個別に付けていた権限"))).toBe(false); // 役割に置き換えず、ここで取り込む
+    expect(await maybeImportV02Perms(t.db, { v02Dir, v03Dir })).toBeNull();
     expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
   });
 });

@@ -1,5 +1,5 @@
 // サーバーの操作: コンソールへのコマンドと、設定ファイルの閲覧・編集(保存する前の中身は履歴に残す)。
-// 設定ファイルにはパスワードなどが入っていることがあるので、見る・直すのは管理者以上(チームで決めれば編集者も)。どの処理も、選んでいるチームの中だけ
+// 設定ファイルにはパスワードなどが入っていることがあるので、見る・直すのは権限 files:edit のある人(管理者以上・チームで決めれば編集者も・メンバーごとに足した人)。どの処理も、選んでいるチームの中だけ
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { serverFileHistory, teamOption, user } from "./db/schema";
@@ -36,13 +36,8 @@ export function fileService(deps: Deps) {
   const editorFiles = async (teamId: string) =>
     (await db.select({ on: teamOption.editorFiles }).from(teamOption).where(eq(teamOption.teamId, teamId)))[0]?.on ?? false;
 
-  // 設定ファイルを見る・直してよいか: 管理者以上か、チームが許していれば編集者(Mod・プラグインを入れられる人)
-  async function needFiles(headers: Headers) {
-    const who = await requireTeam(auth, headers);
-    if (await allowed(auth, headers, { server: ["update"] })) return who;
-    if ((await editorFiles(who.teamId)) && (await allowed(auth, headers, { library: ["edit"] }))) return who;
-    throw new HttpError(403, "この操作をする権限がありません");
-  }
+  // 設定ファイルを見る・直してよいか(権限 files:edit): 管理者以上・チームが許していれば編集者・メンバーごとに足した人(03.60.00 から)
+  const needFiles = (headers: Headers) => requireTeam(auth, headers, { files: ["edit"] });
 
   async function readText(target: Awaited<ReturnType<typeof serverOf>>, path: string) {
     const name = path.split("/").pop() ?? "";
@@ -59,7 +54,7 @@ export function fileService(deps: Deps) {
     /** 設定ファイルを見る・直せるか(画面でボタンを出すか決める)と、編集者にも許しているか */
     async access(headers: Headers) {
       const { teamId } = await requireTeam(auth, headers);
-      return { allowed: await needFiles(headers).then(() => true, () => false), editors: await editorFiles(teamId) };
+      return { allowed: await allowed(auth, headers, { files: ["edit"] }), editors: await editorFiles(teamId) };
     },
 
     /** 編集者にも設定ファイルを見る・直すのを許す・やめる(管理者以上) */

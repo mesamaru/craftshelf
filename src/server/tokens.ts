@@ -1,10 +1,8 @@
 // API トークン(cs_…)の作成・一覧・削除。トークンは選んでいるチームのもので、作った人のそのチームでの役割で動く。
-// 範囲(読む・Mod・プラグインを変える・サーバーを操作する・管理)を選べ、選ばなかった操作はできない。範囲は作った人の役割を超えられない。
+// 範囲(読む・Mod・プラグインを変える・サーバーを操作する・管理)を選べ、選ばなかった操作はできない。範囲は作った人の権限(役割とメンバーごとの足し引き)を超えられず、使うときも作った人の今の権限の分だけ。
 // トークンそのものは作ったときにだけ返す
-import { and, eq } from "drizzle-orm";
-import { SCOPE_LABELS, type TokenScope, isTokenScope, roleAllowsScope } from "~/lib/permissions";
-import { member } from "./db/schema";
-import { HttpError, apiKeyOf, requireTeam, scopesOf } from "./guard";
+import { SCOPE_LABELS, type TokenScope, isTokenScope, permsAllowScope } from "~/lib/permissions";
+import { HttpError, apiKeyOf, memberPerms, requireTeam, scopesOf } from "./guard";
 import type { Deps } from "./servers";
 import { eventService } from "./events";
 
@@ -46,9 +44,9 @@ export function tokenService(deps: Deps) {
       const { teamId, user } = await requireTeam(auth, headers);
       if (!Array.isArray(input.scopes) || !input.scopes.every(isTokenScope)) throw new HttpError(400, "トークンの範囲を選んでください");
       const scopes = [...new Set<TokenScope>(["read", ...input.scopes])];
-      const [me] = await deps.db.select({ role: member.role }).from(member).where(and(eq(member.organizationId, teamId), eq(member.userId, user.id)));
-      const over = scopes.filter((x) => !roleAllowsScope(me?.role ?? "", x));
-      if (over.length) throw new HttpError(403, `あなたの役割では、この範囲のトークンは作れません(${over.map((x) => SCOPE_LABELS[x]).join("、")})`);
+      const perms = (await memberPerms(auth, teamId, user.id)) ?? new Set<string>();
+      const over = scopes.filter((x) => !permsAllowScope(perms, x));
+      if (over.length) throw new HttpError(403, `あなたの権限では、この範囲のトークンは作れません(${over.map((x) => SCOPE_LABELS[x]).join("、")})`);
       const name = String(input.name ?? "").trim().slice(0, 60);
       if (!name) throw new HttpError(400, "トークンの名前(使い道)を入力してください");
       const days = Math.floor(Number(input.days) || 0);

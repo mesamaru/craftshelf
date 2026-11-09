@@ -11,6 +11,7 @@ import { promisify } from "node:util";
 import { and, eq, isNull, lt, or } from "drizzle-orm";
 import { backupSchedule, storageTarget } from "./db/schema";
 import { eventService } from "./events";
+import { jobService } from "./jobs";
 import { HttpError, requireTeam } from "./guard";
 import { localParts } from "./schedule";
 import type { Deps } from "./servers";
@@ -39,6 +40,7 @@ type Dumpable = { dumpDataDir?: (c: "gzip") => Promise<Blob> };
 export function backupService(deps: Deps) {
   const { db } = deps;
   const { record } = eventService(deps);
+  const jobs = jobService(deps);
   const { storeOf } = fileStore(deps);
   const v03Dir = () => {
     if (!deps.local) throw new HttpError(400, "バックアップは、自分用の版だけで使えます");
@@ -167,7 +169,7 @@ export function backupService(deps: Deps) {
           .returning({ teamId: backupSchedule.teamId });
         if (!claimed.length) continue;
         try {
-          await make(s.teamId, null);
+          await jobs.track({ teamId: s.teamId, userId: null, action: "バックアップを作る" }, () => make(s.teamId, null), (r) => r.name);
           made++;
         } catch (e) {
           console.error("[定期バックアップ] 作れませんでした:", e instanceof Error ? e.message : e);
@@ -190,7 +192,7 @@ export function backupService(deps: Deps) {
     /** 今のデータのバックアップを作る(置き場所・残す数は定期バックアップの設定のもの) */
     async create(headers: Headers) {
       const who = await admin(headers);
-      return make(who.teamId, who.user.id);
+      return jobs.track({ teamId: who.teamId, userId: who.user.id, action: "バックアップを作る" }, () => make(who.teamId, who.user.id), (r) => r.name);
     },
 
     /** ダウンロードする中身(パネルの中か、置き場所の保存先) */

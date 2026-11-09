@@ -20,6 +20,8 @@ const PAGES: Hit[] = [
   { label: "共有リンク", sub: "画面", to: "/shares" },
   { label: "利用状況", sub: "画面", to: "/usage" },
   { label: "バックアップ", sub: "画面", to: "/backup" },
+  { label: "処理の一覧", sub: "画面", to: "/jobs" },
+  { label: "API の説明", sub: "画面", to: "/api-docs" },
 ];
 export const OPEN_PALETTE = "craftshelf:palette";
 

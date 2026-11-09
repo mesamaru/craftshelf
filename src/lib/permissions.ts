@@ -30,3 +30,34 @@ export const ROLE_LABELS: Record<RoleName, string> = {
 export const ASSIGNABLE_ROLES: RoleName[] = ["admin", "editor", "viewer"];
 
 export const roleLabel = (r: string) => ROLE_LABELS[r as RoleName] ?? r;
+
+// API トークンの範囲(03.57.00 から)。read はどのトークンにも付く。ほかは作るときに選び、作った人の役割を超えられない。
+// サーバー側の処理が求める権限から、要る範囲を決める(library の権限 → library、server の control → control、それ以外 → admin)
+export const TOKEN_SCOPES = ["read", "library", "control", "admin"] as const;
+export type TokenScope = (typeof TOKEN_SCOPES)[number];
+export const SCOPE_LABELS: Record<TokenScope, string> = {
+  read: "読む",
+  library: "Mod・プラグインを変える(ライブラリ・セット・サーバーのアドオン)",
+  control: "サーバーを操作する(起動と停止・コマンド・ログ・ワールドのバックアップ)",
+  admin: "管理(サーバーの設定・本体・ファイル・パネルのバックアップ・操作の記録)",
+};
+// その範囲のトークンを作れる役割(の最低限)
+export const SCOPE_ROLE: Record<TokenScope, RoleName> = { read: "viewer", library: "editor", control: "editor", admin: "admin" };
+export const isTokenScope = (s: unknown): s is TokenScope => (TOKEN_SCOPES as readonly unknown[]).includes(s);
+
+/** 処理が求める権限に要る範囲 */
+export function scopesFor(permissions: Partial<Record<string, readonly string[]>>): TokenScope[] {
+  const need = new Set<TokenScope>();
+  for (const [k, actions] of Object.entries(permissions)) {
+    for (const a of actions ?? []) need.add(k === "library" ? "library" : k === "server" && a === "control" ? "control" : "admin");
+  }
+  return [...need];
+}
+
+/** 役割で作れる範囲か */
+export const roleAllowsScope = (role: string, scope: TokenScope) => {
+  const order: RoleName[] = ["viewer", "editor", "admin", "owner"];
+  const best = Math.max(...role.split(",").map((r) => order.indexOf(r as RoleName)));
+  return best >= order.indexOf(SCOPE_ROLE[scope]);
+};
+export const SCOPE_SHORT: Record<TokenScope, string> = { read: "読む", library: "Mod・プラグイン", control: "サーバーの操作", admin: "管理" };

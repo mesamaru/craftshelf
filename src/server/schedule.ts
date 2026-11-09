@@ -7,6 +7,7 @@ import { eventService } from "./events";
 import { HttpError, requireTeam } from "./guard";
 import { type Deps, remote, serverOf } from "./servers";
 import { type ApplyResult, alsoOf, type setService } from "./sets";
+import { jobService } from "./jobs";
 
 export const SCHEDULE_MODES = { check: "更新を確かめるだけ", sync: "セットでそろえる" } as const;
 type Mode = keyof typeof SCHEDULE_MODES;
@@ -38,9 +39,11 @@ const DAYS = "日月火水木金土";
 export function scheduleService(deps: Deps, sets: ReturnType<typeof setService>) {
   const { db, auth } = deps;
   const { record } = eventService(deps);
+  const jobs = jobService(deps);
 
   async function run(teamId: string, mode: Mode) {
-    const { servers, summary } = await sets.runForSchedule(teamId, mode);
+    const action = mode === "sync" ? "予約でそろえる" : "予約で更新を確かめる";
+    const { servers, summary } = await jobs.track({ teamId, userId: null, action }, () => sets.runForSchedule(teamId, mode), (r) => `${r.servers.length} 台`);
     const lines = servers.map((s) => (s.error ? `■ ${s.server}: ${s.error}` : `■ ${s.server}(${s.set}): ${summary(s.results).split("\n")[0]}`));
     const changed = servers.filter((s) => s.error || s.results.some((r) => !["present", "skipped"].includes(r.status)));
     const detail = [lines.join("\n"), ...changed.filter((s) => !s.error).map((s) => `\n${s.server}\n${summary(s.results).split("\n").slice(1).join("\n")}`)].join("\n");
@@ -56,7 +59,8 @@ export function scheduleService(deps: Deps, sets: ReturnType<typeof setService>)
     const label = action === "sync" ? "予約でそろえる" : "予約で最新にする";
     let r: ApplyResult[];
     try {
-      r = action === "sync" ? await sets.syncForSchedule(teamId, serverId) : await sets.updateForSchedule(teamId, serverId);
+      r = await jobs.track({ teamId, userId: null, serverId, action: label },
+        () => (action === "sync" ? sets.syncForSchedule(teamId, serverId) : sets.updateForSchedule(teamId, serverId)), (x) => sets.summary(x).split("\n")[0]);
     } catch (e) {
       if (!(e instanceof HttpError)) throw e;
       await record({ teamId, userId: null, kind: "schedule", also: ["errors"], action: label, target: name, detail: `できませんでした: ${e.message}` });

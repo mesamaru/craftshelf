@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 import { signupOpen } from "~/server/auth";
 import { addonSet, addonSetItem, libraryFile, libraryItem, localServer, pteroConnection, server, serverProfile, storageTarget } from "~/server/db/schema";
 import * as schema from "~/server/db/schema";
-import { maybeImportV02, maybeImportV02AutoUpdate, maybeImportV02Backups, maybeImportV02Channels, maybeImportV02Library, maybeImportV02Schedules, maybeImportV02Software, type ImportReport } from "~/server/import-v02";
+import { maybeImportV02, maybeImportV02AutoUpdate, maybeImportV02Backups, maybeImportV02Channels, maybeImportV02Library, maybeImportV02Prefs, maybeImportV02Schedules, maybeImportV02Software, type ImportReport } from "~/server/import-v02";
 import { totpCode } from "~/server/legacy";
 import { open } from "~/server/secrets";
 import { TEST_SECRET, setup } from "./helpers";
@@ -43,6 +43,8 @@ function makeV02(dir: string) {
   user.run("Owner", V02.scrypt, "admin", "2025-01-02T03:04:05Z", "[]", "", 0);
   user.run("編集者", V02.pbkdf2, "editor", "2025-02-01T00:00:00Z", "[\"storage\"]", TOTP, 1);
   user.run("viewer", V02.scrypt, "viewer", "2025-03-01T00:00:00Z", "[]", "", 0);
+  d.prepare("UPDATE users SET prefs=? WHERE username='Owner'").run(JSON.stringify({ theme: "nether", bg_dim: 30, bg_blur: 8, skin: "glass" }));
+  d.prepare("UPDATE users SET prefs=? WHERE username='viewer'").run(JSON.stringify({ theme: "mint" }));
   d.exec("ALTER TABLE users ADD COLUMN ptero_servers TEXT");
   d.prepare("UPDATE users SET ptero_servers=? WHERE username='viewer'").run(JSON.stringify(["abcd1234"])); // v02.23 の割り当て
   const set = d.prepare("INSERT INTO settings (key, value) VALUES (?,?)");
@@ -279,6 +281,20 @@ describe("v02 の受け取る版の取り込み", () => {
     expect(items.find((i) => i.title === "Lithium")?.channel).toBe("release");
     expect(items.find((i) => i.title === "LuckPerms")?.channel).toBe("");
     expect(await maybeImportV02Channels(t.db, { v02Dir, v03Dir })).toBeNull();
+    expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
+  });
+});
+
+describe("v02 の見た目の取り込み", () => {
+  it("テーマ・背景の暗さとぼかしを、その人のアカウントに引き継ぐ(何も選んでいない人は v02 の初めのオーロラ)。一度だけ", async () => {
+    const r = (await maybeImportV02Prefs(t.db, { v02Dir, v03Dir }))!;
+    expect(r.users.sort()).toEqual(["Owner", "viewer", "編集者"].sort());
+    const rows = await t.db.select({ name: schema.user.name, theme: schema.userPref.theme }).from(schema.userPref).innerJoin(schema.user, eq(schema.userPref.userId, schema.user.id));
+    const of = (n: string) => JSON.parse(rows.find((x) => x.name === n)!.theme!);
+    expect(of("Owner")).toEqual({ mode: "auto", accent: "auto", preset: "nether", dim: 30, blur: 8 });
+    expect(of("編集者")).toMatchObject({ preset: "aurora", dim: 0, blur: 0 });
+    expect(of("viewer")).toMatchObject({ preset: "standard" });
+    expect(await maybeImportV02Prefs(t.db, { v02Dir, v03Dir })).toBeNull();
     expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
   });
 });

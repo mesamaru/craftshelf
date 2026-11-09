@@ -5,6 +5,7 @@ import { MC_VERSION, type Platform, isPlatform } from "~/lib/platforms";
 import { BUILD_HOSTS, SOFTWARE, type Software, isProxy, isSoftware } from "~/lib/software";
 import { serverProfile, serverSoftware } from "./db/schema";
 import { eventService } from "./events";
+import { jobService } from "./jobs";
 import { HttpError, requireTeam } from "./guard";
 import type { FetchLike } from "./net";
 import type { PteroClient } from "./ptero";
@@ -230,6 +231,7 @@ export async function detectServer(client: PteroClient, remoteId: string, extra?
 }
 
 export function softwareService(deps: Deps) {
+  const jobs = jobService(deps);
   const { db, auth } = deps;
   const { record } = eventService(deps);
   const client = softwareClient(deps.fetch);
@@ -302,6 +304,73 @@ export function softwareService(deps: Deps) {
 
   const mcChange = (before: string, after: string) => (before && after && before !== after ? `${before} → ${after}・` : "");
 
+  /**
+   * 配布元のビルドに入れ替える(管理者以上)。build を省くといちばん新しいもの、mc を渡すとその Minecraft のバージョンのもの(上げる・下げる)。
+   * 今の jar は名前を変えて残し(5 つまで。古いものから消す)、新しい jar を同じ名前で取り込ませる。取り込めなければ元に戻す。restart なら最後に再起動する
+   */
+  async function installOf(headers: Headers, serverId: string, input: { mc?: string; build?: string; restart?: boolean }) {
+    const who = await requireTeam(auth, headers, { server: ["update"] });
+    const l = await look(who, serverId);
+    const { client: c, remoteId, row } = l.target;
+    if (!l.jar) throw new HttpError(400, "サーバー本体の jar が分かりません(サーバーのフォルダに jar が 1 つだけになるようにしてください)");
+    const mc = input.mc || l.now.mc;
+    if (input.mc && input.mc !== l.now.mc && !(await client.mcVersions(l.software)).includes(input.mc)) throw new HttpError(400, "この Minecraft のバージョンは選べません");
+    const list = await client.builds(l.software, mc);
+    const found = input.build ? list.find((b) => b.build === input.build) : list.find((b) => b.stable) ?? list[0];
+    if (!found) throw new HttpError(404, input.build ? "そのビルドは配布元の一覧にありません" : "新しいビルドが見つかりません(Minecraft のバージョンを設定してください)");
+    const target = await client.resolve(l.software, found);
+    if (!target.auto || !target.url) throw new HttpError(400, `${SOFTWARE[l.software].label} は自動で入れ替えられません(配布ページで確かめてください)`);
+    if (new URL(target.url).protocol !== "https:" || !BUILD_HOSTS.includes(new URL(target.url).host)) throw new HttpError(400, "配布元の外の URL なので、取り込みませんでした");
+    const keep = keepName(l.jar, l.present);
+    await remote(async () => {
+      await c.rename(remoteId, "/", l.jar, keep);
+      try {
+        await c.pull(remoteId, target.url, "/", l.jar);
+      } catch (e) {
+        await c.rename(remoteId, "/", keep, l.jar).catch(() => {}); // 元に戻す
+        throw e;
+      }
+    });
+    const olds = [{ file: keep, build: l.now.build, mc: l.now.mc, at: new Date().toISOString() }, ...l.olds];
+    const drop = olds.slice(KEEP_JARS).map((o) => o.file);
+    if (drop.length) await remote(() => c.deleteFiles(remoteId, "/", drop)).catch(() => {});
+    const size = (await remote(() => c.listFiles(remoteId, "/"))).find((f) => f.name === l.jar)?.size ?? 0;
+    await save(row.id, { jar: l.jar, build: target.build, mc: target.mc, size, software: l.software, olds: olds.slice(0, KEEP_JARS) });
+    await setMc(row.id, l.software, l.now.mc, target.mc);
+    const changed = !isProxy(l.software) && target.mc && l.now.mc && target.mc !== l.now.mc;
+    await record({ teamId: who.teamId, userId: who.user.id, kind: "changes", target: row.name,
+      action: changed ? (newer(target.mc, l.now.mc) ? "Minecraft のバージョンを上げる" : "Minecraft のバージョンを変える") : "サーバー本体を更新",
+      detail: `${changed ? mcChange(l.now.mc, target.mc) : ""}${l.now.build || "?"} → ${target.build}` });
+    if (input.restart) await remote(() => c.power(remoteId, "restart"));
+    return { build: target.build, mc: target.mc, restarted: !!input.restart };
+  }
+
+  /** 残した jar に戻す(管理者以上。file を省くといちばん新しいもの)。今の jar は、代わりに残す(もう一度戻すと元に戻る) */
+  async function rollbackOf(headers: Headers, serverId: string, file?: string) {
+    const who = await requireTeam(auth, headers, { server: ["update"] });
+    const l = await look(who, serverId);
+    const { client: c, remoteId, row } = l.target;
+    const chosen = file ? l.olds.find((o) => o.file === file) : l.olds[0];
+    if (!chosen || !l.jar) throw new HttpError(404, "入れ替える前の jar がありません");
+    const keep = keepName(l.jar, l.present);
+    await remote(async () => {
+      await c.rename(remoteId, "/", l.jar, keep);
+      try {
+        await c.rename(remoteId, "/", chosen.file, l.jar);
+      } catch (e) {
+        await c.rename(remoteId, "/", keep, l.jar).catch(() => {});
+        throw e;
+      }
+    });
+    const size = (await remote(() => c.listFiles(remoteId, "/"))).find((f) => f.name === l.jar)?.size ?? 0;
+    const olds = [{ file: keep, build: l.now.build, mc: l.now.mc, at: new Date().toISOString() }, ...l.olds.filter((o) => o !== chosen)];
+    await save(row.id, { jar: l.jar, build: chosen.build, mc: chosen.mc || l.now.mc, size, software: l.software, olds: olds.slice(0, KEEP_JARS) });
+    await setMc(row.id, l.software, l.now.mc, chosen.mc);
+    await record({ teamId: who.teamId, userId: who.user.id, kind: "changes", action: "サーバー本体を戻す", target: row.name,
+      detail: `${mcChange(l.now.mc, chosen.mc)}${l.now.build || "?"} → ${chosen.build || "?"}` });
+    return { build: chosen.build };
+  }
+
   return {
     /** サーバー本体の今のビルドと、いちばん新しいビルド・残した jar */
     async info(headers: Headers, serverId: string) {
@@ -328,44 +397,13 @@ export function softwareService(deps: Deps) {
     },
 
     /**
-     * 配布元のビルドに入れ替える(管理者以上)。build を省くといちばん新しいもの、mc を渡すとその Minecraft のバージョンのもの(上げる・下げる)。
-     * 今の jar は名前を変えて残し(5 つまで。古いものから消す)、新しい jar を同じ名前で取り込ませる。取り込めなければ元に戻す。restart なら最後に再起動する
+     * 配布元のビルドに入れ替える(管理者以上)。中身は installOf。処理の一覧に残す
      */
     async install(headers: Headers, serverId: string, input: { mc?: string; build?: string; restart?: boolean }) {
       const who = await requireTeam(auth, headers, { server: ["update"] });
-      const l = await look(who, serverId);
-      const { client: c, remoteId, row } = l.target;
-      if (!l.jar) throw new HttpError(400, "サーバー本体の jar が分かりません(サーバーのフォルダに jar が 1 つだけになるようにしてください)");
-      const mc = input.mc || l.now.mc;
-      if (input.mc && input.mc !== l.now.mc && !(await client.mcVersions(l.software)).includes(input.mc)) throw new HttpError(400, "この Minecraft のバージョンは選べません");
-      const list = await client.builds(l.software, mc);
-      const found = input.build ? list.find((b) => b.build === input.build) : list.find((b) => b.stable) ?? list[0];
-      if (!found) throw new HttpError(404, input.build ? "そのビルドは配布元の一覧にありません" : "新しいビルドが見つかりません(Minecraft のバージョンを設定してください)");
-      const target = await client.resolve(l.software, found);
-      if (!target.auto || !target.url) throw new HttpError(400, `${SOFTWARE[l.software].label} は自動で入れ替えられません(配布ページで確かめてください)`);
-      if (new URL(target.url).protocol !== "https:" || !BUILD_HOSTS.includes(new URL(target.url).host)) throw new HttpError(400, "配布元の外の URL なので、取り込みませんでした");
-      const keep = keepName(l.jar, l.present);
-      await remote(async () => {
-        await c.rename(remoteId, "/", l.jar, keep);
-        try {
-          await c.pull(remoteId, target.url, "/", l.jar);
-        } catch (e) {
-          await c.rename(remoteId, "/", keep, l.jar).catch(() => {}); // 元に戻す
-          throw e;
-        }
-      });
-      const olds = [{ file: keep, build: l.now.build, mc: l.now.mc, at: new Date().toISOString() }, ...l.olds];
-      const drop = olds.slice(KEEP_JARS).map((o) => o.file);
-      if (drop.length) await remote(() => c.deleteFiles(remoteId, "/", drop)).catch(() => {});
-      const size = (await remote(() => c.listFiles(remoteId, "/"))).find((f) => f.name === l.jar)?.size ?? 0;
-      await save(row.id, { jar: l.jar, build: target.build, mc: target.mc, size, software: l.software, olds: olds.slice(0, KEEP_JARS) });
-      await setMc(row.id, l.software, l.now.mc, target.mc);
-      const changed = !isProxy(l.software) && target.mc && l.now.mc && target.mc !== l.now.mc;
-      await record({ teamId: who.teamId, userId: who.user.id, kind: "changes", target: row.name,
-        action: changed ? (newer(target.mc, l.now.mc) ? "Minecraft のバージョンを上げる" : "Minecraft のバージョンを変える") : "サーバー本体を更新",
-        detail: `${changed ? mcChange(l.now.mc, target.mc) : ""}${l.now.build || "?"} → ${target.build}` });
-      if (input.restart) await remote(() => c.power(remoteId, "restart"));
-      return { build: target.build, mc: target.mc, restarted: !!input.restart };
+      const { row } = await serverOf(deps, who, serverId);
+      return jobs.track({ teamId: who.teamId, userId: who.user.id, serverId: row.id, action: "サーバー本体を更新" },
+        () => installOf(headers, serverId, input), (r) => `${r.mc ? `${r.mc} ` : ""}${r.build}${r.restarted ? "(再起動しました)" : ""}`);
     },
 
     /** いちばん新しいビルドに入れ替える(mc を渡すと、その Minecraft のバージョンの。install の短い形) */
@@ -373,30 +411,11 @@ export function softwareService(deps: Deps) {
       return this.install(headers, serverId, { restart, mc });
     },
 
-    /** 残した jar に戻す(管理者以上。file を省くといちばん新しいもの)。今の jar は、代わりに残す(もう一度戻すと元に戻る) */
+    /** 残した jar に戻す(管理者以上)。中身は rollbackOf。処理の一覧に残す */
     async rollback(headers: Headers, serverId: string, file?: string) {
       const who = await requireTeam(auth, headers, { server: ["update"] });
-      const l = await look(who, serverId);
-      const { client: c, remoteId, row } = l.target;
-      const chosen = file ? l.olds.find((o) => o.file === file) : l.olds[0];
-      if (!chosen || !l.jar) throw new HttpError(404, "入れ替える前の jar がありません");
-      const keep = keepName(l.jar, l.present);
-      await remote(async () => {
-        await c.rename(remoteId, "/", l.jar, keep);
-        try {
-          await c.rename(remoteId, "/", chosen.file, l.jar);
-        } catch (e) {
-          await c.rename(remoteId, "/", keep, l.jar).catch(() => {});
-          throw e;
-        }
-      });
-      const size = (await remote(() => c.listFiles(remoteId, "/"))).find((f) => f.name === l.jar)?.size ?? 0;
-      const olds = [{ file: keep, build: l.now.build, mc: l.now.mc, at: new Date().toISOString() }, ...l.olds.filter((o) => o !== chosen)];
-      await save(row.id, { jar: l.jar, build: chosen.build, mc: chosen.mc || l.now.mc, size, software: l.software, olds: olds.slice(0, KEEP_JARS) });
-      await setMc(row.id, l.software, l.now.mc, chosen.mc);
-      await record({ teamId: who.teamId, userId: who.user.id, kind: "changes", action: "サーバー本体を戻す", target: row.name,
-        detail: `${mcChange(l.now.mc, chosen.mc)}${l.now.build || "?"} → ${chosen.build || "?"}` });
-      return { build: chosen.build };
+      const { row } = await serverOf(deps, who, serverId);
+      return jobs.track({ teamId: who.teamId, userId: who.user.id, serverId: row.id, action: "サーバー本体を戻す" }, () => rollbackOf(headers, serverId, file), (r) => r.build);
     },
 
     /** サーバー本体の種類を決める(管理者以上。Leaf・Vanilla など、サーバーの種類だけでは分からないもの) */

@@ -1,5 +1,5 @@
 // サーバー側の処理ごとの確認: ログインしているか(または API トークン)・選んでいるチームでその操作をしてよいか
-import { type RoleName, roles, type statements } from "~/lib/permissions";
+import { type RoleName, SCOPE_LABELS, TOKEN_SCOPES, type TokenScope, isTokenScope, roles, scopesFor, type statements } from "~/lib/permissions";
 import type { Auth } from "./auth";
 
 type Permissions = { [K in keyof typeof statements]?: (typeof statements)[K][number][] };
@@ -14,7 +14,13 @@ export class HttpError extends Error {
 export const apiKeyOf = (headers: Headers) =>
   headers.get("x-api-key")?.trim() || headers.get("authorization")?.match(/^Bearer\s+(cs_\S+)$/i)?.[1] || null;
 
-type KeyMeta = { teamId?: string; readOnly?: boolean };
+type KeyMeta = { teamId?: string; readOnly?: boolean; scopes?: unknown };
+
+/** トークンの範囲。03.56 までのトークン(scopes が無い)は、読み取りだけなら read、そうでなければ役割のとおり(すべて) */
+export function scopesOf(meta: KeyMeta): TokenScope[] {
+  if (Array.isArray(meta.scopes)) return [...new Set(["read" as const, ...meta.scopes.filter(isTokenScope)])];
+  return meta.readOnly ? ["read"] : [...TOKEN_SCOPES];
+}
 
 // API トークンの持ち主・チーム・役割。トークンはチームごとに作り、作った人のそのチームでの役割で動く
 async function fromApiKey(auth: Auth, key: string) {
@@ -31,7 +37,8 @@ async function fromApiKey(auth: Auth, key: string) {
     model: "member", where: [{ field: "organizationId", value: meta.teamId }, { field: "userId", value: r.key.referenceId }],
   });
   if (!user || !member) throw new HttpError(401, "この API トークンの持ち主は、もうチームにいません");
-  return { user, teamId: meta.teamId, role: member.role as RoleName, readOnly: !!meta.readOnly };
+  const scopes = scopesOf(meta);
+  return { user, teamId: meta.teamId, role: member.role as RoleName, scopes, readOnly: scopes.length === 1 };
 }
 
 export async function requireUser(auth: Auth, headers: Headers) {
@@ -53,6 +60,8 @@ export async function requireTeam(auth: Auth, headers: Headers, permissions?: Pe
   if (permissions) {
     if (s.apiKey) {
       if (s.apiKey.readOnly) throw new HttpError(403, "読み取りだけの API トークンでは、この操作はできません");
+      const lack = scopesFor(permissions).filter((x) => !s.apiKey.scopes.includes(x));
+      if (lack.length) throw new HttpError(403, `この API トークンの範囲では、この操作はできません(要る範囲: ${lack.map((x) => SCOPE_LABELS[x]).join("、")})`);
       const role = roles[s.apiKey.role];
       if (!role?.authorize(permissions as never).success) throw new HttpError(403, "この操作をする権限がありません");
     } else {

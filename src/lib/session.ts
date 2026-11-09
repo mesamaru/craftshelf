@@ -3,7 +3,7 @@ import { getRequest } from "@tanstack/react-start/server";
 
 // ログイン中の利用者(未ログインなら null)と、アプリの動き方(自分用かサービス版か・登録できるか)
 export const getAppState = createServerFn({ method: "GET" }).handler(async () => {
-  const { auth, db, env } = await import("~/server/instance");
+  const { auth, db, env, prefs } = await import("~/server/instance");
   const { signupOpen } = await import("~/server/auth");
   const s = await auth.api.getSession({ headers: getRequest().headers });
   const app = { mode: env.mode, signupOpen: await signupOpen(db, env.mode), mail: !!env.mail, verifyEmail: !!env.mail && env.mode === "service" };
@@ -13,7 +13,7 @@ export const getAppState = createServerFn({ method: "GET" }).handler(async () =>
   // v02 の二段階認証のまま(v03 で設定し直していない)か
   const legacy = !s.user.twoFactorEnabled && (await db.select({ id: legacyTotp.userId }).from(legacyTotp).where(eq(legacyTotp.userId, s.user.id))).length > 0;
   const { id, name, email, twoFactorEnabled, displayUsername, username } = s.user;
-  return { user: { id, name, email, username: displayUsername || username || null, twoFactorEnabled: !!twoFactorEnabled, legacyTotp: legacy }, app };
+  return { user: { id, name, email, username: displayUsername || username || null, twoFactorEnabled: !!twoFactorEnabled, legacyTotp: legacy, theme: await prefs.theme(id) }, app };
 });
 
 export type SessionUser = NonNullable<Awaited<ReturnType<typeof getAppState>>["user"]>;

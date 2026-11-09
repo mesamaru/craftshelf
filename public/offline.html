@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CraftShelf</title>
+<style>
+  :root { color-scheme: light dark; font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: radial-gradient(120% 80% at 10% 0%, #c9e4ff 0%, #eef1f7 55%, #f6efe6 100%); color: #1c1c1e; }
+  @media (prefers-color-scheme: dark) { body { background: radial-gradient(120% 80% at 10% 0%, #1b2a44 0%, #111214 60%, #1a1612 100%); color: #f2f2f7; } .card { background: rgba(44, 44, 46, 0.6) !important; } }
+  .card { max-width: 360px; margin: 16px; padding: 24px; text-align: center; border-radius: 22px; background: rgba(255, 255, 255, 0.62); backdrop-filter: blur(24px); border: 1px solid rgba(127, 127, 127, 0.2); }
+  img { width: 64px; height: 64px; }
+  h1 { font-size: 20px; margin: 12px 0 8px; }
+  p { margin: 0 0 16px; color: #8e8e93; font-size: 14px; line-height: 1.6; }
+  a { display: inline-block; padding: 10px 18px; border-radius: 999px; background: #0a84ff; color: #fff; text-decoration: none; }
+</style>
+</head>
+<body>
+  <main class="card">
+    <img src="/icon.svg" alt="">
+    <h1>つながっていません</h1>
+    <p>CraftShelf のサーバーにつながりません。ネットワークを確かめてから、開き直してください。<br><span lang="en">Can't reach the CraftShelf server. Check your connection and reload.</span></p>
+    <a href="/">開き直す / Reload</a>
+  </main>
+</body>
+</html>

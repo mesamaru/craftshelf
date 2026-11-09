@@ -211,6 +211,13 @@
       "when": 1794177143324,
       "tag": "0029_library_item_info",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1794180822321,
+      "tag": "0030_jobs_user_pref",
+      "breakpoints": true
     }
   ]
 }

@@ -630,3 +630,37 @@ export async function maybeImportV02Channels(db: Db, opts: { v02Dir: string; v03
     v02.close();
   }
 }
+
+// 見た目(03.57.00 から。v02 の 02.06 の個人設定のテーマ・背景の暗さとぼかし)。受け取る版の取り込みのあとで一度だけ(前に取り込んだパネルも、次の起動で)。
+// v02 の利用者は u<番号>@v02.craftshelf.invalid で取り込んでいるので、その人に保存する。v03 で見た目をもう決めた人は上書きしない。
+// v02 の「マイ画像」(背景画像)はサーバーの外のファイルなので取り込まない(v03 では、ブラウザごとに選び直す)
+export const prefsReportPath = (v03Dir: string) => join(v03Dir, "import-v02-prefs.json");
+const V02_THEMES = new Set(["aurora", "sunset", "ocean", "overworld", "nether", "end", "pastel", "graphite"]);
+
+export async function maybeImportV02Prefs(db: Db, opts: { v02Dir: string; v03Dir: string }): Promise<{ at: string; users: string[] } | null> {
+  const dbFile = join(opts.v02Dir, "index.db");
+  if (!existsSync(dbFile) || !existsSync(channelReportPath(opts.v03Dir)) || existsSync(prefsReportPath(opts.v03Dir))) return null;
+  const v02 = new DatabaseSync(dbFile, { readOnly: true });
+  try {
+    const report = { at: new Date().toISOString(), users: [] as string[] };
+    for (const u of has(v02, "users", "prefs") ? all(v02, "SELECT id, username, prefs FROM users") : []) {
+      let p: Row = {};
+      try {
+        p = JSON.parse(str(u.prefs) || "{}") as Row;
+      } catch { /* 読めない設定は飛ばす */ }
+      // v02 の初めのテーマはオーロラ(02 から)。ミントは v03 の標準。マイ画像は暗さ・ぼかしだけを引き継ぐ
+      const theme = str(p.theme) || "aurora";
+      const preset = V02_THEMES.has(theme) ? theme : "standard";
+      const n = (v: unknown, max: number) => (typeof v === "number" ? Math.max(0, Math.min(max, Math.round(v))) : 0);
+      const value = { mode: "auto", accent: "auto", preset, dim: n(p.bg_dim ?? (theme === "custom" ? 20 : 0), 80), blur: n(p.bg_blur, 40) };
+      const [v03] = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.email, `u${str(u.id)}@v02.craftshelf.invalid`));
+      if (!v03) continue;
+      const done = await db.insert(schema.userPref).values({ userId: v03.id, theme: JSON.stringify(value) }).onConflictDoNothing().returning({ id: schema.userPref.userId });
+      if (done.length) report.users.push(str(u.username));
+    }
+    writeFileSync(prefsReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
+    return report;
+  } finally {
+    v02.close();
+  }
+}

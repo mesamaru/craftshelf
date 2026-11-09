@@ -1,6 +1,19 @@
 // 起動したときに、データベースの準備(移行・v02 の取り込み)と「起動できた」しるしを済ませる。
 // 最初のリクエストを待つと、だれも開かないうちの再起動で「起動できなかった」と見なされてしまうため。
-// あわせて、予約を 1 分ごとに確かめる(前の回が終わっていなければ、その回は飛ばす)
+// あわせて、予約などを 1 分ごとに確かめる(処理ごとに独立して動かし、前の回が終わっていない処理は、その回は飛ばす)
+
+/** 1 分ごとに呼ぶ関数を作る。どれかが返ってこなくても、ほかの処理は毎回動く */
+export function minuteTasks(tasks: [string, (now: Date) => Promise<unknown>][]) {
+  const busy = new Set<string>();
+  return (now = new Date()) => {
+    for (const [name, fn] of tasks) {
+      if (busy.has(name)) continue;
+      busy.add(name);
+      Promise.resolve().then(() => fn(now)).catch((e) => console.error(`[${name}] 動かせませんでした:`, e)).finally(() => busy.delete(name));
+    }
+  };
+}
+
 export default function startup() {
   import("./instance").then(({ schedules, sets, library, telemetry, versions, events, backups, worlds }) => {
     // 利用状況の送信(同意したパネルだけ。1 時間ごとに確かめ、前に送ってから 1 日たっていれば送る)
@@ -16,22 +29,17 @@ export default function startup() {
       setInterval(() => { panel().catch(() => {}); }, 6 * 60 * 60_000).unref?.();
       setTimeout(() => { panel().catch(() => {}); }, 2 * 60_000).unref?.();
     }
-    let busy = false;
-    const timer = setInterval(() => {
-      if (busy) return;
-      busy = true;
-      const now = new Date();
-      // 予約と、サーバーごとの自動更新・新しい版の見回り・定期バックアップ(ワールドは始めるだけで、終わるのを待たない)
-      Promise.all([
-        schedules.tick(now).catch((e) => console.error("[予約] 確かめられませんでした:", e)),
-        schedules.serverTick(now).catch((e) => console.error("[サーバーの予約] 確かめられませんでした:", e)),
-        sets.runAutoUpdates(now).catch((e) => console.error("[自動更新] 確かめられませんでした:", e)),
-        sets.runUpdateChecks(now).catch((e) => console.error("[新しい版の見回り] 確かめられませんでした:", e)),
-        backups.tick(now).catch((e) => console.error("[定期バックアップ] 確かめられませんでした:", e)),
-        worlds.tick(now).catch((e) => console.error("[ワールドのバックアップ] 確かめられませんでした:", e)),
-        library.refreshInfo(now).catch((e) => console.error("[対応 MC の取り直し] 取り直せませんでした:", e)),
-      ]).finally(() => { busy = false; });
-    }, 60_000);
+    // 予約と、サーバーごとの自動更新・新しい版の見回り・定期バックアップ(ワールドは始めるだけで、終わるのを待たない)
+    const tick = minuteTasks([
+      ["予約", (n) => schedules.tick(n)],
+      ["サーバーの予約", (n) => schedules.serverTick(n)],
+      ["自動更新", (n) => sets.runAutoUpdates(n)],
+      ["新しい版の見回り", (n) => sets.runUpdateChecks(n)],
+      ["定期バックアップ", (n) => backups.tick(n)],
+      ["ワールドのバックアップ", (n) => worlds.tick(n)],
+      ["対応 MC の取り直し", (n) => library.refreshInfo(n)],
+    ]);
+    const timer = setInterval(() => tick(), 60_000);
     timer.unref?.();
   }).catch((e) => console.error("[起動] 準備に失敗しました:", e));
 }

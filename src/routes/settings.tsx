@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { renderSVG } from "uqr";
 import { authClient } from "~/lib/auth-client";
@@ -6,10 +6,12 @@ import { errorText } from "~/lib/errors";
 import { getImportReport } from "~/lib/session";
 import { getVersions, installVersion, useImageVersion } from "~/lib/versions-api";
 import { useCan } from "~/lib/use-can";
+import { SCOPE_LABELS, SCOPE_SHORT, TOKEN_SCOPES, type TokenScope } from "~/lib/permissions";
 import { useServerFn } from "@tanstack/react-start";
 import { createToken, listTokens, removeToken } from "~/lib/tokens-api";
 import { getLang, setLang } from "~/lib/i18n";
-import { ACCENTS, ACCENT_LABELS, type Accent, type Mode, backgroundFrom, getTheme, saveTheme } from "~/lib/theme";
+import { ACCENTS, ACCENT_LABELS, type Accent, DEFAULT_THEME, LIMITS, type Mode, PRESETS, type Preset, type Theme, backgroundFrom, getTheme, saveTheme } from "~/lib/theme";
+import { saveMyTheme } from "~/lib/prefs-api";
 import { sendFeedback, setTelemetry, telemetryInfo } from "~/lib/telemetry-api";
 import { deleteAccount } from "~/lib/teams-api";
 
@@ -67,7 +69,7 @@ function Settings() {
       <TwoFactor enabled={user.twoFactorEnabled} />
       <Passkeys />
 
-      <ApiTokens />
+      <ApiTokens userId={user.id} />
       <ImportReport userId={user.id} />
       <Versions userId={user.id} />
       <Telemetry userId={user.id} />
@@ -340,13 +342,16 @@ function Versions({ userId }: { userId: string }) {
 const tokenMessage = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
 
 // API トークン(外から /api/v1 を呼ぶとき)。選んでいるチームのもので、自分の役割のとおりに動く
-function ApiTokens() {
+function ApiTokens({ userId }: { userId: string }) {
+  const { can } = useCan(userId);
+  // 自分の役割で選べる範囲だけを出す(サーバーでも確かめる)
+  const allowed: Record<TokenScope, boolean> = { read: true, library: can({ library: ["edit"] }), control: can({ server: ["control"] }), admin: can({ member: ["update"] }) };
   const load = useServerFn(listTokens);
   const create = useServerFn(createToken);
   const remove = useServerFn(removeToken);
   const [rows, setRows] = useState<Awaited<ReturnType<typeof listTokens>> | null>(null);
   const [name, setName] = useState("");
-  const [readOnly, setReadOnly] = useState(true);
+  const [scopes, setScopes] = useState<TokenScope[]>(["read"]);
   const [days, setDays] = useState(90);
   const [made, setMade] = useState("");
   const [error, setError] = useState("");
@@ -356,7 +361,7 @@ function ApiTokens() {
   const submit = async () => {
     setError("");
     try {
-      const r = await create({ data: { name, readOnly, days } });
+      const r = await create({ data: { name, scopes, days } });
       setMade(r.key);
       setName("");
       await reload();
@@ -373,7 +378,7 @@ function ApiTokens() {
           <div className="row" key={k.id}>
             <span className="main">
               <span translate="no">{k.name}</span>
-              <span className="muted"><span className="codes">{k.start}…</span> · {k.readOnly ? "読み取りだけ" : "役割のとおり"} · {k.expiresAt ? `${new Date(k.expiresAt).toLocaleDateString("ja-JP")} まで` : "期限なし"}{k.lastUsed ? ` · 最後に使った日 ${new Date(k.lastUsed).toLocaleDateString("ja-JP")}` : ""}</span>
+              <span className="muted"><span className="codes">{k.start}…</span> · {k.scopes.map((x) => SCOPE_SHORT[x]).join("・")} · {k.expiresAt ? `${new Date(k.expiresAt).toLocaleDateString("ja-JP")} まで` : "期限なし"}{k.lastUsed ? ` · 最後に使った日 ${new Date(k.lastUsed).toLocaleDateString("ja-JP")}` : ""}</span>
             </span>
             <button className="trail link danger" type="button"
               onClick={() => confirm(`トークン「${k.name}」を消しますか?(使っているスクリプトは動かなくなります)`) && remove({ data: { id: k.id } }).then(reload, (e) => setError(tokenMessage(e)))}>消す</button>
@@ -382,7 +387,11 @@ function ApiTokens() {
       </section>
       <form className="group form" onSubmit={(e) => (e.preventDefault(), submit())}>
         <input className="row" placeholder="名前(使い道。例 毎朝の更新の確認)" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
-        <label className="row"><span>読み取りだけ(入れる・起動などはできない)</span><input className="trail" type="checkbox" checked={readOnly} onChange={(e) => setReadOnly(e.target.checked)} /></label>
+        <div className="row muted">範囲(読むことは、どのトークンでもできます)</div>
+        {TOKEN_SCOPES.filter((x) => x !== "read" && allowed[x]).map((x) => (
+          <label className="row" key={x}><span>{SCOPE_LABELS[x]}</span>
+            <input className="trail" type="checkbox" checked={scopes.includes(x)} onChange={(e) => setScopes((v) => (e.target.checked ? [...v, x] : v.filter((y) => y !== x)))} /></label>
+        ))}
         <div className="row">
           <span>期限</span>
           <select className="trail" value={days} onChange={(e) => setDays(Number(e.target.value))} aria-label="トークンの期限">
@@ -400,7 +409,7 @@ function ApiTokens() {
         )}
         {error && <p className="row error" role="alert">{error}</p>}
       </form>
-      <p className="foot">スクリプトなどから CraftShelf を操作するときに使います(<a href="/api/v1" target="_blank" rel="noreferrer">/api/v1</a> に使える API の一覧があります)。トークンは x-api-key か Authorization: Bearer で渡します。選んでいるチームのもので、あなたの役割のとおりに動きます。</p>
+      <p className="foot">スクリプトなどから CraftShelf を操作するときに使います(使える API は<Link to="/api-docs">API の説明</Link>にあります)。トークンは x-api-key か Authorization: Bearer で渡します。選んでいるチームのもので、選んだ範囲の中で、あなたの役割のとおりに動きます。</p>
     </>
   );
 }
@@ -489,41 +498,76 @@ function Feedback() {
   );
 }
 
-// 見た目(このブラウザだけ): ライト・ダーク・自動、アクセントの色、背景画像
+// 見た目: 明るさ・アクセントの色・テーマ(v02 のテーマ)・背景の暗さとぼかし(アカウントに保存)、背景画像(このブラウザだけ)
 function Appearance() {
-  const [t, setT] = useState({ mode: "auto" as Mode, accent: "blue" as Accent, background: "" });
+  const save = useServerFn(saveMyTheme);
+  const [t, setT] = useState<Theme>({ ...DEFAULT_THEME, background: "" });
   useEffect(() => { setT(getTheme()); }, []); // 保存した見た目は、読み込んだあとで読む(サーバーで作った画面と合わせるため)
   const [error, setError] = useState("");
-  const save = (next: typeof t) => {
+  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // 画面にはすぐ当て、アカウントへの保存は少し待ってから(つまみを動かしている間に何度も送らない)
+  const change = (next: Theme) => {
     setError("");
     try {
       saveTheme(next);
-      setT(next);
     } catch {
-      setError("背景画像が大きすぎて保存できませんでした。小さい画像を選んでください");
+      return setError("背景画像が大きすぎて保存できませんでした。小さい画像を選んでください");
     }
+    setT(next);
+    clearTimeout(timer.current);
+    const { background: _, ...saved } = next;
+    timer.current = setTimeout(() => { save({ data: saved }).catch((e) => setError(e instanceof Error ? e.message : "保存できませんでした")); }, 400);
   };
+  const preset = PRESETS[t.preset];
   return (
     <>
       <div className="group-title">見た目</div>
       <section className="group">
+        <div className="row column">
+          <span>テーマ</span>
+          <div className="themes" role="group" aria-label="テーマ">
+            {(Object.keys(PRESETS) as Preset[]).map((id) => (
+              <button key={id} type="button" className="theme-tile" aria-pressed={t.preset === id} onClick={() => change({ ...t, preset: id })}>
+                <span className="sw" style={{ background: PRESETS[id].bg ?? "radial-gradient(120% 80% at 10% 0%, #c9e4ff 0%, #eef1f7 55%, #1b2a44 100%)" }} />
+                {PRESETS[id].name}
+              </button>
+            ))}
+          </div>
+        </div>
         <div className="row">
           <span>明るさ</span>
-          <select className="trail" value={t.mode} onChange={(e) => save({ ...t, mode: e.target.value as Mode })} aria-label="明るさ">
-            <option value="auto">端末に合わせる</option>
-            <option value="light">ライト</option>
-            <option value="dark">ダーク</option>
-          </select>
+          {preset.tone ? (
+            <span className="trail">{preset.tone === "dark" ? "ダーク(テーマに合わせる)" : "ライト(テーマに合わせる)"}</span>
+          ) : (
+            <select className="trail" value={t.mode} onChange={(e) => change({ ...t, mode: e.target.value as Mode })} aria-label="明るさ">
+              <option value="auto">端末に合わせる</option>
+              <option value="light">ライト</option>
+              <option value="dark">ダーク</option>
+            </select>
+          )}
         </div>
-        <div className="row">
+        <div className="row wrap">
           <span>アクセントの色</span>
           <span className="trail seg" role="group" aria-label="アクセントの色">
-            {(Object.keys(ACCENTS) as Accent[]).map((a) => (
-              <button key={a} type="button" className={t.accent === a ? "on" : ""} aria-pressed={t.accent === a} onClick={() => save({ ...t, accent: a })}
-                style={{ borderColor: ACCENTS[a], ...(t.accent === a ? { background: ACCENTS[a] } : { color: ACCENTS[a] }) }}>{ACCENT_LABELS[a]}</button>
-            ))}
+            {(Object.keys(ACCENT_LABELS) as Accent[]).map((a) => {
+              const c = a === "auto" ? preset.accent ?? ACCENTS.blue : ACCENTS[a];
+              return (
+                <button key={a} type="button" className={t.accent === a ? "on" : ""} aria-pressed={t.accent === a} onClick={() => change({ ...t, accent: a })}
+                  style={{ borderColor: c, ...(t.accent === a ? { background: c } : { color: c }) }}>{ACCENT_LABELS[a]}</button>
+              );
+            })}
           </span>
         </div>
+        <label className="row">
+          <span>背景の暗さ</span>
+          <input className="trail" type="range" min={0} max={LIMITS.dim} value={t.dim} onChange={(e) => change({ ...t, dim: Number(e.target.value) })} aria-label="背景の暗さ" />
+          <span className="muted">{`${t.dim}%`}</span>
+        </label>
+        <label className="row">
+          <span>背景のぼかし</span>
+          <input className="trail" type="range" min={0} max={LIMITS.blur} value={t.blur} onChange={(e) => change({ ...t, blur: Number(e.target.value) })} aria-label="背景のぼかし" />
+          <span className="muted">{`${t.blur}px`}</span>
+        </label>
         <label className="row link">
           {t.background ? "背景画像を変える" : "背景画像を選ぶ"}
           <input type="file" accept="image/*" hidden onChange={async (e) => {
@@ -531,16 +575,16 @@ function Appearance() {
             e.target.value = "";
             if (!f) return;
             try {
-              save({ ...t, background: await backgroundFrom(f) });
+              change({ ...t, background: await backgroundFrom(f) });
             } catch {
               setError("画像を読めませんでした");
             }
           }} />
         </label>
-        {t.background && <button className="row link danger" type="button" onClick={() => save({ ...t, background: "" })}>背景画像を外す</button>}
+        {t.background && <button className="row link danger" type="button" onClick={() => change({ ...t, background: "" })}>背景画像を外す</button>}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">見た目は、このブラウザだけに保存します(背景画像はサーバーに送りません)。</p>
+      <p className="foot">見た目はアカウントに保存し、どの端末でも同じになります。背景画像だけは、このブラウザに置きます(サーバーに送りません。テーマの背景の代わりに使います)。</p>
     </>
   );
 }

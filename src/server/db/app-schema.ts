@@ -534,3 +534,30 @@ export const serverSchedule = pgTable("server_schedule", {
   lastRunAt: timestamp("last_run_at"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// 処理の一覧(v02 の 01.22「処理」。03.57.00 から)。時間のかかる処理(サーバーへの導入・そろえる・バックアップなど)の状態。
+// state = queued(待ち)/ running(実行中)/ done(成功)/ failed(失敗)。action は操作の記録と同じ言葉。終わってから 30 日で消す
+export const job = pgTable(
+  "job",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id").notNull().references(() => organization.id, { onDelete: "cascade" }),
+    serverId: text("server_id").references(() => server.id, { onDelete: "set null" }),
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+    action: text("action").notNull(),
+    target: text("target").notNull().default(""),
+    state: text("state").notNull().default("running"),
+    detail: text("detail").notNull().default(""),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    startedAt: timestamp("started_at"),
+    finishedAt: timestamp("finished_at"),
+  },
+  (t) => [index("job_team_created_idx").on(t.teamId, t.createdAt)],
+);
+
+// 個人の設定(03.57.00 から)。theme = 見た目の JSON(明るさ・アクセント・テーマ・背景の暗さとぼかし。背景画像はブラウザごと)
+export const userPref = pgTable("user_pref", {
+  userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  theme: text("theme"),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});

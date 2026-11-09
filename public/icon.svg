@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">CraftShelf — Orbital Library</title>
+  <desc id="desc">A geometric digital archive cube encircled by a luminous orbital ring.</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#164f70"/>
+      <stop offset="1" stop-color="#111c38"/>
+    </linearGradient>
+    <linearGradient id="top" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#a4f8f3"/>
+      <stop offset="1" stop-color="#40bfd8"/>
+    </linearGradient>
+    <linearGradient id="left" x1="0" y1="0" x2="0.8" y2="1">
+      <stop offset="0" stop-color="#36c4d8"/>
+      <stop offset="1" stop-color="#206d9e"/>
+    </linearGradient>
+    <linearGradient id="right" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#397fc0"/>
+      <stop offset="1" stop-color="#535fc0"/>
+    </linearGradient>
+    <filter id="glow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="5" result="blur"/>
+      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#background)"/>
+  <!-- Orbital ring -->
+  <ellipse cx="128" cy="132" rx="103" ry="39" transform="rotate(-31 128 132)" fill="none" stroke="#38b9d6" stroke-opacity=".22" stroke-width="14"/>
+  <path d="M31 156c5 8 13 13 24 16" fill="none" stroke="#76edf0" stroke-width="5" stroke-linecap="round" filter="url(#glow)"/>
+  <path d="M194 91c10-2 18-1 26 3" fill="none" stroke="#a1f6f3" stroke-width="5" stroke-linecap="round" filter="url(#glow)"/>
+  <!-- Faceted archive cube -->
+  <path d="m128 54 62 36v73l-62 36-62-36V90z" fill="#173a60" stroke="#bafcff" stroke-opacity=".65" stroke-width="2" stroke-linejoin="round"/>
+  <path d="m128 68 49 28-49 29-49-29z" fill="url(#top)" stroke="#e4ffff" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M79 96 128 125v57l-49-28z" fill="url(#left)" stroke="#d8ffff" stroke-width="3" stroke-linejoin="round"/>
+  <path d="m177 96-49 29v57l49-28z" fill="url(#right)" stroke="#d8ffff" stroke-width="3" stroke-linejoin="round"/>
+  <path d="M128 125v57" fill="none" stroke="#eaffff" stroke-width="3"/>
+  <!-- Geometric shelf / data detail -->
+  <path d="m96 91 32 18 32-18M95 113l33 19 33-19" fill="none" stroke="#eaffff" stroke-opacity=".76" stroke-width="2.5" stroke-linecap="round"/>
+  <path d="m94 138 22 13v18l-22-13z" fill="#b6f8f5" fill-opacity=".68"/>
+  <path d="m140 148 24-14v18l-24 14z" fill="#b6dfff" fill-opacity=".62"/>
+  <!-- Orbital nodes -->
+  <circle cx="45" cy="165" r="7" fill="#b1ffff" filter="url(#glow)"/>
+  <path d="m210 72 3 7 7 3-7 3-3 7-3-7-7-3 7-3z" fill="#b2fbff"/>
+</svg>

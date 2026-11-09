@@ -167,7 +167,7 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 ## 予約
 
 - チームごとに 1 つ(表 `team_schedule`)。曜日・時刻(`tz`、いまは日本時間)・すること(`check` = 確かめるだけ / `sync` = そろえる)。決めるのは `server: ["update"]`。
-- `src/server/startup.ts` が 1 分ごとに `tick` を呼ぶ(前の回が終わっていなければ飛ばす)。時刻になったチームは、動かす前に `last_run_at` を条件付きで書き換え、書き換えられたときだけ動かす(同じ分に 2 回・複数のプロセスで重ねて動かさない)。
+- `src/server/startup.ts` が 1 分ごとに `tick` を呼ぶ(処理ごとに、前の回が終わっていなければ飛ばす)。時刻になったチームは、動かす前に `last_run_at` を条件付きで書き換え、書き換えられたときだけ動かす(同じ分に 2 回・複数のプロセスで重ねて動かさない)。
 - 中身は `setService.runForSchedule`(画面からは呼ばない)。セットを結び付けたサーバーを 1 台ずつ `applyTo` し、1 台が失敗しても残りは続ける。結果は `schedule` の種類で記録する(user_id は null)。
 - サーバーごとの予約(表 `server_schedule`、03.55.00 から。v02 の予約同期): `mode` = off / daily / weekly(`dow`)、`time`(`tz`)、すること `action` = update(入っているものを最新に)/ sync(結び付けたセットでそろえる)、`restart` = 何か変えたら再起動する。決めるのは `server: ["update"]`。`serverTick` が 1 分ごとに、チームの予約と同じく `last_run_at` を条件付きで書き換えてから動かし、結果をいつも `schedule` の種類で記録する(Discord には、何か変えたとき・失敗したときだけ送る。`record` の `quiet`、03.56.00 から)。チームの予約(`team_schedule`)とは別に動く。v02 の `sched_*` は `maybeImportV02Schedules` で一度だけ update として引き継ぐ(結果は `/data/v03/import-v02-schedule.json`)。
 - サーバーごとの自動更新(`server.auto_update`、入れる・やめるのは `library: ["edit"]`): 同じ 1 分ごとの見回りで `setService.runAutoUpdates` を呼ぶ。前に確かめてから 6 時間(`AUTO_UPDATE_EVERY`)たったサーバーを、`auto_updated_at` を条件付きで書き換えてから動かし、入っているものを `applyTo`(`sync`)で新しい版にする(止めたもの・無効にしたものは除く)。何か変えたとき・失敗したときだけ記録する。v02 で自動更新をオンにしていたサーバーは `maybeImportV02AutoUpdate` で一度だけ引き継ぐ(結果は `/data/v03/import-v02-auto-update.json`)。
@@ -207,9 +207,16 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 
 ## API と API トークン
 
-- トークンは Better Auth の apiKey(`cs_` で始まる。ハッシュだけを保存)。`metadata` にチーム(`teamId`)と「読み取りだけ」(`readOnly`)を持たせ、作った人のそのチームでの役割で動く。1 分に 120 回まで。作る・消すのはログインしてから(トークンでは作れない)。
-- 確かめるのは `src/server/guard.ts` の `requireUser`・`requireTeam`。`x-api-key` か `Authorization: Bearer cs_…` があればトークンとして確かめ(`verifyApiKey`)、役割の権限は `roles[role].authorize` で見る。読み取りだけのトークンは、権限を求める操作をすべて断る。チームを抜けた人のトークンは使えない。Better Auth の「トークンでログインしたことにする」設定は使わない。
-- 外から呼べる API(`src/server/rest.ts`、`/api/v1/…`)は、画面と同じサービスの処理を呼ぶだけ(権限の確認もそちら)。ブラウザのログインの Cookie では使わせず、トークンだけを受け付ける(ほかのサイトから呼ばれないように)。`GET /api/v1` で一覧を返す。
+- トークンは Better Auth の apiKey(`cs_` で始まる。ハッシュだけを保存)。`metadata` にチーム(`teamId`)と範囲(`scopes`。03.57.00 から)を持たせ、作った人のそのチームでの役割で、範囲の中だけ動く。範囲は `read`(いつも付く)・`library`・`control`・`admin`(`src/lib/permissions.ts` の `TOKEN_SCOPES`)で、作った人の役割を超えるものは作れない(編集者は library・control まで、閲覧者は read だけ)。前の版に戻しても狭まるよう `readOnly`(read だけのとき true)も書く。03.56 までのトークン(`scopes` なし)は、`readOnly` なら read、そうでなければすべての範囲。1 分に 120 回まで。作る・消すのはログインしてから(トークンでは作れない)。
+- 確かめるのは `src/server/guard.ts` の `requireUser`・`requireTeam`。`x-api-key` か `Authorization: Bearer cs_…` があればトークンとして確かめ(`verifyApiKey`)、役割の権限は `roles[role].authorize` で見る。トークンの範囲は、処理が求める権限から決める(`scopesFor`: library の権限 → library、server の control → control、それ以外 → admin)。範囲が足りなければ断る(read だけのトークンは、権限を求める操作をすべて断る)。チームを抜けた人のトークンは使えない。Better Auth の「トークンでログインしたことにする」設定は使わない。
+- 外から呼べる API(`src/server/rest.ts`、`/api/v1/…`)は、画面と同じサービスの処理を呼ぶだけ(権限の確認もそちら)。ブラウザのログインの Cookie では使わせず、トークンだけを受け付ける(ほかのサイトから呼ばれないように)。GET はクエリー、POST は JSON を受け取る。ルートの定義(`ROUTES`)には、ひとことの説明(`summary`)・要る範囲(`scope`)・POST の中身の例(`example`)を書き、`GET /api/v1` と画面の「API の説明」(`/api-docs`、curl の例つき)はここから作る(手で二重に書かない)。`tests/rest-docs.test.ts` が説明・範囲の無いもの・英訳の無いものを、`tests/api.test.ts` が範囲の無いトークンで説明どおりに断られるかを確かめる。
+
+## 処理の一覧・個人の設定・ホーム画面に追加(03.57.00 から)
+
+- 処理の一覧(`src/server/jobs.ts`、表 `job`、画面 `/jobs`): 時間のかかる処理を、待ち(`queued`)・実行中・成功・失敗で残す。各サービスが `jobService(deps).track(情報, 処理, 結果のまとめ)` で包む(まとめての処理は `queue` で先に待ちとして並べる)。書いているのは、サーバーへの導入・セットを入れる・セットでそろえる・ほかのサーバーにそろえる・まとめて最新にする・自動更新・予約・サーバー本体の入れ替えと戻す・ワールドのバックアップと戻す・パネルのバックアップ。状態を書けなくても処理は止めない。終わってから 30 日で消す。起動したとき(`instance.ts` の `build()`、リクエストを受ける前)に、待ち・実行中のまま残ったものを失敗にする(プロセスは 1 つの前提)。見られるのはチームのメンバー全員(サーバーを割り当てられた人は、そのサーバーのものと自分の操作だけ)。
+- 1 分ごとの処理(`startup.ts` の `minuteTasks`): 処理ごとに独立して動かし、前の回が終わっていない処理だけを飛ばす(どれかが返ってこなくても、ほかは毎回動く)。
+- 個人の設定(`src/server/prefs.ts`、表 `user_pref`): 見た目(明るさ・アクセント・テーマ・背景の暗さとぼかし)をアカウントに保存し、`getAppState` で渡す。画面はアカウントの値を当て、まだ無ければブラウザの値を使ってアカウントにも保存する。背景画像は大きいのでブラウザごと(サーバーに送らない)。テーマは v02 の 8 つ(`src/lib/theme.ts` の `PRESETS`。明るさとアクセントの色も決める)と標準。背景は `body::before`(ぼかし `--bg-blur`)・`body::after`(暗さ `--bg-dim`)に置く。v02 の個人設定は `maybeImportV02Prefs` で一度だけ引き継ぐ(`/data/v03/import-v02-prefs.json`)。
+- ホーム画面に追加(PWA): `public/manifest.webmanifest`・アイコン(v02 と同じ)・`public/sw.js`。サービスワーカーは画面を保存せず、つながらないときだけ `public/offline.html`(「つながっていません」)を出す。本番のビルドで、https か localhost のときだけ登録する。
 
 ## これから決めること・作るもの
 

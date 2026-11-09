@@ -11,9 +11,11 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ActivityRouteImport } from './routes/activity'
+import { Route as ApiDocsRouteImport } from './routes/api-docs'
 import { Route as BackupRouteImport } from './routes/backup'
 import { Route as CompareRouteImport } from './routes/compare'
 import { Route as ForgotRouteImport } from './routes/forgot'
+import { Route as JobsRouteImport } from './routes/jobs'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PortsRouteImport } from './routes/ports'
 import { Route as PrivacyRouteImport } from './routes/privacy'
@@ -55,6 +57,11 @@ const ActivityRoute = ActivityRouteImport.update({
   path: '/activity',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiDocsRoute = ApiDocsRouteImport.update({
+  id: '/api-docs',
+  path: '/api-docs',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const BackupRoute = BackupRouteImport.update({
   id: '/backup',
   path: '/backup',
@@ -68,6 +75,11 @@ const CompareRoute = CompareRouteImport.update({
 const ForgotRoute = ForgotRouteImport.update({
   id: '/forgot',
   path: '/forgot',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const JobsRoute = JobsRouteImport.update({
+  id: '/jobs',
+  path: '/jobs',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -224,9 +236,11 @@ const ApiWorldsIdNameRoute = ApiWorldsIdNameRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/activity': typeof ActivityRoute
+  '/api-docs': typeof ApiDocsRoute
   '/backup': typeof BackupRoute
   '/compare': typeof CompareRoute
   '/forgot': typeof ForgotRoute
+  '/jobs': typeof JobsRoute
   '/login': typeof LoginRoute
   '/ports': typeof PortsRoute
   '/privacy': typeof PrivacyRoute
@@ -261,9 +275,11 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/activity': typeof ActivityRoute
+  '/api-docs': typeof ApiDocsRoute
   '/backup': typeof BackupRoute
   '/compare': typeof CompareRoute
   '/forgot': typeof ForgotRoute
+  '/jobs': typeof JobsRoute
   '/login': typeof LoginRoute
   '/ports': typeof PortsRoute
   '/privacy': typeof PrivacyRoute
@@ -299,9 +315,11 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/activity': typeof ActivityRoute
+  '/api-docs': typeof ApiDocsRoute
   '/backup': typeof BackupRoute
   '/compare': typeof CompareRoute
   '/forgot': typeof ForgotRoute
+  '/jobs': typeof JobsRoute
   '/login': typeof LoginRoute
   '/ports': typeof PortsRoute
   '/privacy': typeof PrivacyRoute
@@ -338,9 +356,11 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/activity'
+    | '/api-docs'
     | '/backup'
     | '/compare'
     | '/forgot'
+    | '/jobs'
     | '/login'
     | '/ports'
     | '/privacy'
@@ -375,9 +395,11 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/activity'
+    | '/api-docs'
     | '/backup'
     | '/compare'
     | '/forgot'
+    | '/jobs'
     | '/login'
     | '/ports'
     | '/privacy'
@@ -412,9 +434,11 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/activity'
+    | '/api-docs'
     | '/backup'
     | '/compare'
     | '/forgot'
+    | '/jobs'
     | '/login'
     | '/ports'
     | '/privacy'
@@ -450,9 +474,11 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ActivityRoute: typeof ActivityRoute
+  ApiDocsRoute: typeof ApiDocsRoute
   BackupRoute: typeof BackupRoute
   CompareRoute: typeof CompareRoute
   ForgotRoute: typeof ForgotRoute
+  JobsRoute: typeof JobsRoute
   LoginRoute: typeof LoginRoute
   PortsRoute: typeof PortsRoute
   PrivacyRoute: typeof PrivacyRoute
@@ -501,6 +527,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ActivityRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api-docs': {
+      id: '/api-docs'
+      path: '/api-docs'
+      fullPath: '/api-docs'
+      preLoaderRoute: typeof ApiDocsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/backup': {
       id: '/backup'
       path: '/backup'
@@ -520,6 +553,13 @@ declare module '@tanstack/react-router' {
       path: '/forgot'
       fullPath: '/forgot'
       preLoaderRoute: typeof ForgotRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/jobs': {
+      id: '/jobs'
+      path: '/jobs'
+      fullPath: '/jobs'
+      preLoaderRoute: typeof JobsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/login': {
@@ -738,9 +778,11 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ActivityRoute: ActivityRoute,
+  ApiDocsRoute: ApiDocsRoute,
   BackupRoute: BackupRoute,
   CompareRoute: CompareRoute,
   ForgotRoute: ForgotRoute,
+  JobsRoute: JobsRoute,
   LoginRoute: LoginRoute,
   PortsRoute: PortsRoute,
   PrivacyRoute: PrivacyRoute,

@@ -46,6 +46,10 @@ describe("英語表示", () => {
     expect(translate(" — 前提が入っていません")).toBe(" — dependency not installed");
     expect(translate("前提が入っていません: ")).toBe("Dependency not installed: ");
     expect(translate("前提")).toBe("Dependencies");
+    expect(translate("57 個の API")).toBe("57 APIs");
+    expect(translate("1 分 5 秒")).toBe("1 min 5 s");
+    expect(translate("要る範囲: サーバーの操作(編集者以上)")).toBe("Needs: Server control (Editor or higher)");
+    expect(translate("この API トークンの範囲では、この操作はできません(要る範囲: 管理)")).toBe("This API token's scopes do not allow this (needs: Admin)");
     expect(translate("戻しました(12 ファイル)。前のワールドは world.craftshelf-before-restore-1 に残しています")).toBe("Restored (12 files). The previous world is kept as world.craftshelf-before-restore-1");
   });
 });

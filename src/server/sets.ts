@@ -9,6 +9,7 @@ import { isDisabled, modTools } from "./library";
 import { type EventKind, eventService } from "./events";
 import { type Deps, serverOf, needServerAccess, serverScope } from "./servers";
 import { softwareService } from "./software";
+import { jobService } from "./jobs";
 
 // 無料で使える範囲
 export const SET_LIMITS = { setsPerTeam: 50, itemsPerSet: 200 };
@@ -43,6 +44,7 @@ export function setService(deps: Deps) {
   const { db, auth } = deps;
   const { missingOf, latestFile, fileById, versionsOf, needProfile, installInto, holdsOf, updatesOf, removeFrom, project, remember } = modTools(deps);
   const { record } = eventService(deps);
+  const jobs = jobService(deps);
   // 結果のまとめ(通知・記録に使う)。変わったもの・失敗したものだけを並べる
   const summary = (list: ApplyResult[]) => {
     const n = (s: ApplyResult["status"]) => list.filter((x) => x.status === s).length;
@@ -52,6 +54,8 @@ export function setService(deps: Deps) {
     const lines = list.filter((x) => ["installed", "updated", "failed", "missing", "available", "removed"].includes(x.status)).map((x) => `・${x.title}: ${x.detail}`);
     return [head, ...lines].join("\n");
   };
+
+  const head = (list: ApplyResult[]) => summary(list).split("\n")[0];
 
   async function setOf(teamId: string, id: string) {
     const [s] = await db.select().from(addonSet).where(and(eq(addonSet.id, id), eq(addonSet.teamId, teamId)));
@@ -252,7 +256,8 @@ export function setService(deps: Deps) {
       const set = await setOf(teamId, id);
       await serverInTeam(teamId, serverId);
       await needServerAccess(deps, who, serverId);
-      const r = await applyTo(teamId, user.id, await itemsOf(set.id), serverId, "add");
+      const items = await itemsOf(set.id);
+      const r = await jobs.track({ teamId, userId: user.id, serverId, action: "セットを入れる", target: set.name }, () => applyTo(teamId, user.id, items, serverId, "add"), head);
       await record({ teamId, userId: user.id, kind: "sets", action: "セットを入れる", target: `${set.name} → ${await serverName(serverId)}`, detail: summary(r) });
       return r;
     },
@@ -289,7 +294,9 @@ export function setService(deps: Deps) {
       const [b] = await db.select({ setId: serverSet.setId }).from(serverSet).where(eq(serverSet.serverId, serverId));
       if (!b) throw new HttpError(400, "このサーバーにはセットを結び付けていません");
       const set = await setOf(teamId, b.setId);
-      const r = await applyTo(teamId, user.id, await itemsOf(set.id), serverId, mode === "update" ? "update" : "sync", mode === "mirror");
+      const items = await itemsOf(set.id);
+      const r = await jobs.track({ teamId, userId: user.id, serverId, action: "セットでそろえる", target: set.name },
+        () => applyTo(teamId, user.id, items, serverId, mode === "update" ? "update" : "sync", mode === "mirror"), head);
       await record({ teamId, userId: user.id, kind: "sets", action: "セットでそろえる", target: `${await serverName(serverId)}(${set.name})`, detail: summary(r) });
       return r;
     },
@@ -374,13 +381,14 @@ export function setService(deps: Deps) {
         holds: await holdsOf(src.row.id),
       };
       const out: { serverId: string; server: string; results: ApplyResult[]; error: string }[] = [];
-      for (const t of targets) {
+      const queue = await jobs.queue(targets.map((t) => ({ teamId, userId: user.id, serverId: t.id, action: "ほかのサーバーにそろえる", target: `${src.row.name} → ${t.name}` })));
+      for (const [i, t] of targets.entries()) {
         let results: ApplyResult[] = [];
         let error = "";
         try {
-          results = await copyInto(teamId, user.id, from, t.id, mode as CopyMode);
+          results = await queue.run(i, () => copyInto(teamId, user.id, from, t.id, mode as CopyMode), head);
         } catch (e) {
-          if (!(e instanceof HttpError)) throw e;
+          if (!(e instanceof HttpError)) { await queue.skipRest(i); throw e; }
           error = e.message;
         }
         out.push({ serverId: t.id, server: t.name, results, error });
@@ -401,13 +409,14 @@ export function setService(deps: Deps) {
       const targets = [];
       for (const id of list) targets.push((await serverOf(deps, who, id)).row); // 変える前に、どれも使えるサーバーか確かめる
       const out: { serverId: string; server: string; results: ApplyResult[]; error: string }[] = [];
-      for (const t of targets) {
+      const queue = await jobs.queue(targets.map((t) => ({ teamId: who.teamId, userId: who.user.id, serverId: t.id, action: "まとめて最新にする" })));
+      for (const [i, t] of targets.entries()) {
         let results: ApplyResult[] = [];
         let error = "";
         try {
-          results = (await updateInstalled(who.teamId, who.user.id, t.id)).filter((r) => r.status !== "present");
+          results = (await queue.run(i, () => updateInstalled(who.teamId, who.user.id, t.id), head)).filter((r) => r.status !== "present");
         } catch (e) {
-          if (!(e instanceof HttpError)) throw e;
+          if (!(e instanceof HttpError)) { await queue.skipRest(i); throw e; }
           error = e.message;
         }
         out.push({ serverId: t.id, server: t.name, results, error });
@@ -447,7 +456,7 @@ export function setService(deps: Deps) {
         .returning({ id: server.id, teamId: server.teamId, name: server.name });
       for (const s of due) {
         try {
-          const r = await updateInstalled(s.teamId, null, s.id);
+          const r = await jobs.track({ teamId: s.teamId, userId: null, serverId: s.id, action: "自動更新" }, () => updateInstalled(s.teamId, null, s.id), head);
           if (r.some((x) => x.status !== "present")) await record({ teamId: s.teamId, userId: null, kind: "schedule", also: alsoOf(r), action: "自動更新", target: s.name, detail: summary(r) });
         } catch (e) {
           if (!(e instanceof HttpError)) console.error("[自動更新] 動かせませんでした:", e);

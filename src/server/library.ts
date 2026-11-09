@@ -15,6 +15,7 @@ import { hint, open, seal } from "./secrets";
 import { fileStore, uploadService } from "./uploads";
 import { analyzeJar } from "./jar";
 import { eventService } from "./events";
+import { jobService } from "./jobs";
 import { type Deps, remote, serverOf, serverScope } from "./servers";
 
 // 無料で使える範囲
@@ -1009,7 +1010,8 @@ export function libraryService(deps: Deps) {
         if (!file) throw new HttpError(404, "その版は見つかりません");
         hold = (await latestFile(src, projectId, p, teamId))?.versionId !== versionId;
       }
-      const r = await installInto(teamId, user.id, { row, client, remoteId }, p, src, projectId, file ? { file } : {});
+      const r = await jobService(deps).track({ teamId, userId: user.id, serverId: row.id, action: "入れる" },
+        () => installInto(teamId, user.id, { row, client, remoteId }, p, src, projectId, file ? { file } : {}), (x) => `${x.title} ${x.versionNumber}`);
       if (hold) await db.insert(serverHold).values({ serverId: row.id, source: src, projectId, createdBy: user.id }).onConflictDoNothing();
       await record({ teamId, userId: user.id, kind: "changes", action: r.replaced.length ? "更新" : "入れる", target: row.name,
         detail: `${r.title} ${r.versionNumber}(${SOURCE_LABEL[src]})${hold ? "・版を選んだので更新を止めました" : ""}${r.deps.length ? `\n前提: ${r.deps.map((d) => `${d.title} ${d.ok ? d.detail : `(入れられません: ${d.detail})`}`).join("、")}` : ""}` });

@@ -36,7 +36,11 @@
 }
 :root[data-theme="light"] { color-scheme: light; }
 * { box-sizing: border-box; }
-body { margin: 0; min-height: 100vh; background: var(--bg) fixed; color: var(--text); }
+body { margin: 0; min-height: 100vh; color: var(--text); }
+/* 背景(テーマ・背景画像)は後ろの層に置き、暗さ(--bg-dim)とぼかし(--bg-blur)をかける */
+body::before, body::after { content: ""; position: fixed; z-index: -1; pointer-events: none; }
+body::before { inset: calc(var(--bg-blur, 0px) * -2); background: var(--bg); filter: blur(var(--bg-blur, 0px)); }
+body::after { inset: 0; background: rgba(0, 0, 0, var(--bg-dim, 0)); }
 .page { max-width: 960px; margin: 0 auto; padding: 24px 16px 48px; display: flex; flex-direction: column; gap: 12px; }
 .page.narrow { max-width: 480px; }
 .title { text-align: center; font-size: 28px; margin: 32px 0 12px; }
@@ -253,3 +257,23 @@ button.row.link:last-child, label.row.link:last-child { border-bottom: 0; }
 .changelog { white-space: pre-wrap; word-break: break-word; max-height: 18em; overflow: auto; margin: 4px 0; padding: 6px 8px; border-radius: 8px; background: var(--line); font: inherit; font-size: 12.5px; }
 .row.hit:has(> .full) { flex-wrap: wrap; }
 .row.hit > .full { flex-basis: 100%; min-width: 0; }
+
+/* 見た目のテーマ(v02 のテーマ)。押したものに印を付ける */
+.themes { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 10px; }
+.theme-tile { display: flex; flex-direction: column; align-items: center; gap: 4px; border: 0; background: none; color: inherit; font: inherit; font-size: 12px; cursor: pointer; padding: 0; }
+.theme-tile .sw { width: 100%; aspect-ratio: 4 / 3; border-radius: 14px; border: 1px solid var(--line); }
+.theme-tile[aria-pressed="true"] .sw { box-shadow: 0 0 0 2px var(--glass), 0 0 0 4px var(--accent); }
+input[type="range"].trail { flex: 1; max-width: 220px; accent-color: var(--accent); }
+
+/* 処理の一覧 */
+.badge.state-running, .badge.state-queued { background: color-mix(in srgb, var(--accent) 22%, transparent); color: inherit; margin-left: 0; }
+.badge.state-done { background: rgba(52, 199, 89, 0.22); color: inherit; margin-left: 0; }
+.badge.state-failed { background: rgba(255, 59, 48, 0.2); color: inherit; margin-left: 0; }
+
+/* API の説明 */
+.api-row .method { display: inline-block; min-width: 46px; font: 700 12px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--accent); }
+.api-row .path { font: 600 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+pre.curl { margin: 4px 0 0; padding: 6px 8px; border-radius: 8px; background: var(--line); white-space: pre-wrap; word-break: break-all; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.api-row summary { cursor: pointer; }
+.api-row .api-summary { display: block; margin-top: 2px; font-size: 14px; }
+.row.wrap { flex-wrap: wrap; } .row.wrap > span:first-child { white-space: nowrap; }

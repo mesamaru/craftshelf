@@ -38,6 +38,7 @@ function Servers() {
         <Link to="/software" className="capsule">本体</Link>
         <Link to="/compare" className="capsule">比較</Link>
         <Link to="/ports" className="capsule">ポート</Link>
+        <Link to="/jobs" className="capsule">処理</Link>
       </header>
 
       <section className="group">

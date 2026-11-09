@@ -6,7 +6,7 @@ import { createWriteStream, mkdirSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { pipeline } from "node:stream/promises";
-import { and, asc, desc, eq, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { PLATFORMS } from "~/lib/platforms";
 import { isItemSource } from "~/lib/sources";
 import { addonSet, addonSetItem, installedMod, libraryFile, libraryItem, server, storageTarget, teamOption } from "./db/schema";
@@ -19,6 +19,7 @@ import { curseforgeClient } from "./curseforge";
 import { pickVersion } from "./modrinth";
 import type { Deps } from "./servers";
 import type { Entry, Store } from "./storage";
+import { UPDATE_CHECK_BATCH, UPDATE_CHECK_EVERY } from "./sets";
 import { fromStorage, uploadService } from "./uploads";
 import { ZIP_MAX_BYTES, zipStream } from "./zip";
 
@@ -166,6 +167,35 @@ export function savedService(deps: Deps) {
       await record({ teamId, userId: user.id, kind: "admin", action: "アイテムの保存の設定を変える", target: i.title,
         detail: `${{ "": "チームの既定", on: "保存する", off: "保存しない" }[input.keepFiles]}・${keepVersions === null ? "残す数はチームの既定" : keepVersions ? `${keepVersions} 個残す` : "整理しない"}` });
       return { removed: await files.prune(teamId, i.id, user.id) };
+    },
+
+    /**
+     * 1 分ごとに呼ぶ(自分用の版だけ。画面からは呼ばない。v02 の「自動で保存」): 保存を有効にしたアイテム(アイテムの「保存する」か、
+     * チームの既定が「保存する」で既定のままのもの)のうち、前に確かめてから 1 日たったものを、新しい版の見回りと同じく 1 回に
+     * UPDATE_CHECK_BATCH 件まで、受け取る版のとおりのいちばん新しい版を保存先に取ってくる(保存してあれば何もしない)。取ってきたアイテムの ID を返す
+     */
+    async tick(now: Date) {
+      if (!deps.local) return [];
+      const stale = or(isNull(libraryItem.savedCheckedAt), lt(libraryItem.savedCheckedAt, new Date(now.getTime() - UPDATE_CHECK_EVERY)));
+      const on = or(eq(libraryItem.keepFiles, "on"), and(eq(libraryItem.keepFiles, ""), eq(teamOption.keepFiles, true)));
+      const due = await db.select({ id: libraryItem.id }).from(libraryItem).leftJoin(teamOption, eq(teamOption.teamId, libraryItem.teamId))
+        .where(and(ne(libraryItem.source, "upload"), on, stale)).orderBy(sql`${libraryItem.savedCheckedAt} asc nulls first`).limit(UPDATE_CHECK_BATCH);
+      const got: string[] = [];
+      for (const { id } of due) {
+        // 動かす前に時刻を書き換え、ほかのプロセスと同じものを 2 回取ってこない
+        const [i] = await db.update(libraryItem).set({ savedCheckedAt: now }).where(and(eq(libraryItem.id, id), stale)).returning();
+        if (!i) continue;
+        try {
+          const f = await upstreamFile(i.teamId, i);
+          if (await files.savedOf(i.teamId, i.source, i.projectId, f.versionId)) continue;
+          await files.saveUpstream(i.teamId, null, i, f);
+          got.push(i.id);
+        } catch (e) {
+          // 配布元につながらない・取ってこられる版が無いものは、次の日にまた確かめる
+          if (!(e instanceof HttpError)) console.error("[保存した版の見回り] 取ってこられませんでした:", e);
+        }
+      }
+      return got;
     },
 
     /** 配布元の版を保存先に保存する(編集者以上)。versionId を省くと、受け取る版のとおりのいちばん新しい版 */

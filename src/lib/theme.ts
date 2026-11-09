@@ -1,6 +1,7 @@
 // 見た目の設定: 明るさ・アクセントの色・テーマ(v02 のテーマの背景と色)・背景の暗さとぼかし・背景画像。
-// 背景画像のほかはアカウントに保存して、どの端末でも同じにする(サーバーにまだ無いときだけ、このブラウザの値を使う)。
-// 背景画像は大きいので、このブラウザだけに置く(サーバーに送らない)
+// どれもアカウントに保存して、どの端末でも同じにする(サーバーにまだ無いときだけ、このブラウザの値を使う)。
+// 背景画像は縮めてからアカウントに保存し(03.63.00 から。前はこのブラウザだけに置いていた)、画面は /api/me/background から読む。
+// このブラウザには、すぐ当てるために最後の見た目(背景画像はその場所)を置いておく
 export type Mode = "auto" | "light" | "dark";
 export const ACCENTS = { blue: "#0a84ff", green: "#30d158", purple: "#bf5af2", orange: "#ff9f0a", pink: "#ff375f" } as const;
 export type Accent = keyof typeof ACCENTS | "auto";
@@ -28,8 +29,11 @@ export type Preset = keyof typeof PRESETS;
 export const LIMITS = { dim: 80, blur: 40 };
 
 const KEY = "craftshelf.theme";
-// 背景画像は、長い辺を 1920 px までに縮めた JPEG(localStorage に入る大きさにする)
+// 背景画像は、長い辺を 1920 px までに縮めた JPEG にして送る(大きければ、もっと縮める)。アカウントに置けるのは BACKGROUND_MAX_BYTES まで
 const MAX_SIDE = 1920;
+export const BACKGROUND_MAX_BYTES = 2 * 1024 * 1024;
+export const BACKGROUND_URL = "/api/me/background";
+const BACKGROUND = /^\/api\/me\/background\?v=\d+$/;
 
 /** アカウントに保存する部分 */
 export type SavedTheme = { mode: Mode; accent: Accent; preset: Preset; dim: number; blur: number };
@@ -55,7 +59,8 @@ export function localTheme(): Theme | null {
     const raw = localStorage.getItem(KEY);
     if (!raw) return null;
     const t = JSON.parse(raw);
-    return { ...cleanTheme(t), background: typeof t.background === "string" && t.background.startsWith("data:image/") ? t.background : "" };
+    const bg = typeof t.background === "string" && (t.background.startsWith("data:image/") || BACKGROUND.test(t.background)) ? t.background : "";
+    return { ...cleanTheme(t), background: bg };
   } catch {
     return null;
   }
@@ -89,13 +94,20 @@ export function saveTheme(t: Theme) {
   applyTheme(t);
 }
 
-/** 画像のファイルを、背景に使える大きさの data URL にする */
+/** data URL の中身の大きさ(バイト) */
+export const dataUrlBytes = (url: string) => Math.floor((url.length - url.indexOf(",") - 1) * 3 / 4);
+
+/** 画像のファイルを、背景に使える大きさの JPEG の data URL にする(BACKGROUND_MAX_BYTES に収まるまで縮める。収まらなければ例外) */
 export async function backgroundFrom(file: File): Promise<string> {
   const bmp = await createImageBitmap(file);
-  const scale = Math.min(1, MAX_SIDE / Math.max(bmp.width, bmp.height));
-  const canvas = document.createElement("canvas");
-  canvas.width = Math.round(bmp.width * scale);
-  canvas.height = Math.round(bmp.height * scale);
-  canvas.getContext("2d")!.drawImage(bmp, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL("image/jpeg", 0.82);
+  for (const [side, quality] of [[MAX_SIDE, 0.82], [MAX_SIDE, 0.7], [1280, 0.7], [1280, 0.55]] as const) {
+    const scale = Math.min(1, side / Math.max(bmp.width, bmp.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    canvas.getContext("2d")!.drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    const url = canvas.toDataURL("image/jpeg", quality);
+    if (dataUrlBytes(url) <= BACKGROUND_MAX_BYTES) return url;
+  }
+  throw new Error("too-big");
 }

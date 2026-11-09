@@ -15,7 +15,7 @@ export function minuteTasks(tasks: [string, (now: Date) => Promise<unknown>][]) 
 }
 
 export default function startup() {
-  import("./instance").then(({ env, db, schedules, sets, library, telemetry, updates, events, backups, worlds }) => {
+  import("./instance").then(({ env, db, schedules, sets, library, telemetry, updates, events, backups, worlds, saved }) => {
     // 利用状況の送信(同意したパネルだけ。1 時間ごとに確かめ、前に送ってから 1 日たっていれば送る)
     const tele = setInterval(() => { telemetry.sendIfDue().catch(() => {}); }, 60 * 60_000);
     tele.unref?.();
@@ -43,7 +43,7 @@ export default function startup() {
           .finally(() => { busy = false; });
       }, 3000).unref?.();
     }
-    // 予約と、サーバーごとの自動更新・新しい版の見回り・定期バックアップ(ワールドは始めるだけで、終わるのを待たない)
+    // 予約と、サーバーごとの自動更新・新しい版の見回り・定期バックアップ(ワールドは始めるだけで、終わるのを待たない)・保存を有効にしたアイテムのいちばん新しい版を取ってくる
     const tick = minuteTasks([
       ["予約", (n) => schedules.tick(n)],
       ["サーバーの予約", (n) => schedules.serverTick(n)],
@@ -52,6 +52,7 @@ export default function startup() {
       ["定期バックアップ", (n) => backups.tick(n)],
       ["ワールドのバックアップ", (n) => worlds.tick(n)],
       ["対応 MC の取り直し", (n) => library.refreshInfo(n)],
+      ["保存した版の見回り", (n) => saved.tick(n)],
     ]);
     const timer = setInterval(() => tick(), 60_000);
     timer.unref?.();

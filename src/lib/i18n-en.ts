@@ -113,8 +113,15 @@ export const EN: Record<string, string> = {
   "背景のぼかし": "Background blur",
   "保存できませんでした": "Could not save",
   "見た目は、ログインしてから変えてください": "Sign in to change the appearance",
-  "見た目はアカウントに保存し、どの端末でも同じになります。背景画像だけは、このブラウザに置きます(サーバーに送りません。テーマの背景の代わりに使います)。":
-    "The appearance is saved to your account and is the same on every device. Only the background image stays in this browser (it is not sent to the server and replaces the theme background).",
+  "見た目と背景画像はアカウントに保存し、どの端末でも同じになります。背景画像は長い辺 1920 px までに縮めて保存し(2 MB まで)、テーマの背景の代わりに使います。":
+    "The appearance and background image are saved to your account and are the same on every device. The background image is shrunk to 1920 px on its long side before saving (up to 2 MB) and replaces the theme background.",
+  "背景画像を保存しています…": "Saving the background image…",
+  "PNG・JPEG・WebP・GIF の画像を選んでください": "Choose a PNG, JPEG, WebP or GIF image",
+  "背景画像が大きすぎます(縮めても 2 MB を超えます)。小さい画像を選んでください": "The background image is too large (over 2 MB even after shrinking). Choose a smaller image",
+  "背景画像はありません": "No background image",
+  "ファイルを書き込めませんでした(空きと、書き込みの権限を確かめてください)": "Could not write the file (check free space and write permission)",
+  "ファイルを取ってこられませんでした(途中で切れました)": "Could not fetch the file (cut off partway)",
+  "ファイルを取ってこられませんでした": "Could not fetch the file",
   // 前提の確かめ・変更内容・アイテムの情報・対応 MC・受け取る版・URL から足す
   "すべての MC": "All MC versions",
   "対応 MC": "Supported MC",
@@ -1410,7 +1417,7 @@ export const EN: Record<string, string> = {
   "inbox/ から取り込む": "Import from inbox/",
   "配布元のファイルの保存": "Saving files from sources",
   "配布元のファイルを保存する(チームの既定)": "Save files from sources (team default)",
-  "サーバーに入れた版を、使っている保存先にも取っておきます": "Versions installed on servers are also kept in the storage in use",
+  "サーバーに入れた版と、1 日 1 回いちばん新しい版を、使っている保存先にも取っておきます": "Versions installed on servers, and the newest version once a day, are also kept in the storage in use",
   "新しく保存した方から。0 は整理しない": "Counted from the most recently saved. 0 = don't clean up",
   "保存した版は、サーバーへ入れるときに配布元から取らず保存先から送ります(配布元が消えても・つながらなくても入れられます)。ライブラリの「保存した版」から、ダウンロード・共有リンク・まとめて zip にもできます。アイテムごとに「保存した版」で変えられます。古い版の整理では、サーバーで使っている版・セットで固定した版は消しません。":
     "Saved versions are sent to servers from storage instead of the source (so they can be installed even if the source is gone or unreachable). From “Saved versions” in the library you can also download them, make share links or download several as a zip. You can change this per item under “Saved versions”. Cleaning up old versions never deletes versions in use on a server or pinned in a set.",
@@ -1563,6 +1570,7 @@ const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
   [/^入っているもの\((.+?)\)$/, "Installed ($1)"],
+  [/^エージェントのサーバーへ送れるファイルは (\d+) MB までです\(このファイルは (\d+) MB\)。サーバー機のフォルダに直接置いてください$/, "Files sent to an agent's server can be up to $1 MB (this file is $2 MB). Put it in the server machine's folder directly"],
   [/^使った版 (.+)$/, "Used version $1"],
   [/^新しい版 (?!\d+$)(.+)$/, "New version $1"], // 数だけのもの(新しい版 3)は下の規則
   [/^セット「(.+?)」を作りました\((\d+) 件\)(。サーバーに入れました\(失敗 (\d+) 件\))?$/, (_, n, c, srv, f) => `Created set “${n}” (${c} items)${srv ? `. Installed on the server (${f} failed)` : ""}`],

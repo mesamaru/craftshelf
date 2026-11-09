@@ -104,6 +104,8 @@ export const libraryItem = pgTable(
     // 03.61.00 から。配布元のファイルを保存先に保存するか("" = チームの既定 / on / off)と、古い版を残す数(null = チームの既定・0 = 整理しない)
     keepFiles: text("keep_files").notNull().default(""),
     keepVersions: integer("keep_versions"),
+    // 03.63.00 から。保存を有効にしたアイテムの、いちばん新しい版を保存先に取ってきた(確かめた)時刻(1 日ごと)
+    savedCheckedAt: timestamp("saved_checked_at"),
   },
   (t) => [uniqueIndex("library_item_team_project_uq").on(t.teamId, t.source, t.projectId)],
 );
@@ -573,6 +575,9 @@ export const job = pgTable(
 export const userPref = pgTable("user_pref", {
   userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
   theme: text("theme"),
+  // 03.63.00 から。背景画像(縮めた画像の data URL。PREF_LIMITS.backgroundBytes まで)と、変えた時刻(画面はこれを URL に付けて読み直す)
+  background: text("background"),
+  backgroundAt: timestamp("background_at"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 

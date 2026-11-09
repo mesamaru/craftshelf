@@ -13,7 +13,7 @@ import { libraryService } from "~/server/library";
 import type { FetchLike } from "~/server/net";
 import { savedService } from "~/server/saved";
 import { serverService } from "~/server/servers";
-import { setService } from "~/server/sets";
+import { UPDATE_CHECK_EVERY, setService } from "~/server/sets";
 import { shareService } from "~/server/shares";
 import { webdavStore } from "~/server/storage";
 import { uploadService } from "~/server/uploads";
@@ -300,5 +300,32 @@ describe("WebDAV の中身と空き", () => {
     const s = webdavStore("https://dav.example.test/dav/lib", "", "", dav);
     expect(await s.ls("")).toEqual([{ name: "inbox", dir: true, size: 0 }, { name: "A b.jar", dir: false, size: 1234 }]);
     expect(await s.space()).toEqual({ total: 150, free: 100 });
+  });
+});
+
+describe("保存を有効にしたアイテムの見回り", () => {
+  it("保存を有効にしたものは、1 日 1 回いちばん新しい版を取ってくる(「保存しない」のものは取ってこない)", async () => {
+    const now = new Date("2030-01-01T00:00:00Z");
+    versions[PID].unshift(ver(PID, "ver00009", "3.0", "Alpha-3.0.jar", "2026-03-01"));
+    JARS["Alpha-3.0.jar"] = jar("Alpha", "3.0");
+    versions[PID2].unshift(ver(PID2, "ver00004", "2.0", "Beta-2.0.jar", "2026-02-01"));
+    JARS["Beta-2.0.jar"] = jar("Beta", "2.0");
+    // Alpha はチームの既定(保存する)のまま、Beta は「保存しない」にしてある
+    expect(await saved.tick(now)).toEqual([alpha]);
+    expect((await up.files(owner, alpha))[0].version).toBe("3.0");
+    const beta = (await lib.catalog(owner)).items.find((i) => i.projectId === PID2)!;
+    expect((await up.files(owner, beta.id)).map((f) => f.version)).not.toContain("2.0");
+    // 1 日たつまでは確かめない。たっても、保存してあれば取ってこない
+    const hits = cdnHits;
+    expect(await saved.tick(new Date(now.getTime() + 60_000))).toEqual([]);
+    expect(await saved.tick(new Date(now.getTime() + UPDATE_CHECK_EVERY + 60_000))).toEqual([]);
+    expect(cdnHits).toBe(hits);
+    // アイテムで「保存する」にすれば、チームの既定が「保存しない」でも取ってくる
+    await saved.setOptions(owner, { keepFiles: false, keepVersions: 0 });
+    await saved.setItem(editor, beta.id, { keepFiles: "on", keepVersions: null });
+    expect(await saved.tick(new Date(now.getTime() + 2 * UPDATE_CHECK_EVERY + 120_000))).toEqual([beta.id]);
+    expect((await up.files(owner, beta.id))[0].version).toBe("2.0");
+    await saved.setItem(editor, beta.id, { keepFiles: "off", keepVersions: null });
+    await saved.setOptions(owner, { keepFiles: true, keepVersions: 0 });
   });
 });

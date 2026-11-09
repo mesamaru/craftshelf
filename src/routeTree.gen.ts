@@ -44,6 +44,7 @@ import { Route as ApiBackupNameRouteImport } from './routes/api/backup/$name'
 import { Route as ApiBackupRestoreRouteImport } from './routes/api/backup/restore'
 import { Route as ApiLibraryUploadRouteImport } from './routes/api/library/upload'
 import { Route as ApiLibraryZipRouteImport } from './routes/api/library/zip'
+import { Route as ApiMeBackgroundRouteImport } from './routes/api/me/background'
 import { Route as ApiV1SplatRouteImport } from './routes/api/v1/$'
 import { Route as ServersIdFilesRouteImport } from './routes/servers_.$id_.files'
 import { Route as ApiLibraryFilesIdRouteImport } from './routes/api/library/files.$id'
@@ -224,6 +225,11 @@ const ApiLibraryZipRoute = ApiLibraryZipRouteImport.update({
   path: '/api/library/zip',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiMeBackgroundRoute = ApiMeBackgroundRouteImport.update({
+  id: '/api/me/background',
+  path: '/api/me/background',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiV1SplatRoute = ApiV1SplatRouteImport.update({
   id: '/api/v1/$',
   path: '/api/v1/$',
@@ -281,6 +287,7 @@ export interface FileRoutesByFullPath {
   '/api/backup/restore': typeof ApiBackupRestoreRoute
   '/api/library/upload': typeof ApiLibraryUploadRoute
   '/api/library/zip': typeof ApiLibraryZipRoute
+  '/api/me/background': typeof ApiMeBackgroundRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/servers/$id/files': typeof ServersIdFilesRoute
   '/api/library/files/$id': typeof ApiLibraryFilesIdRoute
@@ -322,6 +329,7 @@ export interface FileRoutesByTo {
   '/api/backup/restore': typeof ApiBackupRestoreRoute
   '/api/library/upload': typeof ApiLibraryUploadRoute
   '/api/library/zip': typeof ApiLibraryZipRoute
+  '/api/me/background': typeof ApiMeBackgroundRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/servers/$id/files': typeof ServersIdFilesRoute
   '/api/library/files/$id': typeof ApiLibraryFilesIdRoute
@@ -364,6 +372,7 @@ export interface FileRoutesById {
   '/api/backup/restore': typeof ApiBackupRestoreRoute
   '/api/library/upload': typeof ApiLibraryUploadRoute
   '/api/library/zip': typeof ApiLibraryZipRoute
+  '/api/me/background': typeof ApiMeBackgroundRoute
   '/api/v1/$': typeof ApiV1SplatRoute
   '/servers_/$id_/files': typeof ServersIdFilesRoute
   '/api/library/files/$id': typeof ApiLibraryFilesIdRoute
@@ -407,6 +416,7 @@ export interface FileRouteTypes {
     | '/api/backup/restore'
     | '/api/library/upload'
     | '/api/library/zip'
+    | '/api/me/background'
     | '/api/v1/$'
     | '/servers/$id/files'
     | '/api/library/files/$id'
@@ -448,6 +458,7 @@ export interface FileRouteTypes {
     | '/api/backup/restore'
     | '/api/library/upload'
     | '/api/library/zip'
+    | '/api/me/background'
     | '/api/v1/$'
     | '/servers/$id/files'
     | '/api/library/files/$id'
@@ -489,6 +500,7 @@ export interface FileRouteTypes {
     | '/api/backup/restore'
     | '/api/library/upload'
     | '/api/library/zip'
+    | '/api/me/background'
     | '/api/v1/$'
     | '/servers_/$id_/files'
     | '/api/library/files/$id'
@@ -531,6 +543,7 @@ export interface RootRouteChildren {
   ApiBackupRestoreRoute: typeof ApiBackupRestoreRoute
   ApiLibraryUploadRoute: typeof ApiLibraryUploadRoute
   ApiLibraryZipRoute: typeof ApiLibraryZipRoute
+  ApiMeBackgroundRoute: typeof ApiMeBackgroundRoute
   ApiV1SplatRoute: typeof ApiV1SplatRoute
   ServersIdFilesRoute: typeof ServersIdFilesRoute
   ApiLibraryFilesIdRoute: typeof ApiLibraryFilesIdRoute
@@ -784,6 +797,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiLibraryZipRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/me/background': {
+      id: '/api/me/background'
+      path: '/api/me/background'
+      fullPath: '/api/me/background'
+      preLoaderRoute: typeof ApiMeBackgroundRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/v1/$': {
       id: '/api/v1/$'
       path: '/api/v1/$'
@@ -851,6 +871,7 @@ const rootRouteChildren: RootRouteChildren = {
   ApiBackupRestoreRoute: ApiBackupRestoreRoute,
   ApiLibraryUploadRoute: ApiLibraryUploadRoute,
   ApiLibraryZipRoute: ApiLibraryZipRoute,
+  ApiMeBackgroundRoute: ApiMeBackgroundRoute,
   ApiV1SplatRoute: ApiV1SplatRoute,
   ServersIdFilesRoute: ServersIdFilesRoute,
   ApiLibraryFilesIdRoute: ApiLibraryFilesIdRoute,

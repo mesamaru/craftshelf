@@ -1,8 +1,8 @@
 import { type ReactNode, useEffect } from "react";
 import { getLang, startEnglish } from "~/lib/i18n";
 import { Palette } from "~/lib/palette";
-import { type SavedTheme, applyTheme, localTheme, saveTheme } from "~/lib/theme";
-import { saveMyTheme } from "~/lib/prefs-api";
+import { DEFAULT_THEME, type SavedTheme, applyTheme, localTheme, saveTheme } from "~/lib/theme";
+import { saveMyBackground, saveMyTheme } from "~/lib/prefs-api";
 import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
 import { getAppState } from "~/lib/session";
 import appCss from "~/styles.css?url";
@@ -32,27 +32,32 @@ export const Route = createRootRoute({
   ),
 });
 
-// 見た目: アカウントに保存したものを使う(背景画像はこのブラウザのもの)。アカウントにまだ無ければ、このブラウザの値を使い、アカウントにも保存する
-function useTheme(user: { theme?: SavedTheme | null } | null | undefined) {
+// 見た目: アカウントに保存したもの(背景画像も)を使う。アカウントにまだ無ければ、このブラウザの値を使い、アカウントにも保存する
+// (03.62 まではブラウザに置いていた背景画像も、アカウントで一度も決めていなければ移す)
+function useTheme(user: { theme?: SavedTheme | null; background?: string | null } | null | undefined) {
   const saved = user?.theme ? JSON.stringify(user.theme) : "";
+  const bg = user ? user.background ?? null : undefined;
   useEffect(() => {
     const local = localTheme();
+    const localBg = local?.background ?? "";
+    if (bg === null && localBg.startsWith("data:")) saveMyBackground({ data: { image: localBg } }).catch(() => {});
+    const background = typeof bg === "string" ? bg : localBg;
     if (saved) {
-      const t = { ...(JSON.parse(saved) as SavedTheme), background: local?.background ?? "" };
+      const t = { ...(JSON.parse(saved) as SavedTheme), background };
       try {
         saveTheme(t);
       } catch {
         applyTheme(t);
       }
     } else {
-      applyTheme();
+      applyTheme({ ...(local ?? DEFAULT_THEME), background });
       if (user && local) saveMyTheme({ data: local }).catch(() => {});
     }
-  }, [saved, !!user]);
+  }, [saved, bg, !!user]);
 }
 
 function RootDocument({ children }: { children: ReactNode }) {
-  const ctx = Route.useRouteContext() as { user?: { theme?: SavedTheme | null } | null };
+  const ctx = Route.useRouteContext() as { user?: { theme?: SavedTheme | null; background?: string | null } | null };
   useTheme(ctx.user);
   useEffect(() => {
     if (getLang() === "en") startEnglish();

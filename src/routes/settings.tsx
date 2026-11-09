@@ -11,7 +11,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { createToken, listTokens, removeToken } from "~/lib/tokens-api";
 import { getLang, setLang } from "~/lib/i18n";
 import { ACCENTS, ACCENT_LABELS, type Accent, DEFAULT_THEME, LIMITS, type Mode, PRESETS, type Preset, type Theme, backgroundFrom, getTheme, saveTheme } from "~/lib/theme";
-import { saveMyTheme } from "~/lib/prefs-api";
+import { saveMyBackground, saveMyTheme } from "~/lib/prefs-api";
 import { sendFeedback, setTelemetry, telemetryInfo } from "~/lib/telemetry-api";
 import { deleteAccount } from "~/lib/teams-api";
 
@@ -564,9 +564,11 @@ function Feedback() {
   );
 }
 
-// 見た目: 明るさ・アクセントの色・テーマ(v02 のテーマ)・背景の暗さとぼかし(アカウントに保存)、背景画像(このブラウザだけ)
+// 見た目: 明るさ・アクセントの色・テーマ(v02 のテーマ)・背景の暗さとぼかし・背景画像(どれもアカウントに保存)
 function Appearance() {
   const save = useServerFn(saveMyTheme);
+  const saveBg = useServerFn(saveMyBackground);
+  const [busy, setBusy] = useState(false);
   const [t, setT] = useState<Theme>({ ...DEFAULT_THEME, background: "" });
   useEffect(() => { setT(getTheme()); }, []); // 保存した見た目は、読み込んだあとで読む(サーバーで作った画面と合わせるため)
   const [error, setError] = useState("");
@@ -583,6 +585,18 @@ function Appearance() {
     clearTimeout(timer.current);
     const { background: _, ...saved } = next;
     timer.current = setTimeout(() => { save({ data: saved }).catch((e) => setError(e instanceof Error ? e.message : "保存できませんでした")); }, 400);
+  };
+  // 背景画像は縮めてからアカウントに保存し、保存できたら当てる(null で外す)
+  const setBackground = async (image: string | null) => {
+    setError("");
+    setBusy(true);
+    try {
+      change({ ...t, background: await saveBg({ data: { image } }) });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "保存できませんでした");
+    } finally {
+      setBusy(false);
+    }
   };
   const preset = PRESETS[t.preset];
   return (
@@ -634,23 +648,25 @@ function Appearance() {
           <input className="trail" type="range" min={0} max={LIMITS.blur} value={t.blur} onChange={(e) => change({ ...t, blur: Number(e.target.value) })} aria-label="背景のぼかし" />
           <span className="muted">{`${t.blur}px`}</span>
         </label>
-        <label className="row link">
-          {t.background ? "背景画像を変える" : "背景画像を選ぶ"}
-          <input type="file" accept="image/*" hidden onChange={async (e) => {
+        <label className="row link" aria-disabled={busy}>
+          {busy ? "背景画像を保存しています…" : t.background ? "背景画像を変える" : "背景画像を選ぶ"}
+          <input type="file" accept="image/*" hidden disabled={busy} onChange={async (e) => {
             const f = e.target.files?.[0];
             e.target.value = "";
             if (!f) return;
+            let image: string;
             try {
-              change({ ...t, background: await backgroundFrom(f) });
-            } catch {
-              setError("画像を読めませんでした");
+              image = await backgroundFrom(f);
+            } catch (err) {
+              return setError(err instanceof Error && err.message === "too-big" ? "背景画像が大きすぎて保存できませんでした。小さい画像を選んでください" : "画像を読めませんでした");
             }
+            await setBackground(image);
           }} />
         </label>
-        {t.background && <button className="row link danger" type="button" onClick={() => change({ ...t, background: "" })}>背景画像を外す</button>}
+        {t.background && <button className="row link danger" type="button" disabled={busy} onClick={() => setBackground(null)}>背景画像を外す</button>}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">見た目はアカウントに保存し、どの端末でも同じになります。背景画像だけは、このブラウザに置きます(サーバーに送りません。テーマの背景の代わりに使います)。</p>
+      <p className="foot">見た目と背景画像はアカウントに保存し、どの端末でも同じになります。背景画像は長い辺 1920 px までに縮めて保存し(2 MB まで)、テーマの背景の代わりに使います。</p>
     </>
   );
 }

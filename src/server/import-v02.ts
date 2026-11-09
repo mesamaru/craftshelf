@@ -994,3 +994,46 @@ export function maybeImportV02SelfUpdate(opts: { v02Dir: string; v03Dir: string 
     v02.close();
   }
 }
+
+// 背景画像(03.63.00 から。v02 の「マイ画像」= テーマ custom の users.prefs.bg_file、CONFIG_DIR/backgrounds/ のファイル)。
+// 見た目の設定の取り込みのあとで一度だけ(前に取り込んだパネルも、次の起動で)。v03 で背景画像を一度でも決めた人は上書きしない。
+// v03 では縮めずに置ける大きさ(PREF_LIMITS.backgroundBytes)までなので、大きいものは引き継がず理由を残す(画面で選び直すと縮めて保存する)
+export const backgroundReportPath = (v03Dir: string) => join(v03Dir, "import-v02-background.json");
+const V02_BG = /^u\d+-[0-9a-f]{16}\.(png|jpg|webp|gif)$/;
+
+export async function maybeImportV02Backgrounds(db: Db, opts: { v02Dir: string; v03Dir: string }): Promise<{ at: string; users: string[]; skipped: { what: string; detail: string }[] } | null> {
+  const dbFile = join(opts.v02Dir, "index.db");
+  if (!existsSync(dbFile) || !existsSync(prefsReportPath(opts.v03Dir)) || existsSync(backgroundReportPath(opts.v03Dir))) return null;
+  const { backgroundOf } = await import("./prefs");
+  const v02 = new DatabaseSync(dbFile, { readOnly: true });
+  try {
+    const report = { at: new Date().toISOString(), users: [] as string[], skipped: [] as { what: string; detail: string }[] };
+    for (const u of has(v02, "users", "prefs") ? all(v02, "SELECT id, username, prefs FROM users") : []) {
+      let p: Row = {};
+      try {
+        p = JSON.parse(str(u.prefs) || "{}") as Row;
+      } catch { /* 読めない設定は飛ばす */ }
+      const name = str(p.bg_file);
+      if (str(p.theme) !== "custom" || !V02_BG.test(name)) continue;
+      const [v03] = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.email, `u${str(u.id)}@v02.craftshelf.invalid`));
+      if (!v03) continue;
+      const file = join(opts.v02Dir, "backgrounds", name);
+      let background: string;
+      try {
+        background = backgroundOf(readFileSync(file));
+      } catch (e) {
+        report.skipped.push({ what: `背景画像: ${str(u.username)}`, detail: existsSync(file) ? (e instanceof Error ? e.message : String(e)) : "v02 の背景画像のファイルが見つかりません" });
+        continue;
+      }
+      const now = new Date();
+      const added = await db.insert(schema.userPref).values({ userId: v03.id, background, backgroundAt: now }).onConflictDoNothing().returning({ id: schema.userPref.userId });
+      const done = added.length ? added : await db.update(schema.userPref).set({ background, backgroundAt: now })
+        .where(and(eq(schema.userPref.userId, v03.id), isNull(schema.userPref.backgroundAt))).returning({ id: schema.userPref.userId });
+      if (done.length) report.users.push(str(u.username));
+    }
+    writeFileSync(backgroundReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
+    return report;
+  } finally {
+    v02.close();
+  }
+}

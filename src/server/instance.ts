@@ -114,6 +114,13 @@ async function build() {
     } catch (e) {
       console.error("[v02] 見た目の設定の取り込みに失敗しました(v02 のデータはそのままです):", e);
     }
+    const { maybeImportV02Backgrounds } = await import("./import-v02");
+    try {
+      const r = await maybeImportV02Backgrounds(db, env);
+      if (r && (r.users.length || r.skipped.length)) console.log(`[v02] 背景画像を引き継ぎました: ${r.users.join("、") || "なし"}${r.skipped.length ? `(引き継げなかったもの ${r.skipped.length} 件。結果は /data/v03/import-v02-background.json)` : ""}`);
+    } catch (e) {
+      console.error("[v02] 背景画像の取り込みに失敗しました(v02 のデータはそのままです):", e);
+    }
     const { maybeImportV02Pins } = await import("./import-v02");
     try {
       const r = await maybeImportV02Pins(db, { ...env, fetch: safeFetch });

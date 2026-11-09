@@ -223,7 +223,7 @@ function SavedOptions() {
         {opt && (
           <>
             <label className="row">
-              <span className="main"><span>配布元のファイルを保存する(チームの既定)</span><span className="muted">サーバーに入れた版を、使っている保存先にも取っておきます</span></span>
+              <span className="main"><span>配布元のファイルを保存する(チームの既定)</span><span className="muted">サーバーに入れた版と、1 日 1 回いちばん新しい版を、使っている保存先にも取っておきます</span></span>
               <input className="trail" type="checkbox" checked={opt.keepFiles} onChange={(e) => setOpt({ ...opt, keepFiles: e.target.checked })} />
             </label>
             <label className="row">

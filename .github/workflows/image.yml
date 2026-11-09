@@ -57,7 +57,11 @@ jobs:
           npm ci && npm run build
           f="craftshelf-v03-${{ steps.v.outputs.version }}.tar.gz"
           tar -czf "$f" .output drizzle VERSION
-          sha256sum "$f" > SHA256SUMS
+          # Docker なしで動かす配布物(Node.js ごと。install.sh で開発版を選んだときに使う)
+          node scripts/package.mjs all
+          mv dist/* .
+          p="craftshelf-v03-${{ steps.v.outputs.version }}-"
+          sha256sum "$f" "$p"*.zip "$p"*.tar.gz > SHA256SUMS
           awk '/^## /{n++} n==1' CHANGELOG.md > notes.md
-          gh release create "dev-v${{ steps.v.outputs.version }}" "$f" SHA256SUMS --target "$GITHUB_SHA" \
+          gh release create "dev-v${{ steps.v.outputs.version }}" "$f" "$p"*.zip "$p"*.tar.gz SHA256SUMS --target "$GITHUB_SHA" \
             --prerelease --latest=false --title "v${{ steps.v.outputs.version }}(v03 開発版)" --notes-file notes.md

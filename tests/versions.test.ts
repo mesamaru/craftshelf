@@ -77,6 +77,14 @@ describe("版の切り替え", () => {
     expect(svc.state().selected).toBeNull();
   });
 
+  it("use: 取ってきてある版は取り直さずに選ぶ(更新の前に戻すとき)", async () => {
+    tampered = true; // 取りに行けば失敗する
+    await svc.use(V);
+    tampered = false;
+    expect(svc.state().selected).toBe(V);
+    svc.useImage();
+  });
+
   it("起動できたしるしは、選んだ版のフォルダのときだけ消す", () => {
     const dir = join(root, V);
     writeFileSync(join(dir, ".starting"), "");

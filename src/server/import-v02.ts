@@ -17,6 +17,7 @@ import { type FetchLike, checkPublicUrl } from "./net";
 import { hint, open, seal } from "./secrets";
 import { modrinthClient } from "./modrinth";
 import { curseforgeClient } from "./curseforge";
+import { readUpdateState, updateStatePath, writeUpdateState } from "./updates";
 
 export type ImportReport = {
   at: string;
@@ -966,6 +967,28 @@ export async function maybeImportV02Saved(db: Db, opts: { v02Dir: string; v03Dir
       }
     }
     writeFileSync(savedReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
+    return report;
+  } finally {
+    v02.close();
+  }
+}
+
+// パネルの自動アップデート(03.62.00 から。v02 の self_auto_update)。v02 から取り込んだパネルで一度だけ(前に取り込んだパネルも、次の起動で)。
+// v02 のパネルが受け取るのは安定版だけ(02.21.01 から)なので、v03 でも安定版だけにする。v03 ですでに決めていれば上書きしない
+export const selfUpdateReportPath = (v03Dir: string) => join(v03Dir, "import-v02-selfupdate.json");
+
+export function maybeImportV02SelfUpdate(opts: { v02Dir: string; v03Dir: string }): { at: string; auto: boolean } | null {
+  const dbFile = join(opts.v02Dir, "index.db");
+  if (!existsSync(dbFile) || !existsSync(reportPath(opts.v03Dir)) || existsSync(selfUpdateReportPath(opts.v03Dir))) return null;
+  const v02 = new DatabaseSync(dbFile, { readOnly: true });
+  try {
+    const on = has(v02, "settings") && str((v02.prepare("SELECT value FROM settings WHERE key='self_auto_update'").get() as Row | undefined)?.value) === "1";
+    const report = { at: new Date().toISOString(), auto: false };
+    if (on && !existsSync(updateStatePath(opts.v03Dir))) {
+      writeUpdateState(opts.v03Dir, { ...readUpdateState(opts.v03Dir), auto: true, channel: "stable" });
+      report.auto = true;
+    }
+    writeFileSync(selfUpdateReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
     return report;
   } finally {
     v02.close();

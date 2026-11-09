@@ -54,9 +54,9 @@ export const GRANT_LABELS: Record<Grant, string> = {
   "server:create": "サーバーを追加する(Pterodactyl・フォルダ・エージェント)",
   "server:delete": "サーバーを外す",
   "audit:read": "操作の記録を見る",
-  "storage:manage": "保存先を管理する(アップロードしたものの置き場所)",
+  "storage:manage": "保存先を管理する(アップロードしたもの・保存した配布元のファイルの置き場所)",
   "integrations:manage": "連携の設定(Discord への通知・CurseForge の API キー)",
-  "panel:manage": "パネルの設定(版の切り替え・利用状況の送信)",
+  "panel:manage": "パネルの設定(版の切り替え・自動アップデート・利用状況の送信)",
 };
 
 /**

@@ -58,6 +58,10 @@ describe("英語表示", () => {
     expect(translate("リソースパックなので、Paper のサーバーには入れません")).toBe("Resource packs cannot be installed on Paper servers");
     expect(translate("セット「My Pack 1.0」を作りました(4 件)。サーバーに入れました(失敗 0 件)")).toBe("Created set “My Pack 1.0” (4 items). Installed on the server (0 failed)");
     expect(translate("データパック")).toBe("Data pack");
+    // 03.62.00: パネルの自動アップデート
+    expect(translate("新しい版を自動で入れる(6 時間ごとに確かめる)")).toBe("Install new versions automatically (checks every 6 hours)");
+    expect(translate("v03.61.00 → v03.62.00(自動)")).toBe("v03.61.00 → v03.62.00 (automatic)");
+    expect(translate("2026/11/10 4:00:00 · 戻しました")).toBe("2026/11/10 4:00:00 · undone");
     // 03.59.00: セットの版の固定
     expect(translate("固定した版 4.0.0 は、このサーバーの種類・バージョンに合わないので飛ばしました")).toBe("Skipped: the pinned version 4.0.0 does not fit this server's type and version");
     expect(translate("5.4.0 → 5.3.0(固定した版)")).toBe("5.4.0 → 5.3.0 (pinned version)");

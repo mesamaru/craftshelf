@@ -23,6 +23,13 @@ npm run typecheck  # 型のチェック
 npm run e2e        # ブラウザでの通しの確認(ビルドしたサーバーを PORT=3123 で動かしておく。Edge を使う)
 ```
 
+## Docker を使わずに動かす(Linux の install.sh・Windows・macOS)
+
+- Linux のサーバー機: `curl -fsSL https://raw.githubusercontent.com/mesamaru/craftshelf/dev/install.sh | sudo bash`(Node.js ごとまとめた一式を `/opt/craftshelf-v03` に置き、systemd のサービスにします。v02 の install.sh と同じデータ `/var/lib/craftshelf` を使います)
+- Windows・macOS: リリースの `craftshelf-v03-<版>-win-x64.zip` / `-darwin-arm64.tar.gz` などを展開して、`CraftShelf.cmd` / `CraftShelf.command` をダブルクリック(データは v02 のインストーラー版と同じ場所)
+
+入れ方・v02 からの移り方・自動起動・パネルの更新と自動アップデート・ログインを戻すコマンドは [docs/INSTALL.md](docs/INSTALL.md) にまとめています。
+
 ## サーバー機で動かす(Docker・自分用)
 
 v02 と同じく、1 つのコンテナで動きます。設定は要りません(データベースも `./data/v03` の中に作ります)。
@@ -34,10 +41,11 @@ docker compose up -d     # docker-compose.yml(イメージ ghcr.io/mesamaru/craf
 `http://サーバー機のアドレス:8765` を開き、最初の管理者を作ります。そのあとは、管理者が招待した人だけが登録できます。
 
 - パスキーを使うときや、リバースプロキシの後ろに置くときは、開く URL を `APP_URL` に書きます
-- **版の切り替え**: 管理者は「アカウント」→「パネルのバージョン」で、GitHub にある v03 の版を選んで更新したり、前の版に戻したりできます(ダウンロードした一式はチェックサムで確かめます。選んだ版が起動できなかったときは、イメージの版で起動します)
+- **版の切り替え**: 管理者は「アカウント」→「パネルのバージョン」で、GitHub にある v03 の版を選んで更新したり、前の版に戻したりできます(ダウンロードした一式はチェックサムで確かめます。選んだ版が起動できなかったときは、イメージの版で起動します)。切り替える前にパネルのバックアップを作り、「この更新の前に戻す」で版とデータの両方を戻せます。6 時間ごとに確かめて自動で入れる設定(安定版だけ / 開発版も)もあります
+- **ログインを戻す**: オーナーが二段階認証の端末も予備のコードもなくしたときは、`docker exec craftshelf node /app/launcher.mjs reset-owner <メールアドレスか名前>` で二段階認証とパスキーを外し、新しいパスワードを出せます([docs/INSTALL.md](docs/INSTALL.md))
 - **v02 から切り替える**: v02 のパネルの「設定」→「アップデート」→「v03」から移れます。Docker なら、`docker-compose.yml` の `image:`(または `build: .`)を `ghcr.io/mesamaru/craftshelf:v03`(開発版は `:dev`)に変えて `docker compose up -d` してもかまいません。同じ `/data` を使いますが、v03 のデータは `/data/v03` に作るので、v02 のデータはそのまま残ります(元のイメージに戻せば v02 に戻れます)。移り方・引き継ぐもの・戻り方は、main の [MIGRATION.md](https://github.com/mesamaru/craftshelf/blob/main/MIGRATION.md) にまとめています
 - **v02 から取り込み直す**: v03 を試したあと v02 に戻って使い続け、もう一度移るときは、「チーム」→「バックアップ」→「v02 のデータを取り込み直す」で、新しい v02 のデータを取り込み直せます(v03 のそのときのデータは `/data/v03/before-reimport-…` に移して残します)
-- **安定版を出す**: `VERSION` と同じ番号の `v03.xx.xx` のタグを push すると、`release-v03.yml` がイメージ(`:v03`・`:03.xx.xx`)と、一式を付けたリリース `v03.xx.xx` を作ります(リリースは「最新」にしません)
+- **安定版を出す**: `VERSION` と同じ番号の `v03.xx.xx` のタグを push すると、`release-v03.yml` がイメージ(`:v03`・`:03.xx.xx`)と、一式・Docker なしで動かす配布物(Windows・macOS・Linux)を付けたリリース `v03.xx.xx` を作ります(リリースは「最新」にしません)
 - **v02 から取り込むもの**: 初めて起動したときに、v02 のデータ(`/data/index.db`)から次のものを取り込みます。v02 のデータには書き込みません。結果は「アカウント」の画面(管理者だけ)と `/data/v03/import-v02.json` で確かめられます
   - 利用者(v02 のユーザー名とパスワードのままログインできます)と役割(最初の管理者がオーナー)
   - 二段階認証: v02 と同じ認証アプリのコードでログインできます。予備のコードは引き継げないので、ログインしたら設定し直してください

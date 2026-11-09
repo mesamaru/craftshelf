@@ -14,6 +14,8 @@ ENV NODE_ENV=production PORT=8080 MIGRATIONS_DIR=/app/drizzle DATA_DIR=/data CRA
 COPY --from=build /src/.output ./.output
 COPY --from=build /src/drizzle ./drizzle
 COPY VERSION ./
+# ログインを戻すコマンド(docker exec craftshelf node /app/launcher.mjs reset-owner <メールアドレスか名前>)
+COPY packaging/launcher.mjs ./
 COPY docker/start.sh /usr/local/bin/craftshelf-start
 VOLUME /data
 EXPOSE 8080

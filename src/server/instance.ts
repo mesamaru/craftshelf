@@ -14,6 +14,7 @@ import { uploadService } from "./uploads";
 import { shareService } from "./shares";
 import { tokenService } from "./tokens";
 import { versionService } from "./versions";
+import { updateService } from "./updates";
 import { softwareService } from "./software";
 import { backupService } from "./backup";
 import { worldService } from "./worlds";
@@ -134,6 +135,12 @@ async function build() {
     } catch (e) {
       console.error("[v02] 配布元のファイルの取り込みに失敗しました(v02 のデータはそのままです):", e);
     }
+    const { maybeImportV02SelfUpdate } = await import("./import-v02");
+    try {
+      if (maybeImportV02SelfUpdate(env)?.auto) console.log("[v02] パネルの自動アップデートを引き継ぎました(安定版だけ)");
+    } catch (e) {
+      console.error("[v02] パネルの自動アップデートの取り込みに失敗しました(v02 のデータはそのままです):", e);
+    }
   }
   const { resendMailer } = await import("./mail");
   const mailer = env.mail ? resendMailer(safeFetch, env.mail.resendKey, env.mail.from) : null;
@@ -172,8 +179,10 @@ async function build() {
   // パネルからの版の切り替え(自分用の版だけ。サービス版は Docker のイメージで入れ替える)
   const versions = env.mode === "self" ? versionService({ fetch: safeFetch, dataDir: env.dataDir }) : null;
   versions?.confirmStarted();
-  return { env, db, mailer, auth, hub, servers, library, sets, events, schedules, files, software, backups, worlds, modpacks, teams, agents, telemetry, uploads, shares, tokens, ports, versions, jobs, prefs, saved };
+  // 自動アップデートと「この更新の前に戻す」(自分用の版だけ)
+  const updates = versions ? updateService(deps, versions, backups) : null;
+  return { env, db, mailer, auth, hub, servers, library, sets, events, schedules, files, software, backups, worlds, modpacks, teams, agents, telemetry, uploads, shares, tokens, ports, versions, updates, jobs, prefs, saved };
 }
 type Instance = Awaited<ReturnType<typeof build>>;
 const once = globalThis as { __craftshelf?: Promise<Instance> };
-export const { env, db, mailer, auth, hub, servers, library, sets, events, schedules, files, software, backups, worlds, modpacks, teams, agents, telemetry, uploads, shares, tokens, ports, versions, jobs, prefs, saved } = await (once.__craftshelf ??= build());
+export const { env, db, mailer, auth, hub, servers, library, sets, events, schedules, files, software, backups, worlds, modpacks, teams, agents, telemetry, uploads, shares, tokens, ports, versions, updates, jobs, prefs, saved } = await (once.__craftshelf ??= build());

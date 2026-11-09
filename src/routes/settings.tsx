@@ -4,7 +4,7 @@ import { renderSVG } from "uqr";
 import { authClient } from "~/lib/auth-client";
 import { errorText } from "~/lib/errors";
 import { getImportReport } from "~/lib/session";
-import { getVersions, installVersion, useImageVersion } from "~/lib/versions-api";
+import { getVersions, installVersion, rollbackUpdate, setAutoUpdate, useImageVersion } from "~/lib/versions-api";
 import { useCan } from "~/lib/use-can";
 import { SCOPE_LABELS, SCOPE_SHORT, TOKEN_SCOPES, type TokenScope, permsAllowScope } from "~/lib/permissions";
 import { useServerFn } from "@tanstack/react-start";
@@ -300,6 +300,18 @@ function Versions({ userId }: { userId: string }) {
     }
     setError("再起動を待ちきれませんでした。少し待ってから開き直してください");
   };
+  const canRestore = can({ member: ["update"] });
+  const saveAuto = async (auto: boolean, channel: "stable" | "dev") => {
+    setError("");
+    // 先に画面を変える(続けて変えたとき、前の値で上書きしないように)
+    setInfo((v) => (v ? { ...v, updates: { ...v.updates, auto, channel } } : v));
+    try {
+      await setAutoUpdate({ data: { auto, channel } });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      getVersions().then(setInfo, () => {});
+    }
+  };
   const run = async (label: string, fn: () => Promise<unknown>) => {
     if (!confirm(label)) return;
     setBusy("切り替えています…");
@@ -339,11 +351,55 @@ function Versions({ userId }: { userId: string }) {
             )}
           </div>
         ))}
-        {info && info.releases.length === 0 && <p className="row muted">GitHub に切り替えられる版がまだありません。</p>}
+        {info?.listError && <p className="row error" role="alert">{info.listError}</p>}
+        {info && !info.listError && info.releases.length === 0 && <p className="row muted">GitHub に切り替えられる版がまだありません。</p>}
         {busy && <p className="row muted" role="status">{busy}</p>}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">データベースは「足すだけ」で変えていくので、前の版に戻してもデータは読めます。選んだ版が起動できなかったときは、イメージの版に自動で戻ります。</p>
+      <p className="foot">切り替える前に、パネルのバックアップを作ります(置き場所・残す数は定期バックアップの設定のもの)。データベースは「足すだけ」で変えていくので、前の版に戻してもデータは読めます。選んだ版が起動できなかったときは、イメージの版に自動で戻ります。</p>
+      {info && (
+        <>
+          <div className="group-title">自動アップデート</div>
+          <section className="group form">
+            <label className="row">
+              <span>新しい版を自動で入れる(6 時間ごとに確かめる)</span>
+              <input className="trail" type="checkbox" checked={info.updates.auto} disabled={!!busy}
+                onChange={(e) => saveAuto(e.target.checked, info.updates.channel)} />
+            </label>
+            <div className="row">
+              <span>入れる版</span>
+              <select className="trail" value={info.updates.channel} disabled={!!busy} aria-label="自動で入れる版" onChange={(e) => saveAuto(info.updates.auto, e.target.value === "dev" ? "dev" : "stable")}>
+                <option value="stable">安定版だけ</option>
+                <option value="dev">開発版も</option>
+              </select>
+            </div>
+            {info.updates.lastCheck && <div className="row muted">{`前に確かめたとき: ${new Date(info.updates.lastCheck).toLocaleString("ja-JP")}`}</div>}
+          </section>
+          <p className="foot">入れる前にパネルのバックアップを作ります。大きな版上げ(v04 など)は自動では入れません。「この更新の前に戻す」で戻した版は、自動では入れ直しません。</p>
+          {info.updates.history.length > 0 && (
+            <>
+              <div className="group-title">更新の記録</div>
+              <section className="group">
+                {info.updates.history.map((h) => (
+                  <div className="row" key={h.at}>
+                    <span className="main">
+                      <span>{`v${h.from} → v${h.to}${h.auto ? "(自動)" : ""}`}</span>
+                      <span className="muted">{`${new Date(h.at).toLocaleString("ja-JP")}${h.rolledBackAt ? " · 戻しました" : h.backup ? "" : " · バックアップなし"}`}</span>
+                    </span>
+                    {h.canRollback && canRestore && (
+                      <button className="trail link" type="button" disabled={!!busy}
+                        onClick={() => run(`v${h.from} と、この更新の前のデータに戻しますか? パネルが再起動します(今のデータは before-restore-… に残します)`, () => rollbackUpdate({ data: { at: h.at } }))}>
+                        この更新の前に戻す
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </section>
+              <p className="foot">更新の前のバックアップは、定期バックアップの「残す数」を超えると古いものから消えます。</p>
+            </>
+          )}
+        </>
+      )}
     </>
   );
 }

@@ -1,5 +1,5 @@
 # v03 の安定版を出す: v03.xx.xx のタグを push したら(VERSION と同じ番号のときだけ)、
-# Docker のイメージ(ghcr.io/mesamaru/craftshelf:v03 と :03.xx.xx)と、ビルド済みの一式を付けた GitHub のリリース v03.xx.xx を作る。
+# Docker のイメージ(ghcr.io/mesamaru/craftshelf:v03 と :03.xx.xx)と、ビルド済みの一式・Docker なしで動かす配布物を付けた GitHub のリリース v03.xx.xx を作る。
 # v02 のパネルの「v03 に移る」と、v03 の「パネルのバージョン」はこのリリースを使う。
 # まだ v02 が main(:latest)なので、リリースは「最新」にしない(v02 のインストーラー版が見るのは最新の正式リリース)
 name: release-v03
@@ -61,6 +61,9 @@ jobs:
           npm ci && npm run build
           f="craftshelf-v03-$v.tar.gz"
           tar -czf "$f" .output drizzle VERSION
-          sha256sum "$f" > SHA256SUMS
+          # Docker なしで動かす配布物(Node.js ごと。Windows・macOS・Linux の x64 と arm64。install.sh は Linux のものを使う)
+          node scripts/package.mjs all
+          mv dist/* .
+          sha256sum "$f" craftshelf-v03-$v-*.zip craftshelf-v03-$v-*.tar.gz > SHA256SUMS
           awk '/^## /{n++} n==1' CHANGELOG.md > notes.md
-          gh release create "v$v" "$f" SHA256SUMS --verify-tag --latest=false --title "v$v(v03)" --notes-file notes.md
+          gh release create "v$v" "$f" craftshelf-v03-$v-*.zip craftshelf-v03-$v-*.tar.gz SHA256SUMS --verify-tag --latest=false --title "v$v(v03)" --notes-file notes.md

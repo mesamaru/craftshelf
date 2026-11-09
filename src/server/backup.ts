@@ -204,15 +204,29 @@ export function backupService(deps: Deps) {
     /** バックアップから戻す(パネルの中か、置き場所の保存先のもの。次の起動で入れ替える。再起動は呼ぶ側で) */
     async restore(headers: Headers, name: string) {
       const who = await admin(headers);
+      await this.restoreFor(who.teamId, who.user.id, name);
+    },
+
+    /** 戻す(中から呼ぶ。権限は呼ぶ側で確かめる) */
+    async restoreFor(teamId: string, userId: string | null, name: string) {
       const pending = join(v03Dir(), PENDING);
       try {
-        await pipeline(await openOf(who.teamId, name), createWriteStream(pending));
+        await pipeline(await openOf(teamId, name), createWriteStream(pending));
       } catch (e) {
         rmSync(pending, { force: true });
         throw e;
       }
-      await record({ teamId: who.teamId, userId: who.user.id, kind: "admin", action: "バックアップから戻す", target: name });
+      await record({ teamId, userId, kind: "admin", action: "バックアップから戻す", target: name });
     },
+
+    /** このデータベースをバックアップできるか(PGlite だけ) */
+    supported: () => !!(deps.db as unknown as { $client?: Dumpable }).$client?.dumpDataDir,
+
+    /** 作る(中から呼ぶ。権限は呼ぶ側で確かめる。パネルの更新の前など) */
+    makeFor: (teamId: string, userId: string | null) => make(teamId, userId),
+
+    /** 次の起動で戻すのをやめる(中から呼ぶ) */
+    cancelRestore: () => rmSync(join(v03Dir(), PENDING), { force: true }),
 
     /** 手元のバックアップのファイルから戻す(中身を確かめてから置く。再起動は呼ぶ側で) */
     async restoreUpload(headers: Headers, data: Uint8Array) {

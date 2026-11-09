@@ -44,7 +44,8 @@ export function sumFor(text: string, file: string): string | null {
 
 export function versionService({ fetch, dataDir, appDir = process.cwd() }: { fetch: FetchLike; dataDir: string; appDir?: string }) {
   const root = join(dataDir, "v03", "versions");
-  const imageDir = "/app";
+  // 最初から入っている版の場所(Docker はイメージの /app。インストーラー版・install.sh はランチャーが CRAFTSHELF_APP_DIR で渡す)
+  const imageDir = process.env.CRAFTSHELF_APP_DIR || "/app";
   const readVersion = (dir: string) => {
     try {
       return readFileSync(join(dir, "VERSION"), "utf8").trim();
@@ -108,6 +109,15 @@ export function versionService({ fetch, dataDir, appDir = process.cwd() }: { fet
         throw new Error("一式の中身が足りません");
       }
       writeFileSync(join(root, "current"), version + "\n");
+    },
+
+    /** その版を次の起動で使う: イメージの版ならそれに戻し、取ってきてあればそれを、無ければ取ってくる(再起動は呼ぶ側で) */
+    async use(version: string) {
+      if (!VERSION.test(version)) throw new Error("版の形が違います");
+      if (version === readVersion(imageDir)) return this.useImage();
+      const dir = join(root, version);
+      if (readVersion(dir) === version && existsSync(join(dir, ".output", "server", "index.mjs"))) writeFileSync(join(root, "current"), version + "\n");
+      else await this.install(version);
     },
 
     /** パネルで選んだ版をやめて、イメージの版に戻す(再起動は呼ぶ側で) */

@@ -15,19 +15,33 @@ export function minuteTasks(tasks: [string, (now: Date) => Promise<unknown>][]) 
 }
 
 export default function startup() {
-  import("./instance").then(({ schedules, sets, library, telemetry, versions, events, backups, worlds }) => {
+  import("./instance").then(({ env, db, schedules, sets, library, telemetry, updates, events, backups, worlds }) => {
     // 利用状況の送信(同意したパネルだけ。1 時間ごとに確かめ、前に送ってから 1 日たっていれば送る)
     const tele = setInterval(() => { telemetry.sendIfDue().catch(() => {}); }, 60 * 60_000);
     tele.unref?.();
     setTimeout(() => { telemetry.sendIfDue().catch(() => {}); }, 60_000).unref?.();
-    // パネルの新しい版(自分用の版だけ。GitHub の API の回数に上限があるので 6 時間ごと)
-    if (versions) {
+    // パネルの新しい版を知らせ、自動アップデートを使うなら入れて再起動する(自分用の版だけ。GitHub の API の回数に上限があるので 6 時間ごと)
+    if (updates) {
       const panel = async () => {
-        const [newest] = await versions.list();
-        if (newest && newest.version > versions.state().current) await events.announcePanel(newest.version);
+        if (await updates.check()) {
+          console.log("[版] 自動アップデートを入れました。再起動します");
+          setTimeout(() => process.exit(0), 800);
+        }
       };
-      setInterval(() => { panel().catch(() => {}); }, 6 * 60 * 60_000).unref?.();
+      setInterval(() => { panel().catch((e) => console.error("[版] 確かめられませんでした:", e instanceof Error ? e.message : e)); }, 6 * 60 * 60_000).unref?.();
       setTimeout(() => { panel().catch(() => {}); }, 2 * 60_000).unref?.();
+    }
+    // サーバーの上のコマンド(launcher.mjs reset-owner)からの、ログインを戻す頼みごと(自分用の版だけ。数秒ごとに見る)
+    if (env.mode === "self") {
+      let busy = false;
+      setInterval(() => {
+        if (busy) return;
+        busy = true;
+        import("./owner-reset").then(({ applyOwnerReset }) => applyOwnerReset(db, env.v03Dir, events.record))
+          .then((r) => { if (r) console.log(r.ok ? `[ログインを戻す] ${r.user} の二段階認証・パスキーを外し、パスワードを置き換えました` : `[ログインを戻す] できませんでした: ${r.error}`); })
+          .catch((e) => console.error("[ログインを戻す] 動かせませんでした:", e))
+          .finally(() => { busy = false; });
+      }, 3000).unref?.();
     }
     // 予約と、サーバーごとの自動更新・新しい版の見回り・定期バックアップ(ワールドは始めるだけで、終わるのを待たない)
     const tick = minuteTasks([

@@ -20,6 +20,8 @@ const versionOf = () => {
     return "";
   }
 };
+// 配り方(v02 の受け口と同じ値。インストーラー版・install.sh はランチャーが CRAFTSHELF_DIST で渡す)
+const modeOf = () => (["installer", "script"].includes(process.env.CRAFTSHELF_DIST ?? "") ? process.env.CRAFTSHELF_DIST : existsSync("/.dockerenv") ? "docker" : "source");
 const osOf = () => ({ linux: "linux", win32: "windows", darwin: "macos" })[process.platform as string] ?? "other";
 export const FEEDBACK_KINDS = ["request", "bug", "question", "other"] as const;
 
@@ -57,7 +59,7 @@ export function telemetryService(deps: Deps) {
     };
     const kinds = new Set((await db.selectDistinct({ k: storageTarget.kind }).from(storageTarget)).map((r) => r.k));
     return {
-      install_id: s.installId, version: versionOf(), channel: "dev", os: osOf(), arch: process.arch, mode: existsSync("/.dockerenv") ? "docker" : "source", lang: "ja",
+      install_id: s.installId, version: versionOf(), channel: "dev", os: osOf(), arch: process.arch, mode: modeOf(), lang: "ja",
       items: bucket(await n(all(libraryItem))), users: bucket(await n(all(user))), servers: bucket(await n(all(server))), sets: bucket(await n(all(addonSet))),
       storage: ["local", ...[...kinds].filter((k) => k === "smb" || k === "webdav")].sort(),
       features: Object.keys(features).filter((k) => features[k]).sort(),
@@ -107,7 +109,7 @@ export function telemetryService(deps: Deps) {
       const kind = (FEEDBACK_KINDS as readonly string[]).includes(input.kind) ? input.kind : "other";
       const body = {
         kind, message, contact: String(input.contact ?? "").trim().slice(0, 200),
-        ...(input.includeEnv ? { version: versionOf(), os: osOf(), mode: existsSync("/.dockerenv") ? "docker" : "source" } : {}),
+        ...(input.includeEnv ? { version: versionOf(), os: osOf(), mode: modeOf() } : {}),
       };
       let res: Response;
       try {

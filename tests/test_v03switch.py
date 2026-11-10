@@ -183,6 +183,35 @@ def test_preflight_lists_what_is_not_carried_over():
     assert not any("個別に付けた権限" in x for x in notes)  # v03 03.60.00 から取り込む
 
 
+def test_preflight_pins_only_warns_when_lost():
+    """セットの版の固定は、v03 で引き継げないもの(版が残っていない・SpigotMC・SHA-1 の無い Modrinth)があるときだけ知らせる。"""
+    import sqlite3
+
+    def notes(*pins):
+        conn = sqlite3.connect(":memory:")
+        conn.executescript("""
+            CREATE TABLE items (id INTEGER PRIMARY KEY, category TEXT);
+            CREATE TABLE item_sources (item_id INTEGER, provider TEXT, project_id TEXT);
+            CREATE TABLE versions (id INTEGER PRIMARY KEY, item_id INTEGER, filename TEXT, sha1 TEXT NOT NULL DEFAULT '');
+            CREATE TABLE set_items (set_id INTEGER, item_id INTEGER, version_id INTEGER);
+        """)
+        for i, (provider, sha1, kept) in enumerate(pins, 1):
+            conn.execute("INSERT INTO items VALUES (?, 'plugin')", (i,))
+            if provider:
+                conn.execute("INSERT INTO item_sources VALUES (?, ?, 'AABBCCDD')", (i, provider))
+            if kept:
+                conn.execute("INSERT INTO versions VALUES (?, ?, 'a.jar', ?)", (i, i, sha1))
+            conn.execute("INSERT INTO set_items VALUES (1, ?, ?)", (i, i))
+        return any("版の固定" in x for x in v03switch.preflight(conn))
+
+    ok = "a" * 40
+    assert not notes()  # 固定が無い
+    assert not notes(("modrinth", ok, True), ("curseforge", "", True), ("", "", True))  # 配布元の版がわかる・アップロードしたもの
+    assert notes(("modrinth", ok, True), ("spigot", ok, True))  # SpigotMC は版を固定できない
+    assert notes(("modrinth", "", True))  # 照合に使う SHA-1 が無い
+    assert notes(("modrinth", ok, False))  # 固定した版が v02 に残っていない
+
+
 def test_gunicorn_conf_reloads_v03switch(monkeypatch, tmp_path):
     """自己更新(HUP)で gunicorn.conf.py を読み直すと、親に残っていた古い v03switch を新しいものに入れ替える。"""
     import runpy

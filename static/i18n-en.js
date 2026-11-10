@@ -13,7 +13,7 @@ window.CS_EN = {
   "API トークン(v03 で作り直してください)": "API tokens (create them again in v03)",
   "共有リンク(v03 で作り直してください)": "Share links (create them again in v03)",
   "Discord への通知の設定(v03 の「チーム」で設定し直してください)": "Discord notification settings (set them again under v03's Team)",
-  "セットの版の固定のうち、配布元の版がわからないもの(v03 の取り込みの結果に出ます)": "Pinned versions in sets whose source version is unknown (listed in v03's import results)",
+  "セットの版の固定のうち、v03 で引き継げないもの(SpigotMC のもの・v02 に版が残っていないものなど。v03 の取り込みの結果に出ます)": "Pinned versions in sets that v03 cannot carry over (SpigotMC ones, versions no longer kept in v02, etc.; listed in v03's import results)",
   "二段階認証の予備のコード(認証アプリのコードはそのまま使えます)": "Two-factor backup codes (authenticator app codes keep working)",
   "切り替える前にいまのデータを退避し、ダウンロード(約 60 MB)のあと再起動します。v02 のデータは書き換えません。": "The current data is backed up first; after downloading (about 60 MB) the panel restarts. v02's data is not changed.",
   "Pterodactyl のサーバー": "Pterodactyl servers",

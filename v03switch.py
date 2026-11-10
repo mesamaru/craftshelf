@@ -117,8 +117,14 @@ def preflight(conn):
         out.append("共有リンク(v03 で作り直してください)")
     if setting("discord_webhook"):
         out.append("Discord への通知の設定(v03 の「チーム」で設定し直してください)")
-    if n("SELECT COUNT(*) FROM set_items WHERE version_id IS NOT NULL"):
-        out.append("セットの版の固定のうち、配布元の版がわからないもの(v03 の取り込みの結果に出ます)")
+    # 手元のデータだけで引き継げないとわかるもの(版が残っていない・SpigotMC・照合に使う SHA-1 が無い Modrinth)。
+    # それ以外は配布元への問い合わせしだいなので、v03 の取り込みの結果で知らせる
+    if n("""SELECT COUNT(*) FROM set_items si JOIN items i ON i.id = si.item_id
+            LEFT JOIN versions v ON v.id = si.version_id LEFT JOIN item_sources src ON src.item_id = i.id
+            WHERE si.version_id IS NOT NULL AND (v.id IS NULL OR v.filename = ''
+              OR (src.provider = 'spigot' AND i.category = 'plugin')
+              OR (src.provider = 'modrinth' AND length(v.sha1) <> 40))"""):
+        out.append("セットの版の固定のうち、v03 で引き継げないもの(SpigotMC のもの・v02 に版が残っていないものなど。v03 の取り込みの結果に出ます)")
     if n("SELECT COUNT(*) FROM users WHERE totp_enabled=1"):
         out.append("二段階認証の予備のコード(認証アプリのコードはそのまま使えます)")
     return out

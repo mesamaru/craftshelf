@@ -63,9 +63,11 @@ let viewer: Headers;
 let outsider: Headers;
 let id: string;
 let pteroId: string;
+// 止まっているサーバー。ポートを書かないと 25565 になり、この PC で Minecraft を動かしていると「動いている」と見なされるので、だれも使わない 1 番にする
+const STOPPED = "level-name=myworld\nserver-port=1\n";
 
 beforeAll(async () => {
-  writeFileSync(join(root, "server.properties"), "level-name=myworld\n");
+  writeFileSync(join(root, "server.properties"), STOPPED);
   for (const [p, body] of [["myworld/level.dat", "level"], ["myworld/region/r.0.0.mca", "region"], ["myworld/session.lock", "lock"],
     ["myworld_nether/DIM-1/region/r.0.0.mca", "nether"], ["world/level.dat", "ほかのワールド"], [LONG, "{}"]]) {
     mkdirSync(join(root, p, ".."), { recursive: true });
@@ -266,7 +268,7 @@ describe("動いているサーバーには戻さない", () => {
       expect(readFileSync(join(root, "myworld/level.dat"), "utf8")).toBe(before);
     } finally {
       mc.close();
-      writeFileSync(join(root, "server.properties"), "level-name=myworld\n");
+      writeFileSync(join(root, "server.properties"), STOPPED);
     }
   });
 });

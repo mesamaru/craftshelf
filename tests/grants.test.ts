@@ -2,12 +2,12 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import { GRANTS, permsOf, permsAllowScope } from "~/lib/permissions";
-import { member, memberPerm } from "~/server/db/schema";
+import { member, memberPerm, session } from "~/server/db/schema";
 import { eventService } from "~/server/events";
 import { fileService } from "~/server/files";
 import { HttpError, requireTeam } from "~/server/guard";
 import type { FetchLike } from "~/server/net";
-import { serverService } from "~/server/servers";
+import { serverScope, serverService } from "~/server/servers";
 import { setService } from "~/server/sets";
 import { teamService } from "~/server/teams";
 import { tokenService } from "~/server/tokens";
@@ -194,5 +194,39 @@ describe("ほかのチーム", () => {
     await t.call("/organization/remove-member", { memberIdOrEmail: "viewer@example.com", organizationId: teamA }, owner.get("cookie")!);
     const rows = await t.db.select({ id: memberPerm.memberId }).from(memberPerm).innerJoin(member, eq(member.id, memberPerm.memberId)).where(eq(member.userId, ids.viewer));
     expect(rows).toEqual([]);
+  });
+
+  it("管理者に外された人は、外されたあとチームのものを読めない(選んでいたチームは消す。残っていても断る)", async () => {
+    // 前のテストで外した閲覧者。Better Auth は外された人のセッションの activeOrganizationId を消さないので、外したときに消す
+    const left = await t.db.select({ team: session.activeOrganizationId }).from(session).where(eq(session.userId, ids.viewer));
+    expect(left.length).toBeGreaterThan(0);
+    expect(left.every((s) => s.team === null)).toBe(true);
+    // 消し損ねた古いセッションでも、メンバーでなければ断る
+    await t.db.update(session).set({ activeOrganizationId: teamA }).where(eq(session.userId, ids.viewer));
+    expect(await code(requireTeam(t.auth, viewer))).toBe(403);
+    expect(await code(servers.listServers(viewer))).toBe(403);
+    expect(await code(servers.status(viewer, serverId))).toBe(403);
+    expect(await serverScope({ db: t.db, auth: t.auth, secret: SECRET, fetch: fake }, { teamId: teamA, user: { id: ids.viewer } })).toEqual(new Set());
+  });
+});
+
+describe("パネルの PC でコマンドが動く設定(フォルダのサーバー)", () => {
+  it("「サーバーの設定」「サーバーを追加する」を足しても、管理者以上でなければ起動・停止の設定・フォルダをたどる・フォルダのサーバーを足すはできない", async () => {
+    const local = serverService({ db: t.db, auth: t.auth, secret: SECRET, fetch: fake, local: { dataDir: "/nonexistent-cs-data" } });
+    await teams.setMemberGrants(owner, ids.editor, ["library:edit", "server:control", "server:update", "server:create"]);
+    const input = { control: "command", startCmd: "echo hi", stopCmd: "", container: "", rconPort: null };
+    expect(await code(local.setLocalSettings(editor, serverId, input))).toBe(403);
+    expect(await code(local.localSettings(editor, serverId))).toBe(403);
+    expect(await code(local.browseHost(editor, "/"))).toBe(403);
+    expect(await code(local.addLocal(editor, { rootDir: "/", name: "x" }))).toBe(403);
+    // トークンでも同じ(管理の範囲でも、役割が管理者でなければ)
+    const adm = (await tokens.create(editor, { name: "管理 2", scopes: ["admin"], days: 0 })).key;
+    expect(await code(local.browseHost(withKey(adm), "/"))).toBe(403);
+    // 管理者はできる(Pterodactyl のサーバーなので「見つからない」まで進む)
+    expect(await code(local.localSettings(admin, serverId))).toBe(404);
+    expect(await code(local.browseHost(admin, "/"))).toBe(200);
+    // Pterodactyl のサーバーを足すのは、いままでどおり「サーバーを追加する」で
+    expect(await code(local.remoteServers(editor, (await servers.listConnections(owner))[0].id))).toBe(200);
+    await teams.setMemberGrants(owner, ids.editor, ["library:edit", "server:control"]);
   });
 });

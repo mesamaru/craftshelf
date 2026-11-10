@@ -4,7 +4,7 @@
 import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 import { server, serverSchedule, teamSchedule } from "./db/schema";
 import { eventService } from "./events";
-import { HttpError, requireTeam } from "./guard";
+import { HttpError, isHttpError, requireTeam } from "./guard";
 import { type Deps, remote, serverOf } from "./servers";
 import { type ApplyResult, alsoOf, type setService } from "./sets";
 import { jobService } from "./jobs";
@@ -62,7 +62,7 @@ export function scheduleService(deps: Deps, sets: ReturnType<typeof setService>)
       r = await jobs.track({ teamId, userId: null, serverId, action: label },
         () => (action === "sync" ? sets.syncForSchedule(teamId, serverId) : sets.updateForSchedule(teamId, serverId)), (x) => sets.summary(x).split("\n")[0]);
     } catch (e) {
-      if (!(e instanceof HttpError)) throw e;
+      if (!isHttpError(e)) throw e;
       await record({ teamId, userId: null, kind: "schedule", also: ["errors"], action: label, target: name, detail: `できませんでした: ${e.message}` });
       return;
     }

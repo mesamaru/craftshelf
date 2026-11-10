@@ -159,6 +159,13 @@ export function createAuth(db: Db, opts: Options) {
         organizationLimit: mode === "self" ? 1 : LIMITS.teamsPerUser,
         ...(mode === "service" ? { membershipLimit: LIMITS.membersPerTeam } : {}),
         cancelPendingInvitationsOnReInvite: true,
+        // 外された人のセッションに、選んでいたチームが残らないようにする(Better Auth が消すのは、自分で抜けたときだけ)
+        organizationHooks: {
+          afterRemoveMember: async ({ member: m, organization: o }: { member: { userId: string }; organization: { id: string } }) => {
+            await db.update(schema.session).set({ activeOrganizationId: null })
+              .where(and(eq(schema.session.userId, m.userId), eq(schema.session.activeOrganizationId, o.id)));
+          },
+        },
         // 招待のリンクをメールでも送る(URL を決めているときだけ。画面のリンクはいつもどおり出す)
         ...(mailer && url ? {
           sendInvitationEmail: async (d: { id: string; email: string; organization: { name: string }; inviter: { user: { name: string } } }) =>

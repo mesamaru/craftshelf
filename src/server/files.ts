@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { serverFileHistory, teamOption, user } from "./db/schema";
 import { eventService } from "./events";
-import { HttpError, allowed, requireTeam } from "./guard";
+import { HttpError, isHttpError, allowed, requireTeam } from "./guard";
 import { type Deps, remote, serverOf } from "./servers";
 import { alignAll, splitLines } from "~/lib/diff";
 
@@ -142,7 +142,7 @@ export function fileService(deps: Deps) {
         try {
           for (const [dir, depth] of CONFIG_SCAN) await walk(dir, depth);
         } catch (e) {
-          error = e instanceof HttpError ? e.message : "読めませんでした";
+          error = isHttpError(e) ? e.message : "読めませんでした";
         }
         servers.push({ id: target.row.id, name: target.row.name, files: found, error, target });
       }

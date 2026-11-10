@@ -12,7 +12,7 @@ import { and, eq, isNull, lt, or } from "drizzle-orm";
 import { backupSchedule, storageTarget } from "./db/schema";
 import { eventService } from "./events";
 import { jobService } from "./jobs";
-import { HttpError, requireTeam } from "./guard";
+import { HttpError, isHttpError, requireTeam } from "./guard";
 import { localParts } from "./schedule";
 import type { Deps } from "./servers";
 import { v02DirOf } from "./env";
@@ -39,6 +39,18 @@ const atOf = (name: string) => {
 };
 
 type Dumpable = { dumpDataDir?: (c: "gzip") => Promise<Blob> };
+
+/** CraftShelf v03 のバックアップか(中に db.tar.gz があるか)を確かめる。違えば file を消して 400 */
+async function checkArchive(v03: string, file: string) {
+  try {
+    const { stdout } = await run("tar", ["-tzf", file.replace(v03, ".").replace(/\\/g, "/")], { cwd: v03, maxBuffer: 64 * 1024 * 1024 });
+    if (!stdout.split(/\r?\n/).some((l) => l.replace(/^\.\//, "") === "db.tar.gz")) throw new HttpError(400, "CraftShelf v03 のバックアップではありません(db.tar.gz がありません)");
+  } catch (e) {
+    rmSync(file, { force: true });
+    if (isHttpError(e)) throw e;
+    throw new HttpError(400, "バックアップのファイルとして読めません");
+  }
+}
 
 export function backupService(deps: Deps) {
   const { db } = deps;
@@ -102,7 +114,7 @@ export function backupService(deps: Deps) {
     } catch (e) {
       rmSync(join(backupsDir(), name), { force: true });
       await record({ teamId, userId, kind: "admin", also: ["backup", "errors"], action: "バックアップを作れませんでした", target: place, detail: e instanceof Error ? e.message : String(e) });
-      throw e instanceof HttpError ? e : new HttpError(500, "バックアップを作れませんでした");
+      throw isHttpError(e) ? e : new HttpError(500, "バックアップを作れませんでした");
     } finally {
       rmSync(work, { recursive: true, force: true });
     }
@@ -220,6 +232,7 @@ export function backupService(deps: Deps) {
         rmSync(pending, { force: true });
         throw e;
       }
+      await checkArchive(v03Dir(), pending);
       await record({ teamId, userId, kind: "admin", action: "バックアップから戻す", target: name });
     },
 
@@ -239,14 +252,7 @@ export function backupService(deps: Deps) {
       const v03 = v03Dir();
       const tmp = join(v03, `upload-${stampOf()}.tar.gz`);
       writeFileSync(tmp, data);
-      try {
-        const { stdout } = await run("tar", ["-tzf", tmp.replace(v03, ".").replace(/\\/g, "/")], { cwd: v03, maxBuffer: 64 * 1024 * 1024 });
-        if (!stdout.split(/\r?\n/).some((l) => l.replace(/^\.\//, "") === "db.tar.gz")) throw new HttpError(400, "CraftShelf v03 のバックアップではありません(db.tar.gz がありません)");
-      } catch (e) {
-        rmSync(tmp, { force: true });
-        if (e instanceof HttpError) throw e;
-        throw new HttpError(400, "バックアップのファイルとして読めません");
-      }
+      await checkArchive(v03, tmp);
       renameSync(tmp, join(v03, PENDING));
       await record({ teamId: who.teamId, userId: who.user.id, kind: "admin", action: "バックアップから戻す", target: "手元のファイル" });
     },
@@ -272,6 +278,7 @@ export async function applyPendingRestore(v03Dir: string, databaseUrl: string): 
   const aside = join(v03Dir, `before-restore-${stamp}`);
   const work = mkdtempSync(join(v03Dir, "restore-"));
   const moved: [string, string][] = [];
+  let replacing = false; // 今のデータベースを退避して、新しく作り始めたか(失敗したとき消してよいのは、そのあとだけ)
   const move = (from: string, to: string) => {
     if (!existsSync(from)) return;
     mkdirSync(aside, { recursive: true });
@@ -282,6 +289,7 @@ export async function applyPendingRestore(v03Dir: string, databaseUrl: string): 
     await run("tar", ["-xzf", join("..", PENDING)], { cwd: work });
     if (!existsSync(join(work, "db.tar.gz"))) throw new Error("バックアップの中身が足りません(db.tar.gz がありません)");
     move(pgDir, join(aside, "pg"));
+    replacing = true;
     const { PGlite } = await import("@electric-sql/pglite");
     const pg = new PGlite(pgDir, { loadDataDir: new Blob([readFileSync(join(work, "db.tar.gz"))]) });
     await pg.waitReady;
@@ -297,7 +305,7 @@ export async function applyPendingRestore(v03Dir: string, databaseUrl: string): 
     rmSync(pending, { force: true });
     return aside;
   } catch (e) {
-    rmSync(pgDir, { recursive: true, force: true });
+    if (replacing) rmSync(pgDir, { recursive: true, force: true });
     for (const [from, to] of moved.reverse()) if (existsSync(to)) renameSync(to, from);
     if (existsSync(join(aside, "secret"))) copyFileSync(join(aside, "secret"), join(v03Dir, "secret"));
     renameSync(pending, join(v03Dir, `restore-failed-${stamp}.tar.gz`));

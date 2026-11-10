@@ -4,7 +4,7 @@ import { createFileRoute } from "@tanstack/react-router";
 
 async function send(headers: Headers, input: { ids: string; set: string }) {
   const { saved } = await import("~/server/instance");
-  const { HttpError } = await import("~/server/guard");
+  const { isHttpError } = await import("~/server/guard");
   try {
     const itemIds = input.ids.split(",").map((s) => s.trim()).filter(Boolean).slice(0, 500);
     const z = await saved.zip(headers, input.set ? { setId: input.set } : { itemIds });
@@ -13,7 +13,7 @@ async function send(headers: Headers, input: { ids: string; set: string }) {
       "Content-Type": "application/zip", "Content-Disposition": `attachment; filename="${z.filename}"`, "Cache-Control": "no-store",
     } });
   } catch (e) {
-    if (e instanceof HttpError) return Response.json({ message: e.message }, { status: e.status });
+    if (isHttpError(e)) return Response.json({ message: e.message }, { status: e.status });
     throw e;
   }
 }
@@ -26,8 +26,18 @@ export const Route = createFileRoute("/api/library/zip")({
         return send(request.headers, { ids: q.get("ids") ?? "", set: q.get("set") ?? "" });
       },
       POST: async ({ request }) => {
-        const f = await request.formData().catch(() => null);
-        return send(request.headers, { ids: String(f?.get("ids") ?? ""), set: String(f?.get("set") ?? "") });
+        // フォーム(application/x-www-form-urlencoded)。ログインを確かめてから、上限付きで読む
+        const { auth } = await import("~/server/instance");
+        const { isHttpError, readBody, requireTeam } = await import("~/server/guard");
+        let f: URLSearchParams;
+        try {
+          await requireTeam(auth, request.headers);
+          f = new URLSearchParams(new TextDecoder().decode(await readBody(request, 1024 * 1024, "選んだものが多すぎます")));
+        } catch (e) {
+          if (isHttpError(e)) return Response.json({ message: e.message }, { status: e.status });
+          throw e;
+        }
+        return send(request.headers, { ids: f.get("ids") ?? "", set: f.get("set") ?? "" });
       },
     },
   },

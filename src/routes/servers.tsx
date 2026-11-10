@@ -101,7 +101,7 @@ function Servers() {
       </section>
 
       {sheet === "update" && <UpdateAll servers={servers} onClose={() => setSheet("")} />}
-      {sheet === "add" && <AddServer connections={connections} local={local} admin={can({ server: ["delete"] })} onDone={reload} onClose={() => setSheet("")} />}
+      {sheet === "add" && <AddServer connections={connections} local={local && can({ member: ["update"] })} admin={can({ server: ["delete"] })} onDone={reload} onClose={() => setSheet("")} />}
     </main>
   );
 }

@@ -7,7 +7,7 @@ import { and, count, desc, eq } from "drizzle-orm";
 import { addonSet, addonSetItem, libraryFile, libraryItem, serverFileHistory } from "./db/schema";
 import { FILE_LIMITS, cleanPath, editable } from "./files";
 import { eventService } from "./events";
-import { HttpError, requireTeam } from "./guard";
+import { HttpError, isHttpError, requireTeam } from "./guard";
 import { readZipTexts } from "./jar";
 import { LIBRARY_LIMITS, fromSource, modTools, packOf } from "./library";
 import { CF_HOSTS, curseforgeClient } from "./curseforge";
@@ -126,7 +126,7 @@ export function modpackService(deps: Deps) {
           for (const f of m.files as { projectID?: unknown }[]) if (Number.isInteger(f.projectID)) entries.push({ source: "curseforge", projectId: String(f.projectID) });
         }
       } catch (e) {
-        if (e instanceof HttpError) throw e;
+        if (isHttpError(e)) throw e;
         throw new HttpError(400, "Modpack の中身が読めませんでした");
       }
       const uniq = [...new Map(entries.map((e) => [`${e.source}:${e.projectId}`, e])).values()];

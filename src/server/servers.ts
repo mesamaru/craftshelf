@@ -43,6 +43,9 @@ export async function worldOf(client: PteroClient, remoteId: string) {
 const sealContext = (teamId: string, id: string) => `ptero:${teamId}:${id}`;
 const rconContext = (serverId: string) => `rcon:${serverId}`;
 const CONTROLS = ["none", "command", "docker"] as const;
+// パネルの PC でコマンドを動かせる操作(フォルダのサーバーの起動・停止の設定・フォルダをたどる・足す)は、役割が管理者以上のときだけ。
+// member:update は役割だけが持つ(メンバーごとの足し引きで配れない)ので、それで確かめる
+const HOST_ADMIN: { member: "update"[] } = { member: ["update"] };
 const oneLine = (v: unknown, max: number, what: string) => {
   const s = String(v ?? "").trim();
   if (s.length > max || /[\r\n\0]/.test(s)) throw new HttpError(400, `${what}は 1 行・${max} 文字までです`);
@@ -63,6 +66,7 @@ export type Who = { teamId: string; user: { id: string }; apiKey?: { role: strin
 export async function serverScope(deps: Deps, who: Who): Promise<Set<string> | null> {
   const role = who.apiKey?.role ?? (await deps.db.select({ role: member.role }).from(member)
     .where(and(eq(member.organizationId, who.teamId), eq(member.userId, who.user.id))))[0]?.role ?? "";
+  if (!role) return new Set(); // メンバーでない(外された)人には何も見せない
   if (role.split(",").some((r) => r === "owner" || r === "admin")) return null;
   const [limit] = await deps.db.select().from(memberServerLimit).where(and(eq(memberServerLimit.teamId, who.teamId), eq(memberServerLimit.userId, who.user.id)));
   if (!limit) return null;
@@ -271,7 +275,7 @@ export function serverService(deps: Deps) {
 
     /** パネルから見えるフォルダをたどる(フォルダと jar だけ。管理者以上・自分用の版だけ) */
     async browseHost(headers: Headers, path: string) {
-      await requireTeam(auth, headers, { server: ["create"] });
+      await requireTeam(auth, headers, { server: ["create"], ...HOST_ADMIN });
       if (!deps.local) throw new HttpError(400, "フォルダのサーバーは、自分用の版だけで使えます");
       const p = resolve(String(path || "/"));
       if (!isAbsolute(p)) throw new HttpError(400, "フォルダの場所が正しくありません");
@@ -288,7 +292,7 @@ export function serverService(deps: Deps) {
 
     /** フォルダのサーバーを追加する(管理者以上・自分用の版だけ)。jar の名前から種類とバージョンを決める */
     async addLocal(headers: Headers, input: { rootDir: string; name: string; jar?: string }) {
-      const { teamId, user } = await requireTeam(auth, headers, { server: ["create"] });
+      const { teamId, user } = await requireTeam(auth, headers, { server: ["create"], ...HOST_ADMIN });
       if (!deps.local) throw new HttpError(400, "フォルダのサーバーは、自分用の版だけで使えます");
       let root: string;
       try {
@@ -314,9 +318,9 @@ export function serverService(deps: Deps) {
       return { id, profile: found };
     },
 
-    /** フォルダのサーバーの起動・停止・RCON の設定(パスワードは返さない) */
+    /** フォルダのサーバーの起動・停止・RCON の設定(パスワードは返さない。管理者以上だけ) */
     async localSettings(headers: Headers, id: string) {
-      const { teamId } = await requireTeam(auth, headers, { server: ["update"] });
+      const { teamId } = await requireTeam(auth, headers, { server: ["update"], ...HOST_ADMIN });
       const [l] = await db.select().from(localServer).innerJoin(server, eq(localServer.serverId, server.id)).where(and(eq(server.id, id), eq(server.teamId, teamId)));
       if (!l) throw new HttpError(404, "フォルダのサーバーが見つかりません");
       const x = l.local_server;
@@ -325,7 +329,7 @@ export function serverService(deps: Deps) {
 
     /** 起動・停止・RCON を設定する(パネルの PC でコマンドを実行するので、管理者以上だけ)。rconPassword は undefined なら変えない */
     async setLocalSettings(headers: Headers, id: string, input: { control: string; startCmd: string; stopCmd: string; container: string; rconPort: number | null; rconPassword?: string }) {
-      const { teamId, user } = await requireTeam(auth, headers, { server: ["update"] });
+      const { teamId, user } = await requireTeam(auth, headers, { server: ["update"], ...HOST_ADMIN });
       const [l] = await db.select({ name: server.name }).from(localServer).innerJoin(server, eq(localServer.serverId, server.id)).where(and(eq(server.id, id), eq(server.teamId, teamId)));
       if (!l) throw new HttpError(404, "フォルダのサーバーが見つかりません");
       if (!(CONTROLS as readonly string[]).includes(input.control)) throw new HttpError(400, "起動・停止の方法を選んでください");

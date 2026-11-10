@@ -44,7 +44,7 @@ export function SettingsRows({ server, perms, soft, version, onOpen }: { server:
   const [others, setOthers] = useState(0);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const local = server.kind === "local" && perms.update;
+  const local = server.kind === "local" && perms.update && perms.admin; // パネルの PC でコマンドが動くので管理者以上だけ
   useEffect(() => {
     if (server.profile) loadSchedule({ data: { id: server.id } }).then(setSchedule, () => setSchedule(null));
     if (local) loadLocal({ data: { id: server.id } }).then((s) => setControl(s.control), () => setControl(""));

@@ -2,7 +2,7 @@
 // 中身は画面と同じサービスの処理で、権限の確認もそちらで行う(トークンを作った人のチームでの役割・トークンの範囲)。
 // ここの定義から、画面の「API の説明」(/api-docs)と GET /api/v1 の一覧を作る。summary と scope は必ず書く(tests/rest-docs.test.ts が確かめる)
 import { SCOPE_LABELS, SCOPE_ROLE, type TokenScope } from "~/lib/permissions";
-import { HttpError } from "./guard";
+import { isHttpError, readBody } from "./guard";
 
 type Services = typeof import("./instance");
 type Handler = (s: Services, headers: Headers, params: string[], body: Record<string, unknown>) => Promise<unknown>;
@@ -124,8 +124,9 @@ export async function handleRest(services: Services, request: Request, path: str
   let body: Record<string, unknown> = {};
   if (request.method === "POST") {
     try {
-      body = (await request.json()) as Record<string, unknown>;
-    } catch {
+      body = JSON.parse(new TextDecoder().decode(await readBody(request, 1024 * 1024, "送ったものが大きすぎます"))) as Record<string, unknown>;
+    } catch (e) {
+      if (isHttpError(e)) return json({ message: e.message }, e.status); // 大きすぎる
       body = {};
     }
   } else {
@@ -135,7 +136,7 @@ export async function handleRest(services: Services, request: Request, path: str
     const r = await route.r.handler(services, headers, route.params!, body && typeof body === "object" ? body : {});
     return json(r ?? { ok: true });
   } catch (e) {
-    if (e instanceof HttpError) return json({ message: e.message }, e.status);
+    if (isHttpError(e)) return json({ message: e.message }, e.status);
     console.error("[API]", e);
     return json({ message: "うまくいきませんでした" }, 500);
   }

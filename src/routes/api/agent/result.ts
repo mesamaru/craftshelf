@@ -7,8 +7,16 @@ export const Route = createFileRoute("/api/agent/result")({
       POST: async ({ request }) => {
         const { agents, hub } = await import("~/server/instance");
         const token = request.headers.get("authorization")?.match(/^Bearer\s+(\S+)$/i)?.[1] ?? "";
-        if (Number(request.headers.get("content-length") ?? 0) > 150 * 1024 * 1024) return Response.json({ message: "大きすぎます" }, { status: 413 });
-        const body = (await request.json().catch(() => null)) as { id?: unknown; ok?: unknown; value?: unknown; error?: unknown; version?: unknown; servers?: unknown } | null;
+        // トークンを確かめてから、上限付きで読む
+        if (!(await agents.verify(token))) return Response.json({ message: "トークンが正しくありません" }, { status: 401 });
+        const { readBody } = await import("~/server/guard");
+        let raw: Uint8Array;
+        try {
+          raw = await readBody(request, 150 * 1024 * 1024, "大きすぎます");
+        } catch {
+          return Response.json({ message: "大きすぎます" }, { status: 413 });
+        }
+        const body = (await Promise.resolve().then(() => JSON.parse(new TextDecoder().decode(raw))).catch(() => null)) as { id?: unknown; ok?: unknown; value?: unknown; error?: unknown; version?: unknown; servers?: unknown } | null;
         const id = await agents.checkIn(token, body ?? {});
         if (!id) return Response.json({ message: "トークンが正しくありません" }, { status: 401 });
         if (!body || typeof body.id !== "string") return Response.json({ message: "形が違います" }, { status: 400 });

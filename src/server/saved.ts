@@ -12,7 +12,7 @@ import { isItemSource } from "~/lib/sources";
 import { addonSet, addonSetItem, installedMod, libraryFile, libraryItem, server, storageTarget, teamOption } from "./db/schema";
 import { eventService } from "./events";
 import { cfFingerprint } from "./fingerprint";
-import { HttpError, requireTeam } from "./guard";
+import { HttpError, isHttpError, requireTeam } from "./guard";
 import { analyzeJar, analyzePack, fileSource } from "./jar";
 import { fromSource, libraryService, modTools } from "./library";
 import { curseforgeClient } from "./curseforge";
@@ -192,7 +192,7 @@ export function savedService(deps: Deps) {
           got.push(i.id);
         } catch (e) {
           // 配布元につながらない・取ってこられる版が無いものは、次の日にまた確かめる
-          if (!(e instanceof HttpError)) console.error("[保存した版の見回り] 取ってこられませんでした:", e);
+          if (!isHttpError(e)) console.error("[保存した版の見回り] 取ってこられませんでした:", e);
         }
       }
       return got;

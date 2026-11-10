@@ -7,14 +7,14 @@ export const Route = createFileRoute("/api/backup/$name")({
     handlers: {
       GET: async ({ request, params }) => {
         const { backups } = await import("~/server/instance");
-        const { HttpError } = await import("~/server/guard");
+        const { isHttpError } = await import("~/server/guard");
         try {
           const stream = await backups.open(request.headers, params.name);
           return new Response(Readable.toWeb(stream) as ReadableStream, { headers: {
             "Content-Type": "application/gzip", "Content-Disposition": `attachment; filename="${params.name}"`, "Cache-Control": "no-store",
           } });
         } catch (e) {
-          if (e instanceof HttpError) return Response.json({ message: e.message }, { status: e.status });
+          if (isHttpError(e)) return Response.json({ message: e.message }, { status: e.status });
           throw e;
         }
       },

@@ -8,7 +8,7 @@ import type { Readable } from "node:stream";
 import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 import { server, storageTarget, worldBackup } from "./db/schema";
 import { eventService } from "./events";
-import { HttpError, requireTeam } from "./guard";
+import { HttpError, isHttpError, requireTeam } from "./guard";
 import type { PteroBackups, PteroClient } from "./ptero";
 import { localParts } from "./schedule";
 import { type Deps, remote, serverOf, worldOf } from "./servers";
@@ -61,7 +61,8 @@ export function worldService(deps: Deps) {
     const list = targetId
       ? await fromStorage(async () => (await storeOf(teamId, targetId)).list(keyOf(serverId)))
       : existsSync(panelDir(serverId)) ? readdirSync(panelDir(serverId)) : [];
-    return list.filter((n) => WORLD_NAME.test(n)).sort().reverse();
+    // 名前の前はワールドの名前(level-name を変えると変わる)なので、後ろの日時で並べる
+    return list.filter((n) => WORLD_NAME.test(n)).sort((a, b) => atOf(b).localeCompare(atOf(a)) || b.localeCompare(a));
   }
 
   /** ワールドのフォルダを読んで tar.gz にする(1 ファイルずつ読むので、メモリは大きいファイル 1 つぶんまで) */
@@ -125,7 +126,7 @@ export function worldService(deps: Deps) {
         const label = `${PREFIX}${new Date().toISOString().slice(0, 16).replace("T", " ")} UTC`;
         await remote(() => b.create(remoteId, label));
         // このアプリが作ったものだけを、新しい keep 個まで残す(作っている途中・鍵をかけたものは消さない)
-        const mine = (await remote(() => b.list(remoteId))).filter((x) => x.name.startsWith(PREFIX)).sort((x, y) => y.createdAt.localeCompare(x.createdAt));
+        const mine = (await remote(() => b.list(remoteId))).filter((x) => x.name.startsWith(PREFIX)).sort((x, y) => Date.parse(y.createdAt) - Date.parse(x.createdAt));
         for (const old of mine.slice(s.keep).filter((x) => !x.locked && x.completedAt)) await remote(() => b.remove(remoteId, old.uuid)).catch(() => {});
         await record({ teamId, userId, kind: "backup", action: "ワールドをバックアップ", target: row.name, detail: `${label}(Pterodactyl のバックアップ。サーバー全体。できあがりはパネルで確かめてください)` });
         last.set(serverId, { ok: true, message: label, at: new Date().toISOString() });
@@ -246,7 +247,7 @@ export function worldService(deps: Deps) {
           await remote(() => client.upload(remoteId, parts.slice(0, -1).join("/"), parts[parts.length - 1], f.data));
         }
       } catch (e) {
-        if (e instanceof HttpError) throw e;
+        if (isHttpError(e)) throw e;
         throw new HttpError(400, e instanceof Error ? e.message : String(e));
       }
       if (!files) throw new HttpError(400, "バックアップにファイルがありません");
@@ -277,7 +278,7 @@ export function worldService(deps: Deps) {
       let error = "";
       try {
         if (ptero) {
-          backups = (await remote(() => backupsOf(client).list(remoteId))).sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+          backups = (await remote(() => backupsOf(client).list(remoteId))).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt))
             .map((b) => ({ name: b.uuid, label: b.name, size: b.bytes || null, at: b.createdAt, done: !!b.completedAt, ok: b.successful, locked: b.locked }));
         } else if (available) {
           backups = (await names(who.teamId, row.id, s.targetId)).map((n) => ({

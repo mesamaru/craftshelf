@@ -11,7 +11,7 @@ import { PLATFORMS, type Platform, isPlatform } from "~/lib/platforms";
 import { addonSetItem, libraryFile, libraryItem, storageTarget, installedMod, server, serverProfile, teamOption } from "./db/schema";
 import { CF_HOSTS } from "./curseforge";
 import { eventService } from "./events";
-import { HttpError, requireTeam } from "./guard";
+import { HttpError, isHttpError, requireTeam } from "./guard";
 import { remote, serverOf, worldOf } from "./servers";
 import { analyzeJar, analyzePack, fileSource } from "./jar";
 import { SAFE_FILE, pickVersion } from "./modrinth";
@@ -255,7 +255,7 @@ export async function downloadTo(fetch: Deps["fetch"], url: string, path: string
     try {
       await pipeline(Readable.fromWeb(res.body as WebStream<Uint8Array>), limit, createWriteStream(path));
     } catch (e) {
-      if (e instanceof HttpError) throw e;
+      if (isHttpError(e)) throw e;
       throw new HttpError(502, "配布元からファイルを取ってこられませんでした(途中で切れました)");
     }
     return;
@@ -404,7 +404,7 @@ export function uploadService(deps: Deps) {
         await pipeline(Readable.fromWeb(body), limit, createWriteStream(tmp));
         return await this.ingest(headers, filename, tmp);
       } catch (e) {
-        if (e instanceof HttpError) throw e;
+        if (isHttpError(e)) throw e;
         throw new HttpError(400, "ファイルを受け取れませんでした(途中で切れました)");
       } finally {
         rmSync(tmp, { force: true });

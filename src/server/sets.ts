@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, count, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { ITEM_TYPES, PLATFORMS, isItemType, isPlatform } from "~/lib/platforms";
 import { addonSet, addonSetItem, installedMod, libraryItem, server, serverHold, serverSet } from "./db/schema";
-import { HttpError, requireTeam } from "./guard";
+import { HttpError, isHttpError, requireTeam } from "./guard";
 import { isItemSource } from "~/lib/sources";
 import { fileProfile, isDisabled, modTools, profileFor } from "./library";
 import { type EventKind, eventService } from "./events";
@@ -125,7 +125,7 @@ export function setService(deps: Deps) {
           }
         }
       } catch (e) {
-        if (!(e instanceof HttpError)) throw e;
+        if (!isHttpError(e)) throw e;
         out.push({ title: it.title, status: "failed", detail: e.message });
       }
     }
@@ -142,7 +142,7 @@ export function setService(deps: Deps) {
         await removeFrom(target, p, userId, r.filename);
         out.push({ title: r.title, status: "removed", detail: r.filename });
       } catch (e) {
-        if (!(e instanceof HttpError)) throw e;
+        if (!isHttpError(e)) throw e;
         out.push({ title: r.title, status: "failed", detail: `外せませんでした(${e.message})` });
       }
     }
@@ -186,7 +186,7 @@ export function setService(deps: Deps) {
         if (from.holds.has(key)) await db.insert(serverHold).values({ serverId: target.row.id, source: s.source, projectId: s.projectId, createdBy: userId }).onConflictDoNothing();
         out.push({ title: s.title, status: now ? "updated" : "installed", detail: now ? `${now.versionNumber} → ${r.versionNumber}` : r.versionNumber });
       } catch (e) {
-        if (!(e instanceof HttpError)) throw e;
+        if (!isHttpError(e)) throw e;
         out.push({ title: s.title, status: "failed", detail: e.message });
       }
     }
@@ -404,7 +404,7 @@ export function setService(deps: Deps) {
         try {
           out.push({ server: b.name, set: b.setName, results: await applyTo(teamId, null, await itemsOf(b.setId), b.serverId, mode), error: "" });
         } catch (e) {
-          if (!(e instanceof HttpError)) throw e;
+          if (!isHttpError(e)) throw e;
           out.push({ server: b.name, set: b.setName, results: [], error: e.message });
         }
       }
@@ -438,7 +438,7 @@ export function setService(deps: Deps) {
         try {
           results = await queue.run(i, () => copyInto(teamId, user.id, from, t.id, mode as CopyMode), head);
         } catch (e) {
-          if (!(e instanceof HttpError)) { await queue.skipRest(i); throw e; }
+          if (!isHttpError(e)) { await queue.skipRest(i); throw e; }
           error = e.message;
         }
         out.push({ serverId: t.id, server: t.name, results, error });
@@ -466,7 +466,7 @@ export function setService(deps: Deps) {
         try {
           results = (await queue.run(i, () => updateInstalled(who.teamId, who.user.id, t.id), head)).filter((r) => r.status !== "present");
         } catch (e) {
-          if (!(e instanceof HttpError)) { await queue.skipRest(i); throw e; }
+          if (!isHttpError(e)) { await queue.skipRest(i); throw e; }
           error = e.message;
         }
         out.push({ serverId: t.id, server: t.name, results, error });
@@ -511,7 +511,7 @@ export function setService(deps: Deps) {
           const r = await jobs.track({ teamId: s.teamId, userId: null, serverId: s.id, action: "自動更新" }, () => updateInstalled(s.teamId, null, s.id), head, changed);
           if (changed(r)) await record({ teamId: s.teamId, userId: null, kind: "schedule", also: alsoOf(r), action: "自動更新", target: s.name, detail: summary(r) });
         } catch (e) {
-          if (!(e instanceof HttpError)) console.error("[自動更新] 動かせませんでした:", e);
+          if (!isHttpError(e)) console.error("[自動更新] 動かせませんでした:", e);
           else await record({ teamId: s.teamId, userId: null, kind: "schedule", also: ["errors"], action: "自動更新", target: s.name, detail: `できませんでした: ${e.message}` });
         }
       }
@@ -545,7 +545,7 @@ export function setService(deps: Deps) {
             found.push(s.id);
           }
         } catch (e) {
-          if (!(e instanceof HttpError)) console.error("[新しい版の見回り] 確かめられませんでした:", e); // 種類を決めていないサーバーなどは飛ばす
+          if (!isHttpError(e)) console.error("[新しい版の見回り] 確かめられませんでした:", e); // 種類を決めていないサーバーなどは飛ばす
         }
       }
       return found;

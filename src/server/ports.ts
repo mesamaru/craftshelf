@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { DEFAULT_KINDS, PORT_CATALOG, type Port, type ServerPorts, findProblems, isPort } from "~/lib/ports";
 import { portGroup, portKind, server, serverPort, serverPortInfo } from "./db/schema";
-import { HttpError, requireTeam } from "./guard";
+import { HttpError, isHttpError, requireTeam } from "./guard";
 import { eventService } from "./events";
 import { portLike, readPort, writePort } from "./port-config";
 import { type Deps, remote, serverOf, serverScope } from "./servers";
@@ -153,7 +153,7 @@ export function portService(deps: Deps) {
         try {
           await remote(() => scanOne(teamId, s.id, kinds, nodes));
         } catch (e) {
-          if (!(e instanceof HttpError)) throw e;
+          if (!isHttpError(e)) throw e;
           failed.push({ name: s.name, message: e.message });
         }
       }

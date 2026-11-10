@@ -96,6 +96,13 @@ export function agentService(deps: Deps) {
     },
 
     /** エージェントのトークンを確かめ、知らせてきた版・サーバーを残す(取りに来るたびに呼ぶ) */
+    /** トークンが正しいか(エージェントの ID。正しくなければ null)。本文を読む前に確かめる */
+    async verify(token: string) {
+      if (!TOKEN.test(token)) return null;
+      const [a] = await db.select({ id: agent.id }).from(agent).where(eq(agent.tokenHash, hashOf(token)));
+      return a?.id ?? null;
+    },
+
     async checkIn(token: string, report: { version?: unknown; servers?: unknown }) {
       if (!TOKEN.test(token)) return null;
       const [a] = await db.select({ id: agent.id }).from(agent).where(eq(agent.tokenHash, hashOf(token)));

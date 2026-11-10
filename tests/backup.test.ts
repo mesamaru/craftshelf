@@ -1,7 +1,9 @@
 // パネルのバックアップと復元(自分用の版・PGlite)
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { promisify } from "node:util";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 import { applyPendingReimport, applyPendingRestore, backupService } from "~/server/backup";
 import { HttpError } from "~/server/guard";
@@ -69,6 +71,28 @@ describe("バックアップ", () => {
     expect(r.rows.map((x) => x.name)).toEqual(["オーナー", "閲覧者"]);
     await db.close();
     expect(readdirSync(v03).some((n) => n.startsWith("restore-failed"))).toBe(false);
+  });
+
+  it("置いたものが読めず退避の前に失敗したら、今のデータベースはそのまま残す", async () => {
+    const pg = mkdtempSync(join(tmpdir(), "cs-pg-"));
+    writeFileSync(join(pg, "marker"), "消してはいけない");
+    writeFileSync(join(v03, "restore-pending.tar.gz"), "壊れたファイル");
+    await expect(applyPendingRestore(v03, `pglite:${pg}`)).rejects.toThrow();
+    expect(readFileSync(join(pg, "marker"), "utf8")).toBe("消してはいけない");
+    expect(existsSync(join(v03, "restore-pending.tar.gz"))).toBe(false);
+    expect(readdirSync(v03).some((n) => n.startsWith("restore-failed"))).toBe(true);
+  });
+
+  it("名前で戻すとき(この更新の前に戻すなど)も、中身がバックアップかを確かめてから置く", async () => {
+    const dir = join(v03, "backups");
+    const work = mkdtempSync(join(tmpdir(), "cs-notbk-"));
+    writeFileSync(join(work, "readme.txt"), "バックアップではない");
+    const bad = "craftshelf-v03-20200101-000000.tar.gz";
+    await promisify(execFile)("tar", ["-czf", join("..", bad), "readme.txt"], { cwd: work });
+    renameSync(join(work, "..", bad), join(dir, bad));
+    expect(await code(svc.restore(owner, bad))).toBe(400);
+    expect(existsSync(join(v03, "restore-pending.tar.gz"))).toBe(false);
+    rmSync(join(dir, bad), { force: true });
   });
 });
 

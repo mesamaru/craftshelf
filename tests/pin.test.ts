@@ -39,7 +39,7 @@ const fake: FetchLike = async (url, init) => {
   const m = u.pathname.match(/^\/api\/client\/servers\/abcd1234\/files\/(list|pull|delete|rename)$/);
   const body = init?.body ? JSON.parse(String(init.body)) : {};
   if (m?.[1] === "list") return json({ data: (files.get(u.searchParams.get("directory")!) ?? []).map((name) => ({ attributes: { name, size: 1, is_file: true } })) });
-  if (m?.[1] === "pull") files.set(body.directory, [...(files.get(body.directory) ?? []), body.filename]);
+  if (m?.[1] === "pull") files.set(body.directory, [...new Set([...(files.get(body.directory) ?? []), body.filename])]); // 同じ名前は上書き
   if (m?.[1] === "delete") files.set(body.root, (files.get(body.root) ?? []).filter((x) => !body.files.includes(x)));
   if (m?.[1] === "rename") files.set(body.root, (files.get(body.root) ?? []).map((x) => (x === body.files[0].from ? body.files[0].to : x)));
   return m ? new Response(null, { status: 204 }) : json({}, 404);
@@ -102,6 +102,17 @@ describe("セットの版の固定", () => {
     expect(plugins()).toEqual(["LuckPerms-5.3.0.jar"]);
     expect(await lib.updates(owner, serverId)).toEqual([]);
     expect((await lib.installed(owner, serverId)).items[0]).toMatchObject({ versionNumber: "5.3.0", pinned: "5.3.0" });
+  });
+
+  it("ライブラリ・サーバーの一覧の「更新あり」に出さず「固定」と出す。版を選ばずに入れ直しても(更新を押しても)固定した版のまま", async () => {
+    expect(await lib.outdatedServers(owner)).toEqual([]);
+    expect((await lib.catalog(owner)).items[0].installs[0]).toMatchObject({ versionNumber: "5.3.0", pinned: "5.3.0" });
+    const r = await lib.install(owner, serverId, PLUGIN);
+    expect(r.versionNumber).toBe("5.3.0");
+    expect(plugins()).toEqual(["LuckPerms-5.3.0.jar"]);
+    // 版を選べば、その版にできる(いままでどおり)
+    expect((await lib.install(owner, serverId, PLUGIN, "modrinth", "ver00002")).versionNumber).toBe("5.4.0");
+    expect((await sets.sync(owner, serverId, "update"))[0]).toMatchObject({ status: "updated", detail: "5.4.0 → 5.3.0(固定した版)" });
   });
 
   it("サーバーに合わない版に固定すると、知らせて飛ばす(まとめにも載る)", async () => {

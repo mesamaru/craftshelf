@@ -423,7 +423,7 @@ function ServersTab({ item, cat, edit, admin, old, depInfo, onChange, onDeps, on
               <div key={s.id} className="row">
                 <span className="mid">
                   <span className="ttl" translate="no">{s.name}</span>
-                  <span className="sub">{x ? <><span translate="no">{x.versionNumber}</span>{x.disabled && <> · <span>無効</span></>}{isOld && <> · <span>古い版</span></>}</> : "—"}</span>
+                  <span className="sub">{x ? <><span translate="no">{x.versionNumber}</span>{x.disabled && <> · <span>無効</span></>}{x.pinned && <> · <span title="結び付けたセットで版を固定しています">固定</span></>}{isOld && <> · <span>古い版</span></>}</> : "—"}</span>
                 </span>
                 {busy === s.id && <span className="muted small">しています…</span>}
                 {edit && !pack && isOld && <Btn kind="tint" sm disabled={!!busy} onClick={() => put(s.id)}>更新</Btn>}

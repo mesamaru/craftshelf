@@ -5,7 +5,7 @@ import { cfFingerprint } from "./fingerprint";
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import { ITEM_TYPES, PLATFORMS, MC_VERSION, LOADERS, type Platform, isItemType, isPlatform, kindsOf, mcClean, mcCovers } from "~/lib/platforms";
 import { installedMod, libraryItem, server, serverHold, serverProfile, user as userTable } from "./db/schema";
-import { HttpError, requireTeam } from "./guard";
+import { HttpError, isHttpError, requireTeam } from "./guard";
 import { type Channel, type ItemSource, SOURCE_LABEL, isChannel, isItemSource, parseSourceUrl } from "~/lib/sources";
 import { ModrinthError, type ProjectType, modrinthClient } from "./modrinth";
 import { SpigetError, spigetClient } from "./spiget";
@@ -13,7 +13,7 @@ import { CF_KEY, CurseForgeError, curseforgeClient } from "./curseforge";
 import { addonSetItem, installHistory, libraryDep, libraryFavorite, libraryFile, libraryTag, serverChange, serverSet, teamCurseforge, teamOption } from "./db/schema";
 import { hint, open, seal } from "./secrets";
 import { fileStore, uploadService } from "./uploads";
-import { analyzeJar } from "./jar";
+import { analyzeJar, jarKey } from "./jar";
 import { eventService } from "./events";
 import { jobService } from "./jobs";
 import { type Deps, remote, serverOf, serverScope, worldOf } from "./servers";
@@ -174,7 +174,7 @@ export function modTools(deps: Deps) {
       const f = await latestFile(source, projectId, p, teamId);
       if (f) return f;
     } catch (e) {
-      if (!(e instanceof HttpError)) throw e;
+      if (!isHttpError(e)) throw e;
       err = e;
     }
     const s = deps.local ? await files.savedPick(teamId, source, projectId, p.platform, p.kind) : null;
@@ -227,7 +227,7 @@ export function modTools(deps: Deps) {
       const file = await fromSource(() => (cf ? cf.file(projectId, versionId) : modrinth.version(projectId, versionId)));
       if (file) return { ...file, upload: undefined };
     } catch (e) {
-      const s = e instanceof HttpError ? await files.savedOf(teamId, source, projectId, versionId) : null;
+      const s = isHttpError(e) ? await files.savedOf(teamId, source, projectId, versionId) : null;
       if (s) return savedFile(projectId, s);
       throw e;
     }
@@ -346,6 +346,28 @@ export function modTools(deps: Deps) {
     return rec?.title ?? filename;
   }
 
+  // ファイルの見分ける名前(jarKey)。サーバー・場所・大きさが同じなら読み直さない(Pterodactyl はファイルを取ってくるので)
+  const keyMemo = new Map<string, string>();
+  /** dir に、filename と同じ名前(plugin.yml の name・Mod の id)の jar がほかのファイル名で入っていれば、その名前(skip は除く) */
+  async function sameNamed(target: Target, dir: string, filename: string, skip: string[]) {
+    const read = (name: string) => target.client.readBytes(target.remoteId, `${dir}/${name}`, IDENTIFY_BYTES).then(jarKey, () => "");
+    const mine = await read(filename);
+    if (!mine) return [];
+    const out: string[] = [];
+    for (const f of await remote(() => target.client.listFiles(target.remoteId, dir))) {
+      if (!f.isFile || f.name === filename || skip.includes(f.name) || !/\.jar$/i.test(f.name)) continue; // 無効・外したものは読み込まれないので見ない
+      const k = `${target.row.id}:${dir}/${f.name}:${f.size}`;
+      let key = keyMemo.get(k);
+      if (key === undefined) {
+        key = await read(f.name);
+        if (keyMemo.size >= 5000) keyMemo.clear();
+        keyMemo.set(k, key);
+      }
+      if (key === mine) out.push(f.name);
+    }
+    return out;
+  }
+
   type Installed = { title: string; filename: string; versionNumber: string; replaced: string[]; deps: { title: string; ok: boolean; detail: string }[] };
 
   /**
@@ -368,7 +390,7 @@ export function modTools(deps: Deps) {
     const file = saved ? { ...first, upload: saved } : first;
     const info = await project(source, projectId, teamId).catch(async (e) => {
       // 保存した版を送るときは、配布元につながらなくてもライブラリの名前で続ける
-      const [i] = file.upload && e instanceof HttpError ? await db.select().from(libraryItem)
+      const [i] = file.upload && isHttpError(e) ? await db.select().from(libraryItem)
         .where(and(eq(libraryItem.teamId, teamId), eq(libraryItem.source, source), eq(libraryItem.projectId, projectId))) : [];
       if (!i) throw e;
       return { title: i.title, slug: i.slug, projectType: i.projectType as ProjectType, iconUrl: i.iconUrl };
@@ -401,6 +423,10 @@ export function modTools(deps: Deps) {
         .where(and(eq(installHistory.serverId, row.id), eq(installHistory.source, source), eq(installHistory.projectId, projectId))).orderBy(desc(installHistory.replacedAt)).offset(10);
       if (hist.length) await db.delete(installHistory).where(inArray(installHistory.id, hist.map((h) => h.id)));
     }
+    // 同じ名前のプラグイン・Mod が別のファイル名で入っていれば(手で置いたもの・ほかの配布元から入れたもの)外す。
+    // Paper は同じ名前のものが 2 つあると読み込めない。外したものは「外す」と同じく、変更の履歴から元に戻せる
+    const dupes = p.kind ? [] : await sameNamed(target, dir, file.filename, stale.map((o) => o.filename));
+    for (const f of dupes) await removeFrom(target, p, userId, f);
     const values = {
       id: randomUUID(), serverId: row.id, source, projectId, versionId: file.versionId, versionNumber: file.versionNumber,
       title: info?.title || file.filename, filename: file.filename, installedBy: userId, installedAt: new Date(),
@@ -433,12 +459,12 @@ export function modTools(deps: Deps) {
           const r = await installInto(teamId, userId, target, p, source, dep, { depth: depth - 1 });
           deps.push({ title: r.title, ok: true, detail: r.versionNumber }, ...r.deps);
         } catch (e) {
-          if (!(e instanceof HttpError)) throw e;
+          if (!isHttpError(e)) throw e;
           deps.push({ title: dep, ok: false, detail: e.message });
         }
       }
     }
-    return { title: values.title, filename: file.filename, versionNumber: file.versionNumber, replaced: stale.map((o) => o.filename), deps };
+    return { title: values.title, filename: file.filename, versionNumber: file.versionNumber, replaced: [...stale.map((o) => o.filename), ...dupes], deps };
   }
 
   // 更新を止めているもの("配布元:ID" の集合)
@@ -452,6 +478,13 @@ export function modTools(deps: Deps) {
       .where(and(eq(serverSet.serverId, serverId), isNotNull(addonSetItem.versionId))))
       .map((r) => [`${r.source}:${r.projectId}`, { versionId: r.versionId!, versionNumber: r.versionNumber }]));
 
+  // チームのサーバーごとの、結び付けたセットで固定した版("サーバー:配布元:ID" → 版)
+  const teamPinsOf = async (teamId: string) =>
+    new Map((await db.select({ serverId: serverSet.serverId, source: libraryItem.source, projectId: libraryItem.projectId, versionNumber: addonSetItem.versionNumber })
+      .from(serverSet).innerJoin(server, eq(serverSet.serverId, server.id)).innerJoin(addonSetItem, eq(addonSetItem.setId, serverSet.setId)).innerJoin(libraryItem, eq(addonSetItem.itemId, libraryItem.id))
+      .where(and(eq(server.teamId, teamId), isNotNull(addonSetItem.versionId))))
+      .map((r) => [`${r.serverId}:${r.source}:${r.projectId}`, r.versionNumber]));
+
   // このアプリで入れたものの新しい版(止めているもの・セットで版を固定しているもの・無効にしたものは確かめない)。skipFailed なら確かめられないものを飛ばす
   async function updatesOf(serverId: string, p: Profile, teamId: string, skipFailed = false) {
     const records = await db.select().from(installedMod).where(eq(installedMod.serverId, serverId));
@@ -464,7 +497,7 @@ export function modTools(deps: Deps) {
       try {
         f = await latestFile(r.source, r.projectId, fileProfile(p, r.filename), teamId);
       } catch (e) {
-        if (skipFailed && e instanceof HttpError) continue;
+        if (skipFailed && isHttpError(e)) continue;
         throw e;
       }
       if (f && f.versionId !== r.versionId) out.push({ source: r.source, projectId: r.projectId, title: r.title, filename: r.filename, current: r.versionNumber, latest: f.versionNumber });
@@ -567,7 +600,7 @@ export function modTools(deps: Deps) {
           if (memo) memoSet(memo, list);
           for (const d of list) add(src, d, it);
         } catch (e) {
-          if (!(e instanceof HttpError)) throw e;
+          if (!isHttpError(e)) throw e;
           errors.push(`${it.title}: ${e.message}`);
         }
       }));
@@ -585,13 +618,13 @@ export function modTools(deps: Deps) {
     return { missing: missing.sort((a, b) => a.title.localeCompare(b.title)), errors: [...new Set(errors)] };
   }
 
-  return { files, missingOf, pickOf, modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, pinsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn, dirOf, addonsIn, packVersions };
+  return { teamPinsOf, files, missingOf, pickOf, modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, pinsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn, dirOf, addonsIn, packVersions };
 }
 
 export function libraryService(deps: Deps) {
   const { db, auth } = deps;
   const { record } = eventService(deps);
-  const { files, missingOf, modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, pinsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn, dirOf, addonsIn, packVersions } = modTools(deps);
+  const { teamPinsOf, files, missingOf, modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, pinsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn, dirOf, addonsIn, packVersions } = modTools(deps);
   // このチームで探せる配布元(CurseForge は API キーを設定したときだけ)
   const sourcesOf = async (teamId: string) => ["modrinth", "spigot", ...((await cfKeyOf(teamId)) ? ["curseforge"] : [])];
   const sourceOf = (v: string) => {
@@ -702,8 +735,10 @@ export function libraryService(deps: Deps) {
       .where(eq(server.teamId, teamId));
     const holds = new Set((await db.select({ serverId: serverHold.serverId, source: serverHold.source, projectId: serverHold.projectId }).from(serverHold)
       .innerJoin(server, eq(serverHold.serverId, server.id)).where(eq(server.teamId, teamId))).map((h) => `${h.serverId}:${h.source}:${h.projectId}`));
-    // 更新を止めているもの・無効にしたもの・割り当てられていないサーバーは見ない
-    const todo = rows.filter((r) => isItemSource(r.source) && isPlatform(r.platform) && !isDisabled(r.filename) && (!scope || scope.has(r.serverId)) && !holds.has(`${r.serverId}:${r.source}:${r.projectId}`));
+    const pins = await teamPinsOf(teamId);
+    // 更新を止めているもの・結び付けたセットで版を固定しているもの・無効にしたもの・割り当てられていないサーバーは見ない
+    const todo = rows.filter((r) => isItemSource(r.source) && isPlatform(r.platform) && !isDisabled(r.filename) && (!scope || scope.has(r.serverId))
+      && !holds.has(`${r.serverId}:${r.source}:${r.projectId}`) && !pins.has(`${r.serverId}:${r.source}:${r.projectId}`));
     // 同じ配布元・種類・バージョンの組は 1 回だけ問い合わせる。問い合わせられなかったものは「更新あり」にしない
     const latest = new Map<string, Promise<string | null>>();
     const latestOf = (r: (typeof todo)[number]) => {
@@ -744,6 +779,7 @@ export function libraryService(deps: Deps) {
       const installs = (await db.select({ serverId: server.id, serverName: server.name, source: installedMod.source, projectId: installedMod.projectId, title: installedMod.title, versionNumber: installedMod.versionNumber, filename: installedMod.filename })
         .from(installedMod).innerJoin(server, eq(installedMod.serverId, server.id))
         .where(eq(server.teamId, teamId)).orderBy(asc(server.name))).filter((r) => mine(r.serverId)).map((r) => ({ ...r, disabled: isDisabled(r.filename) }));
+      const pins = await teamPinsOf(teamId); // 結び付けたセットで固定した版(「固定」と出す)
       const servers = await db.select({ id: server.id, name: server.name, platform: serverProfile.platform })
         .from(server).leftJoin(serverProfile, eq(serverProfile.serverId, server.id)).where(eq(server.teamId, teamId)).orderBy(asc(server.name));
       const listed = new Set(items.map((i) => `${i.source}:${i.projectId}`));
@@ -760,7 +796,7 @@ export function libraryService(deps: Deps) {
           // channel: "" = チームの既定。loaders・mcVersions: 管理者が直したもの(null = 直していない)。mc: 対応 MC(直したもの、無ければ配布元から取ったもの)。deps: 手で決めた前提
           channel: isChannel(i.channel) ? i.channel : ("" as const), loaders: i.loaders ? parseList(i.loaders) : null, mcVersions: i.mcVersions ? parseList(i.mcVersions) : null,
           mc: (i.mcVersions ? parseList(i.mcVersions) : null) ?? mcClean(parseList(i.upstreamMc)), deps: links.filter((l) => l.itemId === i.id).map((l) => l.depItemId),
-          installs: installs.filter((r) => r.source === i.source && r.projectId === i.projectId).map(({ serverId, serverName, versionNumber, filename, disabled }) => ({ serverId, serverName, versionNumber, filename, disabled })),
+          installs: installs.filter((r) => r.source === i.source && r.projectId === i.projectId).map(({ serverId, serverName, versionNumber, filename, disabled }) => ({ serverId, serverName, versionNumber, filename, disabled, pinned: pins.get(`${serverId}:${i.source}:${i.projectId}`) ?? null })),
           pack: packOf(i.pack), // Modパック: 使った版と、配布元のいちばん新しい版(使っていなければ null)
           // 保存先にある版の数(アップロード・保存したもの)と、保存の設定("" / null = チームの既定)
           files: fileCount.get(i.id) ?? 0, keepFiles: i.keepFiles, keepVersions: i.keepVersions,
@@ -1203,6 +1239,10 @@ export function libraryService(deps: Deps) {
         file = await fileById(src, projectId, versionId, teamId);
         if (!file) throw new HttpError(404, "その版は見つかりません");
         hold = (await latestFile(src, projectId, p, teamId))?.versionId !== versionId;
+      } else {
+        // 結び付けたセットで版を固定しているものは、版を選ばなければ(「更新」を押しても)固定した版を入れる
+        const pin = (await pinsOf(row.id)).get(`${src}:${projectId}`);
+        if (pin) file = await fileById(src, projectId, pin.versionId, teamId);
       }
       const r = await jobService(deps).track({ teamId, userId: user.id, serverId: row.id, action: "入れる" },
         () => installInto(teamId, user.id, { row, client, remoteId }, p, src, projectId, file ? { file } : {}), (x) => `${x.title} ${x.versionNumber}`);

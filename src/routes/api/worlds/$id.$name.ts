@@ -8,7 +8,7 @@ export const Route = createFileRoute("/api/worlds/$id/$name")({
     handlers: {
       GET: async ({ request, params }) => {
         const { worlds } = await import("~/server/instance");
-        const { HttpError } = await import("~/server/guard");
+        const { isHttpError } = await import("~/server/guard");
         try {
           const f = await worlds.open(request.headers, params.id, params.name);
           if ("url" in f) return new Response(null, { status: 302, headers: { Location: f.url, "Cache-Control": "no-store" } });
@@ -17,7 +17,7 @@ export const Route = createFileRoute("/api/worlds/$id/$name")({
             ...(f.size !== null ? { "Content-Length": String(f.size) } : {}),
           } });
         } catch (e) {
-          if (e instanceof HttpError) return Response.json({ message: e.message }, { status: e.status });
+          if (isHttpError(e)) return Response.json({ message: e.message }, { status: e.status });
           throw e;
         }
       },

@@ -4,7 +4,7 @@ import type { ReadableStream as WebStream } from "node:stream/web";
 
 const handle = async ({ request }: { request: Request }) => {
   const { uploads } = await import("~/server/instance");
-  const { HttpError } = await import("~/server/guard");
+  const { HttpError, isHttpError } = await import("~/server/guard");
   const { UPLOAD_LIMITS } = await import("~/server/uploads");
   try {
     const filename = new URL(request.url).searchParams.get("filename") ?? "";
@@ -12,7 +12,7 @@ const handle = async ({ request }: { request: Request }) => {
     if (Number(request.headers.get("content-length") ?? 0) > UPLOAD_LIMITS.fileBytes) throw new HttpError(400, "ファイルが大きすぎます");
     return Response.json(await uploads.receive(request.headers, filename, request.body as WebStream<Uint8Array> | null));
   } catch (e) {
-    if (e instanceof HttpError) return Response.json({ message: e.message }, { status: e.status });
+    if (isHttpError(e)) return Response.json({ message: e.message }, { status: e.status });
     throw e;
   }
 };

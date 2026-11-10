@@ -177,6 +177,30 @@ await step("フォルダのサーバーを足すと、一覧と詳細のタブ�
   await page.waitForURL(/tab=files/);
 });
 
+// ビルドしたものでは HttpError のクラスが 2 つの束に分かれるので、エラーが 500 にならず理由どおりに返るかを確かめる(03.67.01)
+await step("API・アップロードのエラーが、理由どおりの番号と文で返る", async () => {
+  const expectRes = async (what, res, status, text) => {
+    const body = await res.json().catch(() => ({}));
+    if (res.status() !== status || (text && !String(body.message ?? "").match(text))) throw new Error(`${what}: ${res.status()} ${body.message ?? ""}`);
+  };
+  // 読み取りだけの API トークンを作る(範囲は「読む」だけの既定のまま)
+  await page.goto(base + "/settings?s=tokens");
+  await page.getByPlaceholder("名前(使い道。例 毎朝の更新の確認)").fill("e2e");
+  await page.getByRole("button", { name: "トークンを作る" }).click();
+  const key = await page.getByLabel("作ったトークン").inputValue();
+  const api = (path, init = {}) => page.request.fetch(base + "/api/v1" + path, { ...init, headers: { "x-api-key": key, "content-type": "application/json", ...init.headers } });
+  await expectRes("無いサーバー", await api("/servers/nonexistent"), 404, /見つかりません/);
+  await expectRes("権限が足りない", await api("/servers/nonexistent/power", { method: "POST", data: { signal: "start" } }), 403, /読み取りだけ/);
+  await expectRes("正しくないトークン", await api("/servers", { headers: { "x-api-key": "cs_wrong" } }), 401, /正しくない/);
+  // ログインの Cookie で、壊れた jar のアップロード・無いサーバーのワールド
+  await expectRes("壊れた jar", await page.request.post(base + "/api/library/upload?filename=broken.jar", { data: Buffer.from("not a jar"), headers: { "content-type": "application/octet-stream" } }), 400, /読めません/);
+  await expectRes("無いサーバーのワールド", await page.request.get(base + "/api/worlds/nonexistent/world-20200101-000000.tar.gz"), 404, /見つかりません/);
+  // ログインしていなければ、本文を読む前に断る
+  const anon = await page.context().browser().newContext();
+  await expectRes("ログインしていない Modpack", await anon.request.post(base + "/api/modpack?filename=a.mrpack", { data: Buffer.alloc(1024) }), 401);
+  await anon.close();
+});
+
 await step("ログアウトはアカウントの設定にあり、押すとログイン画面に戻る", async () => {
   await page.goto(base + "/settings");
   await page.locator(".set-nav").getByRole("link", { name: "プロフィール" }).waitFor();

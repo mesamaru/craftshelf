@@ -142,6 +142,16 @@ describe("フォルダのサーバーのワールド", () => {
     expect((await worlds.get(owner, id)).backups).toEqual([]);
   });
 
+  it("level-name を変えたあとも、新しく作ったものを残す(古さは名前の日時で決める)", async () => {
+    // 前の level-name(名前の順では myworld より後ろ)で作った古いもの
+    const dir = join(dataDir, "v03", "worlds", id);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "zzworld-20200101-000000.tar.gz"), "古い");
+    const { name } = await worlds.create(owner, id, true); // 残す数は 1
+    expect((await worlds.get(owner, id)).backups.map((b) => b.name)).toEqual([name]);
+    await worlds.remove(owner, id, name);
+  });
+
   it("置き場所に保存先を選べる(ほかのチームの保存先は選べない)", async () => {
     const up = uploadService({ db: t.db, auth: t.auth, secret: SECRET, fetch: fake, local: { dataDir } });
     await up.addTarget(owner, { name: "NAS", kind: "local", path: store });

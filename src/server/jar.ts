@@ -81,6 +81,30 @@ const json = (text: string) => {
   }
 };
 
+/**
+ * 同じものかを見分ける名前(plugin.yml・paper-plugin.yml の name、velocity-plugin.json・fabric.mod.json・quilt.mod.json の id、mods.toml の modId)。
+ * Paper は同じ名前のプラグインを 2 つ読み込めない。説明ファイルが無ければ ""(ファイル名からは決めない)
+ */
+export function jarKey(buf: Uint8Array | ZipSource): string {
+  const files = readZipTexts(buf) ?? new Map<string, string>();
+  const key = (kind: string, v: unknown) => (typeof v === "string" && v.trim() ? `${kind}:${v.trim().toLowerCase()}` : "");
+  for (const f of ["paper-plugin.yml", "plugin.yml", "bungee.yml"]) {
+    const t = files.get(f);
+    if (t) return key("plugin", yamlTop(t).name);
+  }
+  const velocity = files.get("velocity-plugin.json");
+  if (velocity) return key("velocity", json(velocity).id);
+  for (const f of ["fabric.mod.json", "quilt.mod.json"]) {
+    const t = files.get(f);
+    if (t) { const j = json(t); return key("mod", j.id ?? (j.quilt_loader as Record<string, unknown> | undefined)?.id); }
+  }
+  for (const f of ["META-INF/neoforge.mods.toml", "META-INF/mods.toml"]) {
+    const t = files.get(f);
+    if (t) return key("mod", tomlFirst(t, "modId"));
+  }
+  return "";
+}
+
 /** jar を調べる。プラグイン・Mod として読めなければ projectType が null */
 export function analyzeJar(buf: Uint8Array | ZipSource, filename: string): JarInfo {
   const files = readZipTexts(buf) ?? new Map<string, string>();

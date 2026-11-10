@@ -7,7 +7,7 @@ import { inArray } from "drizzle-orm";
 import type { backupService } from "./backup";
 import { job, organization } from "./db/schema";
 import { eventService } from "./events";
-import { HttpError, requireTeam } from "./guard";
+import { HttpError, isHttpError, requireTeam } from "./guard";
 import { jobService } from "./jobs";
 import type { Deps } from "./servers";
 import type { Release, versionService } from "./versions";
@@ -102,7 +102,7 @@ export function updateService(deps: Deps, versions: Versions, backups: Backups) 
       try {
         await backups.restoreFor(who.teamId, who.user.id, e.backup);
       } catch (err) {
-        throw err instanceof HttpError && err.status === 404 ? new HttpError(404, "その更新の前のバックアップが見つかりません(残す数を超えて消えた可能性があります)") : err;
+        throw isHttpError(err) && err.status === 404 ? new HttpError(404, "その更新の前のバックアップが見つかりません(残す数を超えて消えた可能性があります)") : err;
       }
       try {
         await versions.use(e.from);

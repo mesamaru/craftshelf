@@ -40,7 +40,7 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 ## 決まりごと
 
 - **データベースの変更は「足すだけ」**: 表・項目を消したり、名前や意味を変えたりしない。`npm run db:generate` で `drizzle/` に移行の SQL を足し、起動したときに流す。
-- 本番のビルドでは `instance.ts` が 2 つの束(サーバーの関数 / サーバーのルートと起動時の処理)に別々に入る。データベース(`createDb`)とエージェントの列(`hub`)は `globalThis` でプロセスに 1 つにする(03.56.00 から。PGlite を 2 回開くと、互いの書き込みが見えない)。
+- 本番のビルドでは `instance.ts` が 2 つの束(サーバーの関数 / サーバーのルートと起動時の処理)に別々に入る。データベース(`createDb`)とエージェントの列(`hub`)は `globalThis` でプロセスに 1 つにする(03.56.00 から。PGlite を 2 回開くと、互いの書き込みが見えない)。束ごとにクラスも別にできるので、`HttpError` は `instanceof` ではなく `isHttpError(e)`(名前と `status`)で見分ける(03.67.01 から)。独自のルート(`src/routes/api/**`)・REST API は、本文を読む前に権限(トークン)を確かめ、`readBody(request, 上限)` で上限付きで少しずつ読む。
 - 認証の表(`src/server/db/auth-schema.ts`)は `npm run auth:schema` で作る。Better Auth の設定(プラグイン)を変えたら作り直し、続けて `npm run db:generate`。
 - サーバーだけで動く処理は `src/server/` に置き、画面からは `createServerFn` かサーバーのルート(`src/routes/api/`)を通して使う。認証の確認は、画面の `beforeLoad` だけでなく、サーバー側の処理ごとに必ず行う。
 - 利用者の IP は、Cloudflare Tunnel が付ける `cf-connecting-ip` を使う(`CLIENT_IP_HEADER`)。app のポートを外に出さない構成のときだけ信頼できる。
@@ -57,7 +57,7 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 | 編集者 | サーバーの起動と停止、Mod・プラグインを入れる・外す・更新する |
 | 閲覧者 | 見るだけ |
 
-- サーバー側の処理では `requireTeam(auth, headers, { server: ["control"] })` のように、選んでいるチームでの権限を必ず確かめる(`src/server/guard.ts`)。
+- サーバー側の処理では `requireTeam(auth, headers, { server: ["control"] })` のように、選んでいるチームでの権限を必ず確かめる(`src/server/guard.ts`)。権限を渡さなくても、いまもそのチームのメンバーかは必ず確かめる(Better Auth は外された人のセッションの `activeOrganizationId` を消さないので、`organizationHooks.afterRemoveMember` で消し、残っていても断る)。フォルダのサーバーの起動・停止の設定・フォルダをたどる・足す(パネルの PC でコマンドが動く)は、`server:*` に加えて `member:update`(役割だけが持つ。足し引きで配れない)を求める。
 - 権限の種類(`statements`): Better Auth の `member`・`invitation`・`organization` などに加えて、`server`(create・update・delete・control)・`library`(edit)と、03.60.00 から `files`(edit。設定ファイル)・`audit`(read。操作の記録)・`storage`(manage。保存先)・`integrations`(manage。Discord への通知・CurseForge のキー)・`panel`(manage。版の切り替え・自動アップデート・利用状況の送信)。管理者・オーナーはすべて、編集者は `server:control`・`library:edit`、閲覧者は無し。利用状況・パネルのバックアップ・サーバーの割り当て・チームの既定などは `member:update`(管理者以上)のまま。
 - メンバーごとの権限(03.60.00 から。v02 の `users.perms`): 表 `member_perm`(Better Auth の `member` ごと。外部キーでチームから外すと消え、ほかのチームには効かない)の `allow`・`deny`(`"server:control"` の形の JSON の配列)。できることは `permsOf(役割, { allow, deny, editorFiles })` = 役割の権限 + チームの「編集者にも設定ファイル」(`team_option.editor_files`。編集者だけの既定)+ allow − deny。足し引きできるのは `GRANTS`(`library:edit`・`server:*`・`files:edit`・`audit:read`・`storage:manage`・`integrations:manage`・`panel:manage`)だけ。`member`・`invitation`・`organization` は Better Auth が自分の処理(招待・役割の変更・チームの名前)で役割だけを見て確かめるので、足し引きさせない(役割で決まる)。オーナーは足し引きを見ない(減らせない)。`requireTeam` は Better Auth の `hasPermission` の代わりに `memberPerms`(役割・足し引き・チームの設定を 1 回で読む。`auth.appDb` を使う)で確かめ、API トークンもトークンの範囲に加えて、作った人の今の権限で確かめる。決めるのは `teams.setMemberGrants`(`member:update`・ログインしてから・オーナーと自分は不可。持たせるものの一覧を受け取り、役割より多いものを allow、少ないものを deny に覚える)。画面の `useCan` は `myPerms` を読み(読み終わるまでは役割で決める)、チームの画面の「メンバーごとの権限」で人ごとに決める。v02 の権限は `maybeImportV02Perms` が一度だけ `V02_PERMS` の表(storage → storage:manage・audit → audit:read・integrations → integrations:manage・system → panel:manage・users は対応なし)で allow に置き換える(結果は `/data/v03/import-v02-perms.json`。v03 で決めた人は上書きしない)。
 - 招待はリンクで渡す(メールの送信は、送信サービスを決めてから足す)。招待されたメールアドレスでログインした人だけが参加できる。
@@ -151,7 +151,8 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 
 - 変更の履歴(表 `server_change`): `installInto` が入れる・更新を、`remove` が外すを残す。外すときは消さずに `<名前>.craftshelf-removed` に名前を変える(元に戻すと名前を戻す)。更新を元に戻すのは `fileById` で前の版を取り直す(SpigotMC はできない)。1 台につき新しい 30 件までで、古いものの残したファイルも消す。セットの「セットに無いものを外す」も同じように残す(外すのは `modTools.removeFrom` にまとめてある)。
 - 無効にする(`library.setEnabled`): 消さずに `<名前>.jar.disabled` に名前を変える(v02 と同じ)。`installed_mod` の記録の名前も変え、履歴(「無効にする」「有効にする」)から戻せる。無効にしたものは、更新の確認・セットでそろえる・自動更新・ほかのサーバーにそろえるで入れ替えない(比較の表・入っているものには「無効」と出す)。
-- 設定フォルダの退避: プラグインを外す・更新で入れ替えるとき、jar の plugin.yml の名前と同じフォルダ(`plugins/<名前>/`)を `plugins/.craftshelf-config/<key>/<名前>/` に写し、`server_change.config_backup` に残す。元に戻すと上書きで戻す。Pterodactyl・フォルダ・エージェントのどれでも動くよう、`listFiles`・`readBytes`・`upload` だけで 1 ファイルずつ写す(隠しファイルは除く。100 個・20 MB・6 段を超えるフォルダは退避しない)。退避できなくても入れ替え・外すは続ける。履歴を消すときに退避先も消す(フォルダのサーバーの `deleteFiles` も、Pterodactyl と同じくフォルダーを中身ごと消す)。
+- 設定フォルダの退避: プラグインを外す・更新で入れ替えるとき、jar の plugin.yml の名前と同じフォルダ(`plugins/<名前>/`)を `plugins/.craftshelf-config/<key>/<名前>/` に写し、`server_change.config_backup` に残す。元に戻すと上書きで戻す。Pterodactyl・フォルダ・エージェントのどれでも動くよう、`listFiles`・`readBytes`・`upload` だけで 1 ファイルずつ写す(隠しファイルは除く。100 個・20 MB・6 段を超えるフォルダは退避しない)。退避できなくても入れ替え・外すは続ける。
+- 同じ名前のものを 2 つ入れない(03.67.01 から): `installInto` は入れたあと、同じフォルダの jar のうち、見分ける名前(`jar.ts` の `jarKey`: plugin.yml・paper-plugin.yml の name、fabric.mod.json などの id、mods.toml の modId)が同じものを「外す」と同じく外す(変更の履歴から戻せる)。ほかの jar の名前は、サーバー・場所・大きさが同じなら読み直さない。履歴を消すときに退避先も消す(フォルダのサーバーの `deleteFiles` も、Pterodactyl と同じくフォルダーを中身ごと消す)。
 - ほかのサーバーにそろえる(`sets.copy`、画面は「ほかのサーバーとそろえる」。検証用から本番へ反映するのも同じ): そろえる元の `installed_mod`(無効にしたものは除く)と同じ版を、そろえる先の種類・バージョンに合うときだけ入れる(`versionsOf` に無い版は入れない。SpigotMC はいちばん新しい版のときだけ)。`update` = 入っているものだけ / `add` = 足りないものも / `mirror` = さらに、そろえる元に無いもの(このアプリで入れたもの)を外す。先で止めているもの・無効にしたものは変えない。元で止めているものは、先でも止める。プラグインと Mod のサーバーどうしはそろえない。
 - ライブラリに取り込む(`library.adopt`、比較の表から): 配布元がわかっていてライブラリに無いもの(`catalog.orphans`)はそのまま載せる。記録の無い jar は `identifyIn` で中身から探し、見つからなければ `uploads.fromServer`(自分用の版だけ)。
 

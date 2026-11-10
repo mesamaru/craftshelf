@@ -9,7 +9,33 @@ export type Permissions = { [K in keyof typeof statements]?: (typeof statements)
 export class HttpError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
+    this.name = "HttpError";
   }
+}
+
+/**
+ * HttpError か。ビルドすると束が 2 つに分かれて HttpError のクラスも 2 つでき、instanceof では見分けられないので、名前と status で見る
+ */
+export const isHttpError = (e: unknown): e is HttpError =>
+  (e as { name?: unknown } | null)?.name === "HttpError" && typeof (e as { status?: unknown }).status === "number";
+
+/** 本文を max バイトまで少しずつ読む(大きさを知らせていなくても、超えたら途中でやめて 400)。権限を確かめてから呼ぶ */
+export async function readBody(request: Request, max: number, tooLarge = "ファイルが大きすぎます") {
+  if (Number(request.headers.get("content-length") ?? 0) > max) throw new HttpError(400, tooLarge);
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const reader = request.body?.getReader();
+  for (;;) {
+    const r = await reader?.read();
+    if (!r || r.done) break;
+    size += r.value.byteLength;
+    if (size > max) {
+      await reader!.cancel().catch(() => {});
+      throw new HttpError(400, tooLarge);
+    }
+    chunks.push(r.value);
+  }
+  return new Uint8Array(Buffer.concat(chunks));
 }
 
 // API トークン(cs_…)は、x-api-key か Authorization: Bearer で受け取る
@@ -75,19 +101,21 @@ export async function memberPerms(auth: Auth, teamId: string, userId: string) {
   return m ? permsOf(m.role, { allow: jsonList(m.allow), deny: jsonList(m.deny), editorFiles: !!m.editorFiles }) : null;
 }
 
-// チームの中の操作。permissions を渡すと、その権限があるかも確かめる(API トークンは、トークンの範囲とその人の今の権限の両方)
+// チームの中の操作。いまもそのチームのメンバーかを必ず確かめる(外された人のセッションに、選んでいたチームが残っていても断る)。
+// permissions を渡すと、その権限があるかも確かめる(API トークンは、トークンの範囲とその人の今の権限の両方)
 export async function requireTeam(auth: Auth, headers: Headers, permissions?: Permissions) {
   const s = await requireUser(auth, headers);
   const teamId = s.session.activeOrganizationId;
   if (!teamId) throw new HttpError(403, "チームを選んでください");
+  const perms = await memberPerms(auth, teamId, s.user.id);
+  if (!perms) throw new HttpError(403, "このチームのメンバーではありません");
   if (permissions) {
     if (s.apiKey) {
       if (s.apiKey.readOnly) throw new HttpError(403, "読み取りだけの API トークンでは、この操作はできません");
       const lack = scopesFor(permissions).filter((x) => !s.apiKey.scopes.includes(x));
       if (lack.length) throw new HttpError(403, `この API トークンの範囲では、この操作はできません(要る範囲: ${lack.map((x) => SCOPE_LABELS[x]).join("、")})`);
     }
-    const perms = await memberPerms(auth, teamId, s.user.id);
-    if (!perms || !permits(perms, permissions)) throw new HttpError(403, "この操作をする権限がありません");
+    if (!permits(perms, permissions)) throw new HttpError(403, "この操作をする権限がありません");
   }
   return { ...s, teamId };
 }
@@ -98,7 +126,7 @@ export async function allowed(auth: Auth, headers: Headers, permissions: Permiss
     await requireTeam(auth, headers, permissions);
     return true;
   } catch (e) {
-    if (e instanceof HttpError && e.status === 403) return false;
+    if (isHttpError(e) && e.status === 403) return false;
     throw e;
   }
 }

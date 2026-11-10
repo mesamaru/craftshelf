@@ -126,6 +126,65 @@ export function Sheet({ title, label, head, actions, onClose, children }: { titl
   );
 }
 
+/** 画面の中のタブ(サーバーの詳細の 概要・アドオン など)。シートの中は Seg */
+export function Tabs<T extends string>({ value, options, onChange, label }: { value: T; options: readonly (readonly [T, string])[]; onChange: (v: T) => void; label: string }) {
+  return (
+    <div className="tabs glass" role="tablist" aria-label={label}>
+      {options.map(([v, text]) => <button key={v} type="button" role="tab" aria-selected={v === value} onClick={() => onChange(v)}>{text}</button>)}
+    </div>
+  );
+}
+
+export type MenuItem = { label: string; onClick: () => void; danger?: boolean; disabled?: boolean };
+
+/** 「⋯」: 押すと出る操作の一覧(行・見出しの欄で、ボタンを並べきれないとき)。外を押す・Esc・スクロールで閉じる */
+export function Menu({ items, label = "その他の操作", disabled }: { items: (MenuItem | false | "" | null | undefined)[]; label?: string; disabled?: boolean }) {
+  const list = items.filter((i): i is MenuItem => !!i);
+  const btn = useRef<HTMLButtonElement>(null);
+  const pop = useRef<HTMLDivElement>(null);
+  const [at, setAt] = useState<{ top?: number; bottom?: number; right: number } | null>(null);
+  useEffect(() => {
+    if (!at) return;
+    const close = () => setAt(null);
+    const down = (e: MouseEvent) => { if (!pop.current?.contains(e.target as Node) && !btn.current?.contains(e.target as Node)) close(); };
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape") { e.stopPropagation(); close(); btn.current?.focus(); } };
+    pop.current?.querySelector("button")?.focus();
+    document.addEventListener("mousedown", down);
+    document.addEventListener("keydown", key, true); // シートの Esc より先に受ける
+    window.addEventListener("resize", close);
+    window.addEventListener("scroll", close, true);
+    return () => {
+      document.removeEventListener("mousedown", down);
+      document.removeEventListener("keydown", key, true);
+      window.removeEventListener("resize", close);
+      window.removeEventListener("scroll", close, true);
+    };
+  }, [at]);
+  if (!list.length) return null;
+  // 下に入りきらなければ上に出す(画面の下のほうの行)
+  const open = () => {
+    const r = btn.current!.getBoundingClientRect();
+    const right = Math.max(8, innerWidth - r.right);
+    setAt(r.bottom + 44 * list.length + 16 > innerHeight ? { bottom: innerHeight - r.top + 4, right } : { top: r.bottom + 4, right });
+  };
+  return (
+    <>
+      <button ref={btn} type="button" className="iconbtn more" aria-label={label} title={label} aria-haspopup="menu" aria-expanded={!!at} disabled={disabled}
+        onClick={(e) => { e.stopPropagation(); if (at) setAt(null); else open(); }}><Icon name="more" /></button>
+      {at && (
+        <Over>
+          <div ref={pop} className="menu" role="menu" aria-label={label} style={at}>
+            {list.map((i) => (
+              <button key={i.label} type="button" role="menuitem" className={i.danger ? "danger" : undefined} disabled={i.disabled}
+                onClick={() => { setAt(null); i.onClick(); }}>{i.label}</button>
+            ))}
+          </div>
+        </Over>
+      )}
+    </>
+  );
+}
+
 /** 一覧で選ぶと下に出る操作のバー */
 export function ActionBar({ children, label }: { children: ReactNode; label: string }) {
   return <Over><div className="actionbar glass" role="toolbar" aria-label={label}>{children}</div></Over>;

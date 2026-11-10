@@ -225,8 +225,8 @@ export function serverService(deps: Deps) {
     async listServers(headers: Headers) {
       const who = await requireTeam(auth, headers);
       const scope = await serverScope(deps, who);
-      const rows = await db.select({ id: server.id, name: server.name, kind: server.kind, connection: pteroConnection.name })
-        .from(server).leftJoin(pteroConnection, eq(server.pteroConnectionId, pteroConnection.id))
+      const rows = await db.select({ id: server.id, name: server.name, kind: server.kind, connection: pteroConnection.name, platform: serverProfile.platform, mcVersion: serverProfile.mcVersion })
+        .from(server).leftJoin(pteroConnection, eq(server.pteroConnectionId, pteroConnection.id)).leftJoin(serverProfile, eq(serverProfile.serverId, server.id))
         .where(eq(server.teamId, who.teamId)).orderBy(asc(server.createdAt));
       return rows.filter((r) => !scope || scope.has(r.id)).map((r) => (r.kind === "local" ? { ...r, connection: "フォルダ" } : r.kind === "agent" ? { ...r, connection: "エージェント" } : r));
     },

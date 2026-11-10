@@ -51,3 +51,10 @@ export function mcRange(list: readonly string[]) {
   const l = mcClean(list);
   return l.length === 0 ? "" : l.length === 1 ? l[0] : `${l[0]}〜${l[l.length - 1]}`;
 }
+
+/** サーバーの種類とバージョン(例 Paper 1.21.4。決めていなければ空) */
+export const kindLabel = (platform: string | null | undefined, mc: string | null | undefined) =>
+  platform ? `${PLATFORMS[platform as Platform]?.label ?? platform}${mc ? ` ${mc}` : ""}` : "";
+
+/** サーバーの状態(serverStatus の state)の表示 */
+export const STATE_LABELS: Record<string, string> = { running: "稼働中", starting: "起動中", stopping: "止めています", offline: "停止中" };

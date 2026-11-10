@@ -1,6 +1,33 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  // 03.66.00: サーバーの一覧・詳細
+  "Pterodactyl パネル・パネルから見えるフォルダ・エージェント(家の中のサーバー機)のサーバーをまとめて扱います。押すと、状態・アドオン・ファイル・コンソール・バックアップ・設定を開きます。":
+    "Manage servers from Pterodactyl panels, folders the panel can see and agents (server machines at home) in one place. Open one to see its status, add-ons, files, console, backups and settings.",
+  "「すべて更新」は、このアプリで入れた Mod・プラグインに新しい版があれば入れます。「更新を止める」にしたもの・無効にしたもの・種類を決めていないサーバーは変えません。変更はサーバーの再起動で反映されます。":
+    "“Update all” installs new versions of mods and plugins installed by this app. Held and disabled items, and servers without a type, are not changed. Changes take effect after the server restarts.",
+  "このアプリで入れた Mod・プラグインに新しい版があれば入れます(止めたもの・無効にしたものは除く)。": "Installs new versions of mods and plugins installed by this app (except held and disabled ones).",
+  "古い版が入っているサーバー(配布元に問い合わせます。更新を止めたものは除きます)": "Servers with old versions installed (asks the sources; held items are skipped)",
+  "条件に合うサーバーはありません": "No servers match",
+  "状態がわかりません": "Unknown state",
+  "種類が決まっていません": "No server type yet",
+  "決めると、アドオンを探して入れられます": "Choose one to search for and install add-ons",
+  "要確認はありません": "Nothing to check",
+  "このサーバーの構成をほかのサーバーへ": "Copy this server's setup to others",
+  "閲覧者・編集者がいません": "No viewers or editors",
+  "書き方に問題はありません": "No syntax problems",
+  "6 時間ごとに、新しい版があれば入れる": "Every 6 hours, install new versions if any",
+  "このサーバーを見る・操作できる人": "People who can see and operate this server",
+  "管理者とオーナーは、いつでもすべてのサーバーを使えます。オフにした人には、一覧・比較・セット・ポートにもこのサーバーが出ません。チームの「サーバーの割り当て」でも決められます。":
+    "Admins and the owner can always use every server. People turned off do not see this server in lists, compare, sets or ports either. You can also set this in the team's “Server assignment”.",
+  "このサーバーと同じ版を、選んだサーバーに入れます": "Installs the same versions as this server on the chosen servers",
+  "このサーバーに、このアプリで入れたもの(無効にしたものは除く)と同じ版を、選んだサーバーに入れます。そろえ方はアドオンの「そろえる」と同じです。":
+    "Installs on the chosen servers the same versions of what this app installed on this server (except disabled items). The sync modes are the same as “Sync” in Add-ons.",
+  "決めた時刻に、新しい版にするか、セットでそろえます": "At the set time, update to new versions or sync with the set",
+  "今のビルドと、いちばん新しいビルド": "Current and newest build",
+  "セットか、ほかのサーバーと同じにします": "Match a set or another server",
+  "版を変える · 今": "Change version · current",
+  "テスト版": "test version",
   // API の説明・トークンの範囲・処理の一覧・見た目のテーマ・ホーム画面に追加(03.57.00)
   "サーバーの種類(platform: paper・fabric など)と Minecraft のバージョン(mcVersion)を設定する": "Set the server type (platform: paper, fabric, etc.) and Minecraft version (mcVersion)",
   "サーバーの状態(動いているか・CPU・メモリ・ping: 人数・名前の一部・応答の速さ)": "Server status (running or not, CPU, memory; ping: players, some names, latency)",
@@ -1538,6 +1565,38 @@ export const EN: Record<string, string> = {
 };
 /** 1 文字だけのもの(曜日など)。文全体が一致したときだけ置き換える */
 export const EN_WHOLE: Record<string, string> = {
+  // 03.66.00: サーバーの一覧・詳細の短い言葉
+  "すべて更新": "Update all",
+  "止めています": "Stopping",
+  "その他の操作": "More actions",
+  "メモリ": "Memory",
+  "応答": "Latency",
+  "要確認": "To check",
+  "最近の変更": "Recent changes",
+  "決める": "Choose",
+  "固定": "Pinned",
+  "今": "Current",
+  "ワールド": "World",
+  "概要": "Overview",
+  "アドオン": "Add-ons",
+  "コンソール": "Console",
+  "アドオンの比較": "Compare add-ons",
+  "サーバー本体の一覧": "All server software",
+  "入っている": "Installed",
+  "版を変える": "Change version",
+  "この版にする": "Use this version",
+  "今すぐ保存": "Back up now",
+  "書き方を確かめる": "Check syntax",
+  "危ない操作": "Danger zone",
+  "割り当てるメンバー": "Assigned members",
+  "種類とバージョン": "Type and version",
+  "検証用から本番へ反映": "Promote to production",
+  "登録": "Register",
+  "つなぎ方": "Connection",
+  "種類を選ぶ": "Choose type",
+  "最新にする": "Update",
+  "サーバーの画面": "Server pages",
+  "バックアップの予約": "Backup schedule",
   // 03.65.00: 新しい画面の短い言葉
   "メニュー": "Menu",
   "追加": "Add",
@@ -1608,6 +1667,19 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  // 03.66.00: サーバーの一覧・詳細
+  [/^更新 (\d+)$/, "$1 updates"],
+  [/^新しい版 (\d+) 件$/, (_, n) => (n === "1" ? "1 new version" : `${n} new versions`)],
+  [/^(\d+) 台を更新$/, "Update $1 servers"],
+  [/^(\d+) 個を残す$/, "Keep $1"],
+  [/^履歴\((\d+)\)$/, "History ($1)"],
+  [/^(.+) を停止しますか\?$/, "Stop $1?"],
+  [/^(.+) の操作$/, "Actions for $1"],
+  [/^(.+) を割り当てる$/, "Assign $1"],
+  [/^(.+) を (\S+) にしますか\?$/, "Change $1 to $2?"],
+  [/^(\S+) にしました$/, "Changed to $1"],
+  [/^(.+) を一覧から外しますか\?\(Pterodactyl のサーバー・フォルダのファイルは消えません\)$/, "Remove $1 from the list? (Pterodactyl servers and folder files are not deleted)"],
+  [/^毎週 (.)曜日 /, (_, d) => `Weekly ${DAY[d] ?? d} `],
   [/^入っているもの\((.+?)\)$/, "Installed ($1)"],
   [/^エージェントのサーバーへ送れるファイルは (\d+) MB までです\(このファイルは (\d+) MB\)。サーバー機のフォルダに直接置いてください$/, "Files sent to an agent's server can be up to $1 MB (this file is $2 MB). Put it in the server machine's folder directly"],
   [/^使った版 (.+)$/, "Used version $1"],

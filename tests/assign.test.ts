@@ -79,4 +79,11 @@ describe("サーバーの割り当て", () => {
     expect((await servers.listServers(editor)).length).toBe(2);
     expect((await lib.detail(editor, survival)).name).toBe("サバイバル");
   });
+
+  it("一覧には種類とバージョンも出る(決めていなければ null)", async () => {
+    await lib.setProfile(owner, lobby, { platform: "paper", mcVersion: "1.21.4" });
+    const list = await servers.listServers(editor);
+    expect(list.find((s) => s.id === lobby)).toMatchObject({ platform: "paper", mcVersion: "1.21.4" });
+    expect(list.find((s) => s.id === survival)).toMatchObject({ platform: null, mcVersion: null });
+  });
 });

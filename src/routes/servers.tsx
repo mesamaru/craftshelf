@@ -2,12 +2,15 @@ import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
-  addConnection, addLocalServer, addServers, browseHost, listConnections, listServers, localEnabled, powerServer, remoteServers, removeConnection, removeServer, serverStatus,
+  addConnection, addLocalServer, addServers, browseHost, listConnections, listServers, localEnabled, remoteServers, removeConnection, serverStatus,
 } from "~/lib/servers-api";
 import { useCan } from "~/lib/use-can";
 import { ApplyResults } from "~/lib/apply-results";
 import { updateServers } from "~/lib/sets-api";
+import { outdatedLibraryServers } from "~/lib/library-api";
 import { addAgentServer, createAgent, listAgents, removeAgent } from "~/lib/agents-api";
+import { STATE_LABELS, kindLabel } from "~/lib/platforms";
+import { Btn, Chip, ChipBar, Info, Seg, Sheet } from "~/lib/ui";
 
 export const Route = createFileRoute("/servers")({
   beforeLoad: ({ context }) => {
@@ -20,7 +23,9 @@ export const Route = createFileRoute("/servers")({
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
 
-// チームのサーバー(状態・起動と停止)と、Pterodactyl パネルの登録
+type Server = Awaited<ReturnType<typeof listServers>>[number];
+type Status = Awaited<ReturnType<typeof serverStatus>>;
+// サーバーの一覧: 稼働の点・名前・種類 · 人数 · 応答・印。上の欄で絞り込み・すべて更新・追加
 function Servers() {
   const { user } = Route.useRouteContext();
   const { servers, connections, local } = Route.useLoaderData();
@@ -28,55 +33,118 @@ function Servers() {
   const router = useRouter();
   const reload = () => router.invalidate();
   const edit = can({ library: ["edit"] });
-  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const create = can({ server: ["create"] });
+  const status = useServerFn(serverStatus);
+  const outdated = useServerFn(outdatedLibraryServers);
+  const [st, setSt] = useState<Record<string, Status | string>>({}); // 文字はつながらなかった理由
+  const [filter, setFilter] = useState<"" | "running" | "old">("");
+  const [old, setOld] = useState<Map<string, number> | null>(null); // サーバー → 古い版の数
+  const [sheet, setSheet] = useState<"" | "add" | "update">("");
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    const read = () => { for (const s of servers) status({ data: { id: s.id } }).then((x) => setSt((p) => ({ ...p, [s.id]: x })), (e) => setSt((p) => ({ ...p, [s.id]: message(e) }))); };
+    read();
+    const t = setInterval(() => { if (!document.hidden) read(); }, 15_000);
+    return () => clearInterval(t);
+  }, [servers]);
+  // 「更新あり」は配布元に問い合わせるので、押したときだけ確かめる(ライブラリと同じ)
+  const checkOld = () => {
+    setError("");
+    outdated().then((r) => {
+      const n = new Map<string, number>();
+      for (const x of r) for (const id of x.serverIds) n.set(id, (n.get(id) ?? 0) + 1);
+      setOld(n);
+    }, (e) => { setError(message(e)); setFilter(""); });
+  };
+  const toggleOld = () => {
+    if (filter === "old") return setFilter("");
+    setFilter("old");
+    if (!old) checkOld();
+  };
+  const stateOf = (id: string) => { const x = st[id]; return typeof x === "object" ? x.state : ""; };
+  const running = servers.filter((s) => stateOf(s.id) === "running").length;
+  const shown = servers.filter((s) => (filter === "running" ? stateOf(s.id) === "running" : filter === "old" ? !!old?.get(s.id) : true));
 
   return (
-    <main className="page narrow">
+    <main className="page fill">
       <header className="bar">
-        <h1>サーバー</h1>
-        <Link to="/software" className="capsule">本体</Link>
-        <Link to="/compare" className="capsule">比較</Link>
-        <Link to="/ports" className="capsule">ポート</Link>
-        <Link to="/jobs" className="capsule">処理</Link>
+        <h1>サーバー<small>{`${servers.length} 台`}</small>
+          <Info>
+            <span>Pterodactyl パネル・パネルから見えるフォルダ・エージェント(家の中のサーバー機)のサーバーをまとめて扱います。押すと、状態・アドオン・ファイル・コンソール・バックアップ・設定を開きます。</span>
+            <span>「すべて更新」は、このアプリで入れた Mod・プラグインに新しい版があれば入れます。「更新を止める」にしたもの・無効にしたもの・種類を決めていないサーバーは変えません。変更はサーバーの再起動で反映されます。</span>
+          </Info>
+        </h1>
       </header>
 
-      <section className="group">
-        {servers.length === 0 && <div className="row muted">まだサーバーがありません。下で Pterodactyl パネルをつなぐと追加できます。</div>}
-        {servers.map((s) => (
-          <ServerRow key={s.id} id={s.id} name={s.name} source={s.connection ?? ""}
-            control={can({ server: ["control"] })} removable={can({ server: ["delete"] })} onDone={reload}
-            picked={edit ? picked.has(s.id) : null} onPick={(on) => setPicked((p) => { const n = new Set(p); if (on) n.add(s.id); else n.delete(s.id); return n; })} />
-        ))}
-      </section>
-      {edit && servers.length > 0 && <UpdateAll ids={[...picked]} all={servers.length} onPickAll={(on) => setPicked(on ? new Set(servers.map((s) => s.id)) : new Set())} />}
+      <ChipBar label="絞り込み" tools={<>
+        {edit && servers.length > 0 && <Btn kind="tint" sm onClick={() => setSheet("update")}>すべて更新</Btn>}
+        {create && <Btn kind="pri" sm onClick={() => setSheet("add")}>＋ 追加</Btn>}
+      </>}>
+        <Chip on={!filter} onClick={() => setFilter("")}>すべて</Chip>
+        <Chip on={filter === "running"} onClick={() => setFilter(filter === "running" ? "" : "running")}>稼働中<span className="n">{running}</span></Chip>
+        <Chip on={filter === "old"} warn onClick={toggleOld} title="古い版が入っているサーバー(配布元に問い合わせます。更新を止めたものは除きます)">
+          更新あり{old && <span className="n">{[...old.values()].filter(Boolean).length}</span>}
+        </Chip>
+        <span className="vsep" />
+        <Link to="/software" className="chip">本体</Link>
+        <Link to="/ports" className="chip">ポート</Link>
+      </ChipBar>
+      {error && <p className="error" role="alert">{error}</p>}
 
-      {(connections.length > 0 || can({ server: ["create"] })) && <div className="group-title">Pterodactyl パネル</div>}
-      {connections.map((c) => (
-        <Connection key={c.id} {...c} addable={can({ server: ["create"] })} removable={can({ server: ["delete"] })} onDone={reload} />
-      ))}
-      {can({ server: ["create"] }) && <NewConnection onDone={reload} />}
-      {local && can({ server: ["create"] }) && <NewLocal onDone={reload} />}
-      {can({ server: ["create"] }) && <Agents onDone={reload} />}
+      <section className="group">
+        {servers.length === 0 && (
+<div className="row muted">まだサーバーがありません。</div>
+        )}
+        {servers.length > 0 && shown.length === 0 && <div className="row muted">{filter === "old" && !old ? "更新を確かめています…" : "条件に合うサーバーはありません"}</div>}
+        {shown.map((s) => <ServerRow key={s.id} server={s} st={st[s.id]} old={old?.get(s.id) ?? 0} />)}
+      </section>
+
+      {sheet === "update" && <UpdateAll servers={servers} onClose={() => setSheet("")} />}
+      {sheet === "add" && <AddServer connections={connections} local={local} admin={can({ server: ["delete"] })} onDone={reload} onClose={() => setSheet("")} />}
     </main>
   );
 }
 
-type Status = { state: string; cpu: number | null; memory: number | null; ping: { online: number; max: number; latency: number; sample: string[] } | null };
-const STATE_LABELS: Record<string, string> = { running: "動いています", starting: "起動中", stopping: "停止中", offline: "止まっています" };
+function ServerRow({ server, st, old }: { server: Server; st: Status | string | undefined; old: number }) {
+  const s = typeof st === "object" ? st : null;
+  const state = s?.state ?? (typeof st === "string" ? "unknown" : "");
+  const kind = kindLabel(server.platform, server.mcVersion);
+  return (
+    <Link to="/servers/$id" params={{ id: server.id }} className="row click">
+      <span className={`dot ${state}`} aria-hidden="true" />
+      <span className="mid">
+        <span className="ttl" translate="no">{server.name}</span>
+        <span className="sub">
+          {kind && <span translate="no">{`${kind} · `}</span>}
+          {typeof st === "string" ? <span className="error">{st}</span>
+            : !s ? "確認中…"
+            : s.state === "running" && s.ping ? `${s.ping.online} / ${s.ping.max} 人 · ${s.ping.latency} ms`
+            : STATE_LABELS[s.state] ?? "状態がわかりません"}
+          {server.connection && <> · <span translate="no">{server.connection}</span></>}
+        </span>
+      </span>
+      {old > 0 && <span className="badge upd">{`更新 ${old}`}</span>}
+      <span className="chev" aria-hidden="true">›</span>
+    </Link>
+  );
+}
 
-// サーバーの一覧の「すべて最新にする」(v02): 選んだ(選んでいなければすべての)サーバーの Mod・プラグインを新しい版にする
-function UpdateAll({ ids, all, onPickAll }: { ids: string[]; all: number; onPickAll: (on: boolean) => void }) {
+// すべて更新(v02 の「すべて最新にする」): 選んだサーバーの Mod・プラグインを新しい版にする
+function UpdateAll({ servers, onClose }: { servers: Server[]; onClose: () => void }) {
   const run = useServerFn(updateServers);
+  const [picked, setPicked] = useState<Set<string>>(new Set(servers.map((s) => s.id)));
   const [busy, setBusy] = useState(false);
   const [results, setResults] = useState<Awaited<ReturnType<typeof updateServers>> | null>(null);
   const [error, setError] = useState("");
+  const all = picked.size === servers.length;
   const go = async () => {
-    if (!confirm(ids.length ? `選んだ ${ids.length} 台の Mod・プラグインを最新にしますか?` : `すべてのサーバー(${all} 台)の Mod・プラグインを最新にしますか?`)) return;
+    if (!confirm(all ? `すべてのサーバー(${servers.length} 台)の Mod・プラグインを最新にしますか?` : `選んだ ${picked.size} 台の Mod・プラグインを最新にしますか?`)) return;
     setBusy(true);
     setError("");
     setResults(null);
     try {
-      setResults(await run({ data: { ids } }));
+      setResults(await run({ data: { ids: all ? [] : [...picked] } }));
     } catch (e) {
       setError(message(e));
     } finally {
@@ -84,94 +152,55 @@ function UpdateAll({ ids, all, onPickAll }: { ids: string[]; all: number; onPick
     }
   };
   return (
-    <>
+    <Sheet title="すべて更新" onClose={onClose}>
+      <p className="sub">このアプリで入れた Mod・プラグインに新しい版があれば入れます(止めたもの・無効にしたものは除く)。</p>
       <section className="group">
-        <button className="row link" type="button" disabled={busy} onClick={() => onPickAll(ids.length < all)}>{ids.length < all ? "すべて選ぶ" : "選ぶのをやめる"}</button>
-        <button className="row link" type="button" disabled={busy} onClick={go}>
-          {busy ? "最新にしています…" : ids.length ? `選んだ ${ids.length} 台を最新にする` : "すべてのサーバーを最新にする"}
-        </button>
-        {results?.map((r) => (r.error
-          ? <p className="row error" key={r.serverId}><span translate="no">{r.server}</span>: {r.error}</p>
-          : <ApplyResults key={r.serverId} server={r.server} verb="最新にした" list={r.results} empty="新しい版はありませんでした。" />))}
-        {error && <p className="row error" role="alert">{error}</p>}
+        {servers.map((s) => (
+          <label className="row" key={s.id}>
+            <input type="checkbox" className="ck" checked={picked.has(s.id)} disabled={busy}
+              onChange={(e) => setPicked((p) => { const n = new Set(p); if (e.target.checked) n.add(s.id); else n.delete(s.id); return n; })} />
+            <span className="mid"><span className="ttl" translate="no">{s.name}</span><span className="sub" translate="no">{kindLabel(s.platform, s.mcVersion) || "—"}</span></span>
+          </label>
+        ))}
       </section>
-      <p className="foot">このアプリで入れた Mod・プラグインに新しい版があれば入れます。「更新を止める」にしたもの・無効にしたもの・種類を決めていないサーバーは変えません。変更はサーバーの再起動で反映されます。</p>
-    </>
-  );
-}
-
-function ServerRow({ id, name, source, control, removable, onDone, picked, onPick }:
-  { id: string; name: string; source: string; control: boolean; removable: boolean; onDone: () => void; picked: boolean | null; onPick: (on: boolean) => void }) {
-  const status = useServerFn(serverStatus);
-  const power = useServerFn(powerServer);
-  const remove = useServerFn(removeServer);
-  const [st, setSt] = useState<Status | null>(null);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-
-  const refresh = () => status({ data: { id } }).then((s) => { setSt(s); setError(""); }, (e) => setError(message(e)));
-  useEffect(() => {
-    refresh();
-    const t = setInterval(refresh, 15_000);
-    return () => clearInterval(t);
-  }, [id]);
-
-  const send = async (signal: "start" | "stop" | "restart") => {
-    setBusy(true);
-    try {
-      await power({ data: { id, signal } });
-      setTimeout(refresh, 1500);
-    } catch (e) {
-      setError(message(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  const drop = async () => {
-    if (!confirm(`${name} を一覧から外しますか?(Pterodactyl のサーバーは消えません)`)) return;
-    try {
-      await remove({ data: { id } });
-      onDone();
-    } catch (e) {
-      setError(message(e));
-    }
-  };
-
-  const state = st?.state ?? "unknown";
-  return (
-    <div className="row server">
-      {picked !== null && <input type="checkbox" checked={picked} onChange={(e) => onPick(e.target.checked)} aria-label={`${name} を選ぶ`} />}
-      <span className={`dot ${state}`} aria-hidden="true" />
-      <span className="main">
-        <Link to="/servers/$id" params={{ id }} className="name" translate="no">{name}</Link>
-        <span className="muted">
-          {st ? STATE_LABELS[state] ?? state : "確認中…"}
-          {st?.ping && ` · ${st.ping.online} / ${st.ping.max} 人 · ${st.ping.latency} ms`}
-          {st?.memory != null && ` · メモリ ${(st.memory / 1024 ** 3).toFixed(1)} GB`}
-          {source && <> · <span translate="no">{source}</span></>}
-        </span>
-        {st?.ping && st.ping.sample.length > 0 && <span className="muted small" translate="no">{st.ping.sample.join("、")}{st.ping.online > st.ping.sample.length ? " …" : ""}</span>}
-        {error && <span className="error" role="alert">{error}</span>}
-      </span>
-      {control && (
-        <span className="trail actions">
-          {state === "offline" ? (
-            <button className="link" type="button" disabled={busy} onClick={() => send("start")}>起動</button>
-          ) : (
-            <>
-              <button className="link" type="button" disabled={busy} onClick={() => send("restart")}>再起動</button>
-              <button className="link danger" type="button" disabled={busy} onClick={() => send("stop")}>停止</button>
-            </>
-          )}
-        </span>
+      {results && (
+        <section className="group">
+          {results.map((r) => (r.error
+            ? <p className="row error" key={r.serverId}><span translate="no">{r.server}</span>: {r.error}</p>
+            : <ApplyResults key={r.serverId} server={r.server} verb="最新にした" list={r.results} empty="新しい版はありませんでした。" />))}
+        </section>
       )}
-      {removable && <button className="link danger" type="button" onClick={drop} aria-label="一覧から外す">外す</button>}
-    </div>
+      {error && <p className="error" role="alert">{error}</p>}
+      <div className="sheet-foot">
+        <Btn onClick={() => setPicked(all ? new Set() : new Set(servers.map((s) => s.id)))} disabled={busy}>{all ? "選ぶのをやめる" : "すべて選ぶ"}</Btn>
+        <span className="grow" />
+        <Btn kind="pri" disabled={busy || !picked.size} onClick={go}>{busy ? "最新にしています…" : `${picked.size} 台を更新`}</Btn>
+      </div>
+    </Sheet>
   );
 }
 
-function Connection({ id, name, url, apiKeyHint, addable, removable, onDone }:
-  { id: string; name: string; url: string; apiKeyHint: string; addable: boolean; removable: boolean; onDone: () => void }) {
+// 「＋ 追加」: Pterodactyl パネル・フォルダのサーバー(自分用の版だけ)・エージェントのつなぎ方
+type AddMode = "ptero" | "local" | "agent";
+function AddServer({ connections, local, admin, onDone, onClose }:
+  { connections: Awaited<ReturnType<typeof listConnections>>; local: boolean; admin: boolean; onDone: () => void; onClose: () => void }) {
+  const [mode, setMode] = useState<AddMode>("ptero");
+  const modes: [AddMode, string][] = [["ptero", "Pterodactyl"], ...(local ? [["local", "フォルダ"] as [AddMode, string]] : []), ["agent", "エージェント"]];
+  return (
+    <Sheet title="サーバーを追加" onClose={onClose}>
+      <Seg label="つなぎ方" value={mode} options={modes} onChange={setMode} />
+      {mode === "ptero" && <>
+        {connections.map((c) => <Connection key={c.id} {...c} removable={admin} onDone={onDone} />)}
+        <NewConnection onDone={onDone} />
+      </>}
+      {mode === "local" && <NewLocal onDone={() => { onDone(); onClose(); }} />}
+      {mode === "agent" && <Agents onDone={onDone} />}
+    </Sheet>
+  );
+}
+
+function Connection({ id, name, url, apiKeyHint, removable, onDone }:
+  { id: string; name: string; url: string; apiKeyHint: string; removable: boolean; onDone: () => void }) {
   const remove = useServerFn(removeConnection);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
@@ -187,13 +216,13 @@ function Connection({ id, name, url, apiKeyHint, addable, removable, onDone }:
   return (
     <section className="group">
       <div className="row">
-        <span className="main">
-          <span translate="no">{name}</span>
-          <span className="muted" translate="no">{url} · キー {apiKeyHint}</span>
+        <span className="mid">
+          <span className="ttl" translate="no">{name}</span>
+          <span className="sub" translate="no">{url} · キー {apiKeyHint}</span>
         </span>
-        {removable && <button className="trail link danger" type="button" onClick={drop}>登録を消す</button>}
+        {removable && <Btn kind="red" sm onClick={drop}>登録を消す</Btn>}
       </div>
-      {addable && !open && <button className="row link" type="button" onClick={() => setOpen(true)}>このパネルのサーバーを追加</button>}
+      {!open && <button className="row link" type="button" onClick={() => setOpen(true)}>このパネルのサーバーを追加</button>}
       {open && <PickServers connectionId={id} onDone={() => { setOpen(false); onDone(); }} />}
       {error && <p className="row error" role="alert">{error}</p>}
     </section>
@@ -232,17 +261,18 @@ function PickServers({ connectionId, onDone }: { connectionId: string; onDone: (
       {items?.length === 0 && <p className="row muted">このキーで操作できるサーバーがありません。</p>}
       {items?.map((s) => (
         <label key={s.identifier} className="row">
-          <input type="checkbox" disabled={s.added} checked={s.added || picked.has(s.identifier)} onChange={() => toggle(s.identifier)} />
-          <span className="main">
-            <span translate="no">{s.name}</span>
-            <span className="muted" translate="no">{s.node}{s.added ? "(追加済み)" : ""}</span>
+          <input type="checkbox" className="ck" disabled={s.added} checked={s.added || picked.has(s.identifier)} onChange={() => toggle(s.identifier)} />
+          <span className="mid">
+            <span className="ttl" translate="no">{s.name}</span>
+            <span className="sub" translate="no">{s.node}{s.added ? "(追加済み)" : ""}</span>
           </span>
         </label>
       ))}
       {items && items.length > 0 && (
         <div className="row">
-          <button className="capsule primary" type="button" onClick={submit} disabled={picked.size === 0}>選んだサーバーを追加</button>
-          <button className="capsule" type="button" onClick={onDone}>やめる</button>
+          <span className="grow" />
+          <Btn sm onClick={onDone}>やめる</Btn>
+          <Btn kind="pri" sm onClick={submit} disabled={picked.size === 0}>選んだサーバーを追加</Btn>
         </div>
       )}
       {error && <p className="row error" role="alert">{error}</p>}
@@ -275,15 +305,15 @@ function NewConnection({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <form className="group form" onSubmit={(e) => (e.preventDefault(), submit())}>
-      <p className="row muted">
-        パネルの「アカウント → API 認証情報」で作った Client API キー(ptlc_…)を使います。キーは暗号化して保存し、画面には最後の 4 文字だけを出します。
-      </p>
-      <input className="row" placeholder="名前(例 いつものホスティング)" translate="no" value={name} onChange={(e) => setName(e.target.value)} />
-      <input className="row" placeholder="パネルの URL(https://…)" inputMode="url" value={url} onChange={(e) => setUrl(e.target.value)} required />
-      <input className="row" type="password" autoComplete="off" placeholder="Client API キー(ptlc_…)" value={apiKey} onChange={(e) => setApiKey(e.target.value)} required />
-      {error && <p className="row error" role="alert">{error}</p>}
-      <button className="capsule primary" disabled={busy || !url || !apiKey}>{busy ? "確かめています…" : "パネルをつなぐ"}</button>
+    <form className="add-form" onSubmit={(e) => (e.preventDefault(), submit())}>
+      <div className="gtitle">パネルをつなぐ
+        <Info>パネルの「アカウント → API 認証情報」で作った Client API キー(ptlc_…)を使います。キーは暗号化して保存し、画面には最後の 4 文字だけを出します。</Info>
+      </div>
+      <input className="input" placeholder="名前(例 いつものホスティング)" value={name} onChange={(e) => setName(e.target.value)} />
+      <input className="input" placeholder="パネルの URL(https://…)" inputMode="url" value={url} onChange={(e) => setUrl(e.target.value)} required />
+      <input className="input" type="password" autoComplete="off" placeholder="Client API キー(ptlc_…)" value={apiKey} onChange={(e) => setApiKey(e.target.value)} required />
+      {error && <p className="error" role="alert">{error}</p>}
+      <div className="sheet-foot"><span className="grow" /><button className="btn pri" disabled={busy || !url || !apiKey}>{busy ? "確かめています…" : "パネルをつなぐ"}</button></div>
     </form>
   );
 }
@@ -292,7 +322,6 @@ function NewConnection({ onDone }: { onDone: () => void }) {
 function NewLocal({ onDone }: { onDone: () => void }) {
   const browse = useServerFn(browseHost);
   const add = useServerFn(addLocalServer);
-  const [open, setOpen] = useState(false);
   const [view, setView] = useState<Awaited<ReturnType<typeof browseHost>> | null>(null);
   const [path, setPath] = useState("/");
   const [name, setName] = useState("");
@@ -312,13 +341,12 @@ function NewLocal({ onDone }: { onDone: () => void }) {
       setError(message(e));
     }
   };
+  useEffect(() => { go(path); }, []);
   const submit = async (rootDir: string, jar?: string) => {
     setBusy(true);
     setError("");
     try {
       await add({ data: { rootDir, name, ...(jar ? { jar } : {}) } });
-      setOpen(false);
-      setView(null);
       onDone();
     } catch (e) {
       setError(message(e));
@@ -328,33 +356,28 @@ function NewLocal({ onDone }: { onDone: () => void }) {
   };
   const join = (a: string, b: string) => (a.endsWith("/") || a.endsWith("\\") ? a + b : `${a}/${b}`);
 
-  if (!open) {
-    return (
-      <>
-        <div className="group-title">フォルダのサーバー</div>
-        <section className="group"><button className="row link" type="button" onClick={() => { setOpen(true); go(path); }}>フォルダのサーバーを追加</button></section>
-        <p className="foot">パネルから見えるフォルダ(同じ PC・NAS・Docker でマウントしたフォルダ)にあるサーバーを、Pterodactyl を通さずに管理します。</p>
-      </>
-    );
-  }
   return (
     <>
-      <div className="group-title">フォルダのサーバーを追加</div>
-      <section className="group form">
-        <input className="row" placeholder="名前(空ならフォルダの名前)" translate="no" value={name} onChange={(e) => setName(e.target.value)} />
-        <form className="row" onSubmit={(e) => (e.preventDefault(), go(path))}>
-          <input className="main codes" value={path} onChange={(e) => { latest.current++; setPath(e.target.value); }} aria-label="フォルダの場所" />
-          <button className="trail link" type="submit">開く</button>
-        </form>
+      <div className="gtitle">フォルダのサーバーを追加
+        <Info>
+          <span>パネルから見えるフォルダ(同じ PC・NAS・Docker でマウントしたフォルダ)にあるサーバーを、Pterodactyl を通さずに管理します。</span>
+          <span>サーバーの jar(例 paper-1.21.4.jar)を選ぶと、そのフォルダをサーバーにして、名前から種類と Minecraft のバージョンを決めます。Docker で動かしている場合は、サーバーのフォルダをパネルのコンテナにマウントしてください。</span>
+        </Info>
+      </div>
+      <input className="input" placeholder="名前(空ならフォルダの名前)" value={name} onChange={(e) => setName(e.target.value)} />
+      <form className="cmd" onSubmit={(e) => (e.preventDefault(), go(path))}>
+        <input className="input" value={path} onChange={(e) => { latest.current++; setPath(e.target.value); }} aria-label="フォルダの場所" />
+        <button className="btn sm" type="submit">開く</button>
+      </form>
+      <section className="group">
+        {!view && !error && <div className="row muted">読み込んでいます…</div>}
         {view?.parent && <button className="row link" type="button" onClick={() => go(view.parent!)}>‹ 上のフォルダ</button>}
         {view?.entries.map((e) => e.isDir
           ? <button key={e.name} className="row link" type="button" translate="no" onClick={() => go(join(view.path, e.name))}>📁 {e.name}</button>
           : <button key={e.name} className="row link" type="button" translate="no" disabled={busy} onClick={() => submit(view.path, e.name)}>☕ {e.name}(このサーバーにする)</button>)}
         {view && <button className="row link" type="button" disabled={busy} onClick={() => submit(view.path)}>このフォルダを使う</button>}
-        {error && <p className="row error" role="alert">{error}</p>}
-        <button className="row link" type="button" onClick={() => setOpen(false)}>やめる</button>
       </section>
-      <p className="foot">サーバーの jar(例 paper-1.21.4.jar)を選ぶと、そのフォルダをサーバーにして、名前から種類と Minecraft のバージョンを決めます。Docker で動かしている場合は、サーバーのフォルダをパネルのコンテナにマウントしてください。</p>
+      {error && <p className="error" role="alert">{error}</p>}
     </>
   );
 }
@@ -392,21 +415,25 @@ function Agents({ onDone }: { onDone: () => void }) {
   const origin = typeof location === "undefined" ? "" : location.origin;
   return (
     <>
-      <div className="group-title">エージェント(家の中のサーバー)</div>
+      <div className="gtitle">エージェント(家の中のサーバー)
+        <Info>
+          <span>エージェントは、家の中のサーバー機から CraftShelf へ外向きにつなぐので、家のポートを開けずに使えます。CraftShelf から操作できるのは、エージェントの設定ファイルに書いたサーバーのフォルダと、そこに書いた起動・停止の方法だけです。詳しくは <a href="https://github.com/mesamaru/craftshelf/blob/dev/docs/AGENT.md" target="_blank" rel="noopener noreferrer">エージェントの使い方</a>。</span>
+        </Info>
+      </div>
       {list?.map((a) => (
         <section className="group" key={a.id}>
           <div className="row">
-            <span className="main"><span translate="no">{a.name}</span>
-              <span className="muted small">{a.online ? "つながっています" : a.lastSeenAt ? `最後につながった日時 ${new Date(a.lastSeenAt).toLocaleString("ja-JP")}` : "まだつながっていません"}{a.version ? ` · v${a.version}` : ""} · トークン …{a.tokenHint}</span>
+            <span className="mid"><span className="ttl" translate="no">{a.name}</span>
+              <span className="sub">{a.online ? "つながっています" : a.lastSeenAt ? `最後につながった日時 ${new Date(a.lastSeenAt).toLocaleString("ja-JP")}` : "まだつながっていません"}{a.version ? ` · v${a.version}` : ""} · トークン …{a.tokenHint}</span>
             </span>
-            <button className="trail link danger" type="button" disabled={busy}
-              onClick={() => confirm(`エージェント「${a.name}」を消しますか?(このエージェントのサーバーも一覧から外れます。家のサーバーのファイルは消えません)`) && run(() => remove({ data: { id: a.id } }))}>消す</button>
+            <Btn kind="red" sm disabled={busy}
+              onClick={() => confirm(`エージェント「${a.name}」を消しますか?(このエージェントのサーバーも一覧から外れます。家のサーバーのファイルは消えません)`) && run(() => remove({ data: { id: a.id } }))}>消す</Btn>
           </div>
           {a.servers.map((s) => (
             <div className="row" key={s.key}>
-              <span className="main"><span translate="no">{s.name}</span><span className="muted small" translate="no">{s.key}{s.platform ? ` · ${s.platform}${s.mcVersion ? ` ${s.mcVersion}` : ""}` : ""}</span></span>
-              {s.added ? <span className="trail muted small">追加済み</span>
-                : <button className="trail link" type="button" disabled={busy} onClick={() => run(() => add({ data: { agentId: a.id, key: s.key } }))}>追加</button>}
+              <span className="mid"><span className="ttl" translate="no">{s.name}</span><span className="sub" translate="no">{s.key}{s.platform ? ` · ${s.platform}${s.mcVersion ? ` ${s.mcVersion}` : ""}` : ""}</span></span>
+              {s.added ? <span className="muted small">追加済み</span>
+                : <Btn kind="tint" sm disabled={busy} onClick={() => run(() => add({ data: { agentId: a.id, key: s.key } }))}>追加</Btn>}
             </div>
           ))}
           {a.servers.length === 0 && <div className="row muted small">エージェントがつながると、設定ファイルに書いたサーバーがここに出ます。</div>}
@@ -421,13 +448,12 @@ function Agents({ onDone }: { onDone: () => void }) {
           <button className="row link" type="button" onClick={() => setMade(null)}>閉じる</button>
         </section>
       ) : (
-        <form className="group form" onSubmit={(e) => { e.preventDefault(); run(async () => { setMade(await create({ data: { name } })); setName(""); }); }}>
-          <input className="row" placeholder="エージェントの名前(例 家のサーバー機)" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
-          <button className="row link" type="submit" disabled={busy || !name.trim()}>エージェントを登録</button>
+        <form className="cmd" onSubmit={(e) => { e.preventDefault(); run(async () => { setMade(await create({ data: { name } })); setName(""); }); }}>
+          <input className="input" placeholder="エージェントの名前(例 家のサーバー機)" value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />
+          <button className="btn pri sm" type="submit" disabled={busy || !name.trim()}>登録</button>
         </form>
       )}
       {error && <p className="error" role="alert">{error}</p>}
-      <p className="foot">エージェントは、家の中のサーバー機から CraftShelf へ外向きにつなぐので、家のポートを開けずに使えます。CraftShelf から操作できるのは、エージェントの設定ファイルに書いたサーバーのフォルダと、そこに書いた起動・停止の方法だけです。詳しくは <a href="https://github.com/mesamaru/craftshelf/blob/dev/docs/AGENT.md" target="_blank" rel="noopener noreferrer">エージェントの使い方</a>。</p>
     </>
   );
 }

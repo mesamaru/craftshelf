@@ -1073,7 +1073,9 @@ button.srv-open:hover h4 { color: var(--tint); }
 .srv-hero .m { flex: 1; min-width: 0; }
 .srv-hero h3 { margin: 0; font-size: 24px; font-weight: 800; letter-spacing: -.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .srv-hero small { font-size: 13px; color: var(--label-2); }
-.srv-tabs { margin-bottom: 12px; position: sticky; top: 74px; z-index: 5; }
+/* 上に止まったとき、下の一覧が透けて重ならないよう、ガラスの下地を付ける */
+.srv-tabs { margin-bottom: 12px; position: sticky; top: 74px; z-index: 5; width: fit-content; max-width: 100%; padding: 4px; border-radius: 999px;
+  background: var(--glass); -webkit-backdrop-filter: var(--blur); backdrop-filter: var(--blur); border: 1px solid var(--glass-edge); box-shadow: var(--glass-shadow); }
 .srv-pane .db { padding: 0; }
 .srv-pane [data-close] { display: none; }
 .srv-pane .df { padding: 12px 0 0; }

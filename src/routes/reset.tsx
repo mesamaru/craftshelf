@@ -26,7 +26,8 @@ function Reset() {
     setDone(true);
   };
   return (
-    <main className="page narrow">
+    <main className="auth glass">
+      <img className="brand-mark" src="/icon.svg" alt="" />
       <h1 className="title">新しいパスワード</h1>
       {!token || linkError ? (
         <section className="group"><p className="row error" role="alert">リンクが使えません(期限切れか、もう使ったもの)。もう一度やり直してください</p></section>
@@ -36,7 +37,7 @@ function Reset() {
         <form className="group form" onSubmit={(e) => (e.preventDefault(), submit())}>
           <input className="row" type="password" autoComplete="new-password" placeholder="新しいパスワード(10 文字以上)" minLength={10} value={password} onChange={(e) => setPassword(e.target.value)} required />
           {error && <p className="row error" role="alert">{error}</p>}
-          <button className="capsule primary" disabled={busy}>{busy ? "変えています…" : "パスワードを変える"}</button>
+          <button className="btn pri" disabled={busy}>{busy ? "変えています…" : "パスワードを変える"}</button>
         </form>
       )}
       <p className="foot"><Link to="/login">ログインへ</Link>{!token || linkError ? <> · <Link to="/forgot">もう一度送る</Link></> : null}</p>

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { Info } from "~/lib/ui";
+import { SettingsFrame } from "~/lib/settings-frame";
 import { activateStorageTarget, addStorageTarget, moveStorageFiles, removeStorageTarget, storageTargets } from "~/lib/uploads-api";
 import { savedOptions, scanStorage, setSavedOptions, storageContents, storageStatus } from "~/lib/saved-api";
 
@@ -42,12 +44,8 @@ function Storage() {
   };
 
   return (
-    <main className="page narrow">
-      <header className="bar">
-        <Link to="/team" className="capsule">‹ チーム</Link>
-        <h1>保存先</h1>
-      </header>
-      <div className="group-title">アップロードしたアドオンの保存先</div>
+    <SettingsFrame at="storage">
+      <div className="gtitle">アップロードしたアドオンの保存先<Info>これからアップロードするものの置き場所です。切り替えても、いままでのファイルは元の保存先に置いたまま使えます。NAS は、SMB で直接つなぐか、パネルのコンテナにマウントして「フォルダ」として足してください。</Info></div>
       <section className="group">
         {!data && !error && <div className="row muted">読み込んでいます…</div>}
         {data && (
@@ -75,11 +73,10 @@ function Storage() {
         {data && open && <div className="row column"><TargetDetail id={open} /></div>}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">これからアップロードするものの置き場所です。切り替えても、いままでのファイルは元の保存先に置いたまま使えます。NAS は、SMB で直接つなぐか、パネルのコンテナにマウントして「フォルダ」として足してください。</p>
       <SavedOptions />
       {data && data.targets.length > 0 && <MoveFiles targets={data.targets} onDone={reload} />}
       <NewTarget onDone={reload} />
-    </main>
+    </SettingsFrame>
   );
 }
 
@@ -106,7 +103,7 @@ function NewTarget({ onDone }: { onDone: () => void }) {
   };
   return (
     <>
-      <div className="group-title">保存先を足す</div>
+      <div className="gtitle">保存先を足す<Info>足すと、これからのアップロードの保存先になります。パスワードは暗号化して保存し、画面には出しません。SMB は SMB 2.0・2.1 でつなぎます(通信への署名・SMB 3 を必須にしている NAS や Windows のサーバーには、つながりません。そのときはマウントしてフォルダとして足してください)。</Info></div>
       <form className="group form" onSubmit={(e) => (e.preventDefault(), submit())}>
         <div className="row">
           <span>種類</span>
@@ -138,7 +135,6 @@ function NewTarget({ onDone }: { onDone: () => void }) {
         {error && <p className="row error" role="alert">{error}</p>}
         <button className="row link" type="submit" disabled={busy}>{busy ? "確かめています…" : "書き込めるか確かめて足す"}</button>
       </form>
-      <p className="foot">足すと、これからのアップロードの保存先になります。パスワードは暗号化して保存し、画面には出しません。SMB は SMB 2.0・2.1 でつなぎます(通信への署名・SMB 3 を必須にしている NAS や Windows のサーバーには、つながりません。そのときはマウントしてフォルダとして足してください)。</p>
     </>
   );
 }
@@ -169,7 +165,7 @@ function MoveFiles({ targets, onDone }: { targets: { id: string; name: string }[
   };
   return (
     <>
-      <div className="group-title">ファイルを移す</div>
+      <div className="gtitle">ファイルを移す<Info>1 つずつ、移した先で中身を確かめてから元を消します。移せなかったものは、元の保存先に残ります。</Info></div>
       <section className="group form">
         <div className="row">
           <span>移す元</span>
@@ -187,7 +183,6 @@ function MoveFiles({ targets, onDone }: { targets: { id: string; name: string }[
         {note && <p className="row muted" role="status" translate="no">{note}</p>}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">1 つずつ、移した先で中身を確かめてから元を消します。移せなかったものは、元の保存先に残ります。</p>
     </>
   );
 }
@@ -217,14 +212,14 @@ function SavedOptions() {
   };
   return (
     <>
-      <div className="group-title">配布元のファイルの保存</div>
+      <div className="gtitle">配布元のファイルの保存<Info>保存した版は、サーバーへ入れるときに配布元から取らず保存先から送ります(配布元が消えても・つながらなくても入れられます)。ライブラリの「保存した版」から、ダウンロード・共有リンク・まとめて zip にもできます。アイテムごとに「保存した版」で変えられます。古い版の整理では、サーバーで使っている版・セットで固定した版は消しません。</Info></div>
       <section className="group form">
         {!opt && !error && <div className="row muted">読み込んでいます…</div>}
         {opt && (
           <>
             <label className="row">
               <span className="main"><span>配布元のファイルを保存する(チームの既定)</span><span className="muted">サーバーに入れた版と、1 日 1 回いちばん新しい版を、使っている保存先にも取っておきます</span></span>
-              <input className="trail" type="checkbox" checked={opt.keepFiles} onChange={(e) => setOpt({ ...opt, keepFiles: e.target.checked })} />
+              <input className="trail switch" type="checkbox" checked={opt.keepFiles} onChange={(e) => setOpt({ ...opt, keepFiles: e.target.checked })} />
             </label>
             <label className="row">
               <span className="main"><span>古い版を残す数</span><span className="muted">新しく保存した方から。0 は整理しない</span></span>
@@ -237,7 +232,6 @@ function SavedOptions() {
         {note && <p className="row muted" role="status">{note}</p>}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">保存した版は、サーバーへ入れるときに配布元から取らず保存先から送ります(配布元が消えても・つながらなくても入れられます)。ライブラリの「保存した版」から、ダウンロード・共有リンク・まとめて zip にもできます。アイテムごとに「保存した版」で変えられます。古い版の整理では、サーバーで使っている版・セットで固定した版は消しません。</p>
       <section className="group"><Link to="/cleanup" className="row link">アドオンの整理(古い版・重複・使っていないもの)</Link></section>
     </>
   );

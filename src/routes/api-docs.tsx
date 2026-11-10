@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link, createFileRoute } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
+import { SettingsFrame } from "~/lib/settings-frame";
+import { Info } from "~/lib/ui";
 import { ROLE_LABELS, type RoleName } from "~/lib/permissions";
 
 export const Route = createFileRoute("/api-docs")({ component: ApiDocs });
@@ -25,22 +27,16 @@ function ApiDocs() {
       : `curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(d.example ?? {})}' ${url}`;
   };
   return (
-    <main className="page narrow">
-      <header className="bar">
-        <Link to="/settings" className="capsule">‹ アカウント</Link>
-        <h1>API の説明</h1>
-      </header>
+    <SettingsFrame at="api" info={<><span>スクリプトなどから CraftShelf を操作する API です。「API トークン」で作ったトークン(cs_…)を、x-api-key か Authorization: Bearer で渡します。トークンで使えるのは、作るときに選んだ範囲の中で、作った人の役割でできることだけです。</span><span>GET はクエリー(?query=… など)、POST は JSON で渡します。うまくいかないときは、HTTP の状態と {"{ \"message\": \"…\" }"} を返します(401 = トークンが正しくない、403 = 範囲・役割が足りない、404 = 見つからない)。</span></>}>
       <section className="group">
-        <p className="row muted">スクリプトなどから CraftShelf を操作する API です。「アカウント」の「API トークン」で作ったトークン(cs_…)を、x-api-key か Authorization: Bearer で渡します。トークンで使えるのは、作るときに選んだ範囲の中で、作った人の役割でできることだけです。</p>
         <div className="row column">
           <span className="muted">例(サーバーの一覧)</span>
           <pre className="curl" translate="no">{`curl -H "Authorization: Bearer cs_…" "${origin}/api/v1/servers"`}</pre>
         </div>
-        <p className="row muted">GET はクエリー(?query=… など)、POST は JSON で渡します。うまくいかないときは、HTTP の状態と {"{ \"message\": \"…\" }"} を返します(401 = トークンが正しくない、403 = 範囲・役割が足りない、404 = 見つからない)。</p>
       </section>
 
-      <input className="capsule" placeholder="API を絞り込む(パス・説明)" value={q} onChange={(e) => setQ(e.target.value)} aria-label="API を絞り込む" />
-      <div className="group-title">{`${shown.length} 個の API`}</div>
+      <input className="input" type="search" placeholder="API を絞り込む(パス・説明)" value={q} onChange={(e) => setQ(e.target.value)} aria-label="API を絞り込む" />
+      <div className="gtitle">{`${shown.length} 個の API`}<Info>この一覧は、パネルの中の API の定義から作っています(<a href="/api/v1" target="_blank" rel="noreferrer">GET /api/v1</a> でも同じものを JSON で見られます)。</Info></div>
       <section className="group">
         {!docs && !error && <div className="row muted">読み込んでいます…</div>}
         {error && <p className="row error" role="alert">{error}</p>}
@@ -55,7 +51,6 @@ function ApiDocs() {
           </details>
         ))}
       </section>
-      <p className="foot">この一覧は、パネルの中の API の定義から作っています(<a href="/api/v1" target="_blank" rel="noreferrer">GET /api/v1</a> でも同じものを JSON で見られます)。</p>
-    </main>
+    </SettingsFrame>
   );
 }

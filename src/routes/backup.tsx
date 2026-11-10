@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { Info } from "~/lib/ui";
+import { SettingsFrame } from "~/lib/settings-frame";
 import { cancelRestore, createBackup, listBackups, reimportV02, restoreBackup, setBackupSchedule } from "~/lib/backup-api";
 
 export const Route = createFileRoute("/backup")({
@@ -85,11 +87,7 @@ function Backup() {
   );
 
   return (
-    <main className="page narrow">
-      <header className="bar">
-        <Link to="/team" className="capsule">‹ チーム</Link>
-        <h1>バックアップ</h1>
-      </header>
+    <SettingsFrame at="backup" info={<span>バックアップには、データベース(チーム・サーバー・ライブラリ・設定)、保存したパスワードなどを解く鍵、パネルの中に置いたアドオンが入ります(NAS などほかの保存先のファイルと、サーバーのファイルは入りません)。鍵が入るので、ダウンロードしたものは大切に保管してください。戻すときは、今のデータを before-restore-… のフォルダに移して残します。</span>}>
       {(data?.pending || data?.reimport) && (
         <p className="notice" role="status">
           {data.reimport ? "次の起動で v02 から取り込み直します。" : "次の起動でバックアップと入れ替えます。"}<button type="button" className="link" disabled={!!busy} onClick={() => run("やめています…", () => cancel())}>やめる</button>
@@ -100,11 +98,11 @@ function Backup() {
       </section>
       {data && draft && (
         <>
-          <div className="group-title">定期バックアップ</div>
+          <div className="gtitle">定期バックアップ<Info>手で作るときも、ここで選んだ置き場所・残す数を使います。保存先(NAS など)は「保存先」で足せます。時刻は、保存したときのブラウザの時間帯です。作れなかったときは、お知らせと Discord(「エラー」「バックアップ」を選んでいれば)で知らせます。</Info></div>
           <section className="group form">
             <label className="row">
               <span>毎日バックアップを作る</span>
-              <input className="trail" type="checkbox" checked={draft.enabled} onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })} />
+              <input className="trail switch" type="checkbox" checked={draft.enabled} onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })} />
             </label>
             {draft.enabled && (
               <div className="row">
@@ -131,12 +129,11 @@ function Backup() {
               setDraft(null);
             })}>保存</button>
           </section>
-          <p className="foot">手で作るときも、ここで選んだ置き場所・残す数を使います。保存先(NAS など)は「保存先」で足せます。時刻は、保存したときのブラウザの時間帯です。作れなかったときは、お知らせと Discord(「エラー」「バックアップ」を選んでいれば)で知らせます。</p>
         </>
       )}
       {data?.schedule.targetId && (
         <>
-          <div className="group-title">{`保存先「${data.targets.find((t) => t.id === data.schedule.targetId)?.name ?? ""}」のバックアップ(新しい ${data.schedule.keep} 個)`}</div>
+          <div className="gtitle">{`保存先「${data.targets.find((t) => t.id === data.schedule.targetId)?.name ?? ""}」のバックアップ(新しい ${data.schedule.keep} 個)`}</div>
           <section className="group">
             {data.storageError && <div className="row error" role="alert">{data.storageError}</div>}
             {!data.storageError && data.stored.length === 0 && <div className="row muted">まだありません。</div>}
@@ -144,14 +141,14 @@ function Backup() {
           </section>
         </>
       )}
-      <div className="group-title">{data?.schedule.targetId ? "パネルの中のバックアップ" : `パネルの中のバックアップ(新しい ${data?.schedule.keep ?? 5} 個)`}</div>
+      <div className="gtitle">{data?.schedule.targetId ? "パネルの中のバックアップ" : `パネルの中のバックアップ(新しい ${data?.schedule.keep ?? 5} 個)`}</div>
       <section className="group">
         {!data && !error && <div className="row muted">読み込み中…</div>}
         {data?.backups.length === 0 && <div className="row muted">まだありません。</div>}
         {data?.backups.map((b) => row(b.name, b.at, b.size))}
       </section>
 
-      <div className="group-title">手元のファイルから戻す</div>
+      <div className="gtitle">手元のファイルから戻す</div>
       <section className="group">
         <label className="row link">
           バックアップのファイル(.tar.gz)を選ぶ
@@ -160,7 +157,7 @@ function Backup() {
       </section>
       {data?.v02 && (
         <>
-          <div className="group-title">v02 から取り込み直す</div>
+          <div className="gtitle">v02 から取り込み直す<Info>v03 を試したあと v02 に戻って使い続け、もう一度 v03 に移るときに使います。取り込み直したあとは、ログインし直してください(v02 のユーザー名とパスワード)。</Info></div>
           <section className="group">
             <button className="row link danger" type="button" disabled={!!busy} onClick={async () => {
               if (!confirm("v02 のデータを取り込み直しますか?パネルが再起動し、v03 の今のデータ(v03 で変えたこと)を before-reimport-… のフォルダに移して、v02 のデータを取り込み直します。")) return;
@@ -175,12 +172,10 @@ function Backup() {
               }
             }}>v02 のデータを取り込み直す</button>
           </section>
-          <p className="foot">v03 を試したあと v02 に戻って使い続け、もう一度 v03 に移るときに使います。取り込み直したあとは、ログインし直してください(v02 のユーザー名とパスワード)。</p>
         </>
       )}
       {busy && busy !== "作っています…" && <p className="notice" role="status">{busy}</p>}
       {error && <p className="error" role="alert">{error}</p>}
-      <p className="foot">バックアップには、データベース(チーム・サーバー・ライブラリ・設定)、保存したパスワードなどを解く鍵、パネルの中に置いたアドオンが入ります(NAS などほかの保存先のファイルと、サーバーのファイルは入りません)。鍵が入るので、ダウンロードしたものは大切に保管してください。戻すときは、今のデータを before-restore-… のフォルダに移して残します。</p>
-    </main>
+    </SettingsFrame>
   );
 }

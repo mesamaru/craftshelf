@@ -7,7 +7,7 @@ function Privacy() {
   return (
     <main className="page narrow doc">
       <header className="bar">
-        <Link to="/login" className="capsule">‹ 戻る</Link>
+        <Link to="/login" className="btn sec sm">‹ 戻る</Link>
         <h1>プライバシーポリシー</h1>
       </header>
       <section className="group"><div className="row column">

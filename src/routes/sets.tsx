@@ -7,7 +7,8 @@ import { uploadedFiles } from "~/lib/uploads-api";
 import { getSchedule, setSchedule } from "~/lib/schedule-api";
 import { ITEM_TYPES, PLATFORMS, PLATFORM_IDS } from "~/lib/platforms";
 import { ItemIcon } from "~/lib/type-icon";
-import { addSetDeps, applySet, createSet, listSets, pinSetItem, removeSet, renameSet, setMissingDeps, toggleSetItem } from "~/lib/sets-api";
+import { addSetDeps, applySet, createSet, listSets, pinSetItem, removeSet, renameSet, setMissingDeps, syncServerSet, toggleSetItem } from "~/lib/sets-api";
+import { Btn, Chip, ChipBar, Info, Menu, Sheet } from "~/lib/ui";
 import { SOURCE_LABEL, isSource } from "~/lib/sources";
 import { useCan } from "~/lib/use-can";
 import { localEnabled } from "~/lib/servers-api";
@@ -30,7 +31,7 @@ type SetRow = Awaited<ReturnType<typeof listSets>>[number];
 type Catalog = Awaited<ReturnType<typeof libraryCatalog>>;
 type Result = Awaited<ReturnType<typeof applySet>>;
 
-// セット: ライブラリから選んだものの組み合わせを、サーバーにまとめて入れる
+// セット: ライブラリから選んだものの組み合わせを、サーバーにまとめて入れる。カードを押すとシートで中身・前提・版の固定・サーバー
 function Sets() {
   const { user } = Route.useRouteContext();
   const { sets, catalog } = Route.useLoaderData();
@@ -40,41 +41,83 @@ function Sets() {
   const edit = can({ library: ["edit"] });
   const isLocal = useServerFn(localEnabled);
   const [local, setLocal] = useState(false); // zip は保存した版から作るので、自分用の版だけ
+  const [sheet, setSheet] = useState<"" | "new" | "schedule">("");
+  const [open, setOpen] = useState("");
   useEffect(() => { isLocal().then(setLocal, () => setLocal(false)); }, []);
+  const opened = sets.find((s) => s.id === open);
 
   return (
-    <main className="page narrow">
+    <main className="page fill">
       <header className="bar">
-        <h1>セット</h1>
+        <h1>セット<small>{`${sets.length} 個`}</small>
+          <Info>
+            <span>セットは、ライブラリから選んだ Mod・プラグインの組み合わせです。「サーバーに入れる」で、サーバーの種類に合うもののうち、まだ入っていないものをまとめて入れます(Paper のサーバーに Mod は入れません)。「前提を確かめる」は、選んだ種類のサーバーに入るいちばん新しい版の前提(Modrinth・CurseForge の必須)が、セットに入っているかを見ます。</span>
+            <span>「版を選ぶ」で版を固定すると、セットを入れる・そろえる・予約・自動更新で、新しい版ではなくその版を入れます(サーバーの種類・バージョンに合わない版は、結果に知らせて飛ばします)。セットを結び付けたすべてのサーバーで同じ版になります。サーバーの画面の「更新を止める」は、そのサーバーだけ今入っている版のままにするもので、固定より先に効きます。SpigotMC のものは固定できません(いちばん新しい版だけを入れられます)。</span>
+          </Info>
+        </h1>
       </header>
-      <Schedule editable={can({ server: ["update"] })} />
+      <ChipBar label="セット" tools={<>
+        <Btn sm onClick={() => setSheet("schedule")}>予約</Btn>
+        {edit && <Btn kind="pri" sm onClick={() => setSheet("new")}>＋ 作る</Btn>}
+      </>}>{null}</ChipBar>
       {sets.length === 0 && (
-        <section className="group"><div className="row muted">まだセットがありません。{edit ? "下で作れます。" : ""}</div></section>
+        <section className="group"><div className="row muted">まだセットがありません。{edit ? "「＋ 作る」で作れます。" : ""}</div></section>
       )}
-      {sets.map((s) => <SetCard key={s.id} set={s} catalog={catalog} edit={edit} local={local} onChange={reload} />)}
-      <p className="foot">セットは、ライブラリから選んだ Mod・プラグインの組み合わせです。「サーバーに入れる」で、サーバーの種類に合うもののうち、まだ入っていないものをまとめて入れます(Paper のサーバーに Mod は入れません)。「前提を確かめる」は、選んだ種類のサーバーに入るいちばん新しい版の前提(Modrinth・CurseForge の必須)が、セットに入っているかを見ます。</p>
-      <p className="foot">「版を選ぶ」で版を固定すると、セットを入れる・そろえる・予約・自動更新で、新しい版ではなくその版を入れます(サーバーの種類・バージョンに合わない版は、結果に知らせて飛ばします)。セットを結び付けたすべてのサーバーで同じ版になります。サーバーの画面の「更新を止める」は、そのサーバーだけ今入っている版のままにするもので、固定より先に効きます。SpigotMC のものは固定できません(いちばん新しい版だけを入れられます)。</p>
-      {edit && <NewSet onCreated={reload} />}
-      {edit && <FromModpack onCreated={reload} servers={can({ server: ["update"] }) ? catalog.servers : []} />}
+      <div className="cards">
+        {sets.map((s) => <SetCard key={s.id} set={s} onOpen={() => setOpen(s.id)} />)}
+      </div>
+      {opened && <SetSheet set={opened} catalog={catalog} edit={edit} local={local} onChange={reload} onClose={() => setOpen("")} />}
+      {sheet === "new" && (
+        <Sheet title="セットを作る" onClose={() => setSheet("")}>
+          <NewSet onCreated={() => { reload(); setSheet(""); }} />
+          <FromModpack onCreated={reload} servers={can({ server: ["update"] }) ? catalog.servers : []} />
+        </Sheet>
+      )}
+      {sheet === "schedule" && <Sheet title="予約" onClose={() => setSheet("")}><Schedule editable={can({ server: ["update"] })} /></Sheet>}
     </main>
   );
 }
 
-function SetCard({ set, catalog, edit, local, onChange }: { set: SetRow; catalog: Catalog; edit: boolean; local: boolean; onChange: () => void }) {
+// セットのカード: 名前・件数・結び付けたサーバー・中身の名前
+function SetCard({ set, onOpen }: { set: SetRow; onOpen: () => void }) {
+  return (
+    <button type="button" className="group set-card" onClick={onOpen}>
+      <span className="row">
+        <span className="ic set-ic" aria-hidden="true" translate="no">{set.name.slice(0, 1).toUpperCase()}</span>
+        <span className="mid">
+          <span className="ttl" translate="no">{set.name}</span>
+          <span className="sub">{`${set.items.length} 件 · `}{set.servers.length ? <span translate="no">{set.servers.map((x) => x.name).join("・")}</span> : "サーバーなし"}</span>
+        </span>
+        {set.items.some((i) => i.versionId) && <span className="badge ok">版を固定</span>}
+        <span className="chev" aria-hidden="true">›</span>
+      </span>
+      <span className="row tags">
+        {set.items.length === 0 && <span className="sub">まだ何も入っていません</span>}
+        {set.items.slice(0, 6).map((i) => <span key={i.id} className="tag" translate="no">{i.title}</span>)}
+        {set.items.length > 6 && <span className="tag">{`+${set.items.length - 6}`}</span>}
+      </span>
+    </button>
+  );
+}
+
+// セットのシート: 中身(版の固定・外す・足す)・前提・サーバー(そろえる・入れる)
+function SetSheet({ set, catalog, edit, local, onChange, onClose }: { set: SetRow; catalog: Catalog; edit: boolean; local: boolean; onChange: () => void; onClose: () => void }) {
   const toggle = useServerFn(toggleSetItem);
   const plan = useServerFn(zipPlan);
   const apply = useServerFn(applySet);
+  const sync = useServerFn(syncServerSet);
   const rename = useServerFn(renameSet);
   const remove = useServerFn(removeSet);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  const [results, setResults] = useState<{ server: string; list: Result } | null>(null);
+  const [results, setResults] = useState<{ server: string; verb: string; list: Result } | null>(null);
   const [type, setType] = useState(""); // 種類での絞り込み(空 = すべて)
   const inSet = new Set(set.items.map((i) => i.id));
   const fits = (i: { projectType: string }) => !type || i.projectType === type;
   const addable = catalog.items.filter((i) => !inSet.has(i.id) && fits(i));
   const types = [...new Set([...set.items, ...catalog.items].map((i) => i.projectType))];
-  const targets = catalog.servers.filter((s) => s.type);
+  const bound = new Set(set.servers.map((s) => s.id));
+  const targets = catalog.servers.filter((s) => s.type && !bound.has(s.id));
 
   const run = async (key: string, fn: () => Promise<unknown>) => {
     setBusy(key);
@@ -90,35 +133,31 @@ function SetCard({ set, catalog, edit, local, onChange }: { set: SetRow; catalog
   };
 
   return (
-    <>
-      <div className="group-title" translate="no">{set.name}</div>
+    <Sheet title={<span translate="no">{set.name}</span>} label={set.name} onClose={onClose} actions={edit || local ? (
+      <Menu disabled={!!busy} items={[
+        edit && { label: "名前を変える", onClick: () => { const n = prompt("セットの新しい名前", set.name); if (n && n !== set.name) run("rename", () => rename({ data: { id: set.id, name: n } })); } },
+        local && set.items.length > 0 && { label: "zip でダウンロード(保存した版から)", onClick: () => { downloadZip(plan, { setId: set.id }).catch((e) => setError(message(e))); } },
+        edit && { label: "セットを消す", danger: true, onClick: () => { if (confirm(`セット「${set.name}」を消しますか?(ライブラリとサーバーはそのままです)`)) run("remove", async () => { await remove({ data: { id: set.id } }); onClose(); }); } },
+      ]} />
+    ) : undefined}>
+      <div className="gtitle">{`中身(${set.items.length} 件)`}</div>
+      {types.length > 1 && (
+        <div className="chips" role="group" aria-label="種類で絞り込む">
+          <Chip on={!type} onClick={() => setType("")}>すべて</Chip>
+          {types.map((k) => <Chip key={k} on={type === k} onClick={() => setType(type === k ? "" : k)}>{TYPE_LABEL[k] ?? k}</Chip>)}
+        </div>
+      )}
       <section className="group">
-        {set.servers.length > 0 && (
-          <div className="row"><span>結び付けているサーバー</span><span className="trail" translate="no">{set.servers.map((x) => x.name).join("、")}</span></div>
-        )}
-        {types.length > 1 && (
-          <div className="row">
-            <span>種類で絞り込む</span>
-            <select className="trail" value={type} aria-label={`${set.name} を種類で絞り込む`} onChange={(e) => setType(e.target.value)}>
-              <option value="">すべて</option>
-              {types.map((k) => <option key={k} value={k}>{TYPE_LABEL[k] ?? k}</option>)}
-            </select>
-          </div>
-        )}
         {set.items.length === 0 && <div className="row muted">まだ何も入っていません。{edit && catalog.items.length === 0 ? "先にライブラリに Mod・プラグインを登録すると、ここに足せます。" : ""}</div>}
         {set.items.filter(fits).map((i) => (
-          <div className="row hit" key={i.id}>
-            <ItemIcon type={i.projectType} url={i.iconUrl} />
-            <span className="main">
-              <span translate="no">{i.title}</span>
-              <span className="muted">{TYPE_LABEL[i.projectType] ?? i.projectType} · {isSource(i.source) ? SOURCE_LABEL[i.source] : i.source}</span>
-              {i.versionId && <span className="muted small"><span className="badge">版を固定</span> <span translate="no">{i.versionNumber}</span></span>}
+          <div className="row" key={i.id}>
+            <span className="ic"><ItemIcon type={i.projectType} url={i.iconUrl} /></span>
+            <span className="mid">
+              <span className="ttl" translate="no">{i.title}</span>
+              <span className="sub">{TYPE_LABEL[i.projectType] ?? i.projectType} · {isSource(i.source) ? SOURCE_LABEL[i.source] : i.source}{i.versionId && <> · <b translate="no">{i.versionNumber}</b></>}</span>
             </span>
             {edit && i.source !== "spigot" && <Pin setId={set.id} item={i} disabled={!!busy} onDone={onChange} />}
-            {edit && (
-              <button className={`${i.source === "spigot" ? "trail " : ""}link danger`} type="button" disabled={!!busy}
-                onClick={() => run(i.id, () => toggle({ data: { id: set.id, itemId: i.id, add: false } }))}>外す</button>
-            )}
+            {edit && <Btn kind="red" sm disabled={!!busy} onClick={() => run(i.id, () => toggle({ data: { id: set.id, itemId: i.id, add: false } }))}>外す</Btn>}
           </div>
         ))}
         {edit && addable.length > 0 && (
@@ -131,42 +170,41 @@ function SetCard({ set, catalog, edit, local, onChange }: { set: SetRow; catalog
             </select>
           </div>
         )}
-        {edit && set.items.length > 0 && (
+      </section>
+      {set.items.some((i) => i.source === "modrinth" || i.source === "curseforge") && <>
+        <div className="gtitle">前提</div>
+        <section className="group"><Deps set={set} edit={edit} onChange={onChange} /></section>
+      </>}
+      {edit && set.items.length > 0 && <>
+        <div className="gtitle">サーバー<Info>「そろえる」は、結び付けたサーバーに足りないものを入れ、新しい版があれば更新します(セットを結び付けるのは、サーバーの画面の「アドオン」の「そろえる」)。「サーバーに入れる」は、選んだサーバーにまだ入っていないものだけを入れます。</Info></div>
+        <section className="group">
+          {set.servers.map((s) => (
+            <div className="row" key={s.id}>
+              <span className="mid"><span className="ttl" translate="no">{s.name}</span><span className="sub">結び付けています</span></span>
+              <Btn kind="tint" sm disabled={!!busy} onClick={() => {
+                if (confirm(`「${s.name}」を「${set.name}」にそろえますか?(足りないものも入れる)`)) run("sync", async () => setResults({ server: s.name, verb: "そろえた", list: await sync({ data: { serverId: s.id, mode: "add" } }) }));
+              }}>そろえる</Btn>
+            </div>
+          ))}
           <div className="row">
             <span>サーバーに入れる</span>
             {targets.length ? (
               <select className="trail" value="" disabled={!!busy} aria-label={`${set.name} をサーバーに入れる`}
                 onChange={(e) => {
                   const s = targets.find((x) => x.id === e.target.value);
-                  if (s) run("apply", async () => setResults({ server: s.name, list: await apply({ data: { id: set.id, serverId: s.id } }) }));
+                  if (s) run("apply", async () => setResults({ server: s.name, verb: "入れた", list: await apply({ data: { id: set.id, serverId: s.id } }) }));
                 }}>
                 <option value="">サーバーを選ぶ…</option>
                 {targets.map((s) => <option key={s.id} value={s.id} translate="no">{s.name}</option>)}
               </select>
-            ) : <span className="trail muted">種類を決めたサーバーがありません</span>}
+            ) : <span className="trail muted">{set.servers.length ? "ほかに種類を決めたサーバーはありません" : "種類を決めたサーバーがありません"}</span>}
           </div>
-        )}
-        {set.items.some((i) => i.source === "modrinth" || i.source === "curseforge") && <Deps set={set} edit={edit} onChange={onChange} />}
-        {busy === "apply" && <div className="row muted">サーバーに入れています…</div>}
-        {results && <ApplyResults server={results.server} verb="入れた" list={results.list} />}
-        {local && set.items.length > 0 && (
-          <button className="row link" type="button" disabled={!!busy} onClick={() => downloadZip(plan, { setId: set.id }).catch((e) => setError(message(e)))}>zip でダウンロード(保存した版から)</button>
-        )}
-        {edit && (
-          <div className="row actions">
-            <button className="link" type="button" disabled={!!busy} onClick={() => {
-              const n = prompt("セットの新しい名前", set.name);
-              if (n && n !== set.name) run("rename", () => rename({ data: { id: set.id, name: n } }));
-            }}>名前を変える</button>
-            <button className="trail link danger" type="button" disabled={!!busy}
-              onClick={() => confirm(`セット「${set.name}」を消しますか?(ライブラリとサーバーはそのままです)`) && run("remove", () => remove({ data: { id: set.id } }))}>
-              セットを消す
-            </button>
-          </div>
-        )}
-        {error && <p className="row error" role="alert">{error}</p>}
-      </section>
-    </>
+          {(busy === "apply" || busy === "sync") && <div className="row muted">サーバーに入れています…</div>}
+          {results && <ApplyResults server={results.server} verb={results.verb} list={results.list} />}
+        </section>
+      </>}
+      {error && <p className="error" role="alert">{error}</p>}
+    </Sheet>
   );
 }
 
@@ -274,7 +312,7 @@ function NewSet({ onCreated }: { onCreated: () => void }) {
   };
   return (
     <>
-      <div className="group-title">新しいセット</div>
+      <div className="gtitle">新しいセット</div>
       <form className="group form" onSubmit={(e) => (e.preventDefault(), submit())}>
         <input className="row" placeholder="セットの名前(例 ロビー用)" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} />
         {error && <p className="row error" role="alert">{error}</p>}
@@ -317,11 +355,11 @@ function Schedule({ editable }: { editable: boolean }) {
 
   return (
     <>
-      <div className="group-title">予約</div>
+      <div className="gtitle">曜日と時刻<Info>決めた曜日・時刻に、セットを結び付けたすべてのサーバーをそろえる(足りないものを入れ、新しい版があれば更新する)か、何も変えずに更新があるかを確かめます。結果は「チーム」→「操作の記録と Discord への通知」に残り、Discord の「予約の結果」を選んでいれば知らせます。決められるのは管理者以上です。サーバーごとの予約(毎日・毎週・変えたら再起動)は、それぞれのサーバーの画面で決められます。</Info></div>
       <section className="group form">
         <label className="row">
           <span>予約を使う</span>
-          <input className="trail" type="checkbox" checked={draft.enabled} disabled={!editable} onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })} />
+          <input className="trail switch" type="checkbox" checked={draft.enabled} disabled={!editable} onChange={(e) => setDraft({ ...draft, enabled: e.target.checked })} />
         </label>
         <div className="row">
           <span>すること</span>
@@ -343,7 +381,6 @@ function Schedule({ editable }: { editable: boolean }) {
         {note && <p className="row muted" role="status">{note}</p>}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">決めた曜日・時刻に、セットを結び付けたすべてのサーバーをそろえる(足りないものを入れ、新しい版があれば更新する)か、何も変えずに更新があるかを確かめます。結果は「チーム」→「操作の記録と Discord への通知」に残り、Discord の「予約の結果」を選んでいれば知らせます。決められるのは管理者以上です。サーバーごとの予約(毎日・毎週・変えたら再起動)は、それぞれのサーバーの画面で決められます。</p>
     </>
   );
 }
@@ -372,7 +409,7 @@ function FromModpack({ onCreated, servers }: { onCreated: () => void; servers: {
   };
   return (
     <>
-      <div className="group-title">Modpack から作る</div>
+      <div className="gtitle">Modpack から作る<Info>Modpack に入っている Mod をライブラリに載せ、Modpack の名前のセットを作ります。Modrinth のものはファイルの中身(SHA-1)で探し、CurseForge のものは「チーム」で API キーを設定すると読めます。設定ファイル(overrides)は、サーバーを選んだときだけ、そのサーバーに書き込みます(テキストの設定ファイルだけ。上書きする前の中身は履歴に残ります。管理者以上)。</Info></div>
       <section className="group">
         {servers.length > 0 && (
           <div className="row">
@@ -390,7 +427,6 @@ function FromModpack({ onCreated, servers }: { onCreated: () => void; servers: {
         {note && <p className="row muted" role="status" translate="no">{note}</p>}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">Modpack に入っている Mod をライブラリに載せ、Modpack の名前のセットを作ります。Modrinth のものはファイルの中身(SHA-1)で探し、CurseForge のものは「チーム」で API キーを設定すると読めます。設定ファイル(overrides)は、サーバーを選んだときだけ、そのサーバーに書き込みます(テキストの設定ファイルだけ。上書きする前の中身は履歴に残ります。管理者以上)。</p>
     </>
   );
 }

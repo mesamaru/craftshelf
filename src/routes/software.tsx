@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { ActionBar, Btn, Chip, ChipBar, Info } from "~/lib/ui";
 import { listServers } from "~/lib/servers-api";
 import { softwareInfo, updateSoftware } from "~/lib/software-api";
 import { useCan } from "~/lib/use-can";
@@ -55,43 +56,48 @@ function Software() {
   };
   const toggle = (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   return (
-    <main className="page narrow">
+    <main className="page fill">
+      <Link to="/servers" className="back">‹ サーバー</Link>
       <header className="bar">
-        <Link to="/servers" className="capsule">‹ サーバー</Link>
-        <h1>サーバー本体</h1>
+        <h1>サーバー本体<small>{`${servers.length} 台`}</small><Info>Paper・Folia・Purpur・Leaf・Pufferfish・Velocity・Waterfall・BungeeCord・Fabric・Vanilla・Mohist・SpongeVanilla は入れ替えられます。ビルド・Minecraft のバージョンを選ぶのと、残した jar に戻すのは、それぞれのサーバーの画面からできます。</Info></h1>
       </header>
+      {admin && updatable.length > 1 && (
+        <ChipBar label="まとめて" tools={<Btn kind="tint" sm disabled={!!busy} onClick={() => run(updatable.map((s) => s.id))}>{`${updatable.length} 台を入れ替える`}</Btn>}>
+          <Chip on={restart} onClick={() => setRestart(!restart)}>入れ替えたら再起動</Chip>
+        </ChipBar>
+      )}
       <section className="group">
         {servers.length === 0 && <div className="row muted">まだサーバーがありません。</div>}
         {servers.map((s) => {
           const i = infos[s.id];
           return (
             <div className="row" key={s.id}>
-              {admin && <input type="checkbox" checked={picked.has(s.id)} disabled={!!busy} onChange={() => toggle(s.id)} aria-label={`${s.name} を選ぶ`} />}
-              <span className="main">
-                <Link to="/servers/$id" params={{ id: s.id }} className="name" translate="no">{s.name}</Link>
-                <span className="muted small" translate="no">
+              {admin && <input type="checkbox" className="ck" checked={picked.has(s.id)} disabled={!!busy} onChange={() => toggle(s.id)} aria-label={`${s.name} を選ぶ`} />}
+              <Link to="/servers/$id" params={{ id: s.id }} className="mid">
+                <span className="ttl" translate="no">{s.name}</span>
+                <span className="sub" translate="no">
                   {i === undefined ? "確かめています…" : typeof i === "string" ? i
                     : `${i.label} ${i.mc ? `${i.mc} · ` : ""}${i.build || "?"}${i.latest ? ` → ${i.latest.build}` : ""}${i.mcNewer.length ? ` · Minecraft ${i.mcNewer[0]} あり` : ""}`}
                 </span>
-              </span>
-              {typeof i === "object" && (i.update ? <span className="trail badge">新しいビルド</span> : i.latest ? <span className="trail muted small">最新</span> : null)}
+              </Link>
+              {typeof i === "object" && (i.update ? <span className="badge upd">新しいビルド</span> : i.latest ? <span className="badge ok">最新</span> : null)}
               {admin && typeof i === "object" && i.update && i.latest?.auto && i.jar && (
-                <button className="trail link" type="button" disabled={!!busy} onClick={() => run([s.id])}>{busy === s.id ? "入れ替えています…" : "入れ替える"}</button>
+                <Btn kind="tint" sm disabled={!!busy} onClick={() => run([s.id])}>{busy === s.id ? "入れ替えています…" : "入れ替える"}</Btn>
               )}
             </div>
           );
         })}
       </section>
-      {admin && servers.length > 0 && (
-        <section className="group">
-          <button className="row link" type="button" disabled={!!busy} onClick={() => setPicked(new Set(servers.map((s) => s.id)))}>すべて選ぶ</button>
-          <label className="row"><span>入れ替えたら再起動する</span><input className="trail" type="checkbox" checked={restart} onChange={(e) => setRestart(e.target.checked)} /></label>
-          <button className="row link" type="button" disabled={!!busy || picked.size === 0} onClick={() => run([...picked])}>{`選んだ ${picked.size} 台をまとめて最新にする(最新のものは飛ばす)`}</button>
-          {updatable.length > 1 && <button className="row link" type="button" disabled={!!busy} onClick={() => run(updatable.map((s) => s.id))}>{`新しいビルドがある ${updatable.length} 台をまとめて入れ替える`}</button>}
-        </section>
-      )}
       {note && <p className="notice" role="status">{note}</p>}
-      <p className="foot">Paper・Folia・Purpur・Leaf・Pufferfish・Velocity・Waterfall・BungeeCord・Fabric・Vanilla・Mohist・SpongeVanilla は入れ替えられます。ビルド・Minecraft のバージョンを選ぶのと、残した jar に戻すのは、それぞれのサーバーの画面からできます。</p>
+      {admin && picked.size > 0 && (
+        <ActionBar label="選んだサーバー">
+          <strong>{`${picked.size} 台`}</strong>
+          {picked.size < servers.length && <Btn sm disabled={!!busy} onClick={() => setPicked(new Set(servers.map((s) => s.id)))}>すべて選ぶ</Btn>}
+          <Btn sm aria-pressed={restart} kind={restart ? "tint" : "sec"} onClick={() => setRestart(!restart)}>{restart ? "再起動する" : "再起動しない"}</Btn>
+          <Btn kind="pri" sm disabled={!!busy} onClick={() => run([...picked])}>最新にする</Btn>
+          <Btn sm aria-label="選ぶのをやめる" title="選ぶのをやめる" onClick={() => setPicked(new Set())}>✕</Btn>
+        </ActionBar>
+      )}
     </main>
   );
 }

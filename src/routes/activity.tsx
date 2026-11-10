@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { SettingsFrame } from "~/lib/settings-frame";
+import { Info } from "~/lib/ui";
 import { listEvents, notifySettings, setNotify, testNotify } from "~/lib/events-api";
 import { useCan } from "~/lib/use-can";
 
@@ -22,15 +24,11 @@ function Activity() {
   const log = can({ audit: ["read"] });
   const notify = can({ integrations: ["manage"] });
   return (
-    <main className="page narrow">
-      <header className="bar">
-        <Link to="/team" className="capsule">‹ チーム</Link>
-        <h1>操作の記録と通知</h1>
-      </header>
+    <SettingsFrame at="activity">
       {!me ? <section className="group"><div className="row muted">読み込んでいます…</div></section>
         : !log && !notify ? <section className="group"><div className="row muted">見られるのは、チームの管理者とオーナー(と、権限を足してもらった人)だけです。</div></section>
         : <>{notify && <Notify />}{log && <Log />}</>}
-    </main>
+    </SettingsFrame>
   );
 }
 
@@ -66,14 +64,14 @@ function Notify() {
 
   return (
     <>
-      <div className="group-title">Discord への通知</div>
+      <div className="gtitle">Discord への通知<Info>Discord のチャンネルの設定 → 連携サービス → ウェブフックで作った URL を入れてください。URL は暗号化して保存し、画面には最後の 4 文字だけを出します。通知ではメンションはしません。</Info></div>
       <form className="group form" onSubmit={(e) => (e.preventDefault(), run("save", () => save({ data: { url, kinds: [...picked] } }), "保存しました"))}>
         <input className="row" type="password" autoComplete="off" value={url} onChange={(e) => setUrl(e.target.value)}
           placeholder={s.configured ? `Webhook の URL(設定済み ${s.hint}。変えるときだけ入力)` : "Webhook の URL(https://discord.com/api/webhooks/…)"} />
         {Object.entries(s.kinds).map(([k, label]) => (
           <label className="row" key={k}>
             <span>{label}</span>
-            <input className="trail" type="checkbox" checked={picked.has(k)}
+            <input className="trail switch" type="checkbox" checked={picked.has(k)}
               onChange={(e) => setPicked((p) => { const n = new Set(p); if (e.target.checked) n.add(k); else n.delete(k); return n; })} />
           </label>
         ))}
@@ -90,7 +88,6 @@ function Notify() {
         {note && <p className="row muted" role="status">{note}</p>}
         {error && <p className="row error" role="alert">{error}</p>}
       </form>
-      <p className="foot">Discord のチャンネルの設定 → 連携サービス → ウェブフックで作った URL を入れてください。URL は暗号化して保存し、画面には最後の 4 文字だけを出します。通知ではメンションはしません。</p>
     </>
   );
 }
@@ -119,7 +116,7 @@ function Log() {
 
   return (
     <>
-      <div className="group-title">操作の記録</div>
+      <div className="gtitle">操作の記録</div>
       <section className="group">
         <input className="row" type="search" value={q} maxLength={100} onChange={(e) => setQ(e.target.value)}
           placeholder="操作・対象・詳しく・人の名前で探す" aria-label="操作の記録を探す" />

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { Btn, Chip, ChipBar, Info, Seg, Sheet } from "~/lib/ui";
 import { type Group, type Kind, type Port, freePorts, isPort, rangeOf } from "~/lib/ports";
 import { adoptFoundPort, portOverview, savePortRules, saveServerPorts, scanPorts, setServerPortInfo } from "~/lib/ports-api";
 import { useCan } from "~/lib/use-can";
@@ -58,26 +59,25 @@ function Ports() {
   useEffect(() => { if (data.servers.length && data.servers.every((s) => !s.scannedAt)) rescan(); }, []);
 
   return (
-    <main className="page wide">
+    <main className="page fill">
+      <Link to="/servers" className="back">‹ サーバー</Link>
       <header className="bar">
-        <Link to="/servers" className="capsule">‹ サーバー</Link>
-        <h1>ポート</h1>
+        <h1>ポート<small>{`${data.servers.length} 台`}</small><Info>ポートは Pterodactyl の割り当てと、種類ごとの設定ファイルから読み取ります。重複は同じマシン(Pterodactyl のノード)の中だけで確かめます。番号を押すと、そのサーバーのポートを変えられます。</Info></h1>
         <Bell open={bell} setOpen={setBell} count={data.problems.length + found.length} label={`ポートの知らせ ${data.problems.length + found.length} 件`}>
           <ProblemList data={data} found={found} edit={edit} onChange={setData} />
         </Bell>
       </header>
-      <div className="bar wrap">
-        {machines.length > 1 && (
-          <select value={machine} onChange={(e) => setMachine(e.target.value)} aria-label="マシン">
-            <option value="">すべてのマシン</option>
-            {machines.map((m) => <option key={m} value={m}>{m.split("/").pop() || "(不明)"}</option>)}
-          </select>
-        )}
-        <label className="muted"><input type="checkbox" checked={onlyProblems} onChange={(e) => setOnlyProblems(e.target.checked)} /> 問題のあるものだけ</label>
-        <span className="spacer" />
-        {edit && <button className="capsule" type="button" onClick={() => setPanel({ type: "rules" })}>種類とグループ</button>}
-        {edit && <button className="capsule" type="button" onClick={rescan} disabled={busy}>{busy ? "読み取っています…" : "再読込"}</button>}
-      </div>
+      <ChipBar label="絞り込み" tools={edit && <>
+        <Btn sm onClick={() => setPanel({ type: "rules" })}>種類とグループ</Btn>
+        <Btn sm onClick={rescan} disabled={busy}>{busy ? "読み取っています…" : "再読込"}</Btn>
+      </>}>
+        <Chip on={!machine && !onlyProblems} onClick={() => { setMachine(""); setOnlyProblems(false); }}>すべて</Chip>
+        <Chip on={onlyProblems} warn onClick={() => setOnlyProblems(!onlyProblems)}>問題だけ<span className="n">{data.problems.length}</span></Chip>
+        {machines.length > 1 && <span className="vsep" />}
+        {machines.length > 1 && machines.map((m) => (
+          <Chip key={m} on={machine === m} translate="no" onClick={() => setMachine(machine === m ? "" : m)}>{m.split("/").pop() || "(不明)"}</Chip>
+        ))}
+      </ChipBar>
       {note && <p className="notice" role="status">{note}</p>}
 
       {data.servers.length === 0 ? (
@@ -122,19 +122,21 @@ function Ports() {
           </table>
         </div>
       )}
-      <p className="foot">ポートは Pterodactyl の割り当てと、種類ごとの設定ファイルから読み取ります。重複は同じマシン(Pterodactyl のノード)の中だけで確かめます。番号を押すと、そのサーバーのポートを変えられます。</p>
 
-      {panel && (
-        <>
-          <div className="scrim" onClick={() => setPanel(null)} />
-          <aside className="side-panel" role="dialog" aria-label="ポートの設定">
-            {panel.type === "rules"
-              ? <RulesPanel data={data} onClose={() => setPanel(null)} onSaved={(d) => { setData(d); setPanel(null); }} />
-              : <ServerPanel key={panel.id + (panel.focus ?? "") + (panel.addKind ?? "")} data={data} server={data.servers.find((s) => s.id === panel.id)!}
-                  focus={panel.focus} addKind={panel.addKind} edit={edit} onClose={() => setPanel(null)} onSaved={setData} />}
-          </aside>
-        </>
+      {panel?.type === "rules" && (
+        <Sheet title="種類とグループ" onClose={() => setPanel(null)}>
+          <RulesPanel data={data} onClose={() => setPanel(null)} onSaved={(d) => { setData(d); setPanel(null); }} />
+        </Sheet>
       )}
+      {panel?.type === "server" && (() => {
+        const server = data.servers.find((s) => s.id === panel.id)!;
+        return (
+          <Sheet title={<span translate="no">{server.name}</span>} label="ポートの設定" onClose={() => setPanel(null)}>
+            <ServerPanel key={panel.id + (panel.focus ?? "") + (panel.addKind ?? "")} data={data} server={server}
+              focus={panel.focus} addKind={panel.addKind} edit={edit} onClose={() => setPanel(null)} onSaved={setData} />
+          </Sheet>
+        );
+      })()}
     </main>
   );
 }
@@ -155,7 +157,7 @@ function ProblemList({ data, found, edit, onChange }: { data: Overview; found: {
         <div className="row" key={pr.portId}>
           <span className={`mono ${pr.type}`}>{pr.port}</span>
           <span className="main"><span translate="no">{name(pr.serverId)}</span><span className="muted">{pr.message}</span></span>
-          {edit && pr.fix && <button className="trail capsule small" type="button" onClick={() => run(() => save({ data: { serverId: pr.serverId, changes: [{ id: pr.portId, port: pr.fix! }] } }))}>{`${pr.fix} に変える`}</button>}
+          {edit && pr.fix && <button className="btn sec sm" type="button" onClick={() => run(() => save({ data: { serverId: pr.serverId, changes: [{ id: pr.portId, port: pr.fix! }] } }))}>{`${pr.fix} に変える`}</button>}
         </div>
       ))}
       {found.length > 0 && <div className="row"><b>見つかったポート {found.length} 件</b></div>}
@@ -181,8 +183,8 @@ function FoundRow({ server, port, kinds, edit, onAdopt, onIgnore }:
             <option value="__new">{`新しい種類「${port.label}」を作る`}</option>
             {kinds.map((k) => <option key={k.id} value={k.id}>{k.name}</option>)}
           </select>
-          <button className="capsule primary small" type="button" onClick={() => onAdopt(kind === "__new" ? { newKindName: port.label } : { kindId: kind })}>管理する</button>
-          <button className="capsule small" type="button" onClick={onIgnore}>いいえ(以後聞かない)</button>
+          <button className="btn pri sm" type="button" onClick={() => onAdopt(kind === "__new" ? { newKindName: port.label } : { kindId: kind })}>管理する</button>
+          <button className="btn sec sm" type="button" onClick={onIgnore}>いいえ(以後聞かない)</button>
         </span>
       )}
     </div>
@@ -251,7 +253,6 @@ function ServerPanel({ data, server, focus, addKind, edit, onClose, onSaved }:
 
   return (
     <>
-      <div className="bar"><h2 translate="no">{server.name}</h2><button className="capsule small" type="button" onClick={onClose} aria-label="閉じる">×</button></div>
       <section className="group">
         <label className="row">
           <span>グループ</span>
@@ -268,12 +269,12 @@ function ServerPanel({ data, server, focus, addKind, edit, onClose, onSaved }:
         </label>
         <div className="row">
           <span className="main"><span>マシン</span><span className="muted">{server.machine.split("/").pop() || "(不明)"} · 自動更新 {server.scannedAt ? new Date(server.scannedAt).toLocaleString("ja-JP") : "まだ"}</span></span>
-          <button className="trail capsule small" type="button" disabled={busy}
+          <button className="btn sec sm" type="button" disabled={busy}
             onClick={async () => { setBusy(true); try { onSaved(await scan({ data: { serverId: server.id } })); onClose(); } catch (x) { setError(message(x)); } finally { setBusy(false); } }}>再読込</button>
         </div>
       </section>
 
-      <div className="group-title">ポート</div>
+      <div className="gtitle">ポート</div>
       <section className="group">
         {rows.length === 0 && <div className="row muted">まだポートがありません。</div>}
         {rows.map((d, i) => {
@@ -290,11 +291,11 @@ function ServerPanel({ data, server, focus, addKind, edit, onClose, onSaved }:
                 <input className={`num ${st}`} inputMode="numeric" value={d.port} disabled={!edit || d.source === "allocation" || d.remove}
                   autoFocus={d.id === focus || (!d.id && i === rows.length - 1)} aria-label="ポート番号" onChange={(e) => set(i, { port: e.target.value.trim() })} />
                 {edit && (auto
-                  ? <button className="capsule small" type="button" onClick={() => set(i, { ignored: !d.ignored })} title="次の読み取りでも出てこないようにします">{d.ignored ? "戻す" : "管理から外す"}</button>
-                  : <button className="capsule small danger" type="button" onClick={() => (d.id ? set(i, { remove: !d.remove }) : setRows((r) => r.filter((_, j) => j !== i)))}>{d.remove ? "戻す" : "削除"}</button>)}
+                  ? <button className="btn sec sm" type="button" onClick={() => set(i, { ignored: !d.ignored })} title="次の読み取りでも出てこないようにします">{d.ignored ? "戻す" : "管理から外す"}</button>
+                  : <button className="btn red sm" type="button" onClick={() => (d.id ? set(i, { remove: !d.remove }) : setRows((r) => r.filter((_, j) => j !== i)))}>{d.remove ? "戻す" : "削除"}</button>)}
               </span>
               <span className="muted small">{SOURCE[d.source] ?? d.source}{d.file ? ` · ${d.file}${d.key ? ` の ${d.key}` : ""}` : ""}{d.source === "allocation" ? "(番号はパネルの「ネットワーク」で変えます)" : ""}</span>
-              {st && <span className={`small ${st}`}>{why}{sugg.length > 0 && edit && <> → 空き: {sugg.map((n) => <button key={n} type="button" className="capsule small" onClick={() => set(i, { port: String(n) })}>{n}</button>)}</>}</span>}
+              {st && <span className={`small ${st}`}>{why}{sugg.length > 0 && edit && <> → 空き: {sugg.map((n) => <button key={n} type="button" className="btn sec sm" onClick={() => set(i, { port: String(n) })}>{n}</button>)}</>}</span>}
               <input className="memo" placeholder="メモ(用途など)" value={d.memo} maxLength={100} disabled={!edit} translate="no" onChange={(e) => set(i, { memo: e.target.value })} />
             </div>
           );
@@ -303,7 +304,7 @@ function ServerPanel({ data, server, focus, addKind, edit, onClose, onSaved }:
           <div className="row column">
             <span className="muted small">ポートを追加(種類を押すと、空いている番号が入ります)</span>
             <span className="actions">
-              {data.kinds.map((k) => <button key={k.id} className="capsule small" type="button"
+              {data.kinds.map((k) => <button key={k.id} className="btn sec sm" type="button"
                 onClick={() => setRows((r) => [...r, { kindId: k.id, port: String(firstFree(k.id) ?? ""), memo: "", source: "manual", label: "", file: "", key: "", ignored: false, remove: false }])}>{k.name}</button>)}
             </span>
           </div>
@@ -315,8 +316,8 @@ function ServerPanel({ data, server, focus, addKind, edit, onClose, onSaved }:
             : willWrite.length > 0 && <p className="muted small">保存すると書き換えるファイル: {willWrite.join("、")}(サーバーを再起動すると反映されます)</p>}
           {error && <p className="error small" role="alert">{error}</p>}
           {done && <p className="small" role="status">{done}</p>}
-          <span className="actions"><button className="capsule" type="button" onClick={onClose}>閉じる</button>
-            <button className="capsule primary" type="button" disabled={busy || blocking > 0 || !rows.some(changed)} onClick={submit}>{busy ? "保存しています…" : "保存"}</button></span>
+          <span className="actions"><button className="btn sec" type="button" onClick={onClose}>閉じる</button>
+            <button className="btn pri" type="button" disabled={busy || blocking > 0 || !rows.some(changed)} onClick={submit}>{busy ? "保存しています…" : "保存"}</button></span>
         </div>
       )}
     </>
@@ -372,11 +373,7 @@ function RulesPanel({ data, onClose, onSaved }: { data: Overview; onClose: () =>
 
   return (
     <>
-      <div className="bar"><h2>種類とグループ</h2><button className="capsule small" type="button" onClick={onClose} aria-label="閉じる">×</button></div>
-      <div className="seg">
-        {([["kinds", "ポートの種類(列)"], ["groups", "グループ(行)"], ["catalog", "プラグインの一覧"]] as const).map(([k, l]) =>
-          <button key={k} type="button" className={tab === k ? "on" : ""} onClick={() => setTab(k)}>{l}</button>)}
-      </div>
+      <Seg value={tab} label="種類とグループ" onChange={setTab} options={[["kinds", "ポートの種類(列)"], ["groups", "グループ(行)"], ["catalog", "プラグインの一覧"]] as const} />
       {tab === "catalog" ? (
         <section className="group">
           {data.catalog.map((c) => (
@@ -435,8 +432,8 @@ function RulesPanel({ data, onClose, onSaved }: { data: Overview; onClose: () =>
       )}
       {error && <p className="error small" role="alert">{error}</p>}
       <div className="panel-foot"><span className="actions">
-        <button className="capsule" type="button" onClick={onClose}>キャンセル</button>
-        <button className="capsule primary" type="button" onClick={async () => { try { onSaved(await save({ data: { kinds, groups } })); } catch (e) { setError(message(e)); } }}>保存</button>
+        <button className="btn sec" type="button" onClick={onClose}>キャンセル</button>
+        <button className="btn pri" type="button" onClick={async () => { try { onSaved(await save({ data: { kinds, groups } })); } catch (e) { setError(message(e)); } }}>保存</button>
       </span></div>
     </>
   );

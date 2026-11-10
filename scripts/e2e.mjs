@@ -44,7 +44,7 @@ await step("登録するとライブラリが開く", async () => {
   await page.screenshot({ path: ".e2e/add.png" });
   await page.keyboard.press("Escape");
   await page.getByRole("dialog").waitFor({ state: "detached" });
-  await page.locator("aside.side a.nav", { hasText: "チーム" }).waitFor();
+  await page.locator("aside.side a.nav", { hasText: "設定" }).waitFor();
 });
 
 await step("左のメニュー・スマホの下のタブで画面を移れる", async () => {
@@ -54,21 +54,34 @@ await step("左のメニュー・スマホの下のタブで画面を移れる",
   await page.locator(".tabbar").getByRole("link", { name: "サーバー" }).click();
   await page.waitForURL(base + "/servers");
   await page.locator(".tabbar").getByRole("button", { name: "その他" }).click();
-  await page.getByRole("dialog").getByRole("link", { name: "チーム" }).click();
+  await page.getByRole("dialog").getByRole("link", { name: "設定", exact: true }).click();
+  await page.waitForURL(base + "/settings");
+  // スマホの設定は一覧から押して入り、「‹ 設定」で一覧に戻る
+  await page.locator(".set-nav").getByRole("link", { name: "メンバー" }).click();
   await page.waitForURL(base + "/team");
+  await page.getByText("E2E(自分)").waitFor();
   await page.screenshot({ path: ".e2e/phone.png" });
+  await page.getByRole("link", { name: "‹ 設定" }).click();
+  await page.waitForURL(base + "/settings");
+  await page.locator(".set-nav").getByRole("link", { name: "プロフィール" }).waitFor();
   await page.setViewportSize({ width: 1280, height: 720 });
 });
 
 await step("セットを作ると一覧に出る", async () => {
   await page.goto(base + "/sets");
   await page.getByText(/まだセットがありません/).waitFor();
-  await page.getByPlaceholder("セットの名前(例 ロビー用)").fill("ロビー用");
-  await page.getByRole("button", { name: "作る" }).click();
-  await page.getByText("ロビー用", { exact: true }).waitFor();
-  await page.getByText(/まだ何も入っていません。先にライブラリ/).waitFor();
-  await page.getByText("予約を使う").waitFor(); // 予約の欄も出る
+  await page.getByRole("button", { name: "＋ 作る" }).click(); // 作るのはシート
+  await page.getByRole("dialog").getByPlaceholder("セットの名前(例 ロビー用)").fill("ロビー用");
+  await page.getByRole("dialog").getByRole("button", { name: "作る", exact: true }).click();
+  await page.getByRole("dialog").waitFor({ state: "detached" });
+  await page.locator(".set-card", { hasText: "ロビー用" }).getByText("0 件", { exact: false }).waitFor();
   await page.screenshot({ path: ".e2e/sets.png", fullPage: true });
+  await page.locator(".set-card", { hasText: "ロビー用" }).click(); // 押すとシートで中身
+  await page.getByRole("dialog").getByText(/まだ何も入っていません。先にライブラリ/).waitFor();
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "予約", exact: true }).click(); // 予約もシート
+  await page.getByRole("dialog").getByText("予約を使う").waitFor();
+  await page.keyboard.press("Escape");
 });
 
 await step("チームの画面に自分がオーナーとして出る", async () => {
@@ -79,10 +92,11 @@ await step("チームの画面に自分がオーナーとして出る", async ()
 });
 
 // 自分用の版は家の中のパネルも登録できるので、どちらの版でも断る URL(ftp)で確かめる
-await step("チームの画面から、操作の記録と Discord への通知を開ける", async () => {
+await step("設定の左の一覧から、操作の記録と Discord への通知を開ける", async () => {
   await page.goto(base + "/team");
-  await page.getByRole("link", { name: "操作の記録と Discord への通知" }).click();
-  await page.getByText("Discord への通知", { exact: true }).waitFor();
+  await page.locator(".set-nav").getByRole("link", { name: "記録と通知(Discord)" }).click();
+  await page.waitForURL(base + "/activity");
+  await page.locator(".gtitle", { hasText: "Discord への通知" }).waitFor();
   await page.getByText("セットを作る").first().waitFor(); // さっき作ったセットが記録に出る
   await page.screenshot({ path: ".e2e/activity.png", fullPage: true });
 });
@@ -107,11 +121,11 @@ await step("ポートの画面で、種類とグループを足して並べ替�
   await page.waitForURL(base + "/ports");
   await page.getByText(/サーバーがありません/).waitFor();
   await page.getByRole("button", { name: "種類とグループ" }).click();
-  await page.getByRole("button", { name: "グループ(行)" }).click();
+  await page.getByRole("tab", { name: "グループ(行)" }).click();
   await page.getByRole("button", { name: "＋ グループを追加" }).click();
   await page.getByLabel("番号").last().fill("90");
   await page.getByLabel("名前").last().fill("Proxy");
-  await page.getByRole("button", { name: "ポートの種類(列)" }).click();
+  await page.getByRole("tab", { name: "ポートの種類(列)" }).click();
   await page.getByLabel("上へ").nth(1).click(); // 2 つ目の種類を一番上へ
   await page.screenshot({ path: ".e2e/ports-rules.png", fullPage: true });
   await page.getByRole("button", { name: "保存", exact: true }).click();
@@ -119,7 +133,7 @@ await step("ポートの画面で、種類とグループを足して並べ替�
   const heads = await page.locator(".ports-table th").allTextContents().catch(() => []);
   await page.getByRole("button", { name: "種類とグループ" }).click();
   if ((await page.getByLabel("種類の名前").first().inputValue()) !== "Bedrock") throw new Error(`並び順が保存されていません ${heads}`);
-  await page.getByRole("button", { name: "グループ(行)" }).click();
+  await page.getByRole("tab", { name: "グループ(行)" }).click();
   if ((await page.getByLabel("名前").first().inputValue()) !== "Proxy") throw new Error("グループが保存されていません");
   await page.keyboard.press("Escape");
   await page.screenshot({ path: ".e2e/ports.png", fullPage: true });
@@ -165,6 +179,8 @@ await step("フォルダのサーバーを足すと、一覧と詳細のタブ�
 
 await step("ログアウトはアカウントの設定にあり、押すとログイン画面に戻る", async () => {
   await page.goto(base + "/settings");
+  await page.locator(".set-nav").getByRole("link", { name: "プロフィール" }).waitFor();
+  await page.getByLabel("表示名").waitFor(); // パソコンは何も選ばないとプロフィール
   await page.screenshot({ path: ".e2e/settings.png", fullPage: true });
   await page.getByRole("button", { name: "ログアウト" }).click();
   await page.waitForURL(base + "/login");

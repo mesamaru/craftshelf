@@ -192,7 +192,7 @@ input.memo { width: 100%; }
 .panel-foot { position: sticky; bottom: -16px; padding: 10px 0 0; background: var(--glass); display: flex; flex-direction: column; gap: 6px; }
 .panel-foot .actions { display: flex; gap: 8px; justify-content: flex-end; }
 .side-panel > * { flex-shrink: 0; } /* 中身が多いときは縮めずにスクロール */
-.side-panel input, .side-panel select { font: inherit; font-size: 14px; padding: 6px 8px; border-radius: 10px; border: 1px solid var(--line); background: rgba(127, 127, 127, 0.08); color: inherit; }
+.side-panel input, .side-panel select, .sheet .port-line input, .sheet .port-line select, .sheet input.memo { font: inherit; font-size: 14px; padding: 6px 8px; border-radius: 10px; border: 1px solid var(--line); background: rgba(127, 127, 127, 0.08); color: inherit; }
 
 /* 改行をそのまま出す(操作の記録の詳しい内容) */
 .pre { white-space: pre-line; }
@@ -517,3 +517,57 @@ pre.console .err { color: #ff8a80; } pre.console .warn { color: #ffcc66; } pre.c
   .sheet { top: auto; left: 0; right: 0; bottom: 0; width: auto; height: 82%; border-radius: 28px 28px 0 0; padding-bottom: env(safe-area-inset-bottom); }
   .sheet .grab { display: block; }
 }
+
+/* ===== 設定の 2 段(src/lib/settings-frame.tsx): 左にまとまり、右に中身。スマホは一覧から押して入る ===== */
+.split { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 18px; align-items: start; }
+.set-nav { position: sticky; top: 12px; }
+.set-nav .gtitle { margin-top: 12px; }
+.set-nav > div:first-child .gtitle { margin-top: 0; }
+.set-nav .row { min-height: 42px; padding: 9px 14px; }
+.set-nav .row[aria-current="page"] { background: var(--accent-soft); }
+.set-nav .row[aria-current="page"] .ttl, .set-nav .row[aria-current="page"] .chev { color: var(--accent); }
+.set-body { min-width: 0; max-width: 760px; display: flex; flex-direction: column; gap: 12px; }
+.set-body > .gtitle { margin-bottom: -6px; }
+.set-title { margin: 0; font-size: 20px; display: flex; align-items: center; gap: 2px; }
+/* メニューに無い画面の「‹ 親の画面」 */
+.back { display: inline-flex; align-self: flex-start; color: var(--accent); text-decoration: none; font-weight: 600; font-size: 13.5px; }
+.settings .back { display: none; }
+.group.form > .btn { margin: 12px 16px 0; align-self: flex-start; }
+@media (max-width: 1000px) and (min-width: 721px) { .split { grid-template-columns: 220px minmax(0, 1fr); } }
+@media (max-width: 720px) {
+  .split { grid-template-columns: 1fr; }
+  .set-nav { position: static; }
+  .settings.at-root .set-body, .settings:not(.at-root) .set-nav, .settings:not(.at-root) > .bar { display: none; }
+  .settings .back { display: inline-flex; }
+  .set-nav .row { min-height: 48px; }
+  .settings.at-root .set-nav .row[aria-current="page"] { background: none; }
+  .settings.at-root .set-nav .row[aria-current="page"] .ttl, .settings.at-root .set-nav .row[aria-current="page"] .chev { color: inherit; }
+}
+
+/* ===== ログイン・登録など(枠なし): ガラスのカード 1 枚 ===== */
+.auth { max-width: 400px; margin: max(24px, 9vh) auto 32px; padding: 26px 22px 22px; border-radius: var(--r-sheet); box-shadow: var(--shadow); display: flex; flex-direction: column; gap: 12px; }
+.auth .brand-mark { width: 52px; height: 52px; border-radius: 14px; align-self: center; }
+.auth .title { margin: 0 0 4px; font-size: 22px; }
+.auth .group { background: none; backdrop-filter: none; box-shadow: none; border: 0; gap: 10px; overflow: visible; }
+.auth .group.form { padding: 0; }
+.auth input.row, .auth textarea.row { min-height: 0; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--glass2); padding: 11px 12px; }
+.auth input.row:focus { border-color: var(--accent); }
+.auth .group .row:not(input) { padding: 4px 2px; min-height: 0; border: 0; }
+.auth .btn, .auth .group.form .btn { width: 100%; margin: 0; padding: 11px 16px; font-size: 14px; }
+.auth .foot { margin: 0; font-size: 13px; }
+@media (max-width: 720px) { .auth { margin: 16px 14px; } }
+.cl-param { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+.cl-param .input { padding: 5px 8px; }
+.sheet .panel-foot { bottom: -20px; background: var(--glass2); padding-bottom: 6px; }
+
+/* セットのカード(src/routes/sets.tsx) */
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; align-items: start; }
+button.group.set-card { padding: 0; text-align: left; font: inherit; color: inherit; cursor: pointer; width: 100%; }
+button.group.set-card:hover { border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.set-ic { background: var(--accent); color: var(--accent-ink); font-weight: 800; font-size: 16px; }
+.set-card .row.tags { flex-wrap: wrap; gap: 4px; min-height: 0; padding-top: 8px; padding-bottom: 12px; }
+.set-card .tag { margin-left: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-nav .ttl { font-weight: 500; }
+a.mid { color: inherit; text-decoration: none; }
+.row select:not(.trail) { font: inherit; font-size: 13px; color: var(--text); background: transparent; border: 1px solid var(--line); border-radius: 10px; padding: 4px 8px; }
+input.switch.trail { margin-left: auto; }

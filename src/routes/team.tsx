@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { authClient } from "~/lib/auth-client";
 import { errorText } from "~/lib/errors";
@@ -7,7 +7,8 @@ import { curseforgeKey, libraryCatalog, setCurseforgeKey, setLibraryChannel } fr
 import { listSets } from "~/lib/sets-api";
 import { OPEN_ADD } from "~/lib/shell";
 import { CHANNELS, type Channel } from "~/lib/sources";
-import { Info } from "~/lib/ui";
+import { Btn, Info } from "~/lib/ui";
+import { SettingsFrame } from "~/lib/settings-frame";
 import { useCan } from "~/lib/use-can";
 import { useServerFn } from "@tanstack/react-start";
 import { ASSIGNABLE_ROLES, GRANTS, GRANT_LABELS, type Grant, type RoleName, roleLabel } from "~/lib/permissions";
@@ -15,6 +16,7 @@ import { serverAssignments, setServerAssignment } from "~/lib/servers-api";
 import { deleteTeam, memberGrants, resetSignIn, setMemberGrants, transferOwner } from "~/lib/teams-api";
 
 export const Route = createFileRoute("/team")({
+  validateSearch: (s: Record<string, unknown>): { s?: string } => (typeof s.s === "string" ? { s: s.s } : {}),
   beforeLoad: ({ context }) => {
     if (!context.user) throw redirect({ to: "/login" });
     return { user: context.user };
@@ -22,22 +24,30 @@ export const Route = createFileRoute("/team")({
   component: Team,
 });
 
-// チーム(メンバー・招待・役割・チームの切り替え)
+// 設定のうち、チームのまとまり(?s= で選ぶ。何も選ばないとメンバー)
+const SECTIONS = ["members", "perms", "curseforge", "setup", "channel"] as const;
+type Section = (typeof SECTIONS)[number];
+const INFO: Partial<Record<Section, ReactNode>> = {
+  perms: <><span>役割(閲覧者・編集者・管理者)の権限に、メンバーごとに足したり引いたりできます。たとえば「編集者だけど設定ファイルも直せる」「閲覧者だけどサーバーの電源は操作できる」「編集者だけどライブラリは変えられない」のようにできます。</span><span>メンバーの招待・役割の変更・チームの設定・利用状況・パネルのバックアップは、役割(管理者以上)だけで決まります。オーナーの権限は減らせません。API トークンも、作った人の今の権限の分だけ使えます。</span></>,
+  curseforge: <span>設定すると、サーバーの画面とライブラリで CurseForge からも探して入れられます。作者が外部からのダウンロードを許していないものは入れられません。キーは暗号化して保存し、画面には最後の 4 文字だけを出します。</span>,
+  channel: <span>更新・サーバーに入れるときに、どの版を選ぶかです。「正式版だけ」でも、正式版が 1 つも無いものはベータ版を使います。アイテムごとに「詳しく」→「情報を直す」で変えられます。</span>,
+};
+
+// チーム(メンバー・招待・役割・チームの切り替え・権限・連携)
 function Team() {
   const { user, app } = Route.useRouteContext();
+  const { s } = Route.useSearch();
   const { team, me, can, refetch } = useCan(user.id);
+  const at: Section = SECTIONS.includes(s as Section) ? (s as Section) : "members";
+  const admin = can({ member: ["update"] });
 
   return (
-    <main className="page narrow">
-      <header className="bar">
-        <h1>チーム</h1>
-      </header>
-      {app.mode === "service" && <Switcher activeId={team?.id} />}
-      {team && (
+    <SettingsFrame at={at} info={INFO[at]}>
+      {at === "members" && app.mode === "service" && <Switcher activeId={team?.id} />}
+      {team && at === "members" && (
         <>
-          {can({ member: ["update"] }) && <LibrarySetup key={team.id} members={team.members.length} />}
           <TeamName key={team.id} id={team.id} name={team.name} editable={can({ organization: ["update"] })} onDone={refetch} />
-          <div className="group-title">メンバー({team.members.length} 人)</div>
+          <div className="gtitle">{`メンバー(${team.members.length} 人)`}</div>
           <section className="group">
             {team.members.map((m) => (
               <MemberRow key={m.id} member={m} isMe={m.userId === user.id}
@@ -45,12 +55,10 @@ function Team() {
                 removable={m.role !== "owner" && m.userId !== user.id && can({ member: ["delete"] })} onDone={refetch} />
             ))}
           </section>
-          {can({ member: ["update"] }) && <Grants key={team.members.map((m) => m.role).join()} me={user.id} members={team.members.map((m) => ({ userId: m.userId, name: m.user.name, role: m.role }))} />}
-          {can({ member: ["update"] }) && <Assignments key={team.members.map((m) => m.role).join()} />}
           {can({ invitation: ["create"] }) && <Invite onDone={refetch} />}
           {team.invitations.some((i) => i.status === "pending") && (
             <>
-              <div className="group-title">返事を待っている招待</div>
+              <div className="gtitle">返事を待っている招待</div>
               <section className="group">
                 {team.invitations.filter((i) => i.status === "pending").map((i) => (
                   <InviteRow key={i.id} id={i.id} email={i.email} role={i.role}
@@ -59,18 +67,7 @@ function Team() {
               </section>
             </>
           )}
-          {(can({ member: ["update"] }) || can({ audit: ["read"] }) || can({ integrations: ["manage"] }) || (app.mode === "self" && can({ storage: ["manage"] }))) && (
-            <section className="group">
-              {(can({ audit: ["read"] }) || can({ integrations: ["manage"] })) && <Link to="/activity" className="row link">操作の記録と Discord への通知</Link>}
-              {app.mode === "self" && can({ storage: ["manage"] }) && <Link to="/storage" className="row link">保存先(アップロードしたアドオンの置き場所)</Link>}
-              {can({ member: ["update"] }) && <Link to="/usage" className="row link">利用状況</Link>}
-              {app.mode === "self" && can({ member: ["update"] }) && <Link to="/backup" className="row link">バックアップ</Link>}
-            </section>
-          )}
-          {app.mode === "self" && <section className="group"><Link to="/shares" className="row link">共有リンク</Link></section>}
-          {can({ member: ["update"] }) && <EditorFiles />}
-          {app.mode === "self" && can({ integrations: ["manage"] }) && <CurseForgeKey />}
-          {app.mode === "self" && can({ member: ["update"] }) && (
+          {app.mode === "self" && admin && (
             <SignInHelp members={team.members.filter((m) => m.role !== "owner" && m.userId !== user.id).map((m) => ({ userId: m.userId, name: m.user.name }))} />
           )}
           {me && me.role !== "owner" && <Leave teamId={team.id} />}
@@ -80,7 +77,14 @@ function Team() {
           )}
         </>
       )}
-    </main>
+      {team && at === "perms" && admin && <>
+        <EditorFiles />
+        <Grants key={team.members.map((m) => m.role).join()} me={user.id} members={team.members.map((m) => ({ userId: m.userId, name: m.user.name, role: m.role }))} />
+        <Assignments key={`a${team.members.map((m) => m.role).join()}`} />
+      </>}
+      {at === "curseforge" && app.mode === "self" && can({ integrations: ["manage"] }) && <CurseForgeKey />}
+      {team && (at === "setup" || at === "channel") && admin && <LibrarySetup key={team.id} members={team.members.length} part={at} />}
+    </SettingsFrame>
   );
 }
 
@@ -105,7 +109,7 @@ function Switcher({ activeId }: { activeId?: string }) {
 
   return (
     <>
-      <div className="group-title">使うチーム</div>
+      <div className="gtitle">使うチーム</div>
       <section className="group form">
         {teams?.map((t) => (
           <button key={t.id} className="row" type="button" onClick={() => pick(t.id)}>
@@ -114,7 +118,7 @@ function Switcher({ activeId }: { activeId?: string }) {
           </button>
         ))}
         <input className="row" placeholder="新しいチームの名前" translate="no" value={name} onChange={(e) => setName(e.target.value)} />
-        <button className="capsule" type="button" onClick={create} disabled={!name.trim()}>チームを作る</button>
+        <button className="btn sec" type="button" onClick={create} disabled={!name.trim()}>チームを作る</button>
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
     </>
@@ -131,12 +135,14 @@ function TeamName({ id, name, editable, onDone }: { id: string; name: string; ed
     onDone();
   };
   return (
-    <section className="group form">
-      <div className="row"><span>チームの名前</span></div>
-      <input className="row" translate="no" value={value} onChange={(e) => setValue(e.target.value)} />
-      <button className="capsule" type="button" onClick={save} disabled={!value.trim() || value === name}>名前を変える</button>
+    <form className="group" onSubmit={(e) => (e.preventDefault(), save())}>
+      <label className="row">
+        <span>チームの名前</span>
+        <input className="trail field" translate="no" maxLength={60} value={value} onChange={(e) => setValue(e.target.value)} aria-label="チームの名前" />
+        {value !== name && <Btn kind="pri" sm type="submit" disabled={!value.trim()}>保存</Btn>}
+      </label>
       {error && <p className="row error" role="alert">{error}</p>}
-    </section>
+    </form>
   );
 }
 
@@ -158,6 +164,7 @@ function MemberRow({ member, isMe, editable, removable, onDone }:
   };
   return (
     <div className="row member">
+      <span className="av" aria-hidden="true" translate="no">{member.user.name.slice(0, 1).toUpperCase()}</span>
       <span className="main">
         <span><span translate="no">{member.user.name}</span>{isMe ? "(自分)" : ""}</span>
         <span className="muted" translate="no">{member.user.email}</span>
@@ -193,7 +200,7 @@ function Invite({ onDone }: { onDone: () => void }) {
 
   return (
     <>
-      <div className="group-title">招待</div>
+      <div className="gtitle">招待</div>
       <section className="group form">
         <input className="row" type="email" placeholder="招待する人のメールアドレス" value={email} onChange={(e) => setEmail(e.target.value)} />
         <div className="row">
@@ -202,7 +209,7 @@ function Invite({ onDone }: { onDone: () => void }) {
             {ASSIGNABLE_ROLES.map((r) => <option key={r} value={r}>{roleLabel(r)}</option>)}
           </select>
         </div>
-        <button className="capsule" type="button" onClick={send} disabled={!email}>招待のリンクを作る</button>
+        <button className="btn pri" type="button" onClick={send} disabled={!email}>招待のリンクを作る</button>
         {link && (
           <>
             <p className="row muted">このリンクを招待する人に送ってください(48 時間有効。そのメールアドレスでログインした人だけが参加できます)。</p>
@@ -277,7 +284,6 @@ function CurseForgeKey() {
   if (hint === null) return null;
   return (
     <>
-      <div className="group-title">CurseForge</div>
       <form className="group form" onSubmit={(e) => (e.preventDefault(), run(key, "保存しました"))}>
         <input className="row" type="password" autoComplete="off" value={key} onChange={(e) => setKey(e.target.value)}
           placeholder={hint ? `API キー(設定済み ${hint}。変えるときだけ入力)` : "API キー(console.curseforge.com で作ったもの)"} aria-label="CurseForge の API キー" />
@@ -288,7 +294,6 @@ function CurseForgeKey() {
         {note && <p className="row muted" role="status">{note}</p>}
         {error && <p className="row error" role="alert">{error}</p>}
       </form>
-      <p className="foot">設定すると、サーバーの画面とライブラリで CurseForge からも探して入れられます。作者が外部からのダウンロードを許していないものは入れられません。キーは暗号化して保存し、画面には最後の 4 文字だけを出します。</p>
     </>
   );
 }
@@ -313,15 +318,14 @@ function EditorFiles() {
   if (on === null && !error) return null;
   return (
     <>
-      <div className="group-title">設定ファイル</div>
+      <div className="gtitle">設定ファイル<Info>設定ファイル(server.properties・plugins の設定など)には、データベースのパスワードや API キーが入っていることがあります。既定では管理者とオーナーだけが見る・直せます。許すと、編集者も「ファイルとコマンド」とファイル比較で見る・直せるようになります(割り当てたサーバーだけ)。人ごとに許す・止めるときは「メンバーごとの権限」で決めます。</Info></div>
       <section className="group">
         <label className="row">
           <span>編集者にも、サーバーの設定ファイルを見る・直すのを許す</span>
-          <input className="trail" type="checkbox" checked={!!on} disabled={on === null} onChange={(e) => change(e.target.checked)} />
+          <input className="trail switch" type="checkbox" checked={!!on} disabled={on === null} onChange={(e) => change(e.target.checked)} />
         </label>
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">設定ファイル(server.properties・plugins の設定など)には、データベースのパスワードや API キーが入っていることがあります。既定では管理者とオーナーだけが見る・直せます。許すと、編集者も「ファイルとコマンド」とファイル比較で見る・直せるようになります(割り当てたサーバーだけ)。人ごとに許す・止めるときは「メンバーごとの権限」で決めます。</p>
     </>
   );
 }
@@ -349,7 +353,7 @@ function Grants({ members, me }: { members: { userId: string; name: string; role
   };
   return (
     <>
-      <div className="group-title">メンバーごとの権限</div>
+      <div className="gtitle">メンバーごとの権限</div>
       {list.map((m) => {
         const r = rows.find((x) => x.userId === m.userId)!;
         const more = r.perms.filter((g) => !r.base.includes(g)).length;
@@ -369,7 +373,7 @@ function Grants({ members, me }: { members: { userId: string; name: string; role
                   <span>{GRANT_LABELS[g]}</span>
                   {r.perms.includes(g) !== r.base.includes(g) && <span className="muted small">{r.perms.includes(g) ? "役割より多い(足した権限)" : "役割より少ない(引いた権限)"}</span>}
                 </span>
-                <input className="trail" type="checkbox" checked={r.perms.includes(g)} aria-label={GRANT_LABELS[g]}
+                <input className="trail switch" type="checkbox" checked={r.perms.includes(g)} aria-label={GRANT_LABELS[g]}
                   onChange={(e) => change(m.userId, e.target.checked ? [...r.perms, g] : r.perms.filter((x) => x !== g))} />
               </label>
             ))}
@@ -378,7 +382,6 @@ function Grants({ members, me }: { members: { userId: string; name: string; role
         );
       })}
       {error && <p className="error" role="alert">{error}</p>}
-      <p className="foot">役割(閲覧者・編集者・管理者)の権限に、メンバーごとに足したり引いたりできます。たとえば「編集者だけど設定ファイルも直せる」「閲覧者だけどサーバーの電源は操作できる」「編集者だけどライブラリは変えられない」のようにできます。チームの設定の「編集者にも設定ファイルを許す」は、編集者みんなの既定です(ここで人ごとに足し引きできます)。メンバーの招待・役割の変更・チームの設定・利用状況・パネルのバックアップは、役割(管理者以上)だけで決まります。オーナーの権限は減らせません。API トークンも、作った人の今の権限の分だけ使えます。</p>
     </>
   );
 }
@@ -404,18 +407,18 @@ function Assignments() {
   };
   return (
     <>
-      <div className="group-title">サーバーの割り当て</div>
+      <div className="gtitle">サーバーの割り当て<Info>オフにすると、その人は下で選んだサーバーだけを見る・操作できます(一覧・比較・セット・ポートにも、選んだサーバーだけが出ます)。管理者とオーナーは、いつでもすべてのサーバーを使えます。</Info></div>
       {data.members.map((m) => (
         <section className="group" key={m.userId}>
           <label className="row">
             <span className="main"><span translate="no">{m.name}</span><span className="muted small">{roleLabel(m.role)}</span></span>
             <span className="trail small">すべてのサーバーを使える</span>
-            <input className="trail" type="checkbox" checked={!m.limited} onChange={(e) => change(m.userId, !e.target.checked, m.serverIds)} />
+            <input className="trail switch" type="checkbox" checked={!m.limited} onChange={(e) => change(m.userId, !e.target.checked, m.serverIds)} />
           </label>
           {m.limited && data.servers.map((s) => (
             <label className="row" key={s.id}>
               <span className="main" translate="no">{s.name}</span>
-              <input className="trail" type="checkbox" checked={m.serverIds.includes(s.id)}
+              <input className="trail switch" type="checkbox" checked={m.serverIds.includes(s.id)}
                 onChange={(e) => change(m.userId, true, e.target.checked ? [...m.serverIds, s.id] : m.serverIds.filter((x) => x !== s.id))} />
             </label>
           ))}
@@ -423,7 +426,6 @@ function Assignments() {
         </section>
       ))}
       {error && <p className="error" role="alert">{error}</p>}
-      <p className="foot">オフにすると、その人は下で選んだサーバーだけを見る・操作できます(一覧・比較・セット・ポートにも、選んだサーバーだけが出ます)。管理者とオーナーは、いつでもすべてのサーバーを使えます。</p>
     </>
   );
 }
@@ -450,7 +452,7 @@ function OwnerTools({ teamName, service, members }: { teamName: string; service:
   if (!members.length && !service) return null;
   return (
     <>
-      <div className="group-title">オーナー</div>
+      <div className="gtitle">オーナー</div>
       {members.length > 0 && (
         <section className="group">
           <div className="row">
@@ -501,7 +503,7 @@ function SignInHelp({ members }: { members: { userId: string; name: string }[] }
   };
   return (
     <>
-      <div className="group-title">ログインできなくなったメンバー</div>
+      <div className="gtitle">ログインできなくなったメンバー<Info>本人が端末をなくしたときに使います。外すと、その人のいまのログインもすべて切れます。操作は記録に残ります。オーナーの設定は変えられません。</Info></div>
       <section className="group">
         <div className="row">
           <span>メンバー</span>
@@ -515,53 +517,44 @@ function SignInHelp({ members }: { members: { userId: string; name: string }[] }
         {note && <p className="row muted" role="status">{note}</p>}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">本人が端末をなくしたときに使います。外すと、その人のいまのログインもすべて切れます。操作は記録に残ります。オーナーの設定は変えられません。</p>
     </>
   );
 }
 
 // はじめての設定と受け取る版(管理者以上。03.65.00 まではライブラリの画面にあった)
-function LibrarySetup({ members }: { members: number }) {
+function LibrarySetup({ members, part }: { members: number; part: "setup" | "channel" }) {
   const load = useServerFn(libraryCatalog);
   const [cat, setCat] = useState<Awaited<ReturnType<typeof libraryCatalog>> | null>(null);
   const reload = () => { load().then(setCat, () => setCat(null)); };
   useEffect(reload, []);
   if (!cat) return null;
-  return <><Guide cat={cat} members={members} /><TeamChannel value={cat.channel} onDone={reload} /></>;
+  return part === "setup" ? <Guide cat={cat} members={members} /> : <TeamChannel value={cat.channel} onDone={reload} />;
 }
 
-// はじめての設定。すべて済んだら・「閉じる」を押したら出さない(ブラウザごと)
-const GUIDE = "craftshelf.guide-hidden";
+// はじめての設定(済んだものに ✓)
 function Guide({ cat, members }: { cat: Awaited<ReturnType<typeof libraryCatalog>>; members: number }) {
   const sets = useServerFn(listSets);
   const [setCount, setSetCount] = useState<number | null>(null);
-  const [hidden, setHidden] = useState(true);
-  useEffect(() => {
-    setHidden(localStorage.getItem(GUIDE) === "1");
-    sets().then((s) => setSetCount(s.length), () => setSetCount(0));
-  }, []);
+  useEffect(() => { sets().then((s) => setSetCount(s.length), () => setSetCount(0)); }, []);
   const steps = [
     { done: cat.servers.length > 0, label: "サーバーをつなぐ(Pterodactyl パネル・フォルダ)", to: "/servers" as const },
     { done: cat.servers.length > 0 && cat.servers.every((s) => s.type), label: "サーバーの種類(Paper・Fabric など)を選ぶ", to: "/servers" as const },
     { done: cat.items.length > 0, label: "ライブラリに Mod・プラグインを足す", to: null, add: true },
     { done: (setCount ?? 0) > 0, label: "セットを作って、まとめて入れる", to: "/sets" as const },
-    { done: members > 1, label: "チームの人を招待する", to: null },
+    { done: members > 1, label: "チームの人を招待する", to: "/team" as const },
   ];
-  if (hidden || setCount === null || steps.every((s) => s.done)) return null;
+  if (setCount === null) return null;
   return (
-    <>
-      <div className="group-title">はじめての設定</div>
-      <section className="group">
-        {steps.map((s) => (
-          <div className="row" key={s.label}>
-            <span className={`main${s.done ? " muted" : ""}`}>{s.done ? "✓ " : "・"}{s.label}</span>
-            {!s.done && s.to && <Link to={s.to} className="trail link">開く</Link>}
-            {!s.done && "add" in s && <button type="button" className="trail link" onClick={() => window.dispatchEvent(new Event(OPEN_ADD))}>開く</button>}
-          </div>
-        ))}
-        <button className="row link" type="button" onClick={() => { localStorage.setItem(GUIDE, "1"); setHidden(true); }}>このガイドを閉じる</button>
-      </section>
-    </>
+    <section className="group">
+      {steps.map((s) => (
+        <div className="row" key={s.label}>
+          <span className={s.done ? "badge ok" : "badge upd"}>{s.done ? "済み" : "まだ"}</span>
+          <span className="mid"><span className={s.done ? "sub" : "ttl"}>{s.label}</span></span>
+          {!s.done && s.to && <Link to={s.to} className="btn tint sm">開く</Link>}
+          {!s.done && "add" in s && <Btn kind="tint" sm onClick={() => window.dispatchEvent(new Event(OPEN_ADD))}>開く</Btn>}
+        </div>
+      ))}
+    </section>
   );
 }
 
@@ -571,18 +564,14 @@ function TeamChannel({ value, onDone }: { value: Channel; onDone: () => void }) 
   const [error, setError] = useState("");
   const change = (channel: string) => save({ data: { channel } }).then(() => { setError(""); onDone(); }, (e) => setError(e instanceof Error ? e.message : "うまくいきませんでした"));
   return (
-    <>
-      <div className="group-title">受け取る版</div>
-      <section className="group">
-        <label className="row">
-          <span>チームの既定</span>
-          <select className="trail" value={value} aria-label="受け取る版のチームの既定" onChange={(e) => change(e.target.value)}>
-            {(Object.keys(CHANNELS) as Channel[]).map((c) => <option key={c} value={c}>{CHANNELS[c]}</option>)}
-          </select>
-          <Info><span>更新・サーバーに入れるときに、どの版を選ぶかです。「正式版だけ」でも、正式版が 1 つも無いものはベータ版を使います。アイテムごとに「詳しく」→「情報を直す」で変えられます。</span></Info>
-        </label>
-        {error && <p className="row error" role="alert">{error}</p>}
-      </section>
-    </>
+    <section className="group">
+      <label className="row">
+        <span>チームの既定</span>
+        <select className="trail" value={value} aria-label="受け取る版のチームの既定" onChange={(e) => change(e.target.value)}>
+          {(Object.keys(CHANNELS) as Channel[]).map((c) => <option key={c} value={c}>{CHANNELS[c]}</option>)}
+        </select>
+      </label>
+      {error && <p className="row error" role="alert">{error}</p>}
+    </section>
   );
 }

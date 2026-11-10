@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { Btn, Chip, ChipBar, Info } from "~/lib/ui";
 import { listJobs } from "~/lib/jobs-api";
 
 export const Route = createFileRoute("/jobs")({
@@ -39,12 +40,10 @@ function Jobs() {
   const ended = (jobs ?? []).filter((j) => (j.state === "done" || j.state === "failed") && (filter === "all" || j.state === "failed"));
   const row = (j: Job) => (
     <div className="row" key={j.id}>
-      <span className="main">
-        <span>
-          <span className={`badge state-${j.state}`}>{STATE[j.state]}</span> {j.action}
-          {(j.serverName || j.target) && <> · <span translate="no">{[j.serverName, j.target].filter(Boolean).join(" · ")}</span></>}
-        </span>
-        <span className="muted small">
+      <span className={`badge state-${j.state}`}>{STATE[j.state]}</span>
+      <span className="mid">
+        <span className="ttl">{j.action}{(j.serverName || j.target) && <> · <span translate="no">{[j.serverName, j.target].filter(Boolean).join(" · ")}</span></>}</span>
+        <span className="sub">
           {time(j.createdAt)}{j.userName ? <> · <span translate="no">{j.userName}</span></> : " · 予約・自動"}{took(j) && ` · ${took(j)}`}
         </span>
         {j.detail && <span className={`small pre${j.state === "failed" ? " error" : " muted"}`}>{j.detail}</span>}
@@ -52,30 +51,26 @@ function Jobs() {
     </div>
   );
   return (
-    <main className="page narrow">
+    <main className="page fill">
       <header className="bar">
-        <h1>処理の一覧</h1>
-        <button type="button" className="capsule small" onClick={reload}>読み直す</button>
+        <h1>処理の一覧<Info>サーバーへの導入・セットでそろえる・まとめて最新にする・本体の入れ替え・バックアップなどの、時間のかかる処理です。終わったものは 30 日たつと消えます。結果の詳しい内容は「操作の記録」にも残ります。</Info></h1>
       </header>
+      <ChipBar label="絞り込み" tools={<Btn sm onClick={reload}>読み直す</Btn>}>
+        <Chip on={filter === "all"} onClick={() => setFilter("all")}>すべて</Chip>
+        <Chip on={filter === "failed"} warn onClick={() => setFilter("failed")}>失敗だけ</Chip>
+      </ChipBar>
       {error && <section className="group"><p className="row error" role="alert">{error}</p></section>}
-      <div className="group-title">実行中・待ち</div>
+      <div className="gtitle">実行中・待ち</div>
       <section className="group">
         {!jobs && !error && <div className="row muted">読み込んでいます…</div>}
         {jobs && active.length === 0 && <div className="row muted">いま動いている処理はありません。</div>}
         {active.map(row)}
       </section>
-      <div className="group-title">終わったもの</div>
+      <div className="gtitle">終わったもの</div>
       <section className="group">
-        <div className="row">
-          <span className="seg" role="group" aria-label="絞り込み">
-            <button type="button" className={filter === "all" ? "on" : ""} aria-pressed={filter === "all"} onClick={() => setFilter("all")}>すべて</button>
-            <button type="button" className={filter === "failed" ? "on" : ""} aria-pressed={filter === "failed"} onClick={() => setFilter("failed")}>失敗だけ</button>
-          </span>
-        </div>
         {jobs && ended.length === 0 && <div className="row muted">まだありません。</div>}
         {ended.map(row)}
       </section>
-      <p className="foot">サーバーへの導入・セットでそろえる・まとめて最新にする・本体の入れ替え・バックアップなどの、時間のかかる処理です。終わったものは 30 日たつと消えます。結果の詳しい内容は「操作の記録」にも残ります。</p>
     </main>
   );
 }

@@ -20,7 +20,8 @@ function Forgot() {
     setSent(true);
   };
   return (
-    <main className="page narrow">
+    <main className="auth glass">
+      <img className="brand-mark" src="/icon.svg" alt="" />
       <h1 className="title">パスワードの再設定</h1>
       {sent ? (
         <section className="group"><p className="row" role="status">登録されていれば、再設定のリンクをメールで送りました(1 時間有効)。メールが届かないときは、迷惑メールのフォルダも見てください。</p></section>
@@ -28,7 +29,7 @@ function Forgot() {
         <form className="group form" onSubmit={(e) => (e.preventDefault(), submit())}>
           <input className="row" type="email" autoComplete="email" placeholder="登録したメールアドレス" value={email} onChange={(e) => setEmail(e.target.value)} required />
           {error && <p className="row error" role="alert">{error}</p>}
-          <button className="capsule primary" disabled={busy}>{busy ? "送っています…" : "再設定のリンクを送る"}</button>
+          <button className="btn pri" disabled={busy}>{busy ? "送っています…" : "再設定のリンクを送る"}</button>
         </form>
       )}
       <p className="foot"><Link to="/login">ログインに戻る</Link></p>

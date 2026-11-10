@@ -30,8 +30,7 @@ const SECTION: [RegExp, string][] = [
   [/^\/servers\/[^/]+/, "server"],
   [/^\/(servers|ports|software)/, "servers"],
   [/^\/compare/, "compare"],
-  [/^\/(team|activity|storage|backup|usage|shares)/, "team"],
-  [/^\/(settings|api-docs)/, "settings"],
+  [/^\/(settings|team|activity|storage|backup|usage|shares|api-docs)/, "settings"], // チームとアカウントは、設定の 2 段の画面にまとめた(03.67.00)
   [/^\/jobs/, "jobs"],
 ];
 const sectionOf = (path: string) => SECTION.find(([r]) => r.test(path))?.[1] ?? "";
@@ -90,7 +89,6 @@ export function Shell({ user, children }: { user: { id: string; name: string }; 
         )}
         {nav("/compare", "compare", "比較", "compare")}
         <div className="sep" />
-        {nav("/team", "team", "チーム", "team")}
         {nav("/settings", "settings", "設定", "settings")}
         <span className="grow" />
         {meRow}
@@ -112,14 +110,13 @@ export function Shell({ user, children }: { user: { id: string; name: string }; 
         <Link to="/sets" className={at === "sets" ? "on" : ""}><Icon name="sets" />セット</Link>
         {edit && <button type="button" className="plus" aria-label="追加" onClick={() => setSheet("add")}><span>＋</span></button>}
         <Link to="/servers" className={at === "servers" || at === "server" ? "on" : ""}><Icon name="servers" />サーバー</Link>
-        <button type="button" className={["compare", "team", "settings", "jobs"].includes(at) ? "on" : ""} onClick={() => setSheet("more")}><Icon name="more" />その他</button>
+        <button type="button" className={["compare", "settings", "jobs"].includes(at) ? "on" : ""} onClick={() => setSheet("more")}><Icon name="more" />その他</button>
       </nav>
       {sheet === "add" && <AddSheet cat={cat} local={local} onClose={() => setSheet("")} />}
       {sheet === "more" && (
         <Sheet title="その他" onClose={() => setSheet("")}>
           <section className="group more-list">
             {nav("/compare", "compare", "比較", "compare")}
-            {nav("/team", "team", "チーム", "team")}
             {nav("/settings", "settings", "設定", "settings")}
             {nav("/jobs", "jobs", "処理の一覧", "jobs")}
           </section>

@@ -53,6 +53,12 @@ describe("英語表示", () => {
     expect(translate("要る範囲: サーバーの操作(編集者以上)")).toBe("Needs: Server control (Editor or higher)");
     expect(translate("この API トークンの範囲では、この操作はできません(要る範囲: 管理)")).toBe("This API token's scopes do not allow this (needs: Admin)");
     expect(translate("戻しました(12 ファイル)。前のワールドは world.craftshelf-before-restore-1 に残しています")).toBe("Restored (12 files). The previous world is kept as world.craftshelf-before-restore-1");
+    // 03.67.00: 設定の 2 段・セット
+    expect(translate("メンバー(3 人)")).toBe("Members (3)");
+    expect(translate("中身(2 件)")).toBe("Contents (2)");
+    expect(translate("2 台を入れ替える")).toBe("Replace 2 servers");
+    expect(translate("パスワードと二段階認証")).toBe("Password and two-factor");
+    expect(translate("「ロビー」を「基本」にそろえますか?(足りないものも入れる)")).toBe("Sync “ロビー” with “基本”? (Also install missing items)");
     // 03.66.00: サーバーの一覧・詳細
     expect(translate("更新 2")).toBe("2 updates");
     expect(translate("新しい版 1 件")).toBe("1 new version");

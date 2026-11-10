@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
+import { Link, createFileRoute, redirect, useNavigate, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { ActionBar, Btn, Chip, ChipBar, Info, Tabs } from "~/lib/ui";
 import { adoptMod, identifyMods, installMod, installedMods, libraryCatalog, modVersions, removeMod, setModEnabled, setModHold } from "~/lib/library-api";
 import { useCan } from "~/lib/use-can";
 
@@ -19,6 +20,7 @@ type Item = Awaited<ReturnType<typeof libraryCatalog>>["items"][number];
 // 入れるものとして選んだもの("サーバーID:アイテムID" → 版。versionId が null なら、いちばん新しい版)
 type Pick = { versionId: string | null; versionNumber: string };
 const LATEST: Pick = { versionId: null, versionNumber: "最新" };
+const COMPARE_TABS = [["addons", "アドオン"], ["files", "ファイル"]] as const;
 
 // サーバーを横に並べて、ライブラリのものがどのサーバーにどの版で入っているかを見比べる。入っていないところには入れられる
 function Compare() {
@@ -27,6 +29,7 @@ function Compare() {
   const { can } = useCan(user.id);
   const edit = can({ library: ["edit"] });
   const router = useRouter();
+  const navigate = useNavigate();
   const install = useServerFn(installMod);
   const [sel, setSel] = useState(() => data.servers.slice(0, 4).map((s) => s.id));
   const [diffOnly, setDiffOnly] = useState(false);
@@ -96,24 +99,22 @@ function Compare() {
   };
 
   return (
-    <main className="page wide">
-      <header className="bar wrap">
-        <h1>サーバーの比較</h1>
-        <span className="spacer" />
-        <Link to="/compare/files" className="capsule small">ファイル比較</Link>
-        <label className="capsule small"><input type="checkbox" checked={diffOnly} onChange={(e) => setDiffOnly(e.target.checked)} /> 違いだけ表示</label>
+    <main className="page fill">
+      <header className="bar">
+        <h1>比較<Info><span>入っているもの・ライブラリに無いものを押すと、無効にする(消さずに止める)・有効にする・ライブラリに取り込むもできます。配布元のわからないものは、ファイルの中身から探し、見つからなければアップロードしたものとして取り込みます(自分用の版)。</span><span>「導入」を押すと、そのサーバーに入れるものとして選べます(いちばん新しい版。タグのボタンで別の版も選べます。もう一度押すと選ぶのをやめます)。入っている版を押すと、版を変える・外すができます。古い版を選んだものは「更新を止める」にします。サーバーの種類に合わないところは「—」です。</span></Info></h1>
       </header>
+      <Tabs value="addons" options={COMPARE_TABS} label="比較" onChange={(v) => v === "files" && navigate({ to: "/compare/files" })} />
 
       {data.servers.length < 2 ? (
         <section className="group"><div className="row muted">比較するには 2 台以上のサーバーを追加してください</div></section>
       ) : (
         <>
-          <div className="seg" role="group" aria-label="比較するサーバー">
+          <ChipBar label="比較するサーバー" tools={<Chip on={diffOnly} onClick={() => setDiffOnly(!diffOnly)}>違いだけ</Chip>}>
             {data.servers.map((s) => (
-              <button key={s.id} type="button" className={sel.includes(s.id) ? "on" : ""} aria-pressed={sel.includes(s.id)} translate="no"
-                onClick={() => setSel((x) => (x.includes(s.id) ? x.filter((y) => y !== s.id) : [...x, s.id]))}>{s.name}</button>
+              <Chip key={s.id} on={sel.includes(s.id)} translate="no"
+                onClick={() => setSel((x) => (x.includes(s.id) ? x.filter((y) => y !== s.id) : [...x, s.id]))}>{s.name}</Chip>
             ))}
-          </div>
+          </ChipBar>
           <section className="group ports-table">
             <table>
               <thead>
@@ -195,18 +196,12 @@ function Compare() {
               }}>{busy ? "ファイルの中身から探しています…" : "配布元がわからないものを、ファイルの中身から探す"}</button>
             </section>
           )}
-          <p className="foot">入っているもの・ライブラリに無いものを押すと、無効にする(消さずに止める)・有効にする・ライブラリに取り込むもできます。配布元のわからないものは、ファイルの中身から探し、見つからなければアップロードしたものとして取り込みます(自分用の版)。</p>
-          <p className="foot">「導入」を押すと、そのサーバーに入れるものとして選べます(いちばん新しい版。タグのボタンで別の版も選べます。もう一度押すと選ぶのをやめます)。入っている版を押すと、版を変える・外すができます。古い版を選んだものは「更新を止める」にします。サーバーの種類に合わないところは「—」です。</p>
           {picks.size > 0 && (
-            <section className="group">
-              <div className="row">
-                <span>{`${picks.size} 件を入れます`}</span>
-                <span className="actions">
-                  <button type="button" className="link" disabled={busy} onClick={() => setPicks(new Map())}>選択を解除</button>
-                  <button type="button" className="capsule primary small" disabled={busy} onClick={run}>{busy ? "入れています…" : "導入する"}</button>
-                </span>
-              </div>
-            </section>
+            <ActionBar label="選んだもの">
+              <strong>{`${picks.size} 件`}</strong>
+              <Btn kind="pri" sm disabled={busy} onClick={run}>{busy ? "入れています…" : "導入する"}</Btn>
+              <Btn sm disabled={busy} aria-label="選択を解除" onClick={() => setPicks(new Map())}>✕</Btn>
+            </ActionBar>
           )}
           {note && <p className="notice" role="status">{note}</p>}
           {error && <p className="error" role="alert">{error}</p>}

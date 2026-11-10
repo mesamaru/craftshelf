@@ -35,7 +35,8 @@ function Signup() {
   };
 
   return (
-    <main className="page narrow">
+    <main className="auth glass">
+      <img className="brand-mark" src="/icon.svg" alt="" />
       <h1 className="title">{app.mode === "self" && app.signupOpen ? "最初の管理者を作る" : "アカウントを作る"}</h1>
       {app.mode === "self" && !app.signupOpen && <p className="foot">招待されたメールアドレスで登録してください。</p>}
       {sent ? (
@@ -49,7 +50,7 @@ function Signup() {
         <input className="row" type="password" autoComplete="new-password" placeholder="パスワード(10 文字以上)"
           minLength={10} value={password} onChange={(e) => setPassword(e.target.value)} required />
         {error && <p className="row error" role="alert">{error}</p>}
-        <button className="capsule primary" disabled={busy}>作成</button>
+        <button className="btn pri" disabled={busy}>作成</button>
       </form>
       )}
       {app.mode === "service" && <p className="foot">登録すると、<Link to="/terms">利用規約</Link>と<Link to="/privacy">プライバシーポリシー</Link>に同意したものとします。</p>}

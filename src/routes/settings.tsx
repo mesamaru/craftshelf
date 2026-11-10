@@ -1,5 +1,7 @@
-import { useEffect, useRef, useState } from "react";
-import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
+import { type ReactNode, useEffect, useRef, useState } from "react";
+import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
+import { SettingsFrame } from "~/lib/settings-frame";
+import { Info } from "~/lib/ui";
 import { renderSVG } from "uqr";
 import { authClient } from "~/lib/auth-client";
 import { errorText } from "~/lib/errors";
@@ -16,6 +18,7 @@ import { sendFeedback, setTelemetry, telemetryInfo } from "~/lib/telemetry-api";
 import { deleteAccount } from "~/lib/teams-api";
 
 export const Route = createFileRoute("/settings")({
+  validateSearch: (s: Record<string, unknown>): { s?: string } => (typeof s.s === "string" ? { s: s.s } : {}),
   beforeLoad: ({ context }) => {
     if (!context.user) throw redirect({ to: "/login" });
     return { user: context.user };
@@ -23,62 +26,58 @@ export const Route = createFileRoute("/settings")({
   component: Settings,
 });
 
-// ユーザー設定(アカウント・セキュリティ・ログアウト)
+// 設定のうち、アカウントとパネルのまとまり(?s= で選ぶ。何も選ばないとパソコンはプロフィール、スマホは一覧)
+const SECTIONS = ["profile", "security", "passkeys", "look", "tokens", "versions", "telemetry", "import", "feedback"] as const;
+type Section = (typeof SECTIONS)[number];
+const INFO: Partial<Record<Section, ReactNode>> = {
+  look: <><span>見た目と背景画像はアカウントに保存し、どの端末でも同じになります。背景画像は長い辺 1920 px までに縮めて保存し(2 MB まで)、テーマの背景の代わりに使います。</span><span>言語は、このブラウザでの表示だけが変わります。利用者が入力した名前などは訳しません。</span></>,
+  tokens: <><span>スクリプトなどから CraftShelf を操作するときに使います(使える API は「API の説明」にあります)。トークンは x-api-key か Authorization: Bearer で渡します。</span><span>選んでいるチームのもので、選んだ範囲の中で、あなたの権限(役割と、メンバーごとに足し引きした権限)のとおりに動きます。</span></>,
+  versions: <span>切り替える前に、パネルのバックアップを作ります(置き場所・残す数は定期バックアップの設定のもの)。データベースは「足すだけ」で変えていくので、前の版に戻してもデータは読めます。選んだ版が起動できなかったときは、イメージの版に自動で戻ります。</span>,
+  telemetry: <span>開発の参考にするため、版・OS・使っている機能・登録数(おおまかな範囲)だけを送ります。名前・ファイル名・アドレス・IP アドレスなどは送りません。送るのは、ここをオンにしたときだけです。</span>,
+  import: <span>v02 のデータは書き換えていません。Docker のイメージを v02 に戻せば、v02 をそのまま使えます。</span>,
+};
+
 function Settings() {
   const { user } = Route.useRouteContext();
-  const router = useRouter();
-
-  const logout = async () => {
-    await authClient.signOut();
-    await router.invalidate();
-    await router.navigate({ to: "/login" });
-  };
-
+  const { s } = Route.useSearch();
+  const at: Section = SECTIONS.includes(s as Section) ? (s as Section) : "profile";
   return (
-    <main className="page narrow">
-      <header className="bar">
-        <h1>アカウント</h1>
-      </header>
-
-      <div className="group-title">プロフィール</div>
-      <Profile name={user.name} username={user.username ?? ""} />
-      <section className="group">
-        <div className="row"><span>メールアドレス</span><span className="trail" translate="no">{user.email.endsWith("@v02.craftshelf.invalid") ? "未設定(v02 から取り込み)" : user.email}</span></div>
-      </section>
-
-      <section className="group">
-        <div className="row">
-          <span>表示する言語</span>
-          <select className="trail" defaultValue={typeof window === "undefined" ? "ja" : getLang()} onChange={(e) => setLang(e.target.value === "en" ? "en" : "ja")} aria-label="表示する言語">
-            <option value="ja" translate="no">日本語</option>
-            <option value="en" translate="no">English</option>
-          </select>
-        </div>
-      </section>
-      <p className="foot">このブラウザでの表示だけが変わります。利用者が入力した名前などは訳しません。</p>
-      <Appearance />
-
-      <div className="group-title">セキュリティ</div>
-      {user.legacyTotp && (
-        <p className="notice" role="status">
-          v02 の二段階認証(認証アプリのコード)でログインしています。予備のコードは引き継げなかったので、下の「二段階認証を設定する」で設定し直してください(設定し直すと、v02 のものは使わなくなります)。
-        </p>
-      )}
-      <ChangePassword />
-      <TwoFactor enabled={user.twoFactorEnabled} />
-      <Passkeys />
-
-      <ApiTokens userId={user.id} />
-      <ImportReport userId={user.id} />
-      <Versions userId={user.id} />
-      <Telemetry userId={user.id} />
-      <Feedback />
-
-      <section className="group spaced">
-        <button className="row danger" type="button" onClick={logout}>ログアウト</button>
-      </section>
-      <DeleteAccount />
-    </main>
+    <SettingsFrame at={at} root={!s} info={INFO[at]}>
+      {at === "profile" && <>
+        <Profile name={user.name} username={user.username ?? ""} />
+        <section className="group">
+          <div className="row"><span>メールアドレス</span><span className="trail" translate="no">{user.email.endsWith("@v02.craftshelf.invalid") ? "未設定(v02 から取り込み)" : user.email}</span></div>
+        </section>
+        <DeleteAccount />
+      </>}
+      {at === "security" && <>
+        {user.legacyTotp && (
+          <p className="notice" role="status">
+            v02 の二段階認証(認証アプリのコード)でログインしています。予備のコードは引き継げなかったので、下の「二段階認証を設定する」で設定し直してください(設定し直すと、v02 のものは使わなくなります)。
+          </p>
+        )}
+        <ChangePassword />
+        <TwoFactor enabled={user.twoFactorEnabled} />
+      </>}
+      {at === "passkeys" && <Passkeys />}
+      {at === "look" && <>
+        <section className="group">
+          <div className="row">
+            <span>表示する言語</span>
+            <select className="trail" defaultValue={typeof window === "undefined" ? "ja" : getLang()} onChange={(e) => setLang(e.target.value === "en" ? "en" : "ja")} aria-label="表示する言語">
+              <option value="ja" translate="no">日本語</option>
+              <option value="en" translate="no">English</option>
+            </select>
+          </div>
+        </section>
+        <Appearance />
+      </>}
+      {at === "tokens" && <ApiTokens userId={user.id} />}
+      {at === "versions" && <Versions userId={user.id} />}
+      {at === "telemetry" && <Telemetry userId={user.id} />}
+      {at === "import" && <ImportReport userId={user.id} />}
+      {at === "feedback" && <Feedback />}
+    </SettingsFrame>
   );
 }
 
@@ -132,8 +131,8 @@ function ChangePassword() {
       <div className="row"><span>パスワード</span></div>
       <input className="row" type="password" autoComplete="current-password" placeholder="いまのパスワード" value={current} onChange={(e) => setCurrent(e.target.value)} />
       <input className="row" type="password" autoComplete="new-password" placeholder="新しいパスワード(10 文字以上)" value={next} onChange={(e) => setNext(e.target.value)} />
-      <label className="row"><span>ほかの端末のログインを切る</span><input className="trail" type="checkbox" checked={revoke} onChange={(e) => setRevoke(e.target.checked)} /></label>
-      <button className="capsule" type="submit" disabled={!current || next.length < 10}>パスワードを変える</button>
+      <label className="row"><span>ほかの端末のログインを切る</span><input className="trail switch" type="checkbox" checked={revoke} onChange={(e) => setRevoke(e.target.checked)} /></label>
+      <button className="btn sec" type="submit" disabled={!current || next.length < 10}>パスワードを変える</button>
       {note && <p className="row muted" role="status">{note}</p>}
       {error && <p className="row error" role="alert">{error}</p>}
     </form>
@@ -180,13 +179,13 @@ function TwoFactor({ enabled }: { enabled: boolean }) {
           <pre className="row codes" translate="no">{setup.backupCodes.join("\n")}</pre>
           <input className="row" inputMode="numeric" autoComplete="one-time-code" placeholder="123456"
             value={code} onChange={(e) => setCode(e.target.value)} />
-          <button className="capsule primary" type="button" onClick={confirm}>有効にする</button>
+          <button className="btn pri" type="button" onClick={confirm}>有効にする</button>
         </>
       ) : (
         <>
           <input className="row" type="password" autoComplete="current-password" placeholder="いまのパスワード"
             value={password} onChange={(e) => setPassword(e.target.value)} />
-          <button className="capsule" type="button" onClick={start} disabled={!password}>
+          <button className="btn sec" type="button" onClick={start} disabled={!password}>
             {enabled ? "二段階認証をオフにする" : "二段階認証を設定する"}
           </button>
         </>
@@ -242,15 +241,16 @@ type Report = NonNullable<Awaited<ReturnType<typeof getImportReport>>>;
 function ImportReport({ userId }: { userId: string }) {
   const { can } = useCan(userId);
   const admin = can({ member: ["update"] });
-  const [report, setReport] = useState<Report | null>(null);
+  const [report, setReport] = useState<Report | null | undefined>(undefined);
   useEffect(() => {
     if (admin) getImportReport().then(setReport, () => setReport(null));
   }, [admin]);
-  if (!report) return null;
+  if (report === undefined) return null;
+  if (!report) return <section className="group"><div className="row muted">v02 からは取り込んでいません</div></section>;
   return (
     <>
-      <div className="group-title">v02 から取り込んだもの({new Date(report.at).toLocaleString("ja-JP")})</div>
       <section className="group">
+        <div className="row"><span>取り込んだ日時</span><span className="trail">{new Date(report.at).toLocaleString("ja-JP")}</span></div>
         <div className="row"><span>利用者</span><span className="trail">{report.users.length} 人</span></div>
         <div className="row"><span>Pterodactyl</span><span className="trail" translate="no">{report.ptero ? `${report.ptero.url}(サーバー ${report.ptero.servers} 台)` : "なし"}</span></div>
         {report.library && (
@@ -277,7 +277,6 @@ function ImportReport({ userId }: { userId: string }) {
         ))}
         {report.notes.map((n, i) => <p className="row muted" key={`n${i}`}>{n}</p>)}
       </section>
-      <p className="foot">v02 のデータは書き換えていません。Docker のイメージを v02 に戻せば、v02 をそのまま使えます。</p>
     </>
   );
 }
@@ -334,7 +333,6 @@ function Versions({ userId }: { userId: string }) {
 
   return (
     <>
-      <div className="group-title">パネルのバージョン</div>
       <section className="group">
         <div className="row"><span>いまの版</span><span className="trail">v{info?.current ?? "…"}</span></div>
         {info?.selected && (
@@ -362,14 +360,13 @@ function Versions({ userId }: { userId: string }) {
         {busy && <p className="row muted" role="status">{busy}</p>}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">切り替える前に、パネルのバックアップを作ります(置き場所・残す数は定期バックアップの設定のもの)。データベースは「足すだけ」で変えていくので、前の版に戻してもデータは読めます。選んだ版が起動できなかったときは、イメージの版に自動で戻ります。</p>
       {info && (
         <>
-          <div className="group-title">自動アップデート</div>
+          <div className="gtitle">自動アップデート<Info>入れる前にパネルのバックアップを作ります。大きな版上げ(v04 など)は自動では入れません。「この更新の前に戻す」で戻した版は、自動では入れ直しません。</Info></div>
           <section className="group form">
             <label className="row">
               <span>新しい版を自動で入れる(6 時間ごとに確かめる)</span>
-              <input className="trail" type="checkbox" checked={info.updates.auto} disabled={!!busy}
+              <input className="trail switch" type="checkbox" checked={info.updates.auto} disabled={!!busy}
                 onChange={(e) => saveAuto(e.target.checked, info.updates.channel)} />
             </label>
             <div className="row">
@@ -381,10 +378,9 @@ function Versions({ userId }: { userId: string }) {
             </div>
             {info.updates.lastCheck && <div className="row muted">{`前に確かめたとき: ${new Date(info.updates.lastCheck).toLocaleString("ja-JP")}`}</div>}
           </section>
-          <p className="foot">入れる前にパネルのバックアップを作ります。大きな版上げ(v04 など)は自動では入れません。「この更新の前に戻す」で戻した版は、自動では入れ直しません。</p>
           {info.updates.history.length > 0 && (
             <>
-              <div className="group-title">更新の記録</div>
+              <div className="gtitle">更新の記録<Info>更新の前のバックアップは、定期バックアップの「残す数」を超えると古いものから消えます。</Info></div>
               <section className="group">
                 {info.updates.history.map((h) => (
                   <div className="row" key={h.at}>
@@ -401,7 +397,6 @@ function Versions({ userId }: { userId: string }) {
                   </div>
                 ))}
               </section>
-              <p className="foot">更新の前のバックアップは、定期バックアップの「残す数」を超えると古いものから消えます。</p>
             </>
           )}
         </>
@@ -443,7 +438,6 @@ function ApiTokens({ userId }: { userId: string }) {
   };
   return (
     <>
-      <div className="group-title">API トークン</div>
       <section className="group">
         {rows?.length === 0 && <div className="row muted">まだありません。</div>}
         {rows?.map((k) => (
@@ -462,7 +456,7 @@ function ApiTokens({ userId }: { userId: string }) {
         <div className="row muted">範囲(読むことは、どのトークンでもできます)</div>
         {TOKEN_SCOPES.filter((x) => x !== "read" && allowed[x]).map((x) => (
           <label className="row" key={x}><span>{SCOPE_LABELS[x]}</span>
-            <input className="trail" type="checkbox" checked={scopes.includes(x)} onChange={(e) => setScopes((v) => (e.target.checked ? [...v, x] : v.filter((y) => y !== x)))} /></label>
+            <input className="trail switch" type="checkbox" checked={scopes.includes(x)} onChange={(e) => setScopes((v) => (e.target.checked ? [...v, x] : v.filter((y) => y !== x)))} /></label>
         ))}
         <div className="row">
           <span>期限</span>
@@ -481,7 +475,6 @@ function ApiTokens({ userId }: { userId: string }) {
         )}
         {error && <p className="row error" role="alert">{error}</p>}
       </form>
-      <p className="foot">スクリプトなどから CraftShelf を操作するときに使います(使える API は<Link to="/api-docs">API の説明</Link>にあります)。トークンは x-api-key か Authorization: Bearer で渡します。選んでいるチームのもので、選んだ範囲の中で、あなたの権限(役割と、メンバーごとに足し引きした権限)のとおりに動きます。</p>
     </>
   );
 }
@@ -495,7 +488,8 @@ function Telemetry({ userId }: { userId: string }) {
   const [info, setInfo] = useState<Awaited<ReturnType<typeof telemetryInfo>> | null>(null);
   const [error, setError] = useState("");
   useEffect(() => { if (admin) telemetryInfo().then(setInfo, (e) => setError(e instanceof Error ? e.message : String(e))); }, [admin]);
-  if (!admin || !info?.available) return null;
+  if (!admin || !info) return error ? <p className="error" role="alert">{error}</p> : null;
+  if (!info.available) return <section className="group"><div className="row muted">この環境では使えません</div></section>;
   const change = async (enabled: boolean) => {
     setError("");
     try {
@@ -507,9 +501,8 @@ function Telemetry({ userId }: { userId: string }) {
   };
   return (
     <>
-      <div className="group-title">開発者への利用状況の送信</div>
       <section className="group">
-        <label className="row"><span>匿名の利用状況を送る(1 日 1 回)</span><input className="trail" type="checkbox" checked={info.enabled} onChange={(e) => change(e.target.checked)} /></label>
+        <label className="row"><span>匿名の利用状況を送る(1 日 1 回)</span><input className="trail switch" type="checkbox" checked={info.enabled} onChange={(e) => change(e.target.checked)} /></label>
         {info.lastSent && <div className="row"><span>最後に送った日時</span><span className="trail">{new Date(info.lastSent).toLocaleString("ja-JP")}</span></div>}
         <details className="row column">
           <summary>送る内容を見る</summary>
@@ -517,7 +510,6 @@ function Telemetry({ userId }: { userId: string }) {
         </details>
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">開発の参考にするため、版・OS・使っている機能・登録数(おおまかな範囲)だけを送ります。名前・ファイル名・アドレス・IP アドレスなどは送りません。送るのは、ここをオンにしたときだけです。</p>
     </>
   );
 }
@@ -548,7 +540,6 @@ function Feedback() {
   };
   return (
     <>
-      <div className="group-title">お問い合わせ・要望</div>
       <form className="group form" onSubmit={(e) => (e.preventDefault(), submit())}>
         <div className="row">
           <span>種類</span>
@@ -561,7 +552,7 @@ function Feedback() {
         </div>
         <textarea className="row" rows={4} placeholder="内容" value={message} maxLength={4000} onChange={(e) => setMessage(e.target.value)} aria-label="内容" />
         <input className="row" placeholder="返事の宛先(任意。Discord の名前・メールアドレスなど)" value={contact} maxLength={200} onChange={(e) => setContact(e.target.value)} />
-        <label className="row"><span>版と OS も送る</span><input className="trail" type="checkbox" checked={includeEnv} onChange={(e) => setIncludeEnv(e.target.checked)} /></label>
+        <label className="row"><span>版と OS も送る</span><input className="trail switch" type="checkbox" checked={includeEnv} onChange={(e) => setIncludeEnv(e.target.checked)} /></label>
         <button className="row link" type="submit" disabled={busy || message.trim().length < 2}>{busy ? "送っています…" : "開発者に送る"}</button>
         {note && <p className="row muted" role="status">{note}</p>}
         {error && <p className="row error" role="alert">{error}</p>}
@@ -569,6 +560,9 @@ function Feedback() {
     </>
   );
 }
+
+// 「標準」の見本: src/styles.css の --bg(明るい)の上に、右下だけ暗いときの色(端末に合わせて変わるため)
+const STANDARD_SWATCH = "linear-gradient(135deg, transparent 62%, #0b1220 62%), radial-gradient(120% 90% at 0% 0%, #dbeafe, transparent 60%), radial-gradient(100% 80% at 100% 100%, #f6efe6, transparent 60%), #eef2f7";
 
 // 見た目: 明るさ・アクセントの色・テーマ(v02 のテーマ)・背景の暗さとぼかし・背景画像(どれもアカウントに保存)
 function Appearance() {
@@ -607,14 +601,13 @@ function Appearance() {
   const preset = PRESETS[t.preset];
   return (
     <>
-      <div className="group-title">見た目</div>
       <section className="group">
         <div className="row column">
           <span>テーマ</span>
           <div className="themes" role="group" aria-label="テーマ">
             {(Object.keys(PRESETS) as Preset[]).map((id) => (
               <button key={id} type="button" className="theme-tile" aria-pressed={t.preset === id} onClick={() => change({ ...t, preset: id })}>
-                <span className="sw" style={{ background: PRESETS[id].bg ?? "radial-gradient(120% 80% at 10% 0%, #c9e4ff 0%, #eef1f7 55%, #1b2a44 100%)" }} />
+                <span className="sw" style={{ background: PRESETS[id].bg ?? STANDARD_SWATCH }} />
                 {PRESETS[id].name}
               </button>
             ))}
@@ -672,7 +665,6 @@ function Appearance() {
         {t.background && <button className="row link danger" type="button" disabled={busy} onClick={() => setBackground(null)}>背景画像を外す</button>}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">見た目と背景画像はアカウントに保存し、どの端末でも同じになります。背景画像は長い辺 1920 px までに縮めて保存し(2 MB まで)、テーマの背景の代わりに使います。</p>
     </>
   );
 }

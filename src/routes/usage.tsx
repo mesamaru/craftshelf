@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { Info } from "~/lib/ui";
+import { SettingsFrame } from "~/lib/settings-frame";
 import { SOURCE_LABEL, isItemSource } from "~/lib/sources";
 import { ITEM_TYPES } from "~/lib/platforms";
 import { roleLabel } from "~/lib/permissions";
@@ -25,15 +27,11 @@ function Usage() {
   useEffect(() => { load().then(setU, (e) => setError(e instanceof Error ? e.message : "読み込めませんでした")); }, []);
   const total = u ? Object.values(u.items).reduce((a, b) => a + b, 0) : 0;
   return (
-    <main className="page narrow">
-      <header className="bar">
-        <Link to="/team" className="capsule">‹ チーム</Link>
-        <h1>利用状況</h1>
-      </header>
+    <SettingsFrame at="usage">
       {error && <section className="group"><p className="row error" role="alert">{error}</p></section>}
       {u && (
         <>
-          <div className="group-title">ライブラリ</div>
+          <div className="gtitle">ライブラリ</div>
           <section className="group">
             <div className="row"><span>Mod・プラグイン</span><span className="trail">{total} 件</span></div>
             {Object.entries(u.items).map(([k, n]) => (
@@ -43,20 +41,20 @@ function Usage() {
           </section>
           {u.storage.length > 0 && (
             <>
-              <div className="group-title">保存先ごと</div>
+              <div className="gtitle">保存先ごと</div>
               <section className="group">
                 {u.storage.map((s) => <div className="row" key={s.name}><span translate="no">{s.name}</span><span className="trail">{s.count} 個・{size(s.bytes)}</span></div>)}
               </section>
             </>
           )}
-          <div className="group-title">チーム</div>
+          <div className="gtitle">チーム</div>
           <section className="group">
             <div className="row"><span>サーバー</span><span className="trail">{u.servers} 台(入れたもの {u.installed} 件)</span></div>
             <div className="row"><span>セット</span><span className="trail">{`${u.sets} 個`}</span></div>
             <div className="row"><span>メンバー</span><span className="trail">{u.members} 人</span></div>
             <div className="row"><span>共有リンク</span><span className="trail">{u.shareLinks} 個</span></div>
           </section>
-          <div className="group-title">ユーザーごと</div>
+          <div className="gtitle">ユーザーごと<Info>ユーザーごとの数は、このチームの中で、その人が登録・アップロード・作成したものと、操作の記録に残った操作の数です。予約・自動更新で動いたものは数えません。</Info></div>
           <section className="group">
             {u.users.map((m) => (
               <div className="row" key={m.id}>
@@ -73,9 +71,8 @@ function Usage() {
               </div>
             ))}
           </section>
-          <p className="foot">ユーザーごとの数は、このチームの中で、その人が登録・アップロード・作成したものと、操作の記録に残った操作の数です。予約・自動更新で動いたものは数えません。</p>
         </>
       )}
-    </main>
+    </SettingsFrame>
   );
 }

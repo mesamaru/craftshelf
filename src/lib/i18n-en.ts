@@ -1,6 +1,43 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  // 03.67.00: 設定の 2 段・セット・残りの画面
+  "パスワードと二段階認証": "Password and two-factor",
+  "見た目と言語": "Appearance and language",
+  "権限と割り当て": "Permissions",
+  "記録と通知(Discord)": "Log & Discord",
+  "連携(CurseForge)": "CurseForge",
+  "開発者への送信": "Send to developer",
+  "v02 からの取り込み": "Import from v02",
+  "設定の一覧": "Settings list",
+  "‹ 設定": "‹ Settings",
+  "自動で入れる版": "Versions to install automatically",
+  "v02 からは取り込んでいません": "Nothing was imported from v02",
+  "取り込んだ日時": "Imported at",
+  "この環境では使えません": "Not available in this environment",
+  "言語は、このブラウザでの表示だけが変わります。利用者が入力した名前などは訳しません。": "The language only changes the display in this browser. Names entered by users are not translated.",
+  "スクリプトなどから CraftShelf を操作するときに使います(使える API は「API の説明」にあります)。トークンは x-api-key か Authorization: Bearer で渡します。": "Use these to operate CraftShelf from scripts and the like (the available APIs are listed in “API reference”). Pass the token with x-api-key or Authorization: Bearer.",
+  "選んでいるチームのもので、選んだ範囲の中で、あなたの権限(役割と、メンバーごとに足し引きした権限)のとおりに動きます。": "Tokens belong to the selected team and act with your permissions (your role plus per-member changes), within the chosen scopes.",
+  "役割(閲覧者・編集者・管理者)の権限に、メンバーごとに足したり引いたりできます。たとえば「編集者だけど設定ファイルも直せる」「閲覧者だけどサーバーの電源は操作できる」「編集者だけどライブラリは変えられない」のようにできます。": "You can add or remove permissions per member on top of their role (viewer, editor, admin). For example: “an editor who can also edit config files”, “a viewer who can control server power”, or “an editor who cannot change the library”.",
+  "メンバーの招待・役割の変更・チームの設定・利用状況・パネルのバックアップは、役割(管理者以上)だけで決まります。オーナーの権限は減らせません。API トークンも、作った人の今の権限の分だけ使えます。": "Inviting members, changing roles, team settings, usage and panel backups depend on the role only (admin or higher). The owner's permissions cannot be reduced. API tokens can only do what their creator can do now.",
+  "入れ替えたら再起動": "Restart after replacing",
+  "再起動する": "Restart",
+  "再起動しない": "No restart",
+  "選んだサーバー": "Selected servers",
+  "問題だけ": "Problems only",
+  "長く更新なし": "Stale",
+  "未使用": "Unused",
+  "重複": "Duplicates",
+  "すべて外す": "Deselect all",
+  "＋ 作る": "＋ Create",
+  "「＋ 作る」で作れます。": "Create one with “＋ Create”.",
+  "サーバーなし": "No servers",
+  "まだ何も入っていません": "Empty",
+  "結び付けています": "Linked",
+  "ほかに種類を決めたサーバーはありません": "No other servers with a type",
+  "曜日と時刻": "Days and time",
+  "「そろえる」は、結び付けたサーバーに足りないものを入れ、新しい版があれば更新します(セットを結び付けるのは、サーバーの画面の「アドオン」の「そろえる」)。「サーバーに入れる」は、選んだサーバーにまだ入っていないものだけを入れます。": "“Sync” installs what is missing on linked servers and updates to new versions (link a set from a server's “Add-ons” → “Sync”). “Add to a server” installs only what is not yet on the chosen server.",
+  "まとめて": "All at once",
   // 03.66.00: サーバーの一覧・詳細
   "Pterodactyl パネル・パネルから見えるフォルダ・エージェント(家の中のサーバー機)のサーバーをまとめて扱います。押すと、状態・アドオン・ファイル・コンソール・バックアップ・設定を開きます。":
     "Manage servers from Pterodactyl panels, folders the panel can see and agents (server machines at home) in one place. Open one to see its status, add-ons, files, console, backups and settings.",
@@ -95,8 +132,8 @@ export const EN: Record<string, string> = {
     "). Pass the token with x-api-key or Authorization: Bearer. It belongs to the selected team and works within the chosen scopes, as your permissions allow (your role plus any per-member changes).",
   "API の説明": "API reference",
   "‹ アカウント": "‹ Account",
-  "スクリプトなどから CraftShelf を操作する API です。「アカウント」の「API トークン」で作ったトークン(cs_…)を、x-api-key か Authorization: Bearer で渡します。トークンで使えるのは、作るときに選んだ範囲の中で、作った人の役割でできることだけです。":
-    "APIs for operating CraftShelf from scripts. Pass a token (cs_…) made under “API tokens” in “Account” with x-api-key or Authorization: Bearer. A token can only do what its creator's role allows, within the scopes chosen when it was made.",
+  "スクリプトなどから CraftShelf を操作する API です。「API トークン」で作ったトークン(cs_…)を、x-api-key か Authorization: Bearer で渡します。トークンで使えるのは、作るときに選んだ範囲の中で、作った人の役割でできることだけです。":
+    "APIs for operating CraftShelf from scripts. Pass a token (cs_…) made under “API tokens” with x-api-key or Authorization: Bearer. A token can only do what its creator's role allows, within the scopes chosen when it was made.",
   "例(サーバーの一覧)": "Example (list servers)",
   "GET はクエリー(?query=… など)、POST は JSON で渡します。うまくいかないときは、HTTP の状態と ": "GET takes a query string (?query=… etc.), POST takes JSON. On failure it returns the HTTP status and ",
   " を返します(401 = トークンが正しくない、403 = 範囲・役割が足りない、404 = 見つからない)。": " (401 = invalid token, 403 = scope or role not enough, 404 = not found).",
@@ -1565,6 +1602,10 @@ export const EN: Record<string, string> = {
 };
 /** 1 文字だけのもの(曜日など)。文全体が一致したときだけ置き換える */
 export const EN_WHOLE: Record<string, string> = {
+  // 03.67.00
+  "パネル": "Panel",
+  "お問い合わせ": "Contact",
+  "済み": "Done",
   // 03.66.00: サーバーの一覧・詳細の短い言葉
   "すべて更新": "Update all",
   "止めています": "Stopping",
@@ -1667,6 +1708,10 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  // 03.67.00
+  [/^メンバー\((\d+) 人\)$/, "Members ($1)"],
+  [/^中身\((\d+) 件\)$/, "Contents ($1)"],
+  [/^(\d+) 台を入れ替える$/, "Replace $1 servers"],
   // 03.66.00: サーバーの一覧・詳細
   [/^更新 (\d+)$/, "$1 updates"],
   [/^新しい版 (\d+) 件$/, (_, n) => (n === "1" ? "1 new version" : `${n} new versions`)],

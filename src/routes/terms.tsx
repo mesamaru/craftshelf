@@ -7,7 +7,7 @@ function Terms() {
   return (
     <main className="page narrow doc">
       <header className="bar">
-        <Link to="/login" className="capsule">‹ 戻る</Link>
+        <Link to="/login" className="btn sec sm">‹ 戻る</Link>
         <h1>利用規約</h1>
       </header>
       <section className="group"><div className="row column">

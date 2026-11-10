@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { Link, createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { Btn, Chip, ChipBar, Info, Tabs } from "~/lib/ui";
 import { alignAll, splitLines, takeBase } from "~/lib/diff";
 import { configFiles, readServerFile, saveServerFile } from "~/lib/files-api";
 import { listServers } from "~/lib/servers-api";
@@ -33,6 +34,7 @@ function FileCompare() {
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const navigate = useNavigate();
 
   const run = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -64,17 +66,15 @@ function FileCompare() {
   });
 
   return (
-    <main className="page wide">
-      <header className="bar wrap">
-        <Link to="/compare" className="capsule">‹ 比較</Link>
-        <h1>ファイル比較</h1>
+    <main className="page fill">
+      <header className="bar">
+        <h1>比較<Info>比べるサーバーを 2 台以上選んでください(8 台まで)。設定ファイル(server.properties・plugins・config の中など)を並べて見比べ、左のサーバーの中身をほかのサーバーへ写せます。見る・直すのは管理者以上です(チームの設定で、編集者にも許せます)。</Info></h1>
       </header>
-      <p className="foot">比べるサーバーを 2 台以上選んでください(8 台まで)。設定ファイル(server.properties・plugins・config の中など)を並べて見比べ、左のサーバーの中身をほかのサーバーへ写せます。見る・直すのは管理者以上です(チームの設定で、編集者にも許せます)。</p>
-      <div className="seg" role="group" aria-label="比べるサーバー">
-        {servers.map((s) => (
-          <button key={s.id} type="button" className={sel.includes(s.id) ? "on" : ""} aria-pressed={sel.includes(s.id)} translate="no" onClick={() => toggle(s.id)}>{s.name}</button>
-        ))}
-      </div>
+      <Tabs value="files" options={[["addons", "アドオン"], ["files", "ファイル"]] as const} label="比較" onChange={(v) => v === "addons" && navigate({ to: "/compare" })} />
+      <ChipBar label="比べるサーバー">
+        {servers.map((s) => <Chip key={s.id} on={sel.includes(s.id)} translate="no" onClick={() => toggle(s.id)}>{s.name}</Chip>)}
+      </ChipBar>
+      {sel.length < 2 && <section className="group"><div className="row muted">比べるサーバーを 2 台以上選んでください</div></section>}
       {sel.length >= 2 && !list && (
         <section className="group spaced">
           <button className="row link" type="button" disabled={busy} onClick={() => run(async () => setList(await load({ data: { ids: sel } })))}>
@@ -182,14 +182,11 @@ function FileList({ list, view, setView, busy, onOpen }:
   return (
     <>
       {list.servers.filter((s) => s.error).map((s) => <p key={s.id} className="error" role="alert"><span translate="no">{s.name}</span>: {s.error}</p>)}
-      <div className="bar wrap">
-        <div className="seg" role="group" aria-label="一覧の表示">
-          <button type="button" className={view.mode === "list" ? "on" : ""} aria-pressed={view.mode === "list"} onClick={() => setView({ ...view, mode: "list" })}>違いだけ</button>
-          <button type="button" className={view.mode === "tree" ? "on" : ""} aria-pressed={view.mode === "tree"} onClick={() => setView({ ...view, mode: "tree" })}>すべて(ツリー)</button>
-        </div>
-        {view.mode === "tree" && (
-          <label className="capsule small"><input type="checkbox" checked={view.showSame} onChange={(e) => setView({ ...view, showSame: e.target.checked })} /> 同じものも出す</label>
-        )}
+      <div className="chips" role="group" aria-label="一覧の表示">
+        <Chip on={view.mode === "list"} onClick={() => setView({ ...view, mode: "list" })}>違いだけ</Chip>
+        <Chip on={view.mode === "tree"} onClick={() => setView({ ...view, mode: "tree" })}>すべて(ツリー)</Chip>
+        {view.mode === "tree" && <Chip on={view.showSame} onClick={() => setView({ ...view, showSame: !view.showSame })}>同じものも出す</Chip>}
+        <Info>違う行は、基準(最初に選んだサーバー)と比べた行の数です(ファイルを開いて「違う行だけ」にしたときの行数)。Pterodactyl のサーバーは、API の回数に上限があるので大きさが違うファイルだけ中身を読みます(「大きさは同じ」は中身を読んでいません)。</Info>
       </div>
       {view.mode === "list" ? (
         <section className="group spaced">
@@ -217,7 +214,6 @@ function FileList({ list, view, setView, busy, onOpen }:
           </table>
         </section>
       )}
-      <p className="foot">違う行は、基準(最初に選んだサーバー)と比べた行の数です(ファイルを開いて「違う行だけ」にしたときの行数)。Pterodactyl のサーバーは、API の回数に上限があるので大きさが違うファイルだけ中身を読みます(「大きさは同じ」は中身を読んでいません)。</p>
     </>
   );
 }
@@ -298,12 +294,13 @@ function Compare({ opened, onlyDiff, setOnlyDiff, busy, note, onBack, onSave }:
   return (
     <>
       <div className="bar wrap">
-        <button type="button" className="capsule small" onClick={onBack}>‹ ファイルの一覧</button>
-        <strong translate="no">{opened.path}</strong>
+        <Btn sm onClick={onBack}>‹ ファイルの一覧</Btn>
+        <strong className="path" translate="no">{opened.path}</strong>
+        <Info>黄色は違う行、赤は基準にあってこのサーバーに無い行、緑はこのサーバーだけにある行です。「←」で基準の行にし(緑の行は「×」で消し)、「直す」でその場で書き換えられます。「保存」を押すまでサーバーは変わりません(保存する前の中身は履歴に残ります)。変えたことは「元に戻す」(Ctrl+Z)・「やり直す」(Ctrl+Y)で戻せます。基準は、上で最初に選んだサーバーです。</Info>
         <span className="spacer" />
-        <button type="button" className="capsule small" disabled={busy || !past.length} onClick={undo} title="元に戻す(Ctrl+Z)">元に戻す</button>
-        <button type="button" className="capsule small" disabled={busy || !future.length} onClick={redo} title="やり直す(Ctrl+Y)">やり直す</button>
-        <label className="capsule small"><input type="checkbox" checked={onlyDiff} onChange={(e) => setOnlyDiff(e.target.checked)} /> 違う行だけ</label>
+        <Chip on={onlyDiff} onClick={() => setOnlyDiff(!onlyDiff)}>違う行だけ</Chip>
+        <Btn sm disabled={busy || !past.length} onClick={undo} title="元に戻す(Ctrl+Z)">元に戻す</Btn>
+        <Btn sm disabled={busy || !future.length} onClick={redo} title="やり直す(Ctrl+Y)">やり直す</Btn>
       </div>
       {note && <p className="notice" role="status">{note}</p>}
       {editing !== null && drafts[editing] !== null && (
@@ -343,7 +340,6 @@ function Compare({ opened, onlyDiff, setOnlyDiff, busy, note, onBack, onSave }:
           </tbody>
         </table>
       </section>
-      <p className="foot">黄色は違う行、赤は基準にあってこのサーバーに無い行、緑はこのサーバーだけにある行です。「←」で基準の行にし(緑の行は「×」で消し)、「直す」でその場で書き換えられます。「保存」を押すまでサーバーは変わりません(保存する前の中身は履歴に残ります)。変えたことは「元に戻す」(Ctrl+Z)・「やり直す」(Ctrl+Y)で戻せます。基準は、上で最初に選んだサーバーです。</p>
     </>
   );
 }

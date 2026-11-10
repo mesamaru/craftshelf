@@ -1,7 +1,7 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { identifyMods, serverChanges, undoChange, installMod, installedMods, modUpdates, modVersions, removeMod, rollbackMod, searchMods, serverDetail, serverMissingDeps, setModEnabled, setModHold } from "~/lib/library-api";
+import { identifyMods, libraryCatalog, serverChanges, undoChange, installMod, installedMods, modUpdates, modVersions, removeMod, rollbackMod, searchMods, serverDetail, serverMissingDeps, setModEnabled, setModHold } from "~/lib/library-api";
 import { importServerFile } from "~/lib/uploads-api";
 import { ApplyResults } from "~/lib/apply-results";
 import { ITEM_TYPES, PLATFORMS, STATE_LABELS, kindLabel, kindsOf } from "~/lib/platforms";
@@ -280,6 +280,10 @@ function Addons(a: AddonProps) {
   const [busy, setBusy] = useState("");
   const [found, setFound] = useState("");
   const [err, setErr] = useState("");
+  // 行のアイコン: ライブラリにあるものは、そのアイコンを出す(無ければ種類の図)
+  const loadCat = useServerFn(libraryCatalog);
+  const [icons, setIcons] = useState<Map<string, string>>(new Map());
+  useEffect(() => { loadCat().then((c) => setIcons(new Map(c.items.filter((i) => i.iconUrl).map((i) => [`${i.source}:${i.projectId}`, i.iconUrl]))), () => {}); }, []);
   if (!a.profile) {
     return (
       <section className="group">
@@ -347,7 +351,7 @@ function Addons(a: AddonProps) {
           const u = upd(m);
           return (
             <div className="row" key={m.filename}>
-              <span className="ic"><ItemIcon type={m.datapack ? "datapack" : type} /></span>
+              <span className="ic"><ItemIcon type={m.datapack ? "datapack" : type} url={m.projectId ? icons.get(`${m.source}:${m.projectId}`) : undefined} /></span>
               <span className="mid">
                 <span className="ttl">
                   <span translate="no">{m.title ?? m.filename}</span>

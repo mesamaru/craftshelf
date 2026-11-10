@@ -63,7 +63,8 @@ function Login() {
     });
 
   return (
-    <main className="page narrow">
+    <main className="auth glass">
+      <img className="brand-mark" src="/icon.svg" alt="" />
       <h1 className="title">CraftShelf</h1>
       {needV02Code ? (
         <form className="group form" onSubmit={(e) => (e.preventDefault(), signIn(code))}>
@@ -71,7 +72,7 @@ function Login() {
           <input className="row" inputMode="numeric" autoComplete="one-time-code" placeholder="123456"
             value={code} onChange={(e) => setCode(e.target.value)} autoFocus />
           {error && <p className="row error" role="alert">{error}</p>}
-          <button className="capsule primary" disabled={busy}>確認</button>
+          <button className="btn pri" disabled={busy}>確認</button>
         </form>
       ) : needCode ? (
         <form className="group form" onSubmit={(e) => (e.preventDefault(), verify())}>
@@ -79,7 +80,7 @@ function Login() {
           <input className="row" inputMode="numeric" autoComplete="one-time-code" placeholder="123456"
             value={code} onChange={(e) => setCode(e.target.value)} autoFocus />
           {error && <p className="row error" role="alert">{error}</p>}
-          <button className="capsule primary" disabled={busy}>確認</button>
+          <button className="btn pri" disabled={busy}>確認</button>
         </form>
       ) : (
         <>
@@ -89,9 +90,9 @@ function Login() {
             <input className="row" type="password" autoComplete="current-password" placeholder="パスワード"
               value={password} onChange={(e) => setPassword(e.target.value)} required />
             {error && <p className="row error" role="alert">{error}</p>}
-            <button className="capsule primary" disabled={busy}>ログイン</button>
+            <button className="btn pri" disabled={busy}>ログイン</button>
           </form>
-          <button className="capsule" type="button" onClick={withPasskey} disabled={busy}>パスキーでログイン</button>
+          <button className="btn sec" type="button" onClick={withPasskey} disabled={busy}>パスキーでログイン</button>
           {app.mail && <p className="foot"><Link to="/forgot">パスワードを忘れたとき</Link></p>}
           {app.mode === "self" && app.signupOpen ? (
             <p className="foot">はじめて使うときは <Link to="/signup" search={{ next }}>最初の管理者を作る</Link></p>

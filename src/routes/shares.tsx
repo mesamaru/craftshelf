@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { Link, createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
+import { SettingsFrame } from "~/lib/settings-frame";
 import { listShares, removeShare, stopShare } from "~/lib/shares-api";
 
 export const Route = createFileRoute("/shares")({
@@ -23,11 +24,7 @@ function Shares() {
   const reload = () => load().then(setRows, (e) => setError(message(e)));
   useEffect(() => { reload(); }, []);
   return (
-    <main className="page narrow">
-      <header className="bar">
-        <Link to="/team" className="capsule">‹ チーム</Link>
-        <h1>共有リンク</h1>
-      </header>
+    <SettingsFrame at="shares" info={<><span>リンクの URL は作ったときにしか表示しません(このアプリには、URL の鍵のハッシュだけを残します)。期限が切れたリンク・回数を使い切ったリンク・止めたリンクは使えません。</span></>}>
       <section className="group">
         {!rows && !error && <div className="row muted">読み込んでいます…</div>}
         {rows?.length === 0 && <div className="row muted">まだありません。ライブラリのアップロードしたものの「版を見る」・「保存した版」か、選んだものから作れます。</div>}
@@ -51,7 +48,6 @@ function Shares() {
         ))}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
-      <p className="foot">リンクの URL は作ったときにしか表示しません(このアプリには、URL の鍵のハッシュだけを残します)。期限が切れたリンク・回数を使い切ったリンク・止めたリンクは使えません。</p>
-    </main>
+    </SettingsFrame>
   );
 }

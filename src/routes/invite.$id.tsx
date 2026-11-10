@@ -39,7 +39,8 @@ function Invitation() {
   };
 
   return (
-    <main className="page narrow">
+    <main className="auth glass">
+      <img className="brand-mark" src="/icon.svg" alt="" />
       <h1 className="title">チームへの招待</h1>
       <section className="group form">
         {info ? (
@@ -47,8 +48,8 @@ function Invitation() {
             <div className="row"><span>チーム</span><span className="trail" translate="no">{info.organizationName}</span></div>
             <div className="row"><span>招待した人</span><span className="trail" translate="no">{info.inviterEmail}</span></div>
             <div className="row"><span>役割</span><span className="trail">{roleLabel(info.role)}</span></div>
-            <button className="capsule primary" type="button" onClick={accept}>参加する</button>
-            <button className="capsule" type="button" onClick={reject}>断る</button>
+            <button className="btn pri" type="button" onClick={accept}>参加する</button>
+            <button className="btn sec" type="button" onClick={reject}>断る</button>
           </>
         ) : !error && <p className="row muted">読み込み中…</p>}
         {error && <p className="row error" role="alert">{error}</p>}

@@ -49,7 +49,6 @@ function ServerPage() {
   return (
     <main className="page narrow">
       <header className="bar">
-        <Link to="/servers" className="capsule">‹ サーバー</Link>
         <h1 translate="no">{server.name}</h1>
         <Link to="/servers/$id/files" params={{ id: server.id }} className="capsule">ファイルとコマンド</Link>
       </header>

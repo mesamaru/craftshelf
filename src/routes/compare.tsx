@@ -98,7 +98,6 @@ function Compare() {
   return (
     <main className="page wide">
       <header className="bar wrap">
-        <Link to="/servers" className="capsule">‹ サーバー</Link>
         <h1>サーバーの比較</h1>
         <span className="spacer" />
         <Link to="/compare/files" className="capsule small">ファイル比較</Link>

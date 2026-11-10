@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
+import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { ApplyResults } from "~/lib/apply-results";
 import { libraryCatalog, libraryItemVersions } from "~/lib/library-api";
@@ -45,7 +45,6 @@ function Sets() {
   return (
     <main className="page narrow">
       <header className="bar">
-        <Link to="/" className="capsule">‹ ライブラリ</Link>
         <h1>セット</h1>
       </header>
       <Schedule editable={can({ server: ["update"] })} />

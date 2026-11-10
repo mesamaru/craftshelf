@@ -33,7 +33,6 @@ function Servers() {
   return (
     <main className="page narrow">
       <header className="bar">
-        <Link to="/" className="capsule">‹ 戻る</Link>
         <h1>サーバー</h1>
         <Link to="/software" className="capsule">本体</Link>
         <Link to="/compare" className="capsule">比較</Link>

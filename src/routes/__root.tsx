@@ -3,7 +3,8 @@ import { getLang, startEnglish } from "~/lib/i18n";
 import { Palette } from "~/lib/palette";
 import { DEFAULT_THEME, type SavedTheme, applyTheme, localTheme, saveTheme } from "~/lib/theme";
 import { saveMyBackground, saveMyTheme } from "~/lib/prefs-api";
-import { HeadContent, Outlet, Scripts, createRootRoute } from "@tanstack/react-router";
+import { HeadContent, Outlet, Scripts, createRootRoute, useRouterState } from "@tanstack/react-router";
+import { Shell, showShell } from "~/lib/shell";
 import { getAppState } from "~/lib/session";
 import appCss from "~/styles.css?url";
 
@@ -13,8 +14,8 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
-      { name: "theme-color", content: "#eef1f7", media: "(prefers-color-scheme: light)" },
-      { name: "theme-color", content: "#111214", media: "(prefers-color-scheme: dark)" },
+      { name: "theme-color", content: "#eef2f7", media: "(prefers-color-scheme: light)" },
+      { name: "theme-color", content: "#0b1220", media: "(prefers-color-scheme: dark)" },
       { title: "CraftShelf" },
     ],
     links: [
@@ -57,7 +58,8 @@ function useTheme(user: { theme?: SavedTheme | null; background?: string | null 
 }
 
 function RootDocument({ children }: { children: ReactNode }) {
-  const ctx = Route.useRouteContext() as { user?: { theme?: SavedTheme | null; background?: string | null } | null };
+  const ctx = Route.useRouteContext() as { user?: { id: string; name: string; theme?: SavedTheme | null; background?: string | null } | null };
+  const path = useRouterState({ select: (s) => s.location.pathname });
   useTheme(ctx.user);
   useEffect(() => {
     if (getLang() === "en") startEnglish();
@@ -70,7 +72,7 @@ function RootDocument({ children }: { children: ReactNode }) {
         <HeadContent />
       </head>
       <body>
-        {children}
+        {ctx.user && showShell(path) ? <Shell user={ctx.user}>{children}</Shell> : children}
         {ctx.user ? <Palette /> : null}
         <Scripts />
       </body>

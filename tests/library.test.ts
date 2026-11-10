@@ -246,7 +246,9 @@ describe("タグ・お気に入り・更新あり", () => {
     expect(await lib.outdated(viewer)).toEqual([]);
     latest = { id: "ver00004", number: "5.6.0", filename: "LuckPerms-5.6.0.jar", url: "" };
     expect(await lib.outdated(viewer)).toEqual([itemId]);
+    expect(await lib.outdatedServers(viewer)).toEqual([{ itemId, serverIds: [id] }]); // どのサーバーが古いか
     expect(await lib.outdated(outsider)).toEqual([]);
+    expect(await lib.outdatedServers(outsider)).toEqual([]);
     await lib.setHold(editor, id, "modrinth", PID, true);
     expect(await lib.outdated(viewer)).toEqual([]);
     await lib.setHold(editor, id, "modrinth", PID, false);

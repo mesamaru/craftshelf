@@ -32,9 +32,30 @@ await step("登録するとライブラリが開く", async () => {
   await page.waitForURL(base + "/");
   await page.getByRole("heading", { name: "ライブラリ" }).waitFor();
   await page.getByText(/まだ何もありません/).waitFor();
-  await page.getByText("配布元から足す", { exact: true }).waitFor();
   await page.screenshot({ path: ".e2e/library.png", fullPage: true });
-  await page.locator('a.capsule[aria-label="チーム"]').waitFor(); // チームの名前は版によって違う(サービス版は「E2E のチーム」、自分用は「CraftShelf」)
+  // 配布元から足すのは「＋ 追加」のシート
+  await page.locator(".top").getByRole("button", { name: "＋ 追加" }).click();
+  await page.getByRole("tab", { name: "探す" }).waitFor();
+  await page.getByPlaceholder("名前(空なら人気順)").waitFor();
+  await page.getByRole("tab", { name: "URL" }).click();
+  await page.getByPlaceholder("ページの URL(Modrinth・SpigotMC・CurseForge)").waitFor();
+  await page.screenshot({ path: ".e2e/add.png" });
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog").waitFor({ state: "detached" });
+  await page.locator("aside.side a.nav", { hasText: "チーム" }).waitFor();
+});
+
+await step("左のメニュー・スマホの下のタブで画面を移れる", async () => {
+  await page.locator("aside.side a.nav", { hasText: "セット" }).click();
+  await page.waitForURL(base + "/sets");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator(".tabbar").getByRole("link", { name: "サーバー" }).click();
+  await page.waitForURL(base + "/servers");
+  await page.locator(".tabbar").getByRole("button", { name: "その他" }).click();
+  await page.getByRole("dialog").getByRole("link", { name: "チーム" }).click();
+  await page.waitForURL(base + "/team");
+  await page.screenshot({ path: ".e2e/phone.png" });
+  await page.setViewportSize({ width: 1280, height: 720 });
 });
 
 await step("セットを作ると一覧に出る", async () => {

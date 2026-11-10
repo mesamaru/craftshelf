@@ -692,6 +692,42 @@ export function libraryService(deps: Deps) {
     return { id: itemId, title: p.title || projectId };
   }
 
+  // 古い版が入っているもの(ライブラリの ID と、古い版のサーバー)
+  async function outdatedServers(headers: Headers): Promise<{ itemId: string; serverIds: string[] }[]> {
+    const who = await requireTeam(auth, headers);
+    const { teamId } = who;
+    const scope = await serverScope(deps, who);
+    const rows = await db.select({ serverId: server.id, source: installedMod.source, projectId: installedMod.projectId, versionId: installedMod.versionId, filename: installedMod.filename, platform: serverProfile.platform, mcVersion: serverProfile.mcVersion })
+      .from(installedMod).innerJoin(server, eq(installedMod.serverId, server.id)).innerJoin(serverProfile, eq(serverProfile.serverId, server.id))
+      .where(eq(server.teamId, teamId));
+    const holds = new Set((await db.select({ serverId: serverHold.serverId, source: serverHold.source, projectId: serverHold.projectId }).from(serverHold)
+      .innerJoin(server, eq(serverHold.serverId, server.id)).where(eq(server.teamId, teamId))).map((h) => `${h.serverId}:${h.source}:${h.projectId}`));
+    // 更新を止めているもの・無効にしたもの・割り当てられていないサーバーは見ない
+    const todo = rows.filter((r) => isItemSource(r.source) && isPlatform(r.platform) && !isDisabled(r.filename) && (!scope || scope.has(r.serverId)) && !holds.has(`${r.serverId}:${r.source}:${r.projectId}`));
+    // 同じ配布元・種類・バージョンの組は 1 回だけ問い合わせる。問い合わせられなかったものは「更新あり」にしない
+    const latest = new Map<string, Promise<string | null>>();
+    const latestOf = (r: (typeof todo)[number]) => {
+      const p = fileProfile({ platform: r.platform as Platform, mcVersion: r.mcVersion }, r.filename);
+      const k = `${r.source}:${r.projectId}:${r.platform}:${r.mcVersion ?? ""}:${p.kind ?? ""}`;
+      if (!latest.has(k)) {
+        latest.set(k, latestFile(r.source as ItemSource, r.projectId, p, teamId)
+          .then((f) => f?.versionId ?? null, () => null));
+      }
+      return latest.get(k)!;
+    };
+    const old = new Map<string, Set<string>>(); // 配布元:ID → 古い版のサーバー
+    for (let i = 0; i < todo.length; i += 8) { // 配布元に一度に送りすぎない
+      await Promise.all(todo.slice(i, i + 8).map(async (r) => {
+        const v = await latestOf(r);
+        const k = `${r.source}:${r.projectId}`;
+        if (v && v !== r.versionId) old.set(k, (old.get(k) ?? new Set<string>()).add(r.serverId));
+      }));
+    }
+    if (!old.size) return [];
+    const items = await db.select({ id: libraryItem.id, source: libraryItem.source, projectId: libraryItem.projectId }).from(libraryItem).where(eq(libraryItem.teamId, teamId));
+    return items.filter((i) => old.has(`${i.source}:${i.projectId}`)).map((i) => ({ itemId: i.id, serverIds: [...old.get(`${i.source}:${i.projectId}`)!] }));
+  }
+
   return {
     /** チームのライブラリ: 登録したもの・それぞれが入っているサーバーと版・入れられるサーバー */
     async catalog(headers: Headers) {
@@ -1004,38 +1040,11 @@ export function libraryService(deps: Deps) {
 
     /** どこかのサーバーに古い版が入っているもの(ライブラリの ID)。配布元に問い合わせるので、絞り込むときだけ呼ぶ */
     async outdated(headers: Headers) {
-      const who = await requireTeam(auth, headers);
-      const { teamId } = who;
-      const scope = await serverScope(deps, who);
-      const rows = await db.select({ serverId: server.id, source: installedMod.source, projectId: installedMod.projectId, versionId: installedMod.versionId, filename: installedMod.filename, platform: serverProfile.platform, mcVersion: serverProfile.mcVersion })
-        .from(installedMod).innerJoin(server, eq(installedMod.serverId, server.id)).innerJoin(serverProfile, eq(serverProfile.serverId, server.id))
-        .where(eq(server.teamId, teamId));
-      const holds = new Set((await db.select({ serverId: serverHold.serverId, source: serverHold.source, projectId: serverHold.projectId }).from(serverHold)
-        .innerJoin(server, eq(serverHold.serverId, server.id)).where(eq(server.teamId, teamId))).map((h) => `${h.serverId}:${h.source}:${h.projectId}`));
-      // 更新を止めているもの・無効にしたもの・割り当てられていないサーバーは見ない
-      const todo = rows.filter((r) => isItemSource(r.source) && isPlatform(r.platform) && !isDisabled(r.filename) && (!scope || scope.has(r.serverId)) && !holds.has(`${r.serverId}:${r.source}:${r.projectId}`));
-      // 同じ配布元・種類・バージョンの組は 1 回だけ問い合わせる。問い合わせられなかったものは「更新あり」にしない
-      const latest = new Map<string, Promise<string | null>>();
-      const latestOf = (r: (typeof todo)[number]) => {
-        const p = fileProfile({ platform: r.platform as Platform, mcVersion: r.mcVersion }, r.filename);
-        const k = `${r.source}:${r.projectId}:${r.platform}:${r.mcVersion ?? ""}:${p.kind ?? ""}`;
-        if (!latest.has(k)) {
-          latest.set(k, latestFile(r.source as ItemSource, r.projectId, p, teamId)
-            .then((f) => f?.versionId ?? null, () => null));
-        }
-        return latest.get(k)!;
-      };
-      const old = new Set<string>();
-      for (let i = 0; i < todo.length; i += 8) { // 配布元に一度に送りすぎない
-        await Promise.all(todo.slice(i, i + 8).map(async (r) => {
-          const v = await latestOf(r);
-          if (v && v !== r.versionId) old.add(`${r.source}:${r.projectId}`);
-        }));
-      }
-      if (!old.size) return [];
-      const items = await db.select({ id: libraryItem.id, source: libraryItem.source, projectId: libraryItem.projectId }).from(libraryItem).where(eq(libraryItem.teamId, teamId));
-      return items.filter((i) => old.has(`${i.source}:${i.projectId}`)).map((i) => i.id);
+      return (await outdatedServers(headers)).map((x) => x.itemId);
     },
+
+    /** 古い版が入っているもの(ライブラリの ID と、古い版のサーバーの ID)。配布元に問い合わせるので、絞り込むときだけ呼ぶ */
+    outdatedServers,
 
     /** サーバーの名前・種類・バージョン */
     async detail(headers: Headers, id: string) {

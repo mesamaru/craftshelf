@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Link, createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { listJobs } from "~/lib/jobs-api";
 
@@ -54,7 +54,6 @@ function Jobs() {
   return (
     <main className="page narrow">
       <header className="bar">
-        <Link to="/servers" className="capsule">‹ サーバー</Link>
         <h1>処理の一覧</h1>
         <button type="button" className="capsule small" onClick={reload}>読み直す</button>
       </header>

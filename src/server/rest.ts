@@ -62,6 +62,7 @@ export const ROUTES: Route[] = [
   { method: "POST", path: "/library/url", scope: "library", summary: "配布元のページの URL(url。Modrinth・SpigotMC・CurseForge)からライブラリに足す", example: { url: "https://modrinth.com/mod/fabric-api" }, handler: (s, h, _p, b) => s.library.addFromUrl(h, str(b.url)) },
   { method: "POST", path: "/library/tag", scope: "library", summary: "タグを付ける・外す(itemIds: アイテムの ID の配列、tag、on: true / false)", example: { itemIds: ["<アイテムの ID>"], tag: "ロビー", on: true }, handler: (s, h, _p, b) => s.library.tagItems(h, ids(b.itemIds), str(b.tag), b.on === true) },
   { method: "GET", path: "/library/outdated", scope: "read", summary: "どこかのサーバーに新しい版があるアイテム", handler: (s, h) => s.library.outdated(h) },
+  { method: "GET", path: "/library/outdated-servers", scope: "read", summary: "新しい版があるアイテムと、古い版が入っているサーバー", handler: (s, h) => s.library.outdatedServers(h) },
   { method: "GET", path: "/library/deps", scope: "read", summary: "必須の前提が入っていないもの(アイテムごと・サーバーごと。配布元に問い合わせる)", handler: (s, h) => s.library.missingDeps(h) },
   { method: "POST", path: "/library/:id/modpack", scope: "library", summary: "Modパックのアイテムからセットを作る(serverId を渡すと、そのサーバーに設定ファイルと中身も入れる。管理者以上)", example: { serverId: "<サーバーの ID>" }, handler: (s, h, [id], b) => s.modpacks.fromItem(h, id, str(b.serverId) || undefined) },
   { method: "POST", path: "/library/:id/remove", scope: "library", summary: "ライブラリから外す(サーバーに入っているものはそのまま)", example: {}, handler: (s, h, [id]) => s.library.removeItem(h, id) },

@@ -3,7 +3,11 @@ import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { authClient } from "~/lib/auth-client";
 import { errorText } from "~/lib/errors";
 import { filesAccess, setEditorFiles } from "~/lib/files-api";
-import { curseforgeKey, setCurseforgeKey } from "~/lib/library-api";
+import { curseforgeKey, libraryCatalog, setCurseforgeKey, setLibraryChannel } from "~/lib/library-api";
+import { listSets } from "~/lib/sets-api";
+import { OPEN_ADD } from "~/lib/shell";
+import { CHANNELS, type Channel } from "~/lib/sources";
+import { Info } from "~/lib/ui";
 import { useCan } from "~/lib/use-can";
 import { useServerFn } from "@tanstack/react-start";
 import { ASSIGNABLE_ROLES, GRANTS, GRANT_LABELS, type Grant, type RoleName, roleLabel } from "~/lib/permissions";
@@ -26,12 +30,12 @@ function Team() {
   return (
     <main className="page narrow">
       <header className="bar">
-        <Link to="/" className="capsule">‹ 戻る</Link>
         <h1>チーム</h1>
       </header>
       {app.mode === "service" && <Switcher activeId={team?.id} />}
       {team && (
         <>
+          {can({ member: ["update"] }) && <LibrarySetup key={team.id} members={team.members.length} />}
           <TeamName key={team.id} id={team.id} name={team.name} editable={can({ organization: ["update"] })} onDone={refetch} />
           <div className="group-title">メンバー({team.members.length} 人)</div>
           <section className="group">
@@ -512,6 +516,73 @@ function SignInHelp({ members }: { members: { userId: string; name: string }[] }
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
       <p className="foot">本人が端末をなくしたときに使います。外すと、その人のいまのログインもすべて切れます。操作は記録に残ります。オーナーの設定は変えられません。</p>
+    </>
+  );
+}
+
+// はじめての設定と受け取る版(管理者以上。03.65.00 まではライブラリの画面にあった)
+function LibrarySetup({ members }: { members: number }) {
+  const load = useServerFn(libraryCatalog);
+  const [cat, setCat] = useState<Awaited<ReturnType<typeof libraryCatalog>> | null>(null);
+  const reload = () => { load().then(setCat, () => setCat(null)); };
+  useEffect(reload, []);
+  if (!cat) return null;
+  return <><Guide cat={cat} members={members} /><TeamChannel value={cat.channel} onDone={reload} /></>;
+}
+
+// はじめての設定。すべて済んだら・「閉じる」を押したら出さない(ブラウザごと)
+const GUIDE = "craftshelf.guide-hidden";
+function Guide({ cat, members }: { cat: Awaited<ReturnType<typeof libraryCatalog>>; members: number }) {
+  const sets = useServerFn(listSets);
+  const [setCount, setSetCount] = useState<number | null>(null);
+  const [hidden, setHidden] = useState(true);
+  useEffect(() => {
+    setHidden(localStorage.getItem(GUIDE) === "1");
+    sets().then((s) => setSetCount(s.length), () => setSetCount(0));
+  }, []);
+  const steps = [
+    { done: cat.servers.length > 0, label: "サーバーをつなぐ(Pterodactyl パネル・フォルダ)", to: "/servers" as const },
+    { done: cat.servers.length > 0 && cat.servers.every((s) => s.type), label: "サーバーの種類(Paper・Fabric など)を選ぶ", to: "/servers" as const },
+    { done: cat.items.length > 0, label: "ライブラリに Mod・プラグインを足す", to: null, add: true },
+    { done: (setCount ?? 0) > 0, label: "セットを作って、まとめて入れる", to: "/sets" as const },
+    { done: members > 1, label: "チームの人を招待する", to: null },
+  ];
+  if (hidden || setCount === null || steps.every((s) => s.done)) return null;
+  return (
+    <>
+      <div className="group-title">はじめての設定</div>
+      <section className="group">
+        {steps.map((s) => (
+          <div className="row" key={s.label}>
+            <span className={`main${s.done ? " muted" : ""}`}>{s.done ? "✓ " : "・"}{s.label}</span>
+            {!s.done && s.to && <Link to={s.to} className="trail link">開く</Link>}
+            {!s.done && "add" in s && <button type="button" className="trail link" onClick={() => window.dispatchEvent(new Event(OPEN_ADD))}>開く</button>}
+          </div>
+        ))}
+        <button className="row link" type="button" onClick={() => { localStorage.setItem(GUIDE, "1"); setHidden(true); }}>このガイドを閉じる</button>
+      </section>
+    </>
+  );
+}
+
+// 受け取る版のチームの既定
+function TeamChannel({ value, onDone }: { value: Channel; onDone: () => void }) {
+  const save = useServerFn(setLibraryChannel);
+  const [error, setError] = useState("");
+  const change = (channel: string) => save({ data: { channel } }).then(() => { setError(""); onDone(); }, (e) => setError(e instanceof Error ? e.message : "うまくいきませんでした"));
+  return (
+    <>
+      <div className="group-title">受け取る版</div>
+      <section className="group">
+        <label className="row">
+          <span>チームの既定</span>
+          <select className="trail" value={value} aria-label="受け取る版のチームの既定" onChange={(e) => change(e.target.value)}>
+            {(Object.keys(CHANNELS) as Channel[]).map((c) => <option key={c} value={c}>{CHANNELS[c]}</option>)}
+          </select>
+          <Info><span>更新・サーバーに入れるときに、どの版を選ぶかです。「正式版だけ」でも、正式版が 1 つも無いものはベータ版を使います。アイテムごとに「詳しく」→「情報を直す」で変えられます。</span></Info>
+        </label>
+        {error && <p className="row error" role="alert">{error}</p>}
+      </section>
     </>
   );
 }

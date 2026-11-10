@@ -37,7 +37,6 @@ function Settings() {
   return (
     <main className="page narrow">
       <header className="bar">
-        <Link to="/" className="capsule">‹ 戻る</Link>
         <h1>アカウント</h1>
       </header>
 

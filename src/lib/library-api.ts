@@ -93,6 +93,8 @@ export const favoriteLibraryItem = createServerFn({ method: "POST" })
 
 export const outdatedLibraryItems = createServerFn({ method: "GET" }).handler(async () => (await svc()).outdated(headers()));
 
+export const outdatedLibraryServers = createServerFn({ method: "GET" }).handler(async () => (await svc()).outdatedServers(headers()));
+
 export const setModEnabled = createServerFn({ method: "POST" })
   .validator(z.object({ id: sid, filename: z.string().min(1).max(200), enable: z.boolean() }))
   .handler(async ({ data }) => (await svc()).setEnabled(headers(), data.id, data.filename, data.enable));

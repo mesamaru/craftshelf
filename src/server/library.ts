@@ -58,7 +58,7 @@ const memoSet = (key: string, value: unknown) => {
 };
 const INFO_BATCH = 50;
 // 前提の確かめの結果の 1 行(have に無いもの)。byKeys は使うものの "配布元:ID"
-export type MissingDep = { source: ItemSource; projectId: string; title: string; iconUrl: string; itemId: string | null; by: string[]; byKeys: string[] };
+export type MissingDep = { source: ItemSource; projectId: string; title: string; iconUrl: string; projectType: ProjectType; itemId: string | null; by: string[]; byKeys: string[] };
 const parseList = (s: string) => {
   try {
     const v = JSON.parse(s);
@@ -207,9 +207,10 @@ export function modTools(deps: Deps) {
 
   // ライブラリに載せる(載っていれば名前・アイコンを新しくする)
   async function remember(teamId: string, userId: string | null, source: ItemSource, projectId: string, p: { title: string; slug: string; projectType: ProjectType; iconUrl: string }) {
-    const set = { title: p.title, slug: p.slug, iconUrl: p.iconUrl };
+    // 配布元に問い合わせられず iconUrl が空のときは、すでにあるアイコンを消さない
+    const set = { title: p.title, slug: p.slug, ...(p.iconUrl ? { iconUrl: p.iconUrl } : {}) };
     const [row] = await db.insert(libraryItem)
-      .values({ id: randomUUID(), teamId, source, projectId, projectType: p.projectType, addedBy: userId, ...set })
+      .values({ id: randomUUID(), teamId, source, projectId, projectType: p.projectType, addedBy: userId, iconUrl: p.iconUrl, ...set })
       .onConflictDoUpdate({ target: [libraryItem.teamId, libraryItem.source, libraryItem.projectId], set })
       .returning({ id: libraryItem.id });
     return row.id;
@@ -647,7 +648,7 @@ export function modTools(deps: Deps) {
       if (!known && !memo && !cache.has(key)) cache.set(key, project(n.source, n.projectId, teamId).catch(() => null));
       const info = known ?? (memo?.value as { title: string; iconUrl: string } | undefined) ?? ((await cache.get(key)) as { title: string; iconUrl: string } | null);
       if (!known && !memo && info) memoSet(`${teamId}:${key}`, { title: info.title, iconUrl: info.iconUrl });
-      missing.push({ ...n, itemId: known?.id ?? null, title: info?.title || n.projectId, iconUrl: info?.iconUrl ?? "" });
+      missing.push({ ...n, itemId: known?.id ?? null, title: info?.title || n.projectId, iconUrl: info?.iconUrl ?? "", projectType: PLATFORMS[p.platform].type });
     }
     return { missing: missing.sort((a, b) => a.title.localeCompare(b.title)), errors: [...new Set(errors)] };
   }
@@ -969,7 +970,7 @@ export function libraryService(deps: Deps) {
       const r = await depsReport(who, { itemId });
       const items = await db.select({ id: libraryItem.id, source: libraryItem.source, projectId: libraryItem.projectId }).from(libraryItem).where(eq(libraryItem.teamId, who.teamId));
       const idOf = new Map(items.map((i) => [`${i.source}:${i.projectId}`, i.id]));
-      type Row = { serverId: string; serverName: string; deps: { source: ItemSource; projectId: string; title: string; itemId: string | null }[] };
+      type Row = { serverId: string; serverName: string; deps: { source: ItemSource; projectId: string; title: string; iconUrl: string; projectType: ProjectType; itemId: string | null }[] };
       const out = new Map<string, Row[]>();
       for (const s of r.servers) {
         for (const m of s.missing) {
@@ -979,7 +980,7 @@ export function libraryService(deps: Deps) {
             const list = out.get(id) ?? [];
             let row = list.find((x) => x.serverId === s.serverId);
             if (!row) list.push(row = { serverId: s.serverId, serverName: s.serverName, deps: [] });
-            row.deps.push({ source: m.source, projectId: m.projectId, title: m.title, itemId: m.itemId });
+            row.deps.push({ source: m.source, projectId: m.projectId, title: m.title, iconUrl: m.iconUrl, projectType: m.projectType, itemId: m.itemId });
             out.set(id, list);
           }
         }
@@ -1033,7 +1034,7 @@ export function libraryService(deps: Deps) {
     },
 
     /**
-     * 対応 MC を配布元から取り直す(1 分ごとに呼ぶ。画面からは呼ばない): 取ってから 1 日たったもの(まだのものから)を 1 回に INFO_BATCH 件まで。
+     * 対応 MC とアイコンを配布元から取り直す(1 分ごとに呼ぶ。画面からは呼ばない): 取ってから 1 日たったもの(まだのものから)を 1 回に INFO_BATCH 件まで。
      * 取れなかったものは前の値のまま、次は 1 日後。アップロードしたものは、jar から読んだ対応 MC を使う。
      * Modパックは、いちばん新しい版も取り直し、使った版より新しい版が出たら一度だけ知らせる(「新しい版」の種類)
      */
@@ -1046,12 +1047,20 @@ export function libraryService(deps: Deps) {
       // 先に時刻を書き換え、ほかのプロセスと同じものを取り直さない
       await db.update(libraryItem).set({ infoAt: now }).where(inArray(libraryItem.id, rows.map((r) => r.id)));
       const found = new Map<string, string[]>();
+      const icons = new Map<string, string>(); // 配布元のアイコン(取れたものだけ。空で上書きしない)
       const quiet = async (fn: () => Promise<void>) => {
         try {
           await fn();
         } catch { /* 配布元につながらなければ、前の値のまま */ }
       };
-      const take = (list: typeof rows, m: Map<string, { mcVersions: string[] }>) => { for (const r of list) if (m.has(r.projectId)) found.set(r.id, m.get(r.projectId)!.mcVersions); };
+      const take = (list: typeof rows, m: Map<string, { mcVersions: string[]; iconUrl: string }>) => {
+        for (const r of list) {
+          const p = m.get(r.projectId);
+          if (!p) continue;
+          found.set(r.id, p.mcVersions);
+          if (p.iconUrl) icons.set(r.id, p.iconUrl);
+        }
+      };
       const mr = rows.filter((r) => r.source === "modrinth");
       if (mr.length) await quiet(async () => take(mr, await modrinth.projects(mr.map((r) => r.projectId))));
       for (const teamId of new Set(rows.filter((r) => r.source === "curseforge").map((r) => r.teamId))) {
@@ -1062,7 +1071,7 @@ export function libraryService(deps: Deps) {
       for (const r of rows.filter((x) => x.source === "spigot")) {
         await quiet(async () => {
           const p = await spiget.project(r.projectId);
-          if (p) found.set(r.id, p.mcVersions);
+          if (p) take([r], new Map([[r.projectId, p]]));
         });
       }
       const up = rows.filter((r) => r.source === "upload");
@@ -1071,7 +1080,7 @@ export function libraryService(deps: Deps) {
           found.set(f.itemId, [...(found.get(f.itemId) ?? []), ...(parseList(f.mc) ?? [])]);
         }
       }
-      for (const [id, mc] of found) await db.update(libraryItem).set({ upstreamMc: JSON.stringify(mcClean(mc)) }).where(eq(libraryItem.id, id));
+      for (const [id, mc] of found) await db.update(libraryItem).set({ upstreamMc: JSON.stringify(mcClean(mc)), ...(icons.has(id) ? { iconUrl: icons.get(id)! } : {}) }).where(eq(libraryItem.id, id));
       for (const r of rows.filter((x) => x.projectType === "modpack" && (x.source === "modrinth" || x.source === "curseforge"))) {
         await quiet(async () => {
           const { latest } = await packVersions(r.teamId, r.source as "modrinth" | "curseforge", r.projectId);
@@ -1172,6 +1181,9 @@ export function libraryService(deps: Deps) {
       const metas = files.some((f) => !f.datapack && JAR.test(f.name) && !records.has(f.name)) ? await metasIn(target, profile) : new Map<string, JarMeta>();
       const history = new Set((await db.select({ source: installHistory.source, projectId: installHistory.projectId }).from(installHistory)
         .where(eq(installHistory.serverId, row.id))).filter((h) => h.source !== "spigot").map((h) => `${h.source}:${h.projectId}`));
+      // 行のアイコン: ライブラリにある配布元のアイコン(無ければ画面が種類の図を出す)
+      const icons = new Map((await db.select({ source: libraryItem.source, projectId: libraryItem.projectId, iconUrl: libraryItem.iconUrl }).from(libraryItem)
+        .where(eq(libraryItem.teamId, who.teamId))).filter((i) => i.iconUrl).map((i) => [`${i.source}:${i.projectId}`, i.iconUrl]));
       return {
         dir, datapacks,
         items: files.map((f) => {
@@ -1179,7 +1191,7 @@ export function libraryService(deps: Deps) {
           return {
             filename: f.name, size: f.size, disabled: isDisabled(f.name), datapack: f.datapack,
             ...(!r && metas.get(f.name)?.key ? { name: metas.get(f.name)!.name, version: metas.get(f.name)!.version, key: metas.get(f.name)!.key } : {}),
-            ...(r ? { source: r.source, projectId: r.projectId, versionId: r.versionId, versionNumber: r.versionNumber, title: r.title, held: holds.has(`${r.source}:${r.projectId}`), pinned: pins.get(`${r.source}:${r.projectId}`)?.versionNumber ?? null, canRollback: history.has(`${r.source}:${r.projectId}`) } : {}),
+            ...(r ? { source: r.source, projectId: r.projectId, versionId: r.versionId, versionNumber: r.versionNumber, title: r.title, iconUrl: icons.get(`${r.source}:${r.projectId}`) ?? "", held: holds.has(`${r.source}:${r.projectId}`), pinned: pins.get(`${r.source}:${r.projectId}`)?.versionNumber ?? null, canRollback: history.has(`${r.source}:${r.projectId}`) } : {}),
           };
         }).sort((a, b) => (a.title ?? a.filename).localeCompare(b.title ?? b.filename)),
       };
@@ -1334,12 +1346,16 @@ export function libraryService(deps: Deps) {
     async changes(headers: Headers, id: string) {
       const who = await requireTeam(auth, headers);
       const { row } = await serverOf(deps, who, id);
+      // 履歴には配布元の ID を残していないので、アイコンはライブラリの同じ名前のものから(shortcut: 名前を変えたものは種類の図)
+      const icons = new Map((await db.select({ title: libraryItem.title, iconUrl: libraryItem.iconUrl }).from(libraryItem)
+        .where(eq(libraryItem.teamId, who.teamId))).filter((i) => i.iconUrl).map((i) => [i.title, i.iconUrl]));
+      const prof = await profileOf(row.id);
       const rows = await db.select({ c: serverChange, by: userTable.name }).from(serverChange).leftJoin(userTable, eq(serverChange.userId, userTable.id))
         .where(eq(serverChange.serverId, row.id)).orderBy(desc(serverChange.at));
       return rows.map(({ c, by }) => {
         const removed = c.removed ? (JSON.parse(c.removed) as Removed) : null;
         return {
-          id: c.id, action: c.action, title: c.title, at: c.at.toISOString(), by: by ?? "", added: c.added, removed: removed?.filename ?? "",
+          id: c.id, action: c.action, title: c.title, iconUrl: icons.get(c.title) ?? "", type: isDatapackFile(c.added || removed?.filename || "") ? "datapack" : prof ? PLATFORMS[prof.platform].type : "plugin", at: c.at.toISOString(), by: by ?? "", added: c.added, removed: removed?.filename ?? "",
           version: removed?.versionNumber ?? "", undone: c.undone, config: !!c.configBackup,
           // 外したもの・新しく入れたもの・無効と有効の切り替えは戻せる。更新は前の版を取ってこられるもの(SpigotMC 以外)だけ
           undoable: !c.undone && (c.action === "外す" || c.action === "無効にする" || c.action === "有効にする" || (c.action === "入れる" && !!c.added)

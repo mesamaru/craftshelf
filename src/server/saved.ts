@@ -340,11 +340,11 @@ export function savedService(deps: Deps) {
       const { teamId } = await requireTeam(auth, headers, { library: ["edit"] });
       const items = await db.select().from(libraryItem).where(eq(libraryItem.teamId, teamId)).orderBy(asc(libraryItem.title));
       const all = items.length ? await db.select().from(libraryFile).where(inArray(libraryFile.itemId, items.map((i) => i.id))).orderBy(desc(libraryFile.createdAt)) : [];
-      type Row = { kind: "version" | "item"; itemId: string; title: string; projectType: string; fileId: string | null; version: string; reason: string; size: number; checked: boolean };
+      type Row = { kind: "version" | "item"; itemId: string; title: string; projectType: string; iconUrl: string; fileId: string | null; version: string; reason: string; size: number; checked: boolean };
       const out: Row[] = [];
       const sizeOf = (id: string) => all.filter((f) => f.itemId === id).reduce((s, f) => s + f.size, 0);
-      const ver = (i: Item, f: FileRow, reason: string): Row => ({ kind: "version", itemId: i.id, title: i.title, projectType: i.projectType, fileId: f.id, version: f.version || f.filename, reason, size: f.size, checked: true });
-      const whole = (i: Item, reason: string, checked = true): Row => ({ kind: "item", itemId: i.id, title: i.title, projectType: i.projectType, fileId: null, version: "", reason, size: sizeOf(i.id), checked });
+      const ver = (i: Item, f: FileRow, reason: string): Row => ({ kind: "version", itemId: i.id, title: i.title, projectType: i.projectType, iconUrl: i.iconUrl, fileId: f.id, version: f.version || f.filename, reason, size: f.size, checked: true });
+      const whole = (i: Item, reason: string, checked = true): Row => ({ kind: "item", itemId: i.id, title: i.title, projectType: i.projectType, iconUrl: i.iconUrl, fileId: null, version: "", reason, size: sizeOf(i.id), checked });
       const keep = Math.max(1, Math.floor(Number(n) || 1));
       if (cond === "old" || cond === "dup") {
         for (const i of items) {

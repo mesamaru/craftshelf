@@ -12,6 +12,8 @@ const FIELDS = "id,name,tag,downloads,external,premium,category,version,testedVe
 
 export class SpigetError extends Error {}
 export const SPIGET_ID = /^\d{1,9}$/;
+// アイコンは Spiget の画像(利用者のブラウザが直接読む。無いものは画面が種類の図に戻す)
+const iconOf = (id: number | string) => `${API}/resources/${id}/icon`;
 
 // SpigotMC のカテゴリー: プロキシ用(BungeeCord)・どちらでも動く(Universal)・プラグインではないもの。ほかはサーバー用(Bukkit / Spigot)
 const PROXY = new Set([3, 9, 10, 11, 12, 13]);
@@ -51,7 +53,7 @@ export function spigetClient(fetch: FetchLike) {
   }
   const resource = async (id: string): Promise<Resource | null> => (SPIGET_ID.test(id) ? get(`/resources/${id}?fields=${FIELDS}`) : null);
   const installable = (r: Resource) => !r.external && !r.premium && !NOT_PLUGIN.has(r.category?.id ?? 0);
-  const hit = (r: Resource): Hit => ({ projectId: String(r.id), slug: "", title: String(r.name ?? ""), summary: String(r.tag ?? ""), downloads: Number(r.downloads ?? 0), iconUrl: "", author: "" });
+  const hit = (r: Resource): Hit => ({ projectId: String(r.id), slug: "", title: String(r.name ?? ""), summary: String(r.tag ?? ""), downloads: Number(r.downloads ?? 0), iconUrl: iconOf(r.id), author: "" });
 
   async function find(query: string, keep: (r: Resource) => boolean): Promise<Hit[]> {
     const q = new URLSearchParams({ size: "50", fields: FIELDS, sort: "-downloads" });
@@ -81,7 +83,7 @@ export function spigetClient(fetch: FetchLike) {
     // mcVersions は作者が「試した」と書いたバージョン(1.20 のように、細かい番号の無いことが多い)
     async project(projectId: string) {
       const r = await resource(projectId);
-      return r ? { title: String(r.name ?? ""), slug: "", projectType: installable(r) ? "plugin" : "", iconUrl: "", mcVersions: mcClean(r.testedVersions),
+      return r ? { title: String(r.name ?? ""), slug: "", projectType: installable(r) ? "plugin" : "", iconUrl: iconOf(r.id), mcVersions: mcClean(r.testedVersions),
         updated: r.updateDate ? new Date(Number(r.updateDate) * 1000).toISOString() : "" } : null;
     },
 

@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { addLibraryItem, addLibraryItemFromUrl, type libraryCatalog, searchCatalog } from "./library-api";
 import { ITEM_TYPES, ITEM_TYPE_IDS, type ItemType } from "./platforms";
 import { SOURCE_LABEL, type Source, pageUrl } from "./sources";
-import { ItemIcon } from "./type-icon";
+import { AddonIcon } from "./type-icon";
 import { Btn, Chip, Info, Seg, Sheet } from "./ui";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
@@ -84,7 +84,7 @@ function AddFromSource({ sources, have }: { sources: Source[]; have: Set<string>
             const key = `${source}:${h.projectId}`;
             return (
               <div className="row" key={h.projectId}>
-                <span className="ic"><ItemIcon type={type} url={h.iconUrl} /></span>
+                <AddonIcon type={type} url={h.iconUrl} />
                 <span className="mid">
                   <a className="ttl name" href={pageUrl(source, h.projectId, h.slug)} target="_blank" rel="noreferrer noopener" translate="no">{h.title}</a>
                   <span className="sub" translate="no">{h.summary}</span>

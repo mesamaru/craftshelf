@@ -343,6 +343,31 @@ await step("ドラッグ&ドロップの欄から jar を足すと、一覧と�
   if (await page.getByText("サーバーで使用中").count()) throw new Error("「サーバーで使用中」が出ています");
 });
 
+// 配布元に紐づいたものはアイコンの画像、紐づいていないもの(アップロード)は種類の図(本物の Modrinth につなぐ。つながらなければ飛ばす)
+await step("配布元に紐づけたアドオンは、ライブラリ・検索でアイコンの画像を出す", async () => {
+  await page.goto(base + "/");
+  await page.locator(".top").getByRole("button", { name: "＋ 追加" }).click();
+  await page.getByRole("tab", { name: "URL" }).click();
+  await page.getByPlaceholder("ページの URL(Modrinth・SpigotMC・CurseForge)").fill("https://modrinth.com/plugin/luckperms");
+  await page.getByRole("button", { name: "足す" }).click();
+  await page.getByText(/足しました|ライブラリに足しました|すでに/).first().waitFor({ timeout: 15000 }).catch(() => {});
+  await page.keyboard.press("Escape");
+  await page.goto(base + "/");
+  const row = page.locator(".items .row", { hasText: "LuckPerms" });
+  if (!(await row.waitFor({ timeout: 10000 }).then(() => true, () => false))) return console.log("     (Modrinth につながらないので飛ばします)");
+  await row.locator(".ic img").waitFor();
+  if (!/^https:\/\/cdn\.modrinth\.com\//.test(await row.locator(".ic img").getAttribute("src"))) throw new Error("配布元のアイコンではありません");
+  await page.waitForFunction(() => { const i = document.querySelector(".items .row .ic img"); return i && i.complete && i.naturalWidth > 0; }); // 読めている
+  if (await page.locator(".items .row", { hasText: "E2EPlugin" }).locator(".ic img").count()) throw new Error("アップロードしたものに配布元のアイコンが出ています");
+  await page.locator(".items .row", { hasText: "E2EPlugin" }).locator(".ic .icon-ph").waitFor(); // 種類の図
+  // 検索(Ctrl K)にも出る
+  await page.keyboard.press("Control+k");
+  await page.locator(".palette-input").fill("LuckPerms");
+  await page.locator(".palette-hit .ic img").waitFor();
+  await page.screenshot({ path: ".e2e/icons.png" });
+  await page.keyboard.press("Escape");
+});
+
 // ビルドしたものでは HttpError のクラスが 2 つの束に分かれるので、エラーが 500 にならず理由どおりに返るかを確かめる(03.67.01)
 await step("API・アップロードのエラーが、理由どおりの番号と文で返る", async () => {
   const expectRes = async (what, res, status, text) => {

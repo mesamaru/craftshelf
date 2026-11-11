@@ -6,7 +6,7 @@ import { editLibraryItem, favoriteLibraryItem, installMod, libraryCatalog, libra
   linkLibraryDep, modpackFromItem, outdatedLibraryServers, relinkLibraryItem, removeLibraryItem, tagLibraryItems } from "~/lib/library-api";
 import { LIBRARY_CHANGED, UploadResults, droppedFiles, libraryChanged, useUploader } from "~/lib/library-add";
 import { ITEM_TYPES, ITEM_TYPE_IDS, type ItemType, mcCompare, mcCovers, mcRange } from "~/lib/platforms";
-import { ItemIcon } from "~/lib/type-icon";
+import { AddonIcon } from "~/lib/type-icon";
 import { localEnabled } from "~/lib/servers-api";
 import { listBackups } from "~/lib/backup-api";
 import { notifySettings } from "~/lib/events-api";
@@ -316,7 +316,7 @@ function Toolbar({ cat, f, set, edit, selecting, onSort, onSelect }:
         <button type="button" className="seg" aria-pressed={!f.type && !f.fav} onClick={() => set({ type: "", fav: false })}>すべて<span className="n">{cat.items.length}</span></button>
         {types.map(([t, n]) => (
           <button key={t} type="button" className="seg" aria-pressed={f.type === t} onClick={() => set({ type: f.type === t ? "" : t })}>
-            <span className="ic sm"><ItemIcon type={t} /></span>{ITEM_TYPES[t]}<span className="n">{n}</span>
+            <AddonIcon type={t} size="sm" />{ITEM_TYPES[t]}<span className="n">{n}</span>
           </button>
         ))}
         {favs > 0 && <button type="button" className="seg" aria-pressed={f.fav} onClick={() => set({ fav: !f.fav })}><span aria-hidden="true">★</span>お気に入り<span className="n">{favs}</span></button>}
@@ -339,7 +339,7 @@ function ItemRow({ item, old, dep, selecting, picked, open, onOpen, onFavorite, 
     <div className={`row click${picked ? " sel" : ""}`} role="button" tabIndex={0} aria-label={item.title} aria-current={open || undefined} onClick={onOpen}
       onKeyDown={(e) => { if (e.key === "Enter" && e.target === e.currentTarget) onOpen(); }}>
       {selecting && <input type="checkbox" className="ck" checked={picked} onClick={(e) => e.stopPropagation()} onChange={(e) => onPick(e.target.checked)} aria-label={`${item.title} を選ぶ`} />}
-      <span className="ic"><ItemIcon type={item.projectType} url={item.iconUrl ?? undefined} /></span>
+      <AddonIcon type={item.projectType} url={item.iconUrl} />
       <span className="mid">
         <span className="ttl"><span translate="no">{item.title}</span><Star on={item.favorite} onClick={onFavorite} />{item.tags.map((t) => <span key={t} className="tag" translate="no">{t}</span>)}</span>
         <span className="sub">{subOf(item)}</span>
@@ -518,7 +518,7 @@ function ItemSheet({ item, cat, edit, admin, local, old, depInfo, onChange, onDe
         ]} />
       </>}>
       <div className="item-head">
-        <span className="ic lg"><ItemIcon type={item.projectType} url={item.iconUrl ?? undefined} /></span>
+        <AddonIcon type={item.projectType} url={item.iconUrl} size="lg" />
         <div className="who">
           <h2><span translate="no">{item.title}</span><Star on={item.favorite} onClick={onFavorite} /></h2>
           <div className="sub">{subOf(item, false) || sourceLabel(item.source)}</div>
@@ -656,6 +656,7 @@ function DepWarnings({ servers, edit, onInstalled }: { servers: DepInfo; edit: b
       {[...deps].map(([k, { dep, serverIds }]) => (
         <div key={k} className="row">
           <span className="badge bad">前提</span>
+          <AddonIcon type={dep.projectType} url={dep.iconUrl} />
           <span className="mid"><span className="ttl" translate="no">{dep.title}</span><span className="sub">{`${serverIds.length} 台に足りません`}</span></span>
           {edit && <Btn kind="tint" sm disabled={!!busy} onClick={() => add(k)}>{busy === k ? "入れています…" : "入れる"}</Btn>}
         </div>

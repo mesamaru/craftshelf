@@ -4,8 +4,9 @@ import { useRouter } from "@tanstack/react-router";
 import { libraryCatalog } from "./library-api";
 import { listServers } from "./servers-api";
 import { listSets } from "./sets-api";
+import { AddonIcon } from "./type-icon";
 
-type Hit = { label: string; sub: string; to: string; params?: Record<string, string>; search?: Record<string, string> };
+type Hit = { label: string; sub: string; to: string; params?: Record<string, string>; search?: Record<string, string>; icon?: { type: string; url: string } };
 const PAGES: Hit[] = [
   { label: "ライブラリ", sub: "画面", to: "/" },
   { label: "ホーム", sub: "画面", to: "/home" },
@@ -58,7 +59,7 @@ export function Palette() {
         ...servers.map((s) => ({ label: s.name, sub: "サーバー", to: "/servers/$id", params: { id: s.id } })),
         ...sets.map((s) => ({ label: s.name, sub: "セット", to: "/sets" })),
         // ライブラリのものは、ライブラリの詳しくを開く(どのサーバーに入っているかはライブラリには出さない。03.68.00 から)
-        ...(cat?.items ?? []).map((i) => ({ label: i.title, sub: "ライブラリ", to: "/", search: { item: i.id } })),
+        ...(cat?.items ?? []).map((i) => ({ label: i.title, sub: "ライブラリ", to: "/", search: { item: i.id }, icon: { type: i.projectType, url: i.iconUrl } })),
       ]);
     });
   }, [open]);
@@ -90,6 +91,7 @@ export function Palette() {
           {hits.map((h, i) => (
             <button key={`${h.sub}:${h.label}:${i}`} type="button" role="option" aria-selected={i === sel} className={`row palette-hit${i === sel ? " on" : ""}`}
               onMouseEnter={() => setSel(i)} onClick={() => go(h)}>
+              {h.icon && <AddonIcon type={h.icon.type} url={h.icon.url} size="sm" />}
               <span className="main" translate={h.sub === "画面" ? undefined : "no"}>{h.label}</span>
               <span className="trail muted small" translate="no">{h.sub}</span>
             </button>

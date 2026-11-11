@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { ActionBar, Btn, Chip, ChipBar, Info, Tabs } from "~/lib/ui";
 import { adoptMod, identifyMods, installMod, installedMods, libraryCatalog, modVersions, removeMod, setModEnabled, setModHold } from "~/lib/library-api";
 import { useCan } from "~/lib/use-can";
+import { AddonIcon } from "~/lib/type-icon";
 
 export const Route = createFileRoute("/compare")({
   beforeLoad: ({ context }) => {
@@ -131,7 +132,7 @@ function Compare() {
                 {rows.length === 0 && unknownRows.length === 0 && orphanRows.length === 0 && <tr><td colSpan={servers.length + 1} className="muted">{diffOnly ? "違いはありません" : "ライブラリに何もありません"}</td></tr>}
                 {rows.map((i) => (
                   <tr key={i.id}>
-                    <td translate="no">{i.title}</td>
+                    <td><span className="nm"><AddonIcon type={i.projectType} url={i.iconUrl} size="sm" /><span translate="no">{i.title}</span></span></td>
                     {servers.map((s) => {
                       const key = `${s.id}:${i.id}`;
                       const inst = installOf(i, s.id);
@@ -158,7 +159,7 @@ function Compare() {
                 {orphanRows.length > 0 && <tr className="grp"><td colSpan={servers.length + 1}>ライブラリに無いもの(配布元はわかっています)</td></tr>}
                 {orphanRows.map((r) => (
                   <tr key={`o:${r.key}`}>
-                    <td translate="no">{r.title}</td>
+                    <td><span className="nm"><AddonIcon type={servers[0]?.type ?? "plugin"} size="sm" /><span translate="no">{r.title}</span></span></td>
                     {servers.map((s) => {
                       const f = r.files[s.id];
                       if (!f) return <td key={s.id} className="muted">—</td>;
@@ -170,7 +171,7 @@ function Compare() {
                 {unknownRows.length > 0 && <tr className="grp"><td colSpan={servers.length + 1}>配布元がわからないもの(手で置いた jar など)</td></tr>}
                 {unknownRows.map((r) => (
                   <tr key={`n:${r.g}`}>
-                    <td translate="no">{r.name}</td>
+                    <td><span className="nm"><AddonIcon type={servers[0]?.type ?? "plugin"} size="sm" /><span translate="no">{r.name}</span></span></td>
                     {servers.map((s) => {
                       const f = r.files[s.id];
                       if (!f) return <td key={s.id} className="muted">—</td>;

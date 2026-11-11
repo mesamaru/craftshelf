@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 // アイテムの種類のアイコン(配布元のアイコンが無いときに出す。線だけの小さな図)
 const PATHS: Record<string, string> = {
   plugin: "M9 3v5M15 3v5M6 8h12v3a6 6 0 0 1-12 0zM12 17v4", // 差し込みプラグ
@@ -8,9 +10,11 @@ const PATHS: Record<string, string> = {
   modpack: "M12 3 3 7.5l9 4.5 9-4.5zM3 12l9 4.5 9-4.5M3 16.5 12 21l9-4.5", // 重ねた束
 };
 
-/** 配布元のアイコン(url)か、無ければ種類の図 */
+/** 配布元のアイコン(url)か、無い・読めなかったときは種類の図 */
 export function ItemIcon({ type, url }: { type: string; url?: string }) {
-  if (url) return <img src={url} alt="" width={40} height={40} loading="lazy" />;
+  const [bad, setBad] = useState(false);
+  useEffect(() => setBad(false), [url]);
+  if (url && !bad) return <img src={url} alt="" width={40} height={40} loading="lazy" referrerPolicy="no-referrer" onError={() => setBad(true)} />;
   return (
     <span className={`icon-ph t-${type}`} aria-hidden="true">
       {PATHS[type] && (
@@ -18,4 +22,9 @@ export function ItemIcon({ type, url }: { type: string; url?: string }) {
       )}
     </span>
   );
+}
+
+/** アドオンの行の先頭に出すアイコン(どの画面もこれを使う。配布元に紐づいたものはそのアイコン、それ以外は種類の図)。size: sm = 20 px・lg = 52 px */
+export function AddonIcon({ type, url, size }: { type: string; url?: string | null; size?: "sm" | "lg" }) {
+  return <span className={`ic${size ? ` ${size}` : ""}`}><ItemIcon type={type} url={url || undefined} /></span>;
 }

@@ -6,7 +6,7 @@ import { libraryCatalog, libraryItemVersions } from "~/lib/library-api";
 import { uploadedFiles } from "~/lib/uploads-api";
 import { getSchedule, setSchedule } from "~/lib/schedule-api";
 import { ITEM_TYPES, PLATFORMS, PLATFORM_IDS } from "~/lib/platforms";
-import { ItemIcon } from "~/lib/type-icon";
+import { AddonIcon } from "~/lib/type-icon";
 import { addSetDeps, applySet, createSet, listSets, pinSetItem, removeSet, renameSet, setMissingDeps, syncServerSet, toggleSetItem } from "~/lib/sets-api";
 import { Btn, Chip, Info, Menu, Sheet } from "~/lib/ui";
 import { SOURCE_LABEL, isSource } from "~/lib/sources";
@@ -101,7 +101,7 @@ function SetCard({ set, edit, local, onOpen, onChange }: { set: SetRow; edit: bo
           <div className="group flat">
             {set.items.slice(0, SHOW_ITEMS).map((i) => (
               <Link key={i.id} to="/" search={{ item: i.id }} className="row click">
-                <span className="ic"><ItemIcon type={i.projectType} url={i.iconUrl} /></span>
+                <AddonIcon type={i.projectType} url={i.iconUrl} />
                 <span className="mid">
                   <span className="ttl" translate="no">{i.title}</span>
                   <span className="sub">{i.versionId ? <><b translate="no">{i.versionNumber}</b>(固定)</> : "常に最新"}</span>
@@ -184,7 +184,7 @@ function SetSheet({ set, catalog, edit, local, onChange, onClose }: { set: SetRo
         {set.items.length === 0 && <div className="row muted">まだ何も入っていません。{edit && catalog.items.length === 0 ? "先にライブラリに Mod・プラグインを登録すると、ここに足せます。" : ""}</div>}
         {set.items.filter(fits).map((i) => (
           <div className="row" key={i.id}>
-            <span className="ic"><ItemIcon type={i.projectType} url={i.iconUrl} /></span>
+            <AddonIcon type={i.projectType} url={i.iconUrl} />
             <span className="mid">
               <span className="ttl" translate="no">{i.title}</span>
               <span className="sub">{TYPE_LABEL[i.projectType] ?? i.projectType} · {isSource(i.source) ? SOURCE_LABEL[i.source] : i.source}{i.versionId && <> · <b translate="no">{i.versionNumber}</b></>}</span>
@@ -315,6 +315,7 @@ function Deps({ set, edit, onChange }: { set: SetRow; edit: boolean; onChange: (
       {r && r.missing.length > 0 && <div className="row error">{`前提が足りません(${r.missing.length} 件)`}</div>}
       {r?.missing.map((m) => (
         <div className="row" key={`${m.source}:${m.projectId}`}>
+          <AddonIcon type={m.projectType} url={m.iconUrl} size="sm" />
           <span className="main">
             <span translate="no">{m.title}</span>
             <span className="muted small"><span translate="no">{m.by.join("、")}</span> が使います</span>

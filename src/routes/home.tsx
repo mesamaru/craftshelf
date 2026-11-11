@@ -10,7 +10,7 @@ import { LIBRARY_CHANGED } from "~/lib/library-add";
 import { saveMyDash } from "~/lib/prefs-api";
 import { ITEM_TYPES, ITEM_TYPE_IDS } from "~/lib/platforms";
 import { MobileSearch, StoragePill } from "~/lib/shell";
-import { ItemIcon } from "~/lib/type-icon";
+import { AddonIcon } from "~/lib/type-icon";
 import { Btn, Chip, Icon, type IconName, fmtSize } from "~/lib/ui";
 import { useCan } from "~/lib/use-can";
 
@@ -84,7 +84,7 @@ function Home() {
   const pct = items.length ? Math.round((linked.length / items.length) * 100) : 0;
   const itemRow = (i: CatItem, trail: ReactNode) => (
     <Link key={i.id} to="/" search={{ item: i.id }} className="row click">
-      <span className="ic"><ItemIcon type={i.projectType} url={i.iconUrl ?? undefined} /></span>
+      <AddonIcon type={i.projectType} url={i.iconUrl} />
       <span className="mid"><span className="ttl" translate="no">{i.title}</span><span className="sub" translate="no">{i.version || ITEM_TYPES[i.projectType as keyof typeof ITEM_TYPES]}</span></span>
       {trail}<span className="chev" aria-hidden="true">›</span>
     </Link>
@@ -127,7 +127,7 @@ function Home() {
         <div className="card-b">
           {counts.length ? counts.map(([t, n]) => (
             <Link key={t} to="/" search={{ type: t }} className="barrow" title={`${ITEM_TYPES[t]}: ${n} 件`}>
-              <span className="lab"><span className="ic sm"><ItemIcon type={t} /></span><span>{ITEM_TYPES[t]}</span></span>
+              <span className="lab"><AddonIcon type={t} size="sm" /><span>{ITEM_TYPES[t]}</span></span>
               <span className="track"><span className="fill" style={{ width: `${(n / max) * 100}%` }} /></span><span className="n">{n}</span>
             </Link>
           )) : <p className="dash-empty">まだ何も登録されていません</p>}

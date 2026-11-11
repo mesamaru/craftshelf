@@ -1,11 +1,11 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { Link, createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { identifyMods, libraryCatalog, serverChanges, undoChange, installMod, installedMods, modUpdates, modVersions, removeMod, rollbackMod, searchMods, serverDetail, serverMissingDeps, setModEnabled, setModHold } from "~/lib/library-api";
+import { identifyMods, serverChanges, undoChange, installMod, installedMods, modUpdates, modVersions, removeMod, rollbackMod, searchMods, serverDetail, serverMissingDeps, setModEnabled, setModHold } from "~/lib/library-api";
 import { importServerFile } from "~/lib/uploads-api";
 import { ApplyResults } from "~/lib/apply-results";
 import { ITEM_TYPES, PLATFORMS, STATE_LABELS, kindLabel, kindsOf } from "~/lib/platforms";
-import { ItemIcon } from "~/lib/type-icon";
+import { AddonIcon } from "~/lib/type-icon";
 import { listServers, powerServer } from "~/lib/servers-api";
 import { filesAccess } from "~/lib/files-api";
 import { bindServerSet, copyServer, listSets, syncServerSet, updateServers } from "~/lib/sets-api";
@@ -232,6 +232,7 @@ function Overview({ st, state, control, server, soft, onPower, onSoftware, onTab
             {a.deps?.missing.map((d) => (
               <div className="row" key={`dep:${d.source}:${d.projectId}`}>
                 <span className="badge bad">前提</span>
+                <AddonIcon type={d.projectType} url={d.iconUrl} />
                 <span className="mid"><span className="ttl" translate="no">{d.title}</span><span className="sub"><span translate="no">{d.by.join("、")}</span> が使います</span></span>
                 {a.edit && <Btn kind="tint" sm disabled={!!busy} onClick={() => act(`dep:${d.projectId}`, () => install({ data: { id: a.id, projectId: d.projectId, source: d.source } }))}>
                   {busy === `dep:${d.projectId}` ? "入れています…" : "入れる"}</Btn>}
@@ -275,10 +276,6 @@ function Addons(a: AddonProps) {
   const [busy, setBusy] = useState("");
   const [found, setFound] = useState("");
   const [err, setErr] = useState("");
-  // 行のアイコン: ライブラリにあるものは、そのアイコンを出す(無ければ種類の図)
-  const loadCat = useServerFn(libraryCatalog);
-  const [icons, setIcons] = useState<Map<string, string>>(new Map());
-  useEffect(() => { loadCat().then((c) => setIcons(new Map(c.items.filter((i) => i.iconUrl).map((i) => [`${i.source}:${i.projectId}`, i.iconUrl]))), () => {}); }, []);
   if (!a.profile) {
     return (
       <section className="group">
@@ -330,6 +327,7 @@ function Addons(a: AddonProps) {
           {a.deps.missing.map((d) => (
             <div className="row" key={`dep:${d.source}:${d.projectId}`}>
               <span className="badge bad">前提不足</span>
+              <AddonIcon type={d.projectType} url={d.iconUrl} />
               <span className="mid"><span className="ttl" translate="no">{d.title}</span><span className="sub"><span translate="no">{d.by.join("、")}</span> が使います</span></span>
               {edit && <Btn kind="tint" sm disabled={!!busy} onClick={() => run(`dep:${d.projectId}`, () => install({ data: { id, projectId: d.projectId, source: d.source } }))}>
                 {busy === `dep:${d.projectId}` ? "入れています…" : "入れる"}</Btn>}
@@ -352,7 +350,7 @@ function Addons(a: AddonProps) {
           const u = upd(m);
           return (
             <div className="row" key={m.filename}>
-              <span className="ic"><ItemIcon type={m.datapack ? "datapack" : type} url={m.projectId ? icons.get(`${m.source}:${m.projectId}`) : undefined} /></span>
+              <AddonIcon type={m.datapack ? "datapack" : type} url={m.iconUrl} />
               <span className="mid">
                 <span className="ttl">
                   <span translate="no">{m.title ?? m.name ?? m.filename}</span>
@@ -524,7 +522,7 @@ function Search({ id, installed, sources, datapacks, type, onInstalled }:
         {hits?.length === 0 && <div className="row muted">見つかりませんでした。</div>}
         {hits?.map((h) => (
           <div className="row" key={h.projectId}>
-            <span className="ic"><ItemIcon type={kind || type} url={h.iconUrl} /></span>
+            <AddonIcon type={kind || type} url={h.iconUrl} />
             <span className="mid">
               <a className="ttl name" href={pageUrl(source, h.projectId, h.slug)} target="_blank" rel="noreferrer noopener" translate="no">{h.title}</a>
               <span className="sub" translate="no">{h.summary}</span>
@@ -654,6 +652,7 @@ function Changes({ id, edit, items, onChange, limit, onMore }: { id: string; edi
       {list?.length === 0 && <div className="row muted">まだありません。</div>}
       {shown.map((c) => (
         <div className={`row${c.undone ? " faded" : ""}`} key={c.id}>
+          <AddonIcon type={c.type} url={c.iconUrl} />
           <span className="mid">
             <span className="ttl"><span translate="no">{c.title}</span>{` を${({ 外す: "外した", 更新: "更新した", 無効にする: "無効にした", 有効にする: "有効にした" } as Record<string, string>)[c.action] ?? "入れた"}`}{c.config && <span className="tag">設定も退避</span>}</span>
             <span className="sub" translate="no">{new Date(c.at).toLocaleString("ja-JP")}{c.by ? ` · ${c.by}` : ""}{c.action === "更新" && c.version ? ` · 前の版 ${c.version}` : ""}{c.undone ? " · 元に戻しました" : ""}</span>

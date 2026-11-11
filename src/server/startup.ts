@@ -51,7 +51,7 @@ export default function startup() {
       ["新しい版の見回り", (n) => sets.runUpdateChecks(n)],
       ["定期バックアップ", (n) => backups.tick(n)],
       ["ワールドのバックアップ", (n) => worlds.tick(n)],
-      ["対応 MC の取り直し", (n) => library.refreshInfo(n)],
+      ["対応 MC・アイコンの取り直し", (n) => library.refreshInfo(n)],
       ["保存した版の見回り", (n) => saved.tick(n)],
     ]);
     const timer = setInterval(() => tick(), 60_000);

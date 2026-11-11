@@ -358,6 +358,8 @@ pre.curl { margin: 4px 0 0; padding: 6px 8px; border-radius: 8px; background: va
 .gtitle { font-size: 12px; font-weight: 600; color: var(--muted); margin: 18px 6px 6px; }
 .ic { width: 36px; height: 36px; border-radius: 10px; flex: none; display: grid; place-items: center; overflow: hidden; }
 .ic img, .ic .icon-ph { width: 36px; height: 36px; border-radius: 10px; }
+.ic img, .hit img { object-fit: cover; background: var(--line); } /* 透明の PNG も暗い背景で見えるように薄い下地 */
+.nm { display: inline-flex; align-items: center; gap: 8px; vertical-align: middle; }
 /* 選ぶ(チェック) */
 input.ck { appearance: none; -webkit-appearance: none; width: 18px; height: 18px; margin: 0; border-radius: 6px; border: 2px solid var(--muted); flex: none; display: grid; place-items: center; cursor: pointer; background: transparent; }
 input.ck:checked { background: var(--accent); border-color: var(--accent); }

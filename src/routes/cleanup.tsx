@@ -5,6 +5,7 @@ import { ActionBar, Btn, Chip, ChipBar, Info } from "~/lib/ui";
 import { ITEM_TYPES } from "~/lib/platforms";
 import { cleanupFind, cleanupRemove } from "~/lib/saved-api";
 import { useCan } from "~/lib/use-can";
+import { AddonIcon } from "~/lib/type-icon";
 
 export const Route = createFileRoute("/cleanup")({
   beforeLoad: ({ context }) => {
@@ -108,6 +109,7 @@ function Cleanup() {
                 <label className="row" key={`${keyOf(r)}:${i}`}>
                   <input type="checkbox" className="ck" checked={picked.has(i)} aria-label={`${r.title} を選ぶ`}
                     onChange={(e) => setPicked((p) => { const x = new Set(p); if (e.target.checked) x.add(i); else x.delete(i); return x; })} />
+                  <AddonIcon type={r.projectType} url={r.iconUrl} />
                   <span className="mid">
                     <span className="ttl" translate="no">{r.title}</span>
                     <span className="sub">{TYPE_LABEL[r.projectType] ?? r.projectType}{" · "}{r.reason}{r.size ? ` · ${size(r.size)}` : ""}</span>

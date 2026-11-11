@@ -13,8 +13,17 @@ import type { Release, versionService } from "./versions";
 
 export type UpdateChannel = "stable" | "dev";
 export type UpdateEntry = { at: string; from: string; to: string; backup: string | null; auto: boolean; rolledBackAt?: string };
-export type UpdateState = { auto: boolean; channel: UpdateChannel; lastCheck: string; skip: string[]; history: UpdateEntry[] };
+export type UpdateState = { auto: boolean; channel: UpdateChannel; lastCheck: string; skip: string[]; history: UpdateEntry[]; floor?: string };
 const HISTORY_MAX = 20;
+
+/**
+ * このデータを安全に読める、いちばん古い版(データの「読める下限」。v02 の DATA_FORMAT の read と同じ役目)。
+ * これより古い版は、書き込まれたものを知らないので(例: 03.60.00 より前は、メンバーごとの権限の「引く」を知らず、引いた権限が無かったことになる)、
+ * パネルからは切り替えない。**データの読み方が変わる(権限・回数・期限などの意味を持つ表・項目を足す)版を出すときは、ここを、その版に上げる。**
+ * 一度上げた下限は panel-update.json に残り、下げない(下限より古い版を、ほかの版を経由して使わないように)
+ */
+export const DATA_FLOOR = "03.60.00";
+const newer = (a: string, b = "") => (a > b ? a : b);
 
 export const updateStatePath = (v03Dir: string) => join(v03Dir, "panel-update.json");
 
@@ -23,7 +32,7 @@ export function readUpdateState(v03Dir: string): UpdateState {
   try {
     if (existsSync(updateStatePath(v03Dir))) s = JSON.parse(readFileSync(updateStatePath(v03Dir), "utf8"));
   } catch { /* 読めなければ既定 */ }
-  return { auto: s.auto === true, channel: s.channel === "dev" ? "dev" : "stable", lastCheck: String(s.lastCheck ?? ""),
+  return { auto: s.auto === true, channel: s.channel === "dev" ? "dev" : "stable", lastCheck: String(s.lastCheck ?? ""), floor: /^\d{2}\.\d{2}\.\d{2}$/.test(String(s.floor)) ? String(s.floor) : "",
     skip: Array.isArray(s.skip) ? s.skip.map(String) : [], history: Array.isArray(s.history) ? s.history : [] };
 }
 
@@ -47,6 +56,13 @@ export function updateService(deps: Deps, versions: Versions, backups: Backups) 
   const v03Dir = join(deps.local.dataDir, "v03");
   const read = () => readUpdateState(v03Dir);
   const write = (s: UpdateState) => writeUpdateState(v03Dir, s);
+  /** 切り替えられるいちばん古い版(このコードの下限と、前に残した下限の新しい方) */
+  const floorOf = () => newer(DATA_FLOOR, read().floor);
+  // 起動したとき、下限を残す(古い版からほかの版を経由して、下限を下回らないように)
+  try {
+    const s0 = read();
+    if (s0.floor !== floorOf()) { s0.floor = floorOf(); write(s0); }
+  } catch { /* 書けなくても、このコードの下限は守る */ }
 
   // 動いている処理があるときに再起動すると、途中で止まってしまう(自動アップデートと同じく、終わるまで待ってもらう)
   const needIdle = async () => {
@@ -56,11 +72,16 @@ export function updateService(deps: Deps, versions: Versions, backups: Backups) 
   /** バックアップを作ってから版を切り替え、組にして覚える(再起動は呼ぶ側で) */
   async function apply(teamId: string, userId: string | null, version: string, auto: boolean) {
     const from = versions.state().current;
+    const floor = floorOf();
+    if (version < floor) {
+      throw new HttpError(400, `v${version} は、いまのデータを読めないので切り替えられません(v${floor} より古い版は、メンバーごとの権限・共有リンクの回数などを知らないため、データが壊れます)`);
+    }
     return jobs.track({ teamId, userId, action: auto ? "パネルの自動アップデート" : "パネルの版を切り替える", target: `v${from} → v${version}` }, async () => {
       // PostgreSQL のときは、ここではバックアップを作れない(そちらのバックアップを使う)ので、作らずに切り替える
       const backup = backups.supported() ? (await backups.makeFor(teamId, userId)).name : null;
       await versions.use(version);
       const s = read();
+      s.floor = floor;
       s.history = [{ at: new Date().toISOString(), from, to: version, backup, auto }, ...s.history].slice(0, HISTORY_MAX);
       write(s);
       await record({ teamId, userId, kind: "panel", action: auto ? "パネルを自動でアップデート" : "パネルの版を切り替える", target: `v${from} → v${version}`,
@@ -74,7 +95,7 @@ export function updateService(deps: Deps, versions: Versions, backups: Backups) 
     async settings(headers: Headers) {
       await requireTeam(auth, headers, { panel: ["manage"] });
       const s = read();
-      return { auto: s.auto, channel: s.channel, lastCheck: s.lastCheck, history: s.history.map((e) => ({ ...e, canRollback: !!e.backup && !e.rolledBackAt })) };
+      return { auto: s.auto, channel: s.channel, lastCheck: s.lastCheck, floor: floorOf(), history: s.history.map((e) => ({ ...e, canRollback: !!e.backup && !e.rolledBackAt })) };
     },
 
     async setAuto(headers: Headers, input: { auto: boolean; channel: UpdateChannel }) {

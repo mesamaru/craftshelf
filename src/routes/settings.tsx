@@ -32,7 +32,7 @@ type Section = (typeof SECTIONS)[number];
 const INFO: Partial<Record<Section, ReactNode>> = {
   look: <><span>見た目と背景画像はアカウントに保存し、どの端末でも同じになります。背景画像は長い辺 1920 px までに縮めて保存し(2 MB まで)、テーマの背景の代わりに使います。</span><span>言語は、このブラウザでの表示だけが変わります。利用者が入力した名前などは訳しません。</span></>,
   tokens: <><span>スクリプトなどから CraftShelf を操作するときに使います(使える API は「API の説明」にあります)。トークンは x-api-key か Authorization: Bearer で渡します。</span><span>選んでいるチームのもので、選んだ範囲の中で、あなたの権限(役割と、メンバーごとに足し引きした権限)のとおりに動きます。</span></>,
-  versions: <span>切り替える前に、パネルのバックアップを作ります(置き場所・残す数は定期バックアップの設定のもの)。データベースは「足すだけ」で変えていくので、前の版に戻してもデータは読めます。選んだ版が起動できなかったときは、イメージの版に自動で戻ります。</span>,
+  versions: <span>切り替える前に、パネルのバックアップを作ります(置き場所・残す数は定期バックアップの設定のもの)。データベースは「足すだけ」で変えていくので、前の版に戻してもデータは読めます。ただし、メンバーごとの権限などを知らない古い版には戻せません(一覧に「戻せません」と出ます)。選んだ版が起動できなかったときは、イメージの版に自動で戻ります。</span>,
   telemetry: <span>開発の参考にするため、版・OS・使っている機能・登録数(おおまかな範囲)だけを送ります。名前・ファイル名・アドレス・IP アドレスなどは送りません。送るのは、ここをオンにしたときだけです。</span>,
   import: <span>v02 のデータは書き換えていません。Docker のイメージを v02 に戻せば、v02 をそのまま使えます。</span>,
 };
@@ -335,7 +335,10 @@ function Versions({ userId }: { userId: string }) {
     <>
       <section className="group">
         <div className="row"><span>いまの版</span><span className="trail">v{info?.current ?? "…"}</span></div>
-        {info?.selected && (
+        {info?.selected && info.image < info.updates.floor && (
+          <div className="row"><span className="main"><span>{`イメージの版(v${info.image})`}</span><span className="muted">いまのデータを読めない古い版なので、戻せません</span></span></div>
+        )}
+        {info?.selected && info.image >= info.updates.floor && (
           <button className="row link" type="button" disabled={!!busy}
             onClick={() => run(`イメージの版(v${info.image})に戻しますか? パネルが再起動します`, () => useImageVersion())}>
             イメージの版(v{info.image})に戻す
@@ -347,7 +350,8 @@ function Versions({ userId }: { userId: string }) {
               <span>v{r.version}{r.stable ? "" : "(開発版)"}{r.version === info.current ? "(いまの版)" : ""}</span>
               <span className="muted">{r.publishedAt ? new Date(r.publishedAt).toLocaleString("ja-JP") : ""}</span>
             </span>
-            {r.version !== info.current && (
+            {r.version !== info.current && r.version < info.updates.floor && <span className="trail muted">戻せません</span>}
+            {r.version !== info.current && r.version >= info.updates.floor && (
               <button className="trail link" type="button" disabled={!!busy}
                 onClick={() => run(`v${r.version} に切り替えますか? パネルが再起動します(データはそのままです)`, () => installVersion({ data: { version: r.version } }))}>
                 {r.version > info.current ? "更新する" : "この版に戻す"}

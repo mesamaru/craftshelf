@@ -260,6 +260,13 @@
       "when": 1794358091850,
       "tag": "0036_user_pref_dash",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1794363139094,
+      "tag": "0037_storage_target_v02",
+      "breakpoints": true
     }
   ]
 }

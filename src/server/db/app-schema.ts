@@ -353,6 +353,8 @@ export const storageTarget = pgTable(
     configSealed: text("config_sealed").notNull(),
     summary: text("summary").notNull().default(""),
     active: boolean("active").notNull().default(false),
+    // 03.69.03 から。v02 の保存先を取り込んだもの(v02 と同じ場所を指す)。ここのファイルは、v03 では消さない(v02 のライブラリからも消えるため)
+    v02: boolean("v02").notNull().default(false),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => [index("storage_target_team_idx").on(t.teamId)],

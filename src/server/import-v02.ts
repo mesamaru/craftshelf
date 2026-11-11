@@ -521,7 +521,7 @@ async function v02TargetMap(db: Db, v02: DatabaseSync, teamId: string, opts: { s
     const id = randomUUID();
     await db.insert(schema.storageTarget).values({
       id, teamId, name, kind: config.kind, summary,
-      configSealed: seal(opts.secret, JSON.stringify(config), `storage:${teamId}:${id}`), active: false,
+      configSealed: seal(opts.secret, JSON.stringify(config), `storage:${teamId}:${id}`), active: false, v02: true,
     });
     targets.set(Number(t.id), id);
   }

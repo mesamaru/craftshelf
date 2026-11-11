@@ -11,7 +11,7 @@ import { eventService } from "~/server/events";
 import { HttpError, requireTeam } from "~/server/guard";
 import { maybeImportV02SelfUpdate, reportPath } from "~/server/import-v02";
 import { RESET_FILE, applyOwnerReset } from "~/server/owner-reset";
-import { pickAuto, readUpdateState, updateService } from "~/server/updates";
+import { DATA_FLOOR, pickAuto, readUpdateState, updateService, writeUpdateState } from "~/server/updates";
 import type { Release } from "~/server/versions";
 import { defaultDataDir, pickApp, startTray } from "../packaging/launcher.mjs";
 import { setup } from "./helpers";
@@ -113,6 +113,29 @@ describe("パネルの更新と、更新の前に戻す", () => {
     await expect(svc.rollback(admin, h.at)).rejects.toThrow("取ってこられません");
     expect(calls).toEqual([`restore ${h.backup}`, "cancel"]);
     versions.use = use;
+  });
+
+  it("データを読めない古い版(下限より古い版)には、切り替えない。下限は下げず、イメージの版にも当てはまる", async () => {
+    const before = readUpdateState(join(dataDir, "v03"));
+    expect(before.floor).toBe(DATA_FLOOR); // 起動のときに残る
+    calls.length = 0;
+    const err = await svc.update(admin, "03.59.00").catch((e) => e);
+    expect(err).toBeInstanceOf(HttpError);
+    expect((err as HttpError).status).toBe(400);
+    expect(calls).toEqual([]); // バックアップも切り替えも始めない
+    expect(await code(svc.update(admin, DATA_FLOOR))).toBe(200); // 下限ちょうどは切り替えられる
+    // イメージの版(パネルで選んだ版をやめて戻す先)が下限より古いときも同じ
+    state.image = "03.50.00";
+    expect(await code(svc.update(admin, state.image))).toBe(400);
+    state.image = "03.60.00";
+    // 前に残した下限が、このコードの下限より新しければ、そちらを守る
+    const s = readUpdateState(join(dataDir, "v03"));
+    s.floor = "03.65.00";
+    writeUpdateState(join(dataDir, "v03"), s);
+    expect(await code(svc.update(admin, "03.62.00"))).toBe(400);
+    expect((await svc.settings(owner)).floor).toBe("03.65.00");
+    s.floor = DATA_FLOOR;
+    writeUpdateState(join(dataDir, "v03"), s);
   });
 
   it("手での切り替え・更新の前に戻すも、動いている処理があれば断る(自動アップデートと同じ)", async () => {

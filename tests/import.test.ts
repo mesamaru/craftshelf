@@ -228,6 +228,10 @@ describe("v02 のライブラリ・セットの取り込み", () => {
       { key: "library/resourcepack/テクスチャ/Tex-1.0.zip", loaders: "[]", kind: "local", target: `${v03Dir}(v02 のパネルの中)` },
     ]);
     expect(Object.keys(skipped).filter((k) => k.startsWith("種類のわからないもの"))).toEqual([]);
+    // 取り込んだ保存先は、v02 と同じ場所を指す印が付く(v03 でファイルを消しても、保存先のものは消さない)
+    const targets = await t.db.select({ name: storageTarget.name, v02: storageTarget.v02 }).from(storageTarget).where(eq(storageTarget.kind, "smb"));
+    expect(targets.length).toBeGreaterThan(0);
+    expect(targets.every((x) => x.name.startsWith("v02: ") && x.v02)).toBe(true);
   });
 
   it("v02 のデータには書き込まない。二度目は取り込まない", async () => {

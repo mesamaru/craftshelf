@@ -10,6 +10,7 @@ import { AddSheet, LIBRARY_CHANGED, libraryChanged } from "./library-add";
 import { OPEN_PALETTE } from "./palette";
 import { roleLabel } from "./permissions";
 import { listServers, localEnabled, serverStatus } from "./servers-api";
+import { unreadCount } from "./notices";
 import { Icon, type IconName, Sheet } from "./ui";
 import { useCan } from "./use-can";
 
@@ -205,7 +206,7 @@ function useNotices() {
   useEffect(() => {
     load().then((r) => { setList(r.items); setSeen(r.seenAt ?? localStorage.getItem(SEEN) ?? ""); }, () => setList([]));
   }, []);
-  const unread = (list ?? []).filter((e) => e.at > seen).length;
+  const unread = unreadCount(list ?? [], seen);
   const read = () => {
     if (list?.length && list[0].at > seen) {
       setSeen(list[0].at);

@@ -91,7 +91,7 @@ export function eventService(deps: Deps) {
 
     /**
      * お知らせ: 最近の出来事(新しい順 30 件)。管理者以上はすべて、ほかの人はアドオン・セット・予約・起動と停止・新しい版だけ。
-     * サーバーを割り当てられている人には、割り当てられたサーバーの名前が入ったもの(と自分の操作)だけを出す
+     * サーバーを割り当てられている人には、割り当てられたサーバーの名前が入ったもの(と自分の操作)だけを出す。mine は自分がした操作(未読に数えない)
      */
     async recent(headers: Headers) {
       const who = await requireTeam(auth, headers);
@@ -107,7 +107,7 @@ export function eventService(deps: Deps) {
       return rows
         .filter((r) => !scope || r.userId === who.user.id || names.some((n) => r.target.includes(n)))
         .slice(0, 30)
-        .map(({ userId: _, ...r }) => ({ ...r, at: r.at.toISOString(), userName: r.userName ?? "" }));
+        .map(({ userId, ...r }) => ({ ...r, at: r.at.toISOString(), userName: r.userName ?? "", mine: userId === who.user.id }));
     },
 
     /** お知らせをどこまで読んだか(利用者ごと。まだなら null) */

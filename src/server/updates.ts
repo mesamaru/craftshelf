@@ -3,9 +3,8 @@
 // 設定と更新の記録はデータベースではなく /data/v03/panel-update.json に置く(バックアップから戻しても、記録と「戻した版を自動で入れ直さない」が消えないように)
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { inArray } from "drizzle-orm";
 import type { backupService } from "./backup";
-import { job, organization } from "./db/schema";
+import { organization } from "./db/schema";
 import { eventService } from "./events";
 import { HttpError, isHttpError, requireTeam } from "./guard";
 import { jobService } from "./jobs";
@@ -49,6 +48,11 @@ export function updateService(deps: Deps, versions: Versions, backups: Backups) 
   const read = () => readUpdateState(v03Dir);
   const write = (s: UpdateState) => writeUpdateState(v03Dir, s);
 
+  // 動いている処理があるときに再起動すると、途中で止まってしまう(自動アップデートと同じく、終わるまで待ってもらう)
+  const needIdle = async () => {
+    if (await jobs.busy()) throw new HttpError(409, "動いている処理があるので、終わってからやり直してください(「処理」で確かめられます)");
+  };
+
   /** バックアップを作ってから版を切り替え、組にして覚える(再起動は呼ぶ側で) */
   async function apply(teamId: string, userId: string | null, version: string, auto: boolean) {
     const from = versions.state().current;
@@ -86,6 +90,7 @@ export function updateService(deps: Deps, versions: Versions, backups: Backups) 
     /** 手で版を切り替える(前にバックアップを作る。再起動は呼ぶ側で) */
     async update(headers: Headers, version: string) {
       const who = await requireTeam(auth, headers, { panel: ["manage"] });
+      await needIdle();
       await apply(who.teamId, who.user.id, version, false);
     },
 
@@ -95,6 +100,7 @@ export function updateService(deps: Deps, versions: Versions, backups: Backups) 
      */
     async rollback(headers: Headers, at: string) {
       const who = await requireTeam(auth, headers, { panel: ["manage"], member: ["update"] });
+      await needIdle();
       const s = read();
       const e = s.history.find((x) => x.at === at);
       if (!e?.backup) throw new HttpError(404, "その更新の前のバックアップがありません");
@@ -129,7 +135,7 @@ export function updateService(deps: Deps, versions: Versions, backups: Backups) 
       if (releases[0] && releases[0].version > current) await announcePanel(releases[0].version);
       const pick = s.auto ? pickAuto(releases, current, s.channel, s.skip) : null;
       if (!pick) return false;
-      if ((await db.select({ id: job.id }).from(job).where(inArray(job.state, ["queued", "running"])).limit(1)).length) return false;
+      if (await jobs.busy()) return false;
       const [team] = await db.select({ id: organization.id }).from(organization).orderBy(organization.createdAt).limit(1);
       if (!team) return false;
       try {

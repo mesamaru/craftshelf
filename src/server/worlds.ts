@@ -154,7 +154,12 @@ export function worldService(deps: Deps) {
         const size = statSync(tmp).size;
         if (s.targetId) {
           const store = await storeOf(teamId, s.targetId);
-          await fromStorage(() => store.putFile(keyOf(serverId, file), tmp));
+          try {
+            await fromStorage(() => store.putFile(keyOf(serverId, file), tmp));
+          } catch (e) {
+            await store.remove(keyOf(serverId, file)).catch(() => {}); // 書きかけを残さない(名前は日時入りなので、ほかのバックアップは消えない)
+            throw e;
+          }
           for (const old of (await names(teamId, serverId, s.targetId)).slice(s.keep)) await fromStorage(() => store.remove(keyOf(serverId, old))).catch(() => {});
         } else {
           mkdirSync(panelDir(serverId), { recursive: true });

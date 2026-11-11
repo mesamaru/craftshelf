@@ -2,7 +2,10 @@
 import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
+import { backupService } from "~/server/backup";
+import { worldBackup } from "~/server/db/schema";
 import { HttpError } from "~/server/guard";
 import { libraryService } from "~/server/library";
 import type { FetchLike } from "~/server/net";
@@ -158,6 +161,21 @@ describe("保存先", () => {
     const f40 = (await up.files(owner, item.id))[0];
     expect((await bytesOf(up.download(owner, f40.id))).toString("latin1")).toContain("class 4.0");
     expect(JSON.stringify(await up.targets(owner))).not.toContain("\"pw\""); // パスワードの値そのもの(一時フォルダの名前にたまたま pw が入ることがある)
+  });
+
+  it("パネル・ワールドのバックアップの置き場所に使っている保存先は消せない(消すとバックアップが見えなくなる)", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "cs-up-bk-"));
+    await up.addTarget(owner, { name: "バックアップ先", kind: "local", path: folder });
+    const bk = (await up.targets(owner)).targets.find((x) => x.name === "バックアップ先")!;
+    const backups = backupService({ db: t.db, auth: t.auth, secret: SECRET, fetch: fake, local: { dataDir } });
+    await backups.setSchedule(owner, { enabled: false, time: "04:00", keep: 5, targetId: bk.id, tz: "Asia/Tokyo" });
+    await expect(up.removeTarget(owner, bk.id)).rejects.toThrow("パネルのバックアップの置き場所");
+    await backups.setSchedule(owner, { enabled: false, time: "04:00", keep: 5, targetId: null, tz: "Asia/Tokyo" });
+    await t.db.insert(worldBackup).values({ serverId: id, targetId: bk.id });
+    await expect(up.removeTarget(owner, bk.id)).rejects.toThrow("ワールドのバックアップの置き場所");
+    await t.db.delete(worldBackup).where(eq(worldBackup.serverId, id));
+    await up.removeTarget(owner, bk.id);
+    expect((await up.targets(owner)).targets.some((x) => x.name === "バックアップ先")).toBe(false);
   });
 
   it("WebDAV の URL にユーザー名を書いたものは断る", () => {

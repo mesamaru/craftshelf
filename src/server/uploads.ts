@@ -8,7 +8,7 @@ import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebStream } from "node:stream/web";
 import { and, desc, eq, isNotNull, isNull, ne } from "drizzle-orm";
 import { PLATFORMS, type Platform, isPlatform } from "~/lib/platforms";
-import { addonSetItem, libraryFile, libraryItem, storageTarget, installedMod, server, serverProfile, teamOption } from "./db/schema";
+import { addonSetItem, backupSchedule, libraryFile, libraryItem, storageTarget, installedMod, server, serverProfile, teamOption, worldBackup } from "./db/schema";
 import { CF_HOSTS } from "./curseforge";
 import { eventService } from "./events";
 import { HttpError, isHttpError, requireTeam } from "./guard";
@@ -378,6 +378,12 @@ export function uploadService(deps: Deps) {
       if (!t) throw new HttpError(404, "保存先が見つかりません");
       const used = await db.select({ id: libraryFile.id }).from(libraryFile).where(eq(libraryFile.targetId, id)).limit(1);
       if (used.length) throw new HttpError(400, "この保存先にはファイルが残っているので消せません");
+      // バックアップの置き場所に選んでいる保存先を消すと、置いたバックアップが一覧から見えなくなる(消すと、置き場所が「パネルの中」に戻るため)
+      const [bk] = await db.select({ id: backupSchedule.teamId }).from(backupSchedule).where(and(eq(backupSchedule.teamId, teamId), eq(backupSchedule.targetId, id)));
+      if (bk) throw new HttpError(400, "パネルのバックアップの置き場所に使っているので消せません(先に置き場所を変えてください)");
+      const [wb] = await db.select({ id: worldBackup.serverId }).from(worldBackup).innerJoin(server, eq(worldBackup.serverId, server.id))
+        .where(and(eq(server.teamId, teamId), eq(worldBackup.targetId, id))).limit(1);
+      if (wb) throw new HttpError(400, "ワールドのバックアップの置き場所に使っているので消せません(先に置き場所を変えてください)");
       await db.delete(storageTarget).where(eq(storageTarget.id, id));
       await record({ teamId, userId: user.id, kind: "admin", action: "保存先を消す", target: t.name });
     },

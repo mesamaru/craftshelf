@@ -63,6 +63,10 @@ export function backupService(deps: Deps) {
   };
   const backupsDir = () => join(v03Dir(), "backups");
   const admin = (headers: Headers) => requireTeam(deps.auth, headers, { member: ["update"] });
+  // 戻す・取り込み直すは再起動する。動いている処理があれば断る(版の切り替えと同じ)
+  const needIdle = async () => {
+    if (await jobs.busy()) throw new HttpError(409, "動いている処理があるので、終わってからやり直してください(「処理」で確かめられます)");
+  };
   const checkName = (name: string) => {
     if (!NAME.test(name)) throw new HttpError(400, "バックアップの名前が正しくありません");
     return name;
@@ -91,21 +95,30 @@ export function backupService(deps: Deps) {
     const s = await scheduleOf(teamId);
     const name = `craftshelf-v03-${stampOf()}.tar.gz`;
     mkdirSync(backupsDir(), { recursive: true });
+    // 前の起動で止まったときの書きかけ(.part)を片付ける。作っている最中のもの(1 日以内)は残す
+    for (const f of readdirSync(backupsDir()).filter((n) => n.endsWith(".part"))) {
+      if (Date.now() - statSync(join(backupsDir(), f)).mtimeMs > 86400_000) rmSync(join(backupsDir(), f), { force: true });
+    }
     const work = mkdtempSync(join(v03, "backup-"));
     let place = "パネルの中";
+    let stored: { store: Awaited<ReturnType<typeof storeOf>>; key: string } | null = null; // 保存先に置き始めたもの(失敗したら書きかけを消す)
     const forUpdates = new Set(readUpdateState(v03).history.slice(0, BACKUP_UPDATE_REFS).map((e) => e.backup));
     try {
       writeFileSync(join(work, "db.tar.gz"), Buffer.from(await (await client.dumpDataDir("gzip")).arrayBuffer()));
       if (existsSync(join(v03, "secret"))) copyFileSync(join(v03, "secret"), join(work, "secret"));
       if (existsSync(join(v03, "library"))) cpSync(join(v03, "library"), join(work, "library"), { recursive: true });
       // 相対パスで渡す(Windows の C: を、GNU tar がリモートのホストと読まないように)
-      await run("tar", ["-czf", join("..", "backups", name), "."], { cwd: work });
+      // 最終の名前には直接書かない(途中で止まった書きかけが、正しいバックアップとして一覧に出て、残す数に数えられないように)
+      await run("tar", ["-czf", join("..", "backups", `${name}.part`), "."], { cwd: work });
+      renameSync(join(backupsDir(), `${name}.part`), join(backupsDir(), name));
       if (s.targetId) {
         // 保存先に置いて、パネルの中のものは消す(残すのは保存先の新しい keep 個)
         const [t] = await db.select({ name: storageTarget.name }).from(storageTarget).where(eq(storageTarget.id, s.targetId));
         place = `保存先「${t?.name ?? ""}」`;
         const store = await storeOf(teamId, s.targetId);
-        await fromStorage(() => store.putFile(`${DIR}/${name}`, join(backupsDir(), name)));
+        stored = { store, key: `${DIR}/${name}` };
+        await fromStorage(() => store.putFile(stored!.key, join(backupsDir(), name)));
+        stored = null; // 置き終えた。これより後ろの失敗では消さない
         rmSync(join(backupsDir(), name), { force: true });
         for (const old of (await storedOf(teamId, s.targetId)).filter((n) => !forUpdates.has(n)).slice(s.keep)) await fromStorage(() => store.remove(`${DIR}/${old}`)).catch(() => {});
       } else {
@@ -113,6 +126,8 @@ export function backupService(deps: Deps) {
       }
     } catch (e) {
       rmSync(join(backupsDir(), name), { force: true });
+      rmSync(join(backupsDir(), `${name}.part`), { force: true });
+      if (stored) await stored.store.remove(stored.key).catch(() => {});
       await record({ teamId, userId, kind: "admin", also: ["backup", "errors"], action: "バックアップを作れませんでした", target: place, detail: e instanceof Error ? e.message : String(e) });
       throw isHttpError(e) ? e : new HttpError(500, "バックアップを作れませんでした");
     } finally {
@@ -200,6 +215,7 @@ export function backupService(deps: Deps) {
      */
     async reimport(headers: Headers) {
       const who = await admin(headers);
+      await needIdle();
       if (!existsSync(join(v02DirOf(deps.local!.dataDir), "index.db"))) throw new HttpError(404, "v02 のデータが見つかりません");
       writeFileSync(join(v03Dir(), REIMPORT), new Date().toISOString());
       await record({ teamId: who.teamId, userId: who.user.id, kind: "admin", action: "v02 から取り込み直す" });
@@ -220,6 +236,7 @@ export function backupService(deps: Deps) {
     /** バックアップから戻す(パネルの中か、置き場所の保存先のもの。次の起動で入れ替える。再起動は呼ぶ側で) */
     async restore(headers: Headers, name: string) {
       const who = await admin(headers);
+      await needIdle();
       await this.restoreFor(who.teamId, who.user.id, name);
     },
 
@@ -248,6 +265,7 @@ export function backupService(deps: Deps) {
     /** 手元のバックアップのファイルから戻す(中身を確かめてから置く。再起動は呼ぶ側で) */
     async restoreUpload(headers: Headers, data: Uint8Array) {
       const who = await admin(headers);
+      await needIdle();
       if (data.byteLength > BACKUP_MAX_BYTES) throw new HttpError(400, "ファイルが大きすぎます");
       const v03 = v03Dir();
       const tmp = join(v03, `upload-${stampOf()}.tar.gz`);

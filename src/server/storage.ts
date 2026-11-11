@@ -273,14 +273,21 @@ export function smbStore(c: { host: string; share: string; path: string; user: s
         throw new StorageError("保存先のファイルを消せませんでした");
       }
     }),
+    // 別の名前(.part)に書いてから名前を変える。途中で止まったり失敗したりしても、書きかけが最終の名前(バックアップなど)で残らない
     putFile: (key, path) => withTree(async (tree) => {
       await mkdirs(tree, key);
+      const part = `${at(key)}.part`;
+      // 書き終えたあとの大きさの設定と、ファイルを閉じるのを待ってから次へ
+      const settle = async () => { for (let i = 0; i < 300 && tree.openFiles.length; i++) await new Promise((r) => setTimeout(r, 100)); };
       try {
+        if (await tree.exists(part)) await tree.removeFile(part);
+        await pipeline(createReadStream(path), await tree.createFileWriteStream(part));
+        await settle();
         if (await tree.exists(at(key))) await tree.removeFile(at(key));
-        await pipeline(createReadStream(path), await tree.createFileWriteStream(at(key)));
-        // 書き終えたあとの大きさの設定と、ファイルを閉じるのを待ってから切る
-        for (let i = 0; i < 300 && tree.openFiles.length; i++) await new Promise((r) => setTimeout(r, 100));
+        await tree.renameFile(part, at(key));
       } catch {
+        await settle().catch(() => {});
+        await tree.removeFile(part).catch(() => {});
         throw new StorageError("SMB の NAS に書き込めませんでした(書き込みの権限と空きを確かめてください)");
       }
     }),

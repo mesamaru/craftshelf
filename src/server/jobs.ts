@@ -42,6 +42,11 @@ export function jobService(deps: Deps) {
   }
 
   return {
+    /** 待ち・実行中の処理があるか(あるあいだは、再起動する操作=版の切り替え・復元・取り込み直しをしない) */
+    async busy() {
+      return (await db.select({ id: job.id }).from(job).where(inArray(job.state, ["queued", "running"])).limit(1)).length > 0;
+    },
+
     /** 処理を記録しながら動かす(detail は成功したときの結果のまとめ。keep が false を返したら、終わったあと一覧から消す) */
     async track<T>(info: JobInfo, fn: () => Promise<T>, detail?: (r: T) => string, keep?: (r: T) => boolean): Promise<T> {
       return runAs(await add(info, "running"), fn, detail, keep);

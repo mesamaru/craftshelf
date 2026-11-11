@@ -7,6 +7,7 @@ import { HttpError } from "~/server/guard";
 import { libraryService } from "~/server/library";
 import type { FetchLike } from "~/server/net";
 import { serverService } from "~/server/servers";
+import { unreadCount } from "~/lib/notices";
 import { setup } from "./helpers";
 
 const KEY = "ptlc_0123456789abcdefghij";
@@ -117,6 +118,14 @@ describe("お知らせ", () => {
     expect(mine.length).toBeGreaterThan(0);
     expect(mine.every((e) => ["changes", "sets", "schedule", "power"].includes(e.kind))).toBe(true);
     expect((await ev.recent(outsider)).length).toBe(0);
+  });
+
+  it("自分がした操作は mine で、未読に数えない(ほかの人の操作は数える)", async () => {
+    const e = (await ev.recent(editor)).find((x) => x.userName === "編集者")!; // 編集者が停止した記録
+    expect(e.mine).toBe(true);
+    expect((await ev.recent(owner)).find((x) => x.id === e.id)!.mine).toBe(false);
+    expect(unreadCount(await ev.recent(editor), "")).toBe((await ev.recent(editor)).filter((x) => x.userName !== "編集者").length);
+    expect(unreadCount(await ev.recent(owner), "")).toBe((await ev.recent(owner)).filter((x) => x.userName !== "オーナー").length);
   });
 });
 

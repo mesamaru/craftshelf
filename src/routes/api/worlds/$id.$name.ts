@@ -2,6 +2,7 @@
 // Pterodactyl のバックアップは、Wings のダウンロード先(しばらくだけ使える URL)へ移る
 import { Readable } from "node:stream";
 import { createFileRoute } from "@tanstack/react-router";
+import { attachment } from "~/lib/disposition";
 
 export const Route = createFileRoute("/api/worlds/$id/$name")({
   server: {
@@ -13,7 +14,7 @@ export const Route = createFileRoute("/api/worlds/$id/$name")({
           const f = await worlds.open(request.headers, params.id, params.name);
           if ("url" in f) return new Response(null, { status: 302, headers: { Location: f.url, "Cache-Control": "no-store" } });
           return new Response(Readable.toWeb(f.stream) as ReadableStream, { headers: {
-            "Content-Type": "application/gzip", "Content-Disposition": `attachment; filename="${params.name}"`, "Cache-Control": "no-store",
+            "Content-Type": "application/gzip", "Content-Disposition": attachment(params.name), "Cache-Control": "no-store",
             ...(f.size !== null ? { "Content-Length": String(f.size) } : {}),
           } });
         } catch (e) {

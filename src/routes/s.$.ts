@@ -1,5 +1,6 @@
 // 共有リンク(ログイン不要): /s/<トークン> か /s/<トークン>/<ファイル名>
 import { createFileRoute } from "@tanstack/react-router";
+import { attachment } from "~/lib/disposition";
 
 export const Route = createFileRoute("/s/$")({
   server: {
@@ -13,7 +14,7 @@ export const Route = createFileRoute("/s/$")({
         const body = Readable.toWeb(f.stream) as ReadableStream;
         return new Response(body, { headers: {
           "Content-Type": f.filename.endsWith(".zip") ? "application/zip" : "application/java-archive", ...(f.size != null ? { "Content-Length": String(f.size) } : {}),
-          "Content-Disposition": `attachment; filename="${f.filename}"`, "Cache-Control": "no-store", "X-Robots-Tag": "noindex",
+          "Content-Disposition": attachment(f.filename), "Cache-Control": "no-store", "X-Robots-Tag": "noindex",
         } });
       },
     },

@@ -115,6 +115,18 @@ describe("パネルの更新と、更新の前に戻す", () => {
     versions.use = use;
   });
 
+  it("手での切り替え・更新の前に戻すも、動いている処理があれば断る(自動アップデートと同じ)", async () => {
+    const [team] = await t.db.select({ id: member.organizationId }).from(member).limit(1);
+    const [h] = (await svc.settings(owner)).history;
+    await t.db.insert(job).values({ id: "j2", teamId: team.id, userId: null, action: "x", target: "", state: "queued" });
+    calls.length = 0;
+    expect(await code(svc.update(admin, "03.62.00"))).toBe(409);
+    expect(await code(svc.rollback(admin, h.at))).toBe(409);
+    expect(calls).toEqual([]); // バックアップも版の切り替えも始めない
+    await t.db.delete(job).where(eq(job.id, "j2"));
+    expect(await code(svc.update(admin, "03.62.00"))).toBe(200);
+  });
+
   it("6 時間ごとの確認: 自動アップデートを使うなら入れる。処理が動いている間・使わないときは入れない", async () => {
     releases = [rel("03.64.00", false), rel("03.63.00", true), ...releases];
     const [team] = await t.db.select({ id: member.organizationId }).from(member).limit(1);

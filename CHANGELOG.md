@@ -2,6 +2,15 @@
 
 バージョンは `00.00.00`(メジャー.マイナー.修正)の形式です。
 
+## 03.71.02 - 2026-11-11 JS・CSS と JSON を圧縮して届け、英訳辞書を英語のときだけ読み込む
+
+機能・見た目・権限・動きは変えず、画面を開くときに届くデータを小さくしました。
+
+- **JS・CSS を事前に圧縮して配ります**: ビルドのときに gzip と brotli にしておき(Nitro の `compressPublicAssets`)、Accept-Encoding に合わせて配ります。これまでは圧縮なしで、最初のページで約 740 KB(入口の JS だけで 534 KB)届いていました。
+- **動的な応答(server function の JSON・API)も gzip にします**(`src/server/compress.ts`・Nitro のプラグイン `compress-plugin.ts`)。圧縮しないもの: 1 KB 未満・すでに Content-Encoding があるもの(リバースプロキシが圧縮しているとき二重にしません)・画像・zip・tar.gz・jar・ダウンロード(Content-Disposition。バックアップ・アドオンの jar・共有リンク)・Range の要求・206・HEAD・ストリームで描く HTML と SSE(Content-Length・Range・流れは変わりません)。
+- **英訳辞書(約 300 KB)を英語のときだけ読み込みます**(`loadEnglish`): 日本語の画面では届きません(入口の JS は 534 KB → 330 KB)。英語の画面は、起動の早い段階で辞書を取りに行き、届いてから訳します(読み込む前の `translate` は訳さずそのまま)。辞書を取れなかったときは日本語のままです。
+- テスト: `tests/compress.test.ts`(圧縮する・しないもの・Set-Cookie・ETag・ストリーム)・`tests/i18n.test.ts`(辞書を静的に import しない・読み込む前は訳さない)・`scripts/e2e.mjs`(JS・CSS が gzip・br で届き展開すると同じ・JSON が gzip・日本語の画面で辞書を読み込まない・英語の画面で訳される)を足しました。`translate` を使う既存のテスト 3 つは、先に `loadEnglish()` を呼びます。
+
 ## 03.71.01 - 2026-11-11 重複した問い合わせと、配布元への問い合わせを減らす
 
 機能・見た目・権限・動きは変えず、画面を開く・移るときの通信と、配布元(Modrinth など)への問い合わせを減らしました。

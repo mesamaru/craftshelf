@@ -1,6 +1,11 @@
 // 英語表示: 画面の日本語を、辞書(i18n-en.ts)で置き換える(v02 と同じやり方)。
-// 言語はブラウザごと(localStorage)。利用者が入力した名前など translate="no" の中は訳さない
-import { EN, EN_PUNCT, EN_RULES, EN_WHOLE } from "./i18n-en";
+// 言語はブラウザごと(localStorage)。利用者が入力した名前など translate="no" の中は訳さない。
+// 辞書(i18n-en.ts。約 300 KB)は英語のときだけ、別のファイルとして読み込む(日本語の画面では届かない)。読み込む前の translate は何も訳さない
+type Dict = typeof import("./i18n-en");
+let dict: Dict | null = null;
+let loading: Promise<Dict> | null = null;
+/** 英語の辞書を読み込む(1 回だけ。読み終わるまで translate は訳さない) */
+export const loadEnglish = () => (loading ??= import("./i18n-en").then((m) => (dict = m)));
 
 const KEY = "craftshelf.lang";
 const JA = /[぀-ヿ㐀-鿿！-｠]/;
@@ -14,6 +19,11 @@ export const getLang = (): "ja" | "en" => {
   }
 };
 
+// 英語の画面は、読み込みが始まってすぐ辞書を取りに行く(画面を受け取る処理と並べて進め、訳すまでの待ちを短くする)
+try {
+  if (typeof localStorage !== "undefined" && localStorage.getItem(KEY) === "en") loadEnglish();
+} catch { /* 読めなければ日本語のまま */ }
+
 export function setLang(lang: "ja" | "en") {
   localStorage.setItem(KEY, lang);
   location.reload(); // 日本語に戻すときは書き換えた文字を戻せないので、読み込み直す
@@ -21,7 +31,8 @@ export function setLang(lang: "ja" | "en") {
 
 /** 日本語の文を英語にする(辞書に無いところは日本語のまま) */
 export function translate(s: string): string {
-  if (!JA.test(s)) return s;
+  if (!dict || !JA.test(s)) return s;
+  const { EN, EN_PUNCT, EN_RULES, EN_WHOLE } = dict;
   const t = s.trim();
   if (t in EN_WHOLE) return s.replace(t, EN_WHOLE[t]);
   if (Object.hasOwn(EN, t)) return s.replace(t, EN[t]); // 文全体が辞書にあれば、数字の規則より先に当てる(「1 台」などが先に訳されて辞書と合わなくなるため)
@@ -65,8 +76,14 @@ function tree(root: Node) {
   for (const el of [root, ...root.querySelectorAll(ATTRS.map((a) => `[${a}]`).join(","))]) for (const a of ATTRS) attr(el, a);
 }
 
-/** 英語表示を始める(読み込んだあと、画面が変わるたびに訳す) */
-export function startEnglish() {
+/** 英語表示を始める(辞書が届いてから、画面が変わるたびに訳す) */
+export async function startEnglish() {
+  try {
+    await loadEnglish();
+  } catch {
+    loading = null; // 辞書を取れなかった(つながらない)ときは、日本語のまま。次に開いたとき取り直す
+    return;
+  }
   document.documentElement.lang = "en";
   for (const name of ["confirm", "alert", "prompt"] as const) {
     const orig = window[name].bind(window) as (m?: string, d?: string) => never;

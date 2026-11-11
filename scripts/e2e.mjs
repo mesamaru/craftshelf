@@ -421,6 +421,74 @@ await step("画面を開く・移るとき、同じ問い合わせを繰り返�
   page.off("response", onResponse);
 });
 
+await step("JS・CSS は事前に圧縮して届く(gzip・br。展開すると同じ)。動的な JSON も gzip", async () => {
+  const { gunzipSync, brotliDecompressSync } = await import("node:zlib");
+  // 届いたままのバイト列を見る(fetch は自分で展開してしまう)
+  const { get: httpGet } = await import("node:http");
+  const get = (path, enc) => new Promise((resolve, reject) => {
+    httpGet(base + path, { headers: enc ? { "accept-encoding": enc } : {} }, (res) => {
+      const chunks = [];
+      res.on("data", (c) => chunks.push(c));
+      res.on("end", () => { const body = Buffer.concat(chunks); resolve({ headers: { get: (k) => res.headers[k.toLowerCase()] ?? null }, body, text: () => body.toString() }); });
+    }).on("error", reject);
+  });
+  const html = (await get("/login", "identity")).text();
+  const assets = [...new Set([...html.matchAll(/\/assets\/[\w.-]+\.(?:js|css)/g)].map((m) => m[0]))];
+  if (!assets.length) throw new Error("ログイン画面から JS・CSS が見つかりません");
+  let big = 0;
+  for (const path of assets) {
+    const plain = (await get(path, "identity")).body;
+    if (plain.length < 1024) continue;
+    big++;
+    for (const [enc, unzip] of [["gzip", gunzipSync], ["br", brotliDecompressSync]]) {
+      const r = await get(path, enc);
+      if (r.headers.get("content-encoding") !== enc) throw new Error(`${path} が ${enc} で届きません`);
+      const body = r.body;
+      if (Number(r.headers.get("content-length")) !== body.length) throw new Error(`${path}(${enc})の Content-Length が合いません`);
+      if (!unzip(body).equals(plain)) throw new Error(`${path}(${enc})を展開すると中身が違います`);
+    }
+  }
+  if (!big) throw new Error("1 KB 以上の JS・CSS がありません");
+  // 動的な JSON(GET /api/v1 の一覧は大きい): gzip を受け取れる人にだけ gzip。展開すると同じ。Content-Encoding があるものは二重にしない
+  const json = (await get("/api/v1", "identity")).text();
+  const z = await get("/api/v1", "gzip, deflate, br");
+  if (z.headers.get("content-encoding") !== "gzip" || !/Accept-Encoding/i.test(z.headers.get("vary") ?? "")) throw new Error("JSON が gzip で届きません");
+  if (gunzipSync(z.body).toString() !== json) throw new Error("JSON を展開すると中身が違います");
+  if ((await get("/api/v1", "identity")).headers.get("content-encoding")) throw new Error("gzip を受け取れない人に圧縮して返しました");
+  // ログインした画面の server function も、1 KB 以上なら gzip(ブラウザは gzip・br を受け取れる)
+  const encoded = [];
+  const onResponse = async (r) => { if (r.url().includes("/_serverFn/")) encoded.push([(await r.body().catch(() => Buffer.alloc(0))).length, r.headers()["content-encoding"] ?? ""]); };
+  page.on("response", onResponse);
+  await page.goto(base + "/settings");
+  await page.waitForLoadState("networkidle");
+  page.off("response", onResponse);
+  const bad = encoded.filter(([n, e]) => n >= 2048 && e !== "gzip");
+  if (bad.length) throw new Error(`1 KB 以上の server function が圧縮されていません: ${JSON.stringify(bad)}`);
+});
+
+await step("英語の辞書は英語のときだけ読み込む(日本語では届かない)。英語にすると訳される", async () => {
+  const dict = [];
+  const onRequest = (r) => { if (/i18n-en/.test(r.url())) dict.push(r.url()); };
+  page.on("request", onRequest);
+  await page.goto(base + "/home");
+  await page.getByRole("heading", { name: "種類ごとの件数" }).waitFor();
+  if (dict.length) throw new Error("日本語の画面で英語の辞書を読み込みました");
+  await page.evaluate(() => localStorage.setItem("craftshelf.lang", "en"));
+  await page.goto(base + "/home");
+  await page.locator("aside.side a.nav", { hasText: "Library" }).waitFor();
+  await page.locator("aside.side a.nav", { hasText: "Sets" }).waitFor();
+  if (!dict.length) throw new Error("英語の画面で辞書を読み込んでいません");
+  await page.screenshot({ path: ".e2e/home-en.png", fullPage: true });
+  // スマホの幅でも
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.locator("nav.tabbar", { hasText: "Library" }).waitFor();
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.evaluate(() => localStorage.removeItem("craftshelf.lang"));
+  page.off("request", onRequest);
+  await page.goto(base + "/home");
+  await page.getByRole("heading", { name: "種類ごとの件数" }).waitFor();
+});
+
 await step("ログアウトはアカウントの設定にあり、押すとログイン画面に戻る", async () => {
   await page.goto(base + "/settings");
   await page.locator(".set-nav .account-row").waitFor();

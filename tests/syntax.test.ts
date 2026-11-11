@@ -1,7 +1,9 @@
 // 設定ファイルの書き方の確かめ(保存する前)
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { jsonErrorAt, syntaxError } from "~/lib/syntax";
-import { translate } from "~/lib/i18n";
+import { loadEnglish, translate } from "~/lib/i18n";
+
+beforeAll(() => loadEnglish());
 
 describe("書き方の確かめ", () => {
   it("正しいもの・見ない種類・空のファイルは null", async () => {

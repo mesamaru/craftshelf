@@ -22,7 +22,8 @@ describe("API の説明", () => {
 
 describe("API の説明の英語表示", () => {
   it("説明・範囲の名前は、日本語を残さずに訳せる", async () => {
-    const { translate } = await import("~/lib/i18n");
+    const { loadEnglish, translate } = await import("~/lib/i18n");
+    await loadEnglish();
     const { SCOPE_LABELS, SCOPE_SHORT } = await import("~/lib/permissions");
     const left = [...ROUTES.map((r) => r.summary), ...Object.values(SCOPE_LABELS), ...Object.values(SCOPE_SHORT)]
       .filter((s) => /[぀-ヿ㐀-鿿]/.test(translate(s)));

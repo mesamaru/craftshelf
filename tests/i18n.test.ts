@@ -1,6 +1,32 @@
 // 英語表示: 辞書・数字と組み合わさる文・1 文字の語(曜日)
-import { describe, expect, it } from "vitest";
-import { translate } from "~/lib/i18n";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
+import { beforeAll, describe, expect, it, vi } from "vitest";
+import { loadEnglish, translate } from "~/lib/i18n";
+
+// 辞書は英語のときだけ読み込む(translate は、読み込んだあとに使う)
+beforeAll(() => loadEnglish());
+
+describe("英語の辞書は英語のときだけ読み込む(日本語の画面の入口 JS に入れない)", () => {
+  it("辞書(i18n-en)を静的に import するのは、型だけ。実体は import() で読み込む", () => {
+    const files: string[] = [];
+    const walk = (d: string) => { for (const f of readdirSync(d)) { const p = join(d, f); if (statSync(p).isDirectory()) walk(p); else if (/\.(ts|tsx)$/.test(f)) files.push(p); } };
+    walk("src");
+    const users = files.filter((f) => /from\s+["'][^"']*i18n-en["']/.test(readFileSync(f, "utf8")));
+    expect(users).toEqual([]);
+    expect(readFileSync("src/lib/i18n.ts", "utf8")).toContain('import("./i18n-en")');
+  });
+
+  it("読み込む前の translate は訳さない。loadEnglish のあとで訳す(読み込みは 1 回だけ)", async () => {
+    vi.resetModules();
+    const fresh = await import("~/lib/i18n");
+    expect(fresh.translate("保存")).toBe("保存");
+    const a = fresh.loadEnglish();
+    expect(fresh.loadEnglish()).toBe(a);
+    await a;
+    expect(fresh.translate("保存")).toBe("Save");
+  });
+});
 
 describe("英語表示", () => {
   it("辞書・数字の文・記号を置き換え、日本語の無いものはそのまま", () => {

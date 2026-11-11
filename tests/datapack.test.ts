@@ -7,7 +7,7 @@ import { eq } from "drizzle-orm";
 import { auditLog } from "~/server/db/schema";
 import { HttpError } from "~/server/guard";
 import { analyzePack } from "~/server/jar";
-import { libraryService } from "~/server/library";
+import { LATEST_MEMO, libraryService } from "~/server/library";
 import { modpackService } from "~/server/modpack";
 import type { FetchLike } from "~/server/net";
 import { serverService } from "~/server/servers";
@@ -84,6 +84,7 @@ async function join2(email: string, role: string) {
 }
 
 beforeAll(async () => {
+  LATEST_MEMO.ms = 0; // 配布元の最新版を途中で変えて確かめるので、覚えた結果は使わない(記憶そのものは tests/latest.test.ts)
   t = await setup(); // フォルダのサーバー・アップロードは deps.local で使う(人を招待するため、登録を閉じない)
   const dataDir = mkdtempSync(join(tmpdir(), "cs-dp-data-"));
   deps = { db: t.db, auth: t.auth, secret: SECRET, fetch: fake, local: { dataDir } };

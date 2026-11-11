@@ -2,6 +2,7 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
+import { shared } from "./shared";
 
 const svc = async () => (await import("~/server/instance")).servers;
 const headers = () => getRequest().headers;
@@ -14,6 +15,12 @@ export const setServerAssignment = createServerFn({ method: "POST" })
   .handler(async ({ data }) => (await svc()).setAssignment(headers(), data.userId, data.limited, data.serverIds));
 
 export const listServers = createServerFn({ method: "GET" }).handler(async () => (await svc()).listServers(headers()));
+
+/** サーバーの一覧を、数秒のあいだ共有して読む(枠と各画面の読み込みが重なっても 1 回。変更・「読み直す」で取り直す。src/lib/shared.ts) */
+export const sharedServers = () => shared("servers", () => listServers(), 3000);
+
+/** フォルダのサーバーを使えるか(このプロセスでは変わらないので、枠と各画面で 1 回だけ読む) */
+export const sharedLocalEnabled = () => shared("local-enabled", () => localEnabled(), 300_000);
 
 export const listConnections = createServerFn({ method: "GET" }).handler(async () => (await svc()).listConnections(headers()));
 

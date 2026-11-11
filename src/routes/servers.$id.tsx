@@ -12,6 +12,7 @@ import { bindServerSet, copyServer, listSets, syncServerSet, updateServers } fro
 import { SOURCE_LABEL, type Source, pageUrl } from "~/lib/sources";
 import { type Status, useServerStatus } from "~/lib/server-status";
 import { useCan } from "~/lib/use-can";
+import { shared } from "~/lib/shared";
 import { softwareInfo } from "~/lib/software-api";
 import { createWorldBackup, removeWorldBackup, restoreWorldBackup, setWorldBackup, worldBackups } from "~/lib/worlds-api";
 import { Console, Files } from "~/lib/server-files";
@@ -70,7 +71,7 @@ function ServerPage() {
   const [version, setVersion] = useState(0); // 設定を変えたら、設定のタブの要約を読み直す
 
   const reloadSoft = () => loadSoft({ data: { id: server.id } }).then(setSoft, (e) => setSoft(message(e)));
-  useEffect(() => { reloadSoft(); access().then((a) => setFiles(a.allowed), () => setFiles(false)); }, [server.id]);
+  useEffect(() => { reloadSoft(); shared("files-access", () => access(), 5000).then((a) => setFiles(a.allowed), () => setFiles(false)); }, [server.id]);
   const checkDeps = () => { if (server.profile) missingDeps({ data: { id: server.id } }).then(setDeps, () => setDeps(null)); };
   // 更新があるかは配布元に問い合わせる(開いたときと、入れたあと)
   const checkUpdates = () => check({ data: { id: server.id } }).then((u) => setUpdates(new Map(u.map((x) => [x.filename, x]))), (e) => setError(message(e)));
@@ -643,7 +644,8 @@ function Changes({ id, edit, items, onChange, limit, onMore }: { id: string; edi
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  useEffect(() => { load({ data: { id } }).then(setList, (e) => setError(message(e))); }, [id, items]);
+  // 開いた直後と、アドオンの一覧が読めたあとで 2 回走るので、続けて読むときは共有する(書き込みのあとは取り直す。src/lib/shared.ts)
+  useEffect(() => { shared(`changes:${id}`, () => load({ data: { id } }), 3000).then(setList, (e) => setError(message(e))); }, [id, items]);
   const cut = limit ?? 10;
   const shown = list ? (open ? list : list.slice(0, cut)) : [];
   return (

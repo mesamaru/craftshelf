@@ -5,11 +5,11 @@ import { DEFAULT_THEME, type SavedTheme, applyTheme, localTheme, saveTheme } fro
 import { saveMyBackground, saveMyTheme } from "~/lib/prefs-api";
 import { HeadContent, Outlet, Scripts, createRootRoute, useRouterState } from "@tanstack/react-router";
 import { Shell, showShell } from "~/lib/shell";
-import { getAppState } from "~/lib/session";
+import { loadAppState } from "~/lib/session";
 import appCss from "~/styles.css?url";
 
 export const Route = createRootRoute({
-  beforeLoad: async () => getAppState(),
+  beforeLoad: async () => loadAppState(),
   head: () => ({
     meta: [
       { charSet: "utf-8" },

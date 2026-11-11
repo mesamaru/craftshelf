@@ -5,14 +5,15 @@ import { type ReactNode, createContext, useContext, useEffect, useState } from "
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { markNoticesSeen, recentEvents } from "./events-api";
-import { libraryCatalog } from "./library-api";
+import { libraryCatalog, librarySummary } from "./library-api";
 import { AddSheet, LIBRARY_CHANGED, libraryChanged } from "./library-add";
 import { OPEN_PALETTE } from "./palette";
 import { roleLabel } from "./permissions";
-import { listServers, localEnabled, serverStatus } from "./servers-api";
+import { listServers, serverStatus, sharedLocalEnabled } from "./servers-api";
 import { unreadCount } from "./notices";
 import { Icon, type IconName, Sheet } from "./ui";
-import { useCan } from "./use-can";
+import { shared, forgetShared } from "./shared";
+import { useCan, useTeamKey } from "./use-can";
 
 /** 「＋ 追加」のシートを開く(ライブラリの画面の、空のときの案内などから) */
 export const OPEN_ADD = "craftshelf:add";
@@ -24,8 +25,9 @@ export const showShell = (path: string) => !PUBLIC.test(path);
 type Catalog = Awaited<ReturnType<typeof libraryCatalog>>;
 type Server = Awaited<ReturnType<typeof listServers>>[number];
 
-// 枠が読んだライブラリ(保存先の印・件数に使う)
-const ShellCtx = createContext<{ cat: Catalog | null; admin: boolean }>({ cat: null, admin: false });
+type Summary = Awaited<ReturnType<typeof librarySummary>>;
+// 枠が読んだ保存先(見出しの右の印に使う)
+const ShellCtx = createContext<{ storage: Summary["storage"]; admin: boolean }>({ storage: null, admin: false });
 
 // どの画面がどのメニューに入るか
 const SECTION: [RegExp, string][] = [
@@ -45,23 +47,27 @@ export function Shell({ user, children }: { user: { id: string; name: string }; 
   const path = useRouterState({ select: (s) => s.location.pathname });
   const router = useRouter();
   const { team, me, can } = useCan(user.id);
+  const loadSummary = useServerFn(librarySummary);
   const loadCat = useServerFn(libraryCatalog);
   const loadServers = useServerFn(listServers);
-  const isLocal = useServerFn(localEnabled);
-  const [cat, setCat] = useState<Catalog | null>(null);
+  const teamKey = useTeamKey(); // 選んでいるチームが分かる(null = まだ)まで、チームごとの読み込みはしない
+  const [sum, setSum] = useState<Summary | null>(null);
+  const [cat, setCat] = useState<Catalog | null>(null); // 「＋ 追加」のシートだけが使う(開いたときに読む)
   const [servers, setServers] = useState<Server[]>([]);
   const [local, setLocal] = useState(false);
   const [sheet, setSheet] = useState<"" | "add" | "notices">("");
   const [mini, setMini] = useState(false);
   const notices = useNotices();
-  const reloadCat = () => { loadCat().then(setCat, () => setCat(null)); };
-  // 画面を移るたびに数を読み直す(サーバーを足した・消したあと)
+  const reloadSum = () => { shared("library-summary", () => loadSummary(), 3000).then(setSum, () => setSum(null)); };
+  // 画面を移るたびに数を読み直す(サーバーを足した・消したあと)。ページが同じ時に読んだものは、共有して使う(src/lib/shared.ts)
   useEffect(() => {
-    loadServers().then(setServers, () => setServers([]));
-    reloadCat();
-  }, [path, team?.id]);
+    if (teamKey === null) return;
+    shared("servers", () => loadServers(), 3000).then(setServers, () => setServers([]));
+    reloadSum();
+  }, [path, teamKey]);
+  useEffect(() => { if (sheet === "add") loadCat().then(setCat, () => setCat(null)); }, [sheet]);
   useEffect(() => {
-    isLocal().then(setLocal, () => setLocal(false));
+    sharedLocalEnabled().then(setLocal, () => setLocal(false));
     try { setMini(!!localStorage.getItem(MINI)); } catch {}
     const add = () => setSheet("add");
     // Ctrl B でメニューを畳む・広げる(v02 と同じ。入力欄の中では使わない)
@@ -72,10 +78,10 @@ export function Shell({ user, children }: { user: { id: string; name: string }; 
         setMini((m) => !m);
       }
     };
-    window.addEventListener(LIBRARY_CHANGED, reloadCat);
+    window.addEventListener(LIBRARY_CHANGED, reloadSum);
     window.addEventListener(OPEN_ADD, add);
     window.addEventListener("keydown", key);
-    return () => { window.removeEventListener(LIBRARY_CHANGED, reloadCat); window.removeEventListener(OPEN_ADD, add); window.removeEventListener("keydown", key); };
+    return () => { window.removeEventListener(LIBRARY_CHANGED, reloadSum); window.removeEventListener(OPEN_ADD, add); window.removeEventListener("keydown", key); };
   }, []);
   // 畳んだかは <html> の印(操作のバーなど、枠の外に出すものも幅を合わせる)と、この端末に残す
   useEffect(() => {
@@ -85,7 +91,7 @@ export function Shell({ user, children }: { user: { id: string; name: string }; 
   const at = sectionOf(path);
   const edit = can({ library: ["edit"] });
   const search = () => window.dispatchEvent(new Event(OPEN_PALETTE));
-  const reload = () => { libraryChanged(); router.invalidate(); };
+  const reload = () => { forgetShared(); libraryChanged(); router.invalidate(); };
   const nav = (to: string, icon: IconName, label: string, key: string, n?: ReactNode) => (
     <Link to={to as "/"} className="nav" title={label} aria-current={at === key ? "page" : undefined}>
       <Icon name={icon} /><span className="t">{label}</span>{n}
@@ -94,7 +100,7 @@ export function Shell({ user, children }: { user: { id: string; name: string }; 
   const openNotices = () => { notices.read(); setSheet("notices"); };
   const unread = notices.unread > 0 && <span className="nb" aria-hidden="true">{notices.unread > 99 ? "99+" : notices.unread}</span>;
   return (
-    <ShellCtx.Provider value={{ cat, admin: can({ storage: ["manage"] }) }}>
+    <ShellCtx.Provider value={{ storage: sum?.storage ?? null, admin: can({ storage: ["manage"] }) }}>
       <div className="shell">
         <aside className="side glass" aria-label="メニュー">
           <div className="side-head">
@@ -104,7 +110,7 @@ export function Shell({ user, children }: { user: { id: string; name: string }; 
               <Icon name={mini ? "fwd" : "back"} />
             </button>
           </div>
-          {nav("/", "library", "ライブラリ", "library", cat && <span className="n">{cat.items.length}</span>)}
+          {nav("/", "library", "ライブラリ", "library", sum && <span className="n">{sum.count}</span>)}
           {nav("/home", "home", "ホーム", "home")}
           {nav("/sets", "sets", "セット", "sets")}
           {nav("/servers", "servers", "サーバー", "servers")}
@@ -167,9 +173,9 @@ export function Shell({ user, children }: { user: { id: string; name: string }; 
 
 /** 見出しの右の保存先の印(自分用の版だけ。管理者は押すと保存先の設定へ) */
 export function StoragePill() {
-  const { cat, admin } = useContext(ShellCtx);
-  if (!cat?.storage) return null;
-  const inner = <><span className="sd" aria-hidden="true" /><Icon name="library" /><span className="t" translate={cat.storage.name ? "no" : undefined}>{cat.storage.name || "ローカル"}</span></>;
+  const { storage, admin } = useContext(ShellCtx);
+  if (!storage) return null;
+  const inner = <><span className="sd" aria-hidden="true" /><Icon name="library" /><span className="t" translate={storage.name ? "no" : undefined}>{storage.name || "ローカル"}</span></>;
   return admin ? <Link to="/storage" className="pill" title="保存先">{inner}</Link> : <span className="pill" title="保存先">{inner}</span>;
 }
 
@@ -183,10 +189,13 @@ function ServerLink({ server, on }: { server: Server; on: boolean }) {
   const status = useServerFn(serverStatus);
   const [state, setState] = useState("");
   useEffect(() => {
-    const read = () => status({ data: { id: server.id } }).then((s) => setState(s.state), () => setState(""));
+    // サーバーの一覧(servers.tsx)が 50 秒以内に読んだ状態があれば、それを使う。見えていないあいだ(タブが裏・最小化)は読まない
+    const read = () => shared(`status:${server.id}`, () => status({ data: { id: server.id } }), 50_000).then((s) => setState(s.state), () => setState(""));
+    const tick = () => { if (!document.hidden) read(); };
     read();
-    const t = setInterval(read, 60_000);
-    return () => clearInterval(t);
+    const t = setInterval(tick, 60_000);
+    document.addEventListener("visibilitychange", tick);
+    return () => { clearInterval(t); document.removeEventListener("visibilitychange", tick); };
   }, [server.id]);
   return (
     <Link to="/servers/$id" params={{ id: server.id }} className="nav" aria-current={on ? "page" : undefined}

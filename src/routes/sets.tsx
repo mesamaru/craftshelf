@@ -11,7 +11,7 @@ import { addSetDeps, applySet, createSet, listSets, pinSetItem, removeSet, renam
 import { Btn, Chip, Info, Menu, Sheet } from "~/lib/ui";
 import { SOURCE_LABEL, isSource } from "~/lib/sources";
 import { useCan } from "~/lib/use-can";
-import { localEnabled } from "~/lib/servers-api";
+import { sharedLocalEnabled } from "~/lib/servers-api";
 import { zipPlan } from "~/lib/saved-api";
 import { MobileSearch, StoragePill } from "~/lib/shell";
 import { downloadZip } from "~/lib/zip-download";
@@ -40,11 +40,10 @@ function Sets() {
   const router = useRouter();
   const reload = () => router.invalidate();
   const edit = can({ library: ["edit"] });
-  const isLocal = useServerFn(localEnabled);
   const [local, setLocal] = useState(false); // zip は保存した版から作るので、自分用の版だけ
   const [sheet, setSheet] = useState<"" | "new" | "schedule">("");
   const [open, setOpen] = useState("");
-  useEffect(() => { isLocal().then(setLocal, () => setLocal(false)); }, []);
+  useEffect(() => { sharedLocalEnabled().then(setLocal, () => setLocal(false)); }, []);
   const opened = sets.find((s) => s.id === open);
 
   return (

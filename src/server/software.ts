@@ -67,7 +67,19 @@ const byNewest = (list: string[]) => [...new Set(list)].sort((a, b) => (newer(a,
 const enc = encodeURIComponent;
 type J = Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any -- 配布元の JSON
 
+// 配布元のバージョン・ビルドの一覧を覚えておく長さ(サーバーを開くたび・一覧のたびに配布元へ問い合わせないように。このクライアントの中だけ)
+export const SOFTWARE_MEMO = { ms: 5 * 60_000 };
+
 export function softwareClient(fetch: FetchLike) {
+  const memo = new Map<string, { at: number; p: Promise<unknown> }>();
+  const memoed = <T>(key: string, fn: () => Promise<T>): Promise<T> => {
+    const hit = memo.get(key);
+    if (hit && Date.now() - hit.at < SOFTWARE_MEMO.ms) return hit.p as Promise<T>;
+    const p = fn();
+    memo.set(key, { at: Date.now(), p });
+    p.catch(() => { if (memo.get(key)?.p === p) memo.delete(key); }); // つながらなかった結果は覚えない
+    return p;
+  };
   async function get(url: string) {
     let res: Response;
     try {
@@ -83,7 +95,7 @@ export function softwareClient(fetch: FetchLike) {
   const proxyVersions = async (sw: Software) => (sw === "velocity" || sw === "waterfall" ? (await fillVersions(sw)).filter((v) => PROXY_VERSION.test(v)) : []);
 
   /** そのサーバー本体で選べる Minecraft のバージョン(プロキシはプロキシの版。正式版だけ・新しい順。わからないものは空) */
-  async function mcVersions(sw: Software): Promise<string[]> {
+  async function fetchMcVersions(sw: Software): Promise<string[]> {
     if (isProxy(sw)) return byNewest(await proxyVersions(sw));
     let list: string[] = [];
     if (sw === "paper" || sw === "folia") list = await fillVersions(sw);
@@ -97,7 +109,7 @@ export function softwareClient(fetch: FetchLike) {
   }
 
   /** そのサーバー本体・バージョンのビルド(新しい順に 25 個まで)。取ってこられないものは url が空 */
-  async function builds(sw: Software, mc: string): Promise<Build[]> {
+  async function fetchBuilds(sw: Software, mc: string): Promise<Build[]> {
     const mk = (build: unknown, url: string, file: string, v = mc, stable = true): Build =>
       ({ build: String(build ?? ""), mc: v, url, file, auto: SOFTWARE[sw].auto && !!url, stable });
     if (sw === "paper" || sw === "folia" || sw === "velocity" || sw === "waterfall") {
@@ -191,8 +203,13 @@ export function softwareClient(fetch: FetchLike) {
     return { ...b, url: String(a?.downloadUrl ?? ""), auto: !!a?.downloadUrl };
   }
 
+  const mcVersions = (sw: Software) => memoed(`mc:${sw}`, () => fetchMcVersions(sw));
+  const builds = (sw: Software, mc: string) => memoed(`builds:${sw}:${mc}`, () => fetchBuilds(sw, mc));
+
   return {
     mcVersions, builds, resolve,
+    /** 覚えた一覧を捨てる(入れ替えるときは、配布元の今の一覧で選ぶ) */
+    forget: () => memo.clear(),
     /** いちばん新しいビルド(安定版があればその中で。わからなければ null) */
     async latest(sw: Software, mc: string): Promise<Build | null> {
       const list = await builds(sw, mc);
@@ -313,6 +330,7 @@ export function softwareService(deps: Deps) {
     const l = await look(who, serverId);
     const { client: c, remoteId, row } = l.target;
     if (!l.jar) throw new HttpError(400, "サーバー本体の jar が分かりません(サーバーのフォルダに jar が 1 つだけになるようにしてください)");
+    client.forget();
     const mc = input.mc || l.now.mc;
     if (input.mc && input.mc !== l.now.mc && !(await client.mcVersions(l.software)).includes(input.mc)) throw new HttpError(400, "この Minecraft のバージョンは選べません");
     const list = await client.builds(l.software, mc);

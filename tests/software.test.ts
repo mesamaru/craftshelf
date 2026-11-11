@@ -6,7 +6,7 @@ import { HttpError } from "~/server/guard";
 import { libraryService } from "~/server/library";
 import type { FetchLike } from "~/server/net";
 import { serverService } from "~/server/servers";
-import { KEEP_JARS, detectServer, parseBuild, softwareClient, softwareOfName, softwareService } from "~/server/software";
+import { KEEP_JARS, SOFTWARE_MEMO, detectServer, parseBuild, softwareClient, softwareOfName, softwareService } from "~/server/software";
 import { setup } from "./helpers";
 
 const KEY = "ptlc_0123456789abcdefghij";
@@ -116,6 +116,30 @@ describe("ビルドと種類の読み取り", () => {
     expect(await c.mcVersions("paper")).toEqual(["1.21.5", "1.21.4", "1.21.3"]);
     expect((await c.latest("leaf", "1.21.4"))).toMatchObject({ build: "1", auto: true, url: "https://api.leafmc.one/v2/projects/leaf/versions/1.21.4/builds/1/downloads/leaf-1.21.4-1.jar" });
     expect(await c.latest("forge", "1.20.1")).toMatchObject({ build: "47.3.0", auto: false });
+  });
+
+  it("配布元の一覧は数分覚えて、同じ問い合わせを繰り返さない。つながらなかった結果は覚えない・捨てると取り直す", async () => {
+    let n = 0;
+    let down = true;
+    const count: FetchLike = async (url, init) => {
+      n++;
+      if (down) throw new Error("つながらない");
+      return fake(url, init);
+    };
+    const c = softwareClient(count);
+    await expect(c.mcVersions("paper")).rejects.toThrow();
+    down = false;
+    n = 0;
+    expect(await c.mcVersions("paper")).toEqual(["1.21.5", "1.21.4", "1.21.3"]);
+    await c.mcVersions("paper");
+    await c.latest("paper", "1.21.4");
+    await c.latest("paper", "1.21.4");
+    await c.builds("paper", "1.21.4");
+    expect(n).toBe(2); // バージョンの一覧 1 回 + 1.21.4 のビルド 1 回
+    c.forget();
+    await c.latest("paper", "1.21.4");
+    expect(n).toBe(3);
+    expect(SOFTWARE_MEMO.ms).toBe(5 * 60_000);
   });
 });
 

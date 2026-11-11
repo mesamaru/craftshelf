@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { authClient } from "~/lib/auth-client";
 import { editLibraryItem, favoriteLibraryItem, installMod, libraryCatalog, libraryItemChangelog, libraryItemVersions, libraryMissingDeps,
   linkLibraryDep, modpackFromItem, outdatedLibraryServers, relinkLibraryItem, removeLibraryItem, tagLibraryItems } from "~/lib/library-api";
 import { LIBRARY_CHANGED, UploadResults, droppedFiles, libraryChanged, useUploader } from "~/lib/library-add";
 import { ITEM_TYPES, ITEM_TYPE_IDS, type ItemType, mcCompare, mcCovers, mcRange } from "~/lib/platforms";
 import { AddonIcon } from "~/lib/type-icon";
-import { localEnabled } from "~/lib/servers-api";
+import { sharedLocalEnabled } from "~/lib/servers-api";
 import { listBackups } from "~/lib/backup-api";
 import { notifySettings } from "~/lib/events-api";
 import { CHANNELS, SOURCE_LABEL, type Channel, type ItemSource, isItemSource, pageUrl } from "~/lib/sources";
@@ -15,7 +14,7 @@ import { removeUploadedFile, uploadedFiles } from "~/lib/uploads-api";
 import { ShareMaker } from "~/lib/share-maker";
 import { saveVersion, setItemSaved, zipPlan } from "~/lib/saved-api";
 import { downloadZip } from "~/lib/zip-download";
-import { useCan } from "~/lib/use-can";
+import { useCan, useTeamKey } from "~/lib/use-can";
 import { MobileSearch, OPEN_ADD, StoragePill } from "~/lib/shell";
 import { listSets, toggleSetItem } from "~/lib/sets-api";
 import { ActionBar, Btn, Chip, Icon, Info, Menu, Sheet, fmtSize } from "~/lib/ui";
@@ -76,20 +75,19 @@ function Library() {
   const { user } = Route.useRouteContext();
   const search = Route.useSearch();
   const navigate = useNavigate();
-  const { data: team } = authClient.useActiveOrganization();
+  const teamKey = useTeamKey();
   const { can } = useCan(user.id);
   const load = useServerFn(libraryCatalog);
   const [cat, setCat] = useState<Catalog | null>(null);
   const [error, setError] = useState("");
   const reload = () => { load().then((c) => { setCat(c); setError(""); }, (e) => setError(message(e))); };
-  useEffect(reload, [team?.id]);
+  useEffect(() => { if (teamKey !== null) reload(); }, [teamKey]); // チームが分かってから 1 回だけ
   useEffect(() => {
     window.addEventListener(LIBRARY_CHANGED, reload);
     return () => window.removeEventListener(LIBRARY_CHANGED, reload);
   }, []);
-  const isLocal = useServerFn(localEnabled);
   const [local, setLocal] = useState(false); // アップロード・保存した版は自分用の版だけ
-  useEffect(() => { isLocal().then(setLocal, () => setLocal(false)); }, []);
+  useEffect(() => { sharedLocalEnabled().then(setLocal, () => setLocal(false)); }, []);
 
   const edit = can({ library: ["edit"] });
   const admin = can({ member: ["update"] });

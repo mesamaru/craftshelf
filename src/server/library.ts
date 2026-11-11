@@ -52,6 +52,17 @@ const memoGet = (key: string) => {
   const m = depsMemo.get(key);
   return m && Date.now() - m.at < DEPS_MEMO_MS ? m : undefined;
 };
+// 配布元の「いちばん新しい版」を覚えておく長さ(更新の確かめ。同じチーム・配布元・プロジェクト・サーバーの種類とバージョンの組ごと)。
+// outdatedServers と updatesOf が同じ組を何度も問い合わせないための、このプロセスの中だけの記憶。入れる・版を選ぶときは使わない
+export const LATEST_MEMO = { ms: 5 * 60_000, max: 2000 };
+const latestMemo = new Map<string, { at: number; p: Promise<unknown> }>();
+const latestKey = (teamId: string, source: string, projectId: string, p: { platform: string; mcVersion: string | null; kind?: string }) =>
+  [teamId, source, projectId, p.platform, p.mcVersion ?? "", p.kind ?? ""].join("|");
+/** 覚えた「いちばん新しい版」を捨てる(チームの分。source・projectId を渡すと、その配布元のプロジェクトの分だけ) */
+export function forgetLatest(teamId: string, source?: string, projectId?: string) {
+  const prefix = `${teamId}|${source && projectId ? `${source}|${projectId}|` : ""}`;
+  for (const k of latestMemo.keys()) if (k.startsWith(prefix)) latestMemo.delete(k);
+}
 const memoSet = (key: string, value: unknown) => {
   if (depsMemo.size >= DEPS_MEMO_MAX) for (const [k, m] of depsMemo) if (Date.now() - m.at >= DEPS_MEMO_MS || depsMemo.size >= DEPS_MEMO_MAX) depsMemo.delete(k);
   depsMemo.set(key, { at: Date.now(), value });
@@ -162,6 +173,18 @@ export function modTools(deps: Deps) {
     const f = await fromSource(() => (cf ? cf.latestFile(projectId, p.platform, mcVersion, opts)
       : source === "spigot" ? spiget.latestFile(projectId, p.platform) : modrinth.latestFile(projectId, p.platform, mcVersion, opts)));
     return f && fits(p, f.filename) ? { ...f, upload: undefined } : null;
+  }
+  /** latestFile を LATEST_MEMO.ms の間覚えたもの(更新の確かめ用)。配布元のものだけ覚え、つながらなかった結果は覚えない */
+  function latestChecked(source: ItemSource, projectId: string, p: Profile, teamId: string) {
+    if (source === "upload" || LATEST_MEMO.ms <= 0) return latestFile(source, projectId, p, teamId);
+    const key = latestKey(teamId, source, projectId, p);
+    const hit = latestMemo.get(key);
+    if (hit && Date.now() - hit.at < LATEST_MEMO.ms) return hit.p as ReturnType<typeof latestFile>;
+    const pr = latestFile(source, projectId, p, teamId);
+    if (latestMemo.size >= LATEST_MEMO.max) for (const [k, m] of latestMemo) if (Date.now() - m.at >= LATEST_MEMO.ms || latestMemo.size >= LATEST_MEMO.max) latestMemo.delete(k);
+    latestMemo.set(key, { at: Date.now(), p: pr });
+    pr.catch(() => { if (latestMemo.get(key)?.p === pr) latestMemo.delete(key); });
+    return pr;
   }
   // 保存した版を、入れるファイルの形にする(保存先から送る)
   const savedFile = (projectId: string, s: NonNullable<Awaited<ReturnType<typeof files.savedOf>>>) =>
@@ -468,6 +491,7 @@ export function modTools(deps: Deps) {
     };
     const { id: _, ...update } = values;
     await db.insert(installedMod).values(values).onConflictDoUpdate({ target: [installedMod.serverId, installedMod.filename], set: update });
+    forgetLatest(teamId, source, projectId); // 入れた・更新したあとは、覚えた「いちばん新しい版」を捨てる
     const was = stale[0];
     await logChange(row.id, userId, {
       action: stale.length ? "更新" : "入れる", title: values.title, added: file.filename, config,
@@ -526,16 +550,19 @@ export function modTools(deps: Deps) {
     const holds = await holdsOf(serverId);
     const pins = await pinsOf(serverId);
     const out: { source: ItemSource; projectId: string; title: string; filename: string; current: string; latest: string }[] = [];
-    for (const r of records) {
-      if (!isItemSource(r.source) || holds.has(`${r.source}:${r.projectId}`) || pins.has(`${r.source}:${r.projectId}`) || isDisabled(r.filename)) continue;
-      let f;
-      try {
-        f = await latestFile(r.source, r.projectId, fileProfile(p, r.filename), teamId);
-      } catch (e) {
-        if (skipFailed && isHttpError(e)) continue;
-        throw e;
-      }
-      if (f && f.versionId !== r.versionId) out.push({ source: r.source, projectId: r.projectId, title: r.title, filename: r.filename, current: r.versionNumber, latest: f.versionNumber });
+    const todo = records.filter((r) => isItemSource(r.source) && !holds.has(`${r.source}:${r.projectId}`) && !pins.has(`${r.source}:${r.projectId}`) && !isDisabled(r.filename));
+    // 配布元に一度に送りすぎない(outdatedServers と同じ 8 件ずつ)。結果は記録の順に並べる
+    for (let i = 0; i < todo.length; i += 8) {
+      const got = await Promise.allSettled(todo.slice(i, i + 8).map((r) => latestChecked(r.source as ItemSource, r.projectId, fileProfile(p, r.filename), teamId)));
+      got.forEach((g, k) => {
+        const r = todo[i + k];
+        if (g.status === "rejected") {
+          if (skipFailed && isHttpError(g.reason)) return;
+          throw g.reason;
+        }
+        const f = g.value;
+        if (f && f.versionId !== r.versionId) out.push({ source: r.source as ItemSource, projectId: r.projectId, title: r.title, filename: r.filename, current: r.versionNumber, latest: f.versionNumber });
+      });
     }
     return out;
   }
@@ -653,13 +680,13 @@ export function modTools(deps: Deps) {
     return { missing: missing.sort((a, b) => a.title.localeCompare(b.title)), errors: [...new Set(errors)] };
   }
 
-  return { metasIn, unmetOf, teamPinsOf, files, missingOf, pickOf, modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, pinsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn, dirOf, addonsIn, packVersions };
+  return { metasIn, unmetOf, teamPinsOf, files, missingOf, pickOf, modrinth, spiget, curseforge, cfKeyOf, latestFile, latestChecked, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, pinsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn, dirOf, addonsIn, packVersions };
 }
 
 export function libraryService(deps: Deps) {
   const { db, auth } = deps;
   const { record } = eventService(deps);
-  const { metasIn, unmetOf, teamPinsOf, files, missingOf, modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, pinsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn, dirOf, addonsIn, packVersions } = modTools(deps);
+  const { metasIn, unmetOf, teamPinsOf, files, missingOf, modrinth, spiget, curseforge, cfKeyOf, latestFile, latestChecked, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, pinsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn, dirOf, addonsIn, packVersions } = modTools(deps);
   // このチームで探せる配布元(CurseForge は API キーを設定したときだけ)
   const sourcesOf = async (teamId: string) => ["modrinth", "spigot", ...((await cfKeyOf(teamId)) ? ["curseforge"] : [])];
   const sourceOf = (v: string) => {
@@ -761,9 +788,11 @@ export function libraryService(deps: Deps) {
   }
 
   // 古い版が入っているもの(ライブラリの ID と、古い版のサーバー)
-  async function outdatedServers(headers: Headers): Promise<{ itemId: string; serverIds: string[] }[]> {
+  // fresh: 「今すぐ確認」のように、覚えた「いちばん新しい版」を使わずに配布元へ問い合わせ直す
+  async function outdatedServers(headers: Headers, fresh = false): Promise<{ itemId: string; serverIds: string[] }[]> {
     const who = await requireTeam(auth, headers);
     const { teamId } = who;
+    if (fresh) forgetLatest(teamId);
     const scope = await serverScope(deps, who);
     const rows = await db.select({ serverId: server.id, source: installedMod.source, projectId: installedMod.projectId, versionId: installedMod.versionId, filename: installedMod.filename, platform: serverProfile.platform, mcVersion: serverProfile.mcVersion })
       .from(installedMod).innerJoin(server, eq(installedMod.serverId, server.id)).innerJoin(serverProfile, eq(serverProfile.serverId, server.id))
@@ -780,7 +809,7 @@ export function libraryService(deps: Deps) {
       const p = fileProfile({ platform: r.platform as Platform, mcVersion: r.mcVersion }, r.filename);
       const k = `${r.source}:${r.projectId}:${r.platform}:${r.mcVersion ?? ""}:${p.kind ?? ""}`;
       if (!latest.has(k)) {
-        latest.set(k, latestFile(r.source as ItemSource, r.projectId, p, teamId)
+        latest.set(k, latestChecked(r.source as ItemSource, r.projectId, p, teamId)
           .then((f) => f?.versionId ?? null, () => null));
       }
       return latest.get(k)!;
@@ -798,7 +827,21 @@ export function libraryService(deps: Deps) {
     return items.filter((i) => old.has(`${i.source}:${i.projectId}`)).map((i) => ({ itemId: i.id, serverIds: [...old.get(`${i.source}:${i.projectId}`)!] }));
   }
 
+  // 使っている保存先(自分用の版だけ。name が "" ならパネルの中 = ローカル)
+  const storageOf = async (teamId: string) => {
+    const [store] = deps.local ? await db.select({ name: storageTarget.name, kind: storageTarget.kind }).from(storageTarget)
+      .where(and(eq(storageTarget.teamId, teamId), eq(storageTarget.active, true))) : [];
+    return deps.local ? { name: store?.name ?? "", kind: store?.kind ?? "" } : null;
+  };
+
   return {
+    /** ライブラリの件数と使っている保存先(枠の「ライブラリ N」と保存先の印に使う。catalog より軽い) */
+    async summary(headers: Headers) {
+      const { teamId } = await requireTeam(auth, headers);
+      const [{ n }] = await db.select({ n: count() }).from(libraryItem).where(eq(libraryItem.teamId, teamId));
+      return { count: n, storage: await storageOf(teamId) };
+    },
+
     /** チームのライブラリ: 登録したもの・それぞれが入っているサーバーと版・入れられるサーバー */
     async catalog(headers: Headers) {
       const who = await requireTeam(auth, headers);
@@ -828,8 +871,6 @@ export function libraryService(deps: Deps) {
         const s = fileSum.get(f.itemId) ?? { n: 0, size: 0, version: f.version };
         fileSum.set(f.itemId, { n: s.n + 1, size: s.size + f.size, version: s.version });
       }
-      const [store] = deps.local ? await db.select({ name: storageTarget.name, kind: storageTarget.kind }).from(storageTarget)
-        .where(and(eq(storageTarget.teamId, teamId), eq(storageTarget.active, true))) : [];
       return {
         channel: (opt?.channel === "all" ? "all" : "release") as Channel, // 受け取る版のチームの既定
         keep: { files: opt?.keepFiles ?? false, versions: opt?.keepVersions ?? 0 }, // 保存の設定のチームの既定(配布元のファイルを保存する・古い版を残す数)
@@ -848,7 +889,7 @@ export function libraryService(deps: Deps) {
           size: fileSum.get(i.id)?.size ?? 0,
         })),
         // 使っている保存先(自分用の版だけ。name が "" ならパネルの中 = ローカル)
-        storage: deps.local ? { name: store?.name ?? "", kind: store?.kind ?? "" } : null,
+        storage: await storageOf(teamId),
         // 配布元はわかっているが、ライブラリに無いもの(ライブラリから外したものなど)
         orphans: installs.filter((r) => !listed.has(`${r.source}:${r.projectId}`)).map(({ serverId, source, projectId, title, versionNumber, filename, disabled }) => ({ serverId, source, projectId, title, versionNumber, filename, disabled })),
         // 種類を決めていないサーバーには入れられない(type が null)。kinds は入れられる種類(プラグイン・Mod と、ワールドがあればデータパック)
@@ -881,6 +922,7 @@ export function libraryService(deps: Deps) {
       if (!deps.local) throw new HttpError(400, "CurseForge は、自分用の版だけで使えます");
       if (key === null) {
         await db.delete(teamCurseforge).where(eq(teamCurseforge.teamId, teamId));
+        forgetLatest(teamId);
         await record({ teamId, userId: user.id, kind: "admin", action: "CurseForge の API キーを消す" });
         return;
       }
@@ -889,6 +931,7 @@ export function libraryService(deps: Deps) {
       await fromSource(() => curseforgeClient(deps.fetch, k).check());
       const values = { teamId, apiKeySealed: seal(deps.secret, k, `curseforge:${teamId}`), apiKeyHint: hint(k), updatedAt: new Date() };
       await db.insert(teamCurseforge).values(values).onConflictDoUpdate({ target: teamCurseforge.teamId, set: values });
+      forgetLatest(teamId);
       await record({ teamId, userId: user.id, kind: "admin", action: "CurseForge の API キーを設定" });
     },
 
@@ -917,6 +960,7 @@ export function libraryService(deps: Deps) {
       if (mc?.some((v) => !MC_VERSION.test(v)) || (mc?.length ?? 0) > 50) throw new HttpError(400, "対応 MC は 1.21.1 や 1.20 のように、カンマで区切って入力してください(50 個まで)");
       await db.update(libraryItem).set({ projectType: input.projectType, channel: input.channel,
         loaders: loaders?.length ? JSON.stringify(loaders) : "", mcVersions: mc?.length ? JSON.stringify(mc) : "" }).where(eq(libraryItem.id, i.id));
+      forgetLatest(teamId, i.source, i.projectId); // 受け取る版・動く作り・対応 MC は、入れる版の選び方に効く
       await record({ teamId, userId: user.id, kind: "admin", action: "アイテムの情報を直す", target: i.title,
         detail: [ITEM_TYPES[input.projectType], loaders?.length ? `作り ${loaders.join("・")}` : "", mc?.length ? `MC ${mc.join("・")}` : "",
           input.channel === "all" ? "ベータ版も" : input.channel === "release" ? "正式版だけ" : ""].filter(Boolean).join("・") });
@@ -946,6 +990,8 @@ export function libraryService(deps: Deps) {
         const holds = await db.delete(serverHold).where(and(inArray(serverHold.serverId, mine), eq(serverHold.source, i.source), eq(serverHold.projectId, i.projectId))).returning();
         if (holds.length) await db.insert(serverHold).values(holds.map((h) => ({ ...h, source: r.source, projectId: r.projectId }))).onConflictDoNothing();
       }
+      forgetLatest(teamId, i.source, i.projectId);
+      forgetLatest(teamId, r.source, r.projectId);
       await record({ teamId, userId: user.id, kind: "admin", action: "配布元を付け替える", target: i.title, detail: `${SOURCE_LABEL[r.source]}: ${p.title || r.projectId}` });
       return { title: p.title || r.projectId };
     },
@@ -1030,6 +1076,7 @@ export function libraryService(deps: Deps) {
       const { teamId, user } = await requireTeam(auth, headers, { member: ["update"] });
       if (!isChannel(channel)) throw new HttpError(400, "受け取る版を選んでください");
       await db.insert(teamOption).values({ teamId, channel }).onConflictDoUpdate({ target: teamOption.teamId, set: { channel, updatedAt: new Date() } });
+      forgetLatest(teamId);
       await record({ teamId, userId: user.id, kind: "admin", action: "受け取る版の既定を変える", detail: channel === "all" ? "ベータ版・アルファ版も" : "正式版だけ" });
     },
 
@@ -1134,8 +1181,8 @@ export function libraryService(deps: Deps) {
     },
 
     /** どこかのサーバーに古い版が入っているもの(ライブラリの ID)。配布元に問い合わせるので、絞り込むときだけ呼ぶ */
-    async outdated(headers: Headers) {
-      return (await outdatedServers(headers)).map((x) => x.itemId);
+    async outdated(headers: Headers, fresh = false) {
+      return (await outdatedServers(headers, fresh)).map((x) => x.itemId);
     },
 
     /** 古い版が入っているもの(ライブラリの ID と、古い版のサーバーの ID)。配布元に問い合わせるので、絞り込むときだけ呼ぶ */
@@ -1437,6 +1484,7 @@ export function libraryService(deps: Deps) {
       if (!rec) throw new HttpError(404, "このアプリで入れたものではありません");
       if (hold) await db.insert(serverHold).values({ serverId: row.id, source: src, projectId, createdBy: user.id }).onConflictDoNothing();
       else await db.delete(serverHold).where(and(eq(serverHold.serverId, row.id), eq(serverHold.source, src), eq(serverHold.projectId, projectId)));
+      forgetLatest(teamId, src, projectId);
       await record({ teamId, userId: user.id, kind: "changes", action: hold ? "更新を止める" : "更新を止めるのをやめる", target: row.name, detail: `${rec.title} ${rec.versionNumber}` });
     },
 

@@ -1,7 +1,7 @@
 // Mod・プラグインの通しテスト(Pterodactyl と Modrinth は偽物の応答で代わりをする)
 import { beforeAll, describe, expect, it } from "vitest";
 import { HttpError } from "~/server/guard";
-import { libraryService } from "~/server/library";
+import { LATEST_MEMO, libraryService } from "~/server/library";
 import { pickVersion } from "~/server/modrinth";
 import type { FetchLike } from "~/server/net";
 import { serverService } from "~/server/servers";
@@ -81,6 +81,7 @@ async function join(email: string, role: string) {
 }
 
 beforeAll(async () => {
+  LATEST_MEMO.ms = 0; // 配布元の最新版を途中で変えて確かめるので、覚えた結果は使わない(記憶そのものは tests/latest.test.ts)
   t = await setup();
   const deps = { db: t.db, auth: t.auth, secret: SECRET, fetch: fake };
   const servers = serverService(deps);
@@ -230,6 +231,14 @@ describe("タグ・お気に入り・更新あり", () => {
     expect(await code(lib.tagItems(viewer, [itemId], "権限", false))).toBe(403);
     await lib.tagItems(editor, [itemId], "権限", false);
     expect((await lp(viewer)).tags).toEqual([]);
+  });
+
+  it("枠の「ライブラリ N」用の summary は、catalog と同じ件数・保存先を軽く返す。ほかのチームのものは数えない・ログインしていなければ断る", async () => {
+    const cat = await lib.catalog(viewer);
+    expect(cat.items.length).toBeGreaterThan(0);
+    expect(await lib.summary(viewer)).toEqual({ count: cat.items.length, storage: cat.storage });
+    expect(await lib.summary(outsider)).toEqual({ count: 0, storage: null });
+    expect(await code(lib.summary(new Headers()))).toBe(401);
   });
 
   it("お気に入りは利用者ごと。閲覧者もできる。ほかのチームのものはできない", async () => {

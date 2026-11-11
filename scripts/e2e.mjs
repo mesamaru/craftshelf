@@ -392,6 +392,35 @@ await step("API・アップロードのエラーが、理由どおりの番号�
   await anon.close();
 });
 
+await step("画面を開く・移るとき、同じ問い合わせを繰り返さない(ログイン状態は覚える)", async () => {
+  // 読み込みの回数は、同じ URL の GET(server function)が重なっていないかと、ログイン状態(getAppState。応答に signupOpen が入る)の回数で見る
+  const seen = new Map();
+  let appState = 0;
+  const onRequest = (r) => { if (r.method() === "GET" && r.url().includes("/_serverFn/")) seen.set(r.url(), (seen.get(r.url()) ?? 0) + 1); };
+  const onResponse = async (r) => { if (r.url().includes("/_serverFn/") && (await r.text().catch(() => "")).includes("signupOpen")) appState++; };
+  page.on("request", onRequest);
+  page.on("response", onResponse);
+  const quiet = async (what) => {
+    await page.waitForLoadState("networkidle");
+    await page.waitForTimeout(600);
+    const dup = [...seen].filter(([, n]) => n > 1).map(([u, n]) => `${u.split("/_serverFn/")[1].slice(0, 12)}×${n}`);
+    seen.clear();
+    if (dup.length) throw new Error(`${what}で同じ問い合わせが重なりました: ${dup.join(" ")}`);
+  };
+  await page.goto(base + "/home");
+  await page.getByRole("heading", { name: "種類ごとの件数" }).waitFor();
+  await quiet("ホームを開いたとき");
+  appState = 0;
+  for (const [nav, heading] of [["ライブラリ", "ライブラリ"], ["セット", "セット"], ["ホーム", "種類ごとの件数"]]) {
+    await page.locator("aside.side a.nav", { hasText: nav }).click();
+    await page.getByRole("heading", { name: heading }).first().waitFor();
+    await quiet(`「${nav}」へ移ったとき`);
+  }
+  if (appState > 1) throw new Error(`画面を 3 回移るあいだに、ログイン状態を ${appState} 回読み込みました(覚えて使い回すはず)`);
+  page.off("request", onRequest);
+  page.off("response", onResponse);
+});
+
 await step("ログアウトはアカウントの設定にあり、押すとログイン画面に戻る", async () => {
   await page.goto(base + "/settings");
   await page.locator(".set-nav .account-row").waitFor();

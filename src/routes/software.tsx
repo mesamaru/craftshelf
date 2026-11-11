@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { ActionBar, Btn, Chip, ChipBar, Info } from "~/lib/ui";
-import { listServers } from "~/lib/servers-api";
+import { sharedServers } from "~/lib/servers-api";
 import { softwareInfo, updateSoftware } from "~/lib/software-api";
 import { useCan } from "~/lib/use-can";
 
@@ -11,7 +11,7 @@ export const Route = createFileRoute("/software")({
     if (!context.user) throw redirect({ to: "/login", search: { next: "/software" } });
     return { user: context.user };
   },
-  loader: () => listServers(),
+  loader: () => sharedServers(),
   component: Software,
 });
 

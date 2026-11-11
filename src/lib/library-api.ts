@@ -49,6 +49,9 @@ export const setModHold = createServerFn({ method: "POST" })
 
 export const libraryCatalog = createServerFn({ method: "GET" }).handler(async () => (await svc()).catalog(headers()));
 
+// 枠の「ライブラリ N」と保存先の印だけに使う、軽い読み込み(catalog は一覧の全部を返すので重い)
+export const librarySummary = createServerFn({ method: "GET" }).handler(async () => (await svc()).summary(headers()));
+
 export const searchCatalog = createServerFn({ method: "GET" })
   .validator(z.object({ query: z.string().max(100), type, source }))
   .handler(async ({ data }) => (await svc()).searchCatalog(headers(), data.query, data.type, data.source));
@@ -91,9 +94,11 @@ export const favoriteLibraryItem = createServerFn({ method: "POST" })
   .validator(z.object({ itemId: sid, on: z.boolean() }))
   .handler(async ({ data }) => (await svc()).favorite(headers(), data.itemId, data.on));
 
-export const outdatedLibraryItems = createServerFn({ method: "GET" }).handler(async () => (await svc()).outdated(headers()));
+// fresh: 「今すぐ確認」など、サーバーが覚えている「いちばん新しい版」を使わずに配布元へ問い合わせ直す
+const check = z.object({ fresh: z.boolean().optional() }).optional();
+export const outdatedLibraryItems = createServerFn({ method: "GET" }).validator(check).handler(async ({ data }) => (await svc()).outdated(headers(), !!data?.fresh));
 
-export const outdatedLibraryServers = createServerFn({ method: "GET" }).handler(async () => (await svc()).outdatedServers(headers()));
+export const outdatedLibraryServers = createServerFn({ method: "GET" }).validator(check).handler(async ({ data }) => (await svc()).outdatedServers(headers(), !!data?.fresh));
 
 export const setModEnabled = createServerFn({ method: "POST" })
   .validator(z.object({ id: sid, filename: z.string().min(1).max(200), enable: z.boolean() }))

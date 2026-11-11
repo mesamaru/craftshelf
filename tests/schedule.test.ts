@@ -2,7 +2,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { eventService } from "~/server/events";
 import { HttpError } from "~/server/guard";
-import { libraryService } from "~/server/library";
+import { LATEST_MEMO, libraryService } from "~/server/library";
 import type { FetchLike } from "~/server/net";
 import { localParts, scheduleService } from "~/server/schedule";
 import { serverService } from "~/server/servers";
@@ -65,6 +65,7 @@ let serverId: string;
 const code = (p: Promise<unknown>) => p.then(() => 200, (e) => (e instanceof HttpError ? e.status : (console.error(e), 500)));
 
 beforeAll(async () => {
+  LATEST_MEMO.ms = 0; // 配布元の最新版を途中で変えて確かめるので、覚えた結果は使わない(記憶そのものは tests/latest.test.ts)
   t = await setup();
   const deps = { db: t.db, auth: t.auth, secret: SECRET, fetch: fake };
   const servers = serverService(deps);

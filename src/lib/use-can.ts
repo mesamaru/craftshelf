@@ -3,19 +3,20 @@
 import { useEffect, useState } from "react";
 import { authClient } from "./auth-client";
 import { type RoleName, permits } from "./permissions";
+import { shared } from "./shared";
 import { myPermissions } from "./teams-api";
 
 type Perms = Parameters<typeof authClient.organization.checkRolePermission>[0]["permissions"];
 
-// 同じ画面の中の useCan は 1 回の読み込みを使う(チーム・役割が変わったか、少したったら読み直す)
-let cache: { key: string; at: number; p: Promise<Set<string>> } | null = null;
-const load = (key: string) => {
-  if (!cache || cache.key !== key || Date.now() - cache.at > 10_000) {
-    cache = { key, at: Date.now(), p: myPermissions().then((r) => new Set(r.perms)) };
-    cache.p.catch(() => { cache = null; });
-  }
-  return cache.p;
-};
+// 同じ画面の中の useCan は 1 回の読み込みを使う(チーム・役割が変わったか、30 秒たったか、書き込みや「読み直す」があったら読み直す。
+// ボタンを出すかを決めるだけで、本当の確認はサーバー側が毎回する)
+const load = (key: string) => shared(`perms:${key}`, () => myPermissions().then((r) => new Set(r.perms)), 30_000);
+
+/** 選んでいるチームの ID(まだ分からないあいだは null。チームが無ければ "")。チームが分かってから 1 回だけ読むために使う(未確定 → 確定の 2 回で動かさない) */
+export function useTeamKey() {
+  const { data, isPending } = authClient.useActiveOrganization();
+  return isPending ? null : data?.id ?? "";
+}
 
 export function useCan(userId: string) {
   const { data: team, refetch } = authClient.useActiveOrganization();

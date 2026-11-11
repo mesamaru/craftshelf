@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Btn, Chip, ChipBar, Info, Tabs } from "~/lib/ui";
 import { alignAll, splitLines, takeBase } from "~/lib/diff";
 import { configFiles, readServerFile, saveServerFile } from "~/lib/files-api";
-import { listServers } from "~/lib/servers-api";
+import { sharedServers } from "~/lib/servers-api";
 import { confirmSyntax } from "~/lib/syntax";
 
 export const Route = createFileRoute("/compare_/files")({
@@ -12,7 +12,7 @@ export const Route = createFileRoute("/compare_/files")({
     if (!context.user) throw redirect({ to: "/login", search: { next: "/compare/files" } });
     return { user: context.user };
   },
-  loader: () => listServers(),
+  loader: () => sharedServers(),
   component: FileCompare,
 });
 

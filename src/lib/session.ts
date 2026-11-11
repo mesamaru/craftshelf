@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import { getRequest } from "@tanstack/react-start/server";
+import { shared } from "./shared";
 
 // ログイン中の利用者(未ログインなら null)と、アプリの動き方(自分用かサービス版か・登録できるか)
 export const getAppState = createServerFn({ method: "GET" }).handler(async () => {
@@ -15,6 +16,9 @@ export const getAppState = createServerFn({ method: "GET" }).handler(async () =>
   const { id, name, email, twoFactorEnabled, displayUsername, username } = s.user;
   return { user: { id, name, email, username: displayUsername || username || null, twoFactorEnabled: !!twoFactorEnabled, legacyTotp: legacy, theme: await prefs.theme(id), dash: await prefs.dash(id), background: await prefs.backgroundUrl(id) }, app };
 });
+
+/** 画面を移るたびに読み直さない(ブラウザでは 30 秒覚える。ログイン・ログアウト・チームの切り替え・設定の変更などの書き込みや「読み直す」で捨てる) */
+export const loadAppState = () => shared("app-state", () => getAppState(), 30_000);
 
 export type SessionUser = NonNullable<Awaited<ReturnType<typeof getAppState>>["user"]>;
 

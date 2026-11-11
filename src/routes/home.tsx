@@ -1,7 +1,6 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { authClient } from "~/lib/auth-client";
 import { libraryCatalog, outdatedLibraryServers } from "~/lib/library-api";
 import { listBackups } from "~/lib/backup-api";
 import { CUSTOM_TYPES, type Custom, type CustomType, DASH_DEFAULT, DASH_LIMITS, DASH_WIDGETS, type DashLayout, cleanDash, newCustomId } from "~/lib/dash";
@@ -12,7 +11,7 @@ import { ITEM_TYPES, ITEM_TYPE_IDS } from "~/lib/platforms";
 import { MobileSearch, StoragePill } from "~/lib/shell";
 import { AddonIcon } from "~/lib/type-icon";
 import { Btn, Chip, Icon, type IconName, fmtSize } from "~/lib/ui";
-import { useCan } from "~/lib/use-can";
+import { useCan, useTeamKey } from "~/lib/use-can";
 
 export const Route = createFileRoute("/home")({
   beforeLoad: ({ context }) => {
@@ -32,7 +31,7 @@ const NAMES = Object.fromEntries(DASH_WIDGETS) as Record<string, string>;
 // 「ウィジェットを編集」で、並べ替え・表示 / 非表示・全幅・メモ / ToDo / 時計 / 今日の日付の追加ができる(並びはアカウントに保存)
 function Home() {
   const { user } = Route.useRouteContext();
-  const { data: team } = authClient.useActiveOrganization();
+  const teamKey = useTeamKey();
   const { can } = useCan(user.id);
   const load = useServerFn(libraryCatalog);
   const outdated = useServerFn(outdatedLibraryServers);
@@ -47,7 +46,7 @@ function Home() {
   const [adding, setAdding] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
   const reload = () => { load().then((c) => { setCat(c); setError(""); }, (e) => setError(message(e))); };
-  useEffect(reload, [team?.id]);
+  useEffect(() => { if (teamKey !== null) reload(); }, [teamKey]); // チームが分かってから 1 回だけ
   useEffect(() => {
     window.addEventListener(LIBRARY_CHANGED, reload);
     return () => window.removeEventListener(LIBRARY_CHANGED, reload);
@@ -63,7 +62,7 @@ function Home() {
   const check = () => {
     setChecking(true);
     setError("");
-    outdated().then((r) => setOld(new Map(r.map((x) => [x.itemId, x.serverIds]))), (e) => setError(message(e))).finally(() => setChecking(false));
+    outdated({ data: { fresh: true } }).then((r) => setOld(new Map(r.map((x) => [x.itemId, x.serverIds]))), (e) => setError(message(e))).finally(() => setChecking(false));
   };
   const editor = can({ library: ["edit"] });
   const admin = can({ storage: ["manage"] });

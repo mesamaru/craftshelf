@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, createFileRoute, redirect, useParams, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
-  addConnection, addLocalServer, addServers, browseHost, listConnections, listServers, localEnabled, remoteServers, removeConnection, serverStatus,
+  addConnection, addLocalServer, addServers, browseHost, listConnections, listServers, remoteServers, sharedLocalEnabled, sharedServers, removeConnection, serverStatus,
 } from "~/lib/servers-api";
-import { useCan } from "~/lib/use-can";
+import { useCan, useTeamKey } from "~/lib/use-can";
+import { shared } from "~/lib/shared";
 import { ApplyResults } from "~/lib/apply-results";
 import { updateServers } from "~/lib/sets-api";
 import { outdatedLibraryServers } from "~/lib/library-api";
@@ -21,7 +22,7 @@ export const Route = createFileRoute("/servers")({
     if (!context.user) throw redirect({ to: "/login", search: { next: "/servers" } });
     return { user: context.user };
   },
-  loader: async () => ({ servers: await listServers(), connections: await listConnections(), local: await localEnabled() }),
+  loader: async () => ({ servers: await sharedServers(), connections: await listConnections(), local: await sharedLocalEnabled() }),
   component: Servers,
 });
 
@@ -40,7 +41,8 @@ let lastOld: { team: string; at: number; map: Map<string, number> } | null = nul
 function Servers() {
   const { user } = Route.useRouteContext();
   const { servers, connections, local } = Route.useLoaderData();
-  const { can, team } = useCan(user.id);
+  const { can } = useCan(user.id);
+  const teamKey = useTeamKey(); // 選んでいるチームが分かる(null = まだ)まで、チームごとの読み込みはしない
   const id = (useParams({ strict: false }) as { id?: string }).id;
   const router = useRouter();
   const reload = () => router.invalidate();
@@ -50,32 +52,33 @@ function Servers() {
   const outdated = useServerFn(outdatedLibraryServers);
   const access = useServerFn(filesAccess);
   const [st, setSt] = useState<Record<string, Status | string>>({}); // 文字はつながらなかった理由
-  const [old, setOld] = useState<Map<string, number> | null>(() => (lastOld && lastOld.team === team?.id && Date.now() - lastOld.at < OLD_TTL ? lastOld.map : null)); // サーバー → 古い版の数
+  const [old, setOld] = useState<Map<string, number> | null>(() => (lastOld && lastOld.team === teamKey && Date.now() - lastOld.at < OLD_TTL ? lastOld.map : null)); // サーバー → 古い版の数
   const [checking, setChecking] = useState(false);
   const [files, setFiles] = useState(false);
   const [sheet, setSheet] = useState<"" | "add" | "update">("");
   const [error, setError] = useState("");
 
-  const read = (sid: string) => status({ data: { id: sid } }).then((x) => setSt((p) => ({ ...p, [sid]: x })), (e) => setSt((p) => ({ ...p, [sid]: message(e) })));
+  // 状態の読み込みはメニューの点(shell.tsx)と共有する(10 秒以内に読んだものがあれば、それを使う)
+  const read = (sid: string) => shared(`status:${sid}`, () => status({ data: { id: sid } }), 10_000).then((x) => setSt((p) => ({ ...p, [sid]: x })), (e) => setSt((p) => ({ ...p, [sid]: message(e) })));
   useEffect(() => {
     const all = () => { for (const s of servers) read(s.id); };
     all();
     const t = setInterval(() => { if (!document.hidden) all(); }, 15_000);
     return () => clearInterval(t);
   }, [servers]);
-  useEffect(() => { access().then((a) => setFiles(a.allowed), () => setFiles(false)); }, [team?.id]);
+  useEffect(() => { if (teamKey !== null) shared("files-access", () => access(), 5000).then((a) => setFiles(a.allowed), () => setFiles(false)); }, [teamKey]);
   // 「更新あり」は配布元に問い合わせる。開いたとき(前の結果が新しければそれを使う)と、「更新」の数を押したときに確かめる
-  const checkOld = () => {
+  const checkOld = (fresh = false) => {
     setChecking(true);
     setError("");
-    outdated().then((r) => {
+    outdated({ data: { fresh } }).then((r) => {
       const n = new Map<string, number>();
       for (const x of r) for (const sid of x.serverIds) n.set(sid, (n.get(sid) ?? 0) + 1);
-      lastOld = { team: team?.id ?? "", at: Date.now(), map: n };
+      lastOld = { team: teamKey ?? "", at: Date.now(), map: n };
       setOld(n);
     }, (e) => setError(message(e))).finally(() => setChecking(false));
   };
-  useEffect(() => { if (servers.length && !old) checkOld(); }, [team?.id, servers.length]);
+  useEffect(() => { if (teamKey !== null && servers.length && !old) checkOld(); }, [teamKey, servers.length]); // チームが分かってから 1 回だけ
 
   const stateOf = (sid: string) => { const x = st[sid]; return typeof x === "object" ? x.state : ""; };
   const running = servers.filter((s) => stateOf(s.id) === "running").length;
@@ -140,7 +143,7 @@ function Servers() {
           <aside className="srv-side" aria-label="サーバーの一覧">
             <div className="sstats">
               <div className="glass"><small>稼働</small><b>{running}<i>{`/${servers.length}`}</i></b></div>
-              <button type="button" className={`glass${updates ? " warn" : ""}`} disabled={checking} onClick={checkOld} title="押すと、配布元に問い合わせて確かめ直します">
+              <button type="button" className={`glass${updates ? " warn" : ""}`} disabled={checking} onClick={() => checkOld(true)} title="押すと、配布元に問い合わせて確かめ直します">
                 <small>更新</small><b>{checking && updates === null ? "…" : updates ?? "—"}</b>
               </button>
               <div className="glass"><small>人数</small><b>{players}</b></div>

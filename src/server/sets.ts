@@ -5,7 +5,7 @@ import { ITEM_TYPES, PLATFORMS, isItemType, isPlatform } from "~/lib/platforms";
 import { addonSet, addonSetItem, installedMod, libraryItem, server, serverHold, serverSet } from "./db/schema";
 import { HttpError, isHttpError, requireTeam } from "./guard";
 import { isItemSource } from "~/lib/sources";
-import { fileProfile, isDisabled, modTools, profileFor } from "./library";
+import { fileProfile, forgetLatest, isDisabled, modTools, profileFor } from "./library";
 import { type EventKind, eventService } from "./events";
 import { type Deps, serverOf, needServerAccess, serverScope } from "./servers";
 import { softwareService } from "./software";
@@ -292,6 +292,7 @@ export function setService(deps: Deps) {
         versionNumber = f.versionNumber;
       }
       await db.update(addonSetItem).set({ versionId: versionId || null, versionNumber }).where(and(eq(addonSetItem.setId, id), eq(addonSetItem.itemId, itemId)));
+      forgetLatest(teamId, row.source, row.projectId);
       await record({ teamId, userId: user.id, kind: "admin", action: versionId ? "セットの版を固定する" : "セットの版の固定をやめる", target: set.name, detail: versionId ? `${row.title} ${versionNumber}` : row.title });
       return { versionNumber };
     },
@@ -320,12 +321,14 @@ export function setService(deps: Deps) {
       await needServerAccess(deps, who, serverId);
       if (!setId) {
         await db.delete(serverSet).where(eq(serverSet.serverId, serverId));
+        forgetLatest(teamId);
         await record({ teamId, userId: user.id, kind: "admin", action: "セットの結び付けを外す", target: await serverName(serverId) });
         return;
       }
       const set = await setOf(teamId, setId);
       const values = { serverId, setId, updatedAt: new Date() };
       await db.insert(serverSet).values(values).onConflictDoUpdate({ target: serverSet.serverId, set: values });
+      forgetLatest(teamId);
       await record({ teamId, userId: user.id, kind: "admin", action: "セットを結び付ける", target: `${await serverName(serverId)} ← ${set.name}` });
     },
 

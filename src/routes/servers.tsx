@@ -12,7 +12,8 @@ import { filesAccess } from "~/lib/files-api";
 import { addAgentServer, createAgent, listAgents, removeAgent } from "~/lib/agents-api";
 import { STATE_LABELS, kindLabel } from "~/lib/platforms";
 import { type Status, ServerStatusCtx } from "~/lib/server-status";
-import { Btn, Icon, type IconName, Info, Seg, Sheet } from "~/lib/ui";
+import { Btn, Chip, ChipBar, Icon, type IconName, Info, Seg, Sheet } from "~/lib/ui";
+import { SERVER_FILTERS, SERVER_SORTS, type ServerFilter, type ServerItem, type ServerSort, arrange, isServerSort } from "~/lib/server-list";
 import { MobileSearch, StoragePill } from "~/lib/shell";
 
 export const Route = createFileRoute("/servers")({
@@ -28,6 +29,8 @@ const message = (e: unknown) => (e instanceof Error ? e.message : "うまくい�
 
 type Server = Awaited<ReturnType<typeof listServers>>[number];
 // 更新の確かめは配布元に問い合わせるので、開くたびにはしない(10 分は前の結果を使う。「更新」の数を押すと、いつでも確かめ直す)
+const SORT_KEY = "craftshelf.servers.sort";
+const GROUP_KEY = "craftshelf.servers.group";
 const OLD_TTL = 10 * 60_000;
 let lastOld: { team: string; at: number; map: Map<string, number> } | null = null;
 
@@ -79,10 +82,30 @@ function Servers() {
   const players = servers.reduce((n, s) => { const x = st[s.id]; return n + (typeof x === "object" ? x.ping?.online ?? 0 : 0); }, 0);
   const updates = old ? servers.reduce((n, s) => n + (old.get(s.id) ?? 0), 0) : null;
   const behind = servers.filter((s) => old?.get(s.id));
-  const need = behind;
-  const ok = servers.filter((s) => !old?.get(s.id));
-  const ordered = [...need, ...ok];
-  const group = (title: string, list: Server[]) => list.length > 0 && (
+  // 並べ替え・グループ分けはこの端末に覚える(読み込むまで、いちばん上のサーバーは決めない)
+  const [pref, setPref] = useState<{ sort: ServerSort; group: boolean }>({ sort: "name", group: true });
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    try {
+      const sort = localStorage.getItem(SORT_KEY);
+      setPref({ sort: isServerSort(sort) ? sort : "name", group: localStorage.getItem(GROUP_KEY) !== "0" });
+    } catch {}
+    setLoaded(true);
+  }, []);
+  const save = (p: Partial<typeof pref>) => {
+    setPref((x) => ({ ...x, ...p }));
+    try { if (p.sort) localStorage.setItem(SORT_KEY, p.sort); if (p.group !== undefined) localStorage.setItem(GROUP_KEY, p.group ? "1" : "0"); } catch {}
+  };
+  const [q, setQ] = useState("");
+  const [filter, setFilter] = useState<ServerFilter>("all");
+  const many = servers.length > 4; // 少ないときは絞り込みを出さない(並べ替えだけ)
+  const items = servers.map((s, index) => {
+    const x = st[s.id];
+    return { ...s, index, state: stateOf(s.id), old: old?.get(s.id) ?? 0, online: typeof x === "object" ? x.ping?.online ?? 0 : 0 };
+  });
+  const { need, ok, first } = arrange(items, { sort: pref.sort, q: many ? q : "", filter: many ? filter : "all", group: pref.group });
+  const nothing = servers.length > 0 && need.length + ok.length === 0;
+  const group = (title: string, list: (Server & ServerItem)[]) => list.length > 0 && (
     <div key={title || "all"}>
       {title && <div className="sgrp">{title}</div>}
       <section className="group slist">{list.map((s) => <ServerRow key={s.id} server={s} st={st[s.id]} old={old?.get(s.id) ?? 0} checked={!!old} on={s.id === id} />)}</section>
@@ -91,7 +114,7 @@ function Servers() {
   const link = (to: string, icon: IconName, label: string) => <Link to={to as "/"} className="btn tint sm"><Icon name={icon} />{label}</Link>;
 
   return (
-    <ServerStatusCtx.Provider value={{ st, refresh: (sid) => setTimeout(() => read(sid), 1500), first: ordered[0]?.id ?? null, old }}>
+    <ServerStatusCtx.Provider value={{ st, refresh: (sid) => setTimeout(() => read(sid), 1500), first: loaded ? first : null, old }}>
       <main className={`page fill srv${id ? " has-id" : ""}`}>
         <header className="bar">
           <h1>サーバー
@@ -123,6 +146,21 @@ function Servers() {
               <div className="glass"><small>人数</small><b>{players}</b></div>
             </div>
             {servers.length === 0 && <section className="group"><div className="row muted">まだサーバーがありません。</div></section>}
+            {servers.length > 0 && (
+              <div className="sfilter">
+                {many && <label className="q"><Icon name="search" /><input type="search" placeholder="検索" aria-label="名前で絞り込む" value={q} onChange={(e) => setQ(e.target.value)} /></label>}
+                <select className="sel" value={pref.sort} aria-label="並べ替え" onChange={(e) => save({ sort: e.target.value as ServerSort })}>
+                  {SERVER_SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </div>
+            )}
+            {many && (
+              <ChipBar label="絞り込み">
+                {SERVER_FILTERS.map(([v, l]) => <Chip key={v} on={filter === v} warn={v === "update"} onClick={() => setFilter(v)}>{l}</Chip>)}
+                {behind.length > 0 && <Chip on={pref.group} onClick={() => save({ group: !pref.group })}>グループ分け</Chip>}
+              </ChipBar>
+            )}
+            {nothing && <section className="group"><div className="row muted">条件に合うサーバーはありません</div></section>}
             {group(need.length ? "対応が必要" : "", need)}
             {group(need.length ? "問題なし" : "", ok)}
             {edit && servers.length > 0 && (

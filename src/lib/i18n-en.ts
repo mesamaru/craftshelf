@@ -1698,6 +1698,12 @@ export const EN: Record<string, string> = {
   "サーバーに入れないものなので、前提はありません": "Not installed on servers, so no dependencies",
   "ライブラリに Mod・プラグインを足す": "Add mods and plugins to the library",
   "新しい版があるアイテムと、古い版が入っているサーバー": "Items with a newer version, and the servers that have an old version",
+  // 03.70.00: サーバーの一覧の並べ替え・絞り込み
+  "名前の逆順": "By name (Z–A)",
+  "稼働中を上に": "Running first",
+  "人数が多い順": "Most players",
+  "種類順": "By type",
+  "グループ分け": "Group",
 };
 /** 1 文字だけのもの(曜日など)。文全体が一致したときだけ置き換える */
 export const EN_WHOLE: Record<string, string> = {

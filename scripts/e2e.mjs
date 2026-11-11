@@ -254,6 +254,62 @@ await step("フォルダのサーバーを足すと、一覧と詳細のタブ�
   await page.setViewportSize({ width: 1280, height: 720 });
 });
 
+// サーバーの一覧: 並べ替え(この端末に覚える)・名前と状態の絞り込み(5 台以上のとき)
+await step("サーバーの一覧を並べ替え・絞り込める", async () => {
+  await page.goto(base + "/servers");
+  const probe = page.locator("main").getByRole("button", { name: "＋ サーバーを追加" });
+  await probe.click();
+  if (!(await page.getByRole("dialog").getByRole("tab", { name: "フォルダ" }).count())) { await page.keyboard.press("Escape"); return console.log("     (フォルダのサーバーは自分用の版だけ)"); }
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog").waitFor({ state: "detached" });
+  for (const name of ["サーバー2", "サーバー10", "alpha", "Beta"]) {
+    const dir = mkdtempSync(join(tmpdir(), "cs-e2e-"));
+    writeFileSync(join(dir, "paper-1.21.4.jar"), "");
+    await probe.click();
+    const sheet = page.getByRole("dialog");
+    await sheet.getByRole("tab", { name: "フォルダ" }).click();
+    await sheet.getByRole("button", { name: "このフォルダを使う" }).waitFor(); // 一覧が出てから場所を入れる
+    await sheet.getByPlaceholder("名前(空ならフォルダの名前)").fill(name);
+    await sheet.getByLabel("フォルダの場所").fill(dir);
+    await sheet.getByRole("button", { name: "開く" }).click();
+    await sheet.getByRole("button", { name: /paper-1.21.4.jar/ }).click();
+    await sheet.waitFor({ state: "detached" });
+  }
+  const titles = () => page.locator(".srv-side a.row .ttl").allTextContents();
+  const same = async (want, what) => {
+    await page.waitForFunction(([w]) => JSON.stringify([...document.querySelectorAll(".srv-side a.row .ttl")].map((e) => e.textContent)) === JSON.stringify(w), [want], { timeout: 5000 })
+      .catch(async () => { throw new Error(`${what}: ${JSON.stringify(await titles())}`); });
+  };
+  await page.goto(base + "/servers");
+  await page.locator(".srv-side a.row", { hasText: "Beta" }).waitFor();
+  const sort = page.locator(".srv-side").getByLabel("並べ替え");
+  await sort.selectOption("name");
+  await same(["alpha", "Beta", "E2E", "サーバー2", "サーバー10"], "名前順(数字は数として)");
+  await sort.selectOption("nameDesc");
+  await same(["サーバー10", "サーバー2", "E2E", "Beta", "alpha"], "名前の逆順");
+  await page.screenshot({ path: ".e2e/servers-sort.png" });
+  await page.reload(); // この端末に覚える
+  await page.locator(".srv-side a.row", { hasText: "Beta" }).waitFor();
+  if ((await page.locator(".srv-side").getByLabel("並べ替え").inputValue()) !== "nameDesc") throw new Error("並べ替えを覚えていません");
+  await page.locator(".srv-side").getByLabel("名前で絞り込む").fill("サーバー");
+  await same(["サーバー10", "サーバー2"], "名前で絞り込み");
+  await page.locator(".srv-side").getByLabel("名前で絞り込む").fill("");
+  await page.locator(".srv-side").getByRole("button", { name: "更新あり", exact: true }).click();
+  await page.getByText("条件に合うサーバーはありません").waitFor(); // 更新のあるサーバーは無い
+  await page.locator(".srv-side").getByRole("button", { name: "停止中", exact: true }).click();
+  await same(["サーバー10", "サーバー2", "E2E", "Beta", "alpha"], "停止中で絞り込み");
+  await page.locator(".srv-side").getByRole("button", { name: "稼働中", exact: true }).click();
+  await page.getByText("条件に合うサーバーはありません").waitFor();
+  await page.locator(".srv-side").getByRole("button", { name: "すべて", exact: true }).click();
+  await page.locator(".srv-side").getByLabel("並べ替え").selectOption("name");
+  await same(["alpha", "Beta", "E2E", "サーバー2", "サーバー10"], "名前順に戻す");
+  // スマホ(幅 390 px)でも一覧の上が収まる
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.screenshot({ path: ".e2e/servers-sort-phone.png", fullPage: true });
+  if (await page.evaluate(() => document.documentElement.scrollWidth > innerWidth)) throw new Error("スマホで横にはみ出しています");
+  await page.setViewportSize({ width: 1280, height: 720 });
+});
+
 // ライブラリはアドオンの管理(v02 と同じ形)。どのサーバーに入っているかは出さない
 await step("ドラッグ&ドロップの欄から jar を足すと、一覧と詳しくのシートに出る(サーバーのことは出さない)", async () => {
   await page.goto(base + "/");

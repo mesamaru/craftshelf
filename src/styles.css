@@ -788,6 +788,15 @@ a.kv.linkish span:last-child { color: var(--accent); font-weight: 600; }
 .sstats b i { font-style: normal; font-size: 13px; color: var(--muted); font-weight: 500; margin-left: 2px; }
 .sstats .warn b { color: var(--warn); }
 .sgrp { font-size: 12.5px; color: var(--muted); margin: 14px 6px 6px; }
+/* 一覧の上の絞り込み: 検索欄(ライブラリと同じ見た目)と並べ替え、その下に丸いボタン */
+.sfilter { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; }
+.sfilter .q { position: relative; flex: 1; min-width: 0; }
+.sfilter .q svg { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); width: 17px; height: 17px; color: var(--muted); pointer-events: none; }
+.sfilter .q input { width: 100%; min-height: 36px; padding: 6px 12px 6px 34px; border-radius: 12px; border: 0; background: var(--chip); color: var(--text); font: inherit; outline: none; }
+.sfilter .q input:focus { box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 40%, transparent); }
+.sfilter select.sel { max-width: 140px; min-width: 0; text-overflow: ellipsis; }
+.sfilter:not(:has(.q)) select.sel { max-width: none; flex: 1; }
+.srv-side .fbar { margin-bottom: 8px; }
 .slist .row[aria-current="true"] { background: var(--accent-soft); }
 .sall { width: 100%; margin-top: 14px; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--r-card); text-align: left; cursor: pointer; font: inherit; color: var(--text); box-shadow: var(--shadow); }
 .sall > svg { width: 20px; height: 20px; color: var(--accent); flex: none; }

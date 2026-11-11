@@ -1463,6 +1463,7 @@ export const EN: Record<string, string> = {
   "確かめる": "Check",
   "前提はそろっています。": "All dependencies are in the set.",
   " が使います": " uses this",
+  " が使います(入っていません)": " uses this (not installed)",
   "セットは、ライブラリから選んだ Mod・プラグインの組み合わせです。「サーバーに入れる」で、サーバーの種類に合うもののうち、まだ入っていないものをまとめて入れます(Paper のサーバーに Mod は入れません)。「前提を確かめる」は、選んだ種類のサーバーに入るいちばん新しい版の前提(Modrinth・CurseForge の必須)が、セットに入っているかを見ます。":
     "A set is a group of mods and plugins chosen from the library. “Install on a server” installs the ones that fit the server type and are not installed yet (mods are not installed on Paper servers). “Check dependencies” checks that the required dependencies (Modrinth, CurseForge) of the newest version for the chosen server type are in the set.",
   // 03.55.00: セット・ほかのサーバーにそろえる

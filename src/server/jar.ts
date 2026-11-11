@@ -81,33 +81,129 @@ const json = (text: string) => {
   }
 };
 
+// YAML の「key: [A, B]」・「key: A」・「key:」の下の「- A」の並びを、文字の配列にする
+function yamlList(text: string, key: string): string[] {
+  const lines = text.split(/\r?\n/);
+  const i = lines.findIndex((l) => new RegExp(`^${key}:`).test(l));
+  if (i < 0) return [];
+  const clean = (s: string) => s.replace(/\s+#.*$/, "").trim().replace(/^["']|["']$/g, "");
+  const v = lines[i].slice(key.length + 1).replace(/\s+#.*$/, "").trim();
+  if (v.startsWith("[")) return v.replace(/^\[|\]$/g, "").split(",").map(clean).filter(Boolean);
+  if (v) return [clean(v)];
+  const out: string[] = [];
+  for (const l of lines.slice(i + 1)) {
+    const m = l.match(/^\s+-\s*(.+?)\s*$/);
+    if (m) out.push(clean(m[1]));
+    else if (l.trim() && !l.trim().startsWith("#")) break;
+  }
+  return out.filter(Boolean);
+}
+
+// paper-plugin.yml の dependencies.server の、必須(required が false でない)のものの名前
+function paperDeps(text: string): string[] {
+  const lines = text.split(/\r?\n/);
+  const start = lines.findIndex((l) => /^dependencies:\s*$/.test(l));
+  if (start < 0) return [];
+  const indentOf = (l: string) => l.length - l.trimStart().length;
+  let i = start + 1;
+  while (i < lines.length && !/^\s+server:\s*$/.test(lines[i])) {
+    if (lines[i].trim() && indentOf(lines[i]) === 0) return [];
+    i++;
+  }
+  if (i >= lines.length) return [];
+  const base = indentOf(lines[i]);
+  const out: string[] = [];
+  let cur: { name: string; required: boolean } | null = null;
+  const flush = () => { if (cur?.required) out.push(cur.name); cur = null; };
+  for (const l of lines.slice(i + 1)) {
+    if (!l.trim() || l.trim().startsWith("#")) continue;
+    const ind = indentOf(l);
+    if (ind <= base) break;
+    const m = l.trim().match(/^["']?([^"':\s]+)["']?:\s*(.*)$/);
+    if (!m) continue;
+    if (ind === base + 2) { flush(); cur = { name: m[1], required: true }; if (/required\s*:\s*false/.test(m[2])) cur.required = false; }
+    else if (cur && m[1] === "required" && m[2].trim() === "false") cur.required = false;
+  }
+  flush();
+  return out;
+}
+
+// forge・neoforge の mods.toml の、必須の前提の modId(minecraft・forge 本体などは除く)
+function tomlDeps(text: string): string[] {
+  const out: string[] = [];
+  for (const block of text.split(/^\s*\[\[dependencies\./m).slice(1)) {
+    const section = block.split(/^\s*\[/m)[0];
+    const id = section.match(/modId\s*=\s*["']([^"']+)["']/)?.[1];
+    if (!id || /type\s*=\s*["'](?:optional|incompatible|discouraged)["']/.test(section) || /mandatory\s*=\s*false/.test(section)) continue;
+    out.push(id);
+  }
+  return out;
+}
+
+const BUILT_IN = new Set(["minecraft", "java", "fabricloader", "fabric-loader", "quilt_loader", "forge", "neoforge", "fml", "javafml"]);
+
+export type JarMeta = {
+  /** 見分ける名前(jarKey と同じ) */
+  key: string;
+  /** 表示する名前・版(説明ファイルが無ければ "") */
+  name: string;
+  version: string;
+  /** 必須の前提(key は見分ける名前、name は書いてあったままの名前) */
+  depends: { key: string; name: string }[];
+};
+
 /**
- * 同じものかを見分ける名前(plugin.yml・paper-plugin.yml の name、velocity-plugin.json・fabric.mod.json・quilt.mod.json の id、mods.toml の modId)。
- * Paper は同じ名前のプラグインを 2 つ読み込めない。説明ファイルが無ければ ""(ファイル名からは決めない)
+ * 同じものかを見分ける名前(plugin.yml・paper-plugin.yml の name、velocity-plugin.json・fabric.mod.json・quilt.mod.json の id、mods.toml の modId)と、
+ * 表示する名前・版・必須の前提(plugin.yml の depend、paper-plugin.yml の dependencies、mod の depends)を、1 回の読み取りで返す。
+ * Paper は同じ名前のプラグインを 2 つ読み込めない。説明ファイルが無ければ key は ""(ファイル名からは決めない)
  */
-export function jarKey(buf: Uint8Array | ZipSource): string {
+export function jarMeta(buf: Uint8Array | ZipSource): JarMeta {
   const files = readZipTexts(buf) ?? new Map<string, string>();
   const key = (kind: string, v: unknown) => (typeof v === "string" && v.trim() ? `${kind}:${v.trim().toLowerCase()}` : "");
+  const keys = (kind: string, list: string[]) => {
+    const seen = new Map<string, string>();
+    for (const x of list) if (x && !BUILT_IN.has(x.toLowerCase()) && key(kind, x) && !seen.has(key(kind, x))) seen.set(key(kind, x), x.trim());
+    return [...seen].map(([k, name]) => ({ key: k, name }));
+  };
+  const info = analyzeFiles(files, "");
+  const base = { name: info.projectType ? info.name : "", version: info.projectType ? info.version : "" };
   for (const f of ["paper-plugin.yml", "plugin.yml", "bungee.yml"]) {
     const t = files.get(f);
-    if (t) return key("plugin", yamlTop(t).name);
+    if (!t) continue;
+    const depends = f === "paper-plugin.yml" ? paperDeps(t) : yamlList(t, f === "bungee.yml" ? "depends" : "depend");
+    return { key: key("plugin", yamlTop(t).name), ...base, depends: keys("plugin", depends) };
   }
   const velocity = files.get("velocity-plugin.json");
-  if (velocity) return key("velocity", json(velocity).id);
+  if (velocity) {
+    const j = json(velocity);
+    const deps = Array.isArray(j.dependencies) ? (j.dependencies as { id?: unknown; optional?: unknown }[]).filter((d) => d && d.optional !== true).map((d) => String(d.id ?? "")) : [];
+    return { key: key("velocity", j.id), ...base, depends: keys("velocity", deps) };
+  }
   for (const f of ["fabric.mod.json", "quilt.mod.json"]) {
     const t = files.get(f);
-    if (t) { const j = json(t); return key("mod", j.id ?? (j.quilt_loader as Record<string, unknown> | undefined)?.id); }
+    if (!t) continue;
+    const j = json(t);
+    const q = j.quilt_loader as Record<string, unknown> | undefined;
+    const d = (f === "fabric.mod.json" ? j.depends : q?.depends) as unknown;
+    const ids = Array.isArray(d) ? d.map((x) => (typeof x === "string" ? x : String((x as { id?: unknown })?.id ?? ""))) : d && typeof d === "object" ? Object.keys(d) : [];
+    return { key: key("mod", j.id ?? q?.id), ...base, depends: keys("mod", ids) };
   }
   for (const f of ["META-INF/neoforge.mods.toml", "META-INF/mods.toml"]) {
     const t = files.get(f);
-    if (t) return key("mod", tomlFirst(t, "modId"));
+    if (t) return { key: key("mod", tomlFirst(t, "modId")), ...base, depends: keys("mod", tomlDeps(t)) };
   }
-  return "";
+  return { key: "", ...base, depends: [] };
 }
+
+/** 同じものかを見分ける名前(jarMeta の key)。説明ファイルが無ければ "" */
+export const jarKey = (buf: Uint8Array | ZipSource): string => jarMeta(buf).key;
 
 /** jar を調べる。プラグイン・Mod として読めなければ projectType が null */
 export function analyzeJar(buf: Uint8Array | ZipSource, filename: string): JarInfo {
-  const files = readZipTexts(buf) ?? new Map<string, string>();
+  return analyzeFiles(readZipTexts(buf) ?? new Map<string, string>(), filename);
+}
+
+function analyzeFiles(files: Map<string, string>, filename: string): JarInfo {
   const loaders = new Set<string>();
   let name = "";
   let version = "";

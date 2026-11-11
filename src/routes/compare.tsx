@@ -42,19 +42,23 @@ function Compare() {
   // サーバーにある、配布元のわからない jar(このアプリの記録が無いもの)。選んだサーバーごとに読む
   const listFiles = useServerFn(installedMods);
   const identify = useServerFn(identifyMods);
-  const [unknown, setUnknown] = useState<Record<string, string[]>>({});
+  type Unknown = { filename: string; name: string; key: string };
+  const [unknown, setUnknown] = useState<Record<string, Unknown[]>>({});
   const [tick, setTick] = useState(0); // 増やすと、読み直す
   useEffect(() => {
     for (const id of sel) {
       if (id in unknown) continue;
       listFiles({ data: { id } }).then(
-        (r) => setUnknown((u) => ({ ...u, [id]: r.items.filter((i) => !i.projectId).map((i) => i.filename) })),
+        (r) => setUnknown((u) => ({ ...u, [id]: r.items.filter((i) => !i.projectId).map((i) => ({ filename: i.filename, name: i.name ?? "", key: i.key ?? "" })) })),
         () => setUnknown((u) => ({ ...u, [id]: [] })), // 種類を決めていない・つながらないサーバーは出さない
       );
     }
   }, [sel.join(), tick]);
-  const unknownRows = [...new Set(servers.flatMap((s) => (unknown[s.id] ?? []).map(baseName)))].sort((a, b) => a.localeCompare(b))
-    .map((name) => ({ name, files: Object.fromEntries(servers.map((s) => [s.id, (unknown[s.id] ?? []).find((f) => baseName(f) === name) ?? ""])) }))
+  // 手で置いた jar は、中の説明ファイルの名前(plugin.yml の name など)で同じものを並べる。読めなければ、ファイル名から版を除いた名前
+  const groupOf = (f: Unknown) => f.key || `f:${baseName(f.filename)}`;
+  const labels = new Map(servers.flatMap((s) => (unknown[s.id] ?? []).map((f) => [groupOf(f), f.name || baseName(f.filename)] as const)));
+  const unknownRows = [...labels.keys()].sort((a, b) => labels.get(a)!.localeCompare(labels.get(b)!))
+    .map((g) => ({ g, name: labels.get(g)!, files: Object.fromEntries(servers.map((s) => [s.id, (unknown[s.id] ?? []).find((f) => groupOf(f) === g)?.filename ?? ""])) }))
     .filter((r) => !diffOnly || new Set(servers.map((s) => r.files[s.id])).size > 1);
   const installOf = (i: Item, serverId: string) => i.installs.find((x) => x.serverId === serverId);
   const verOf = (i: Item, serverId: string) => { const x = installOf(i, serverId); return x && `${x.versionNumber}${x.disabled ? " 無効" : ""}`; };
@@ -165,7 +169,7 @@ function Compare() {
                 ))}
                 {unknownRows.length > 0 && <tr className="grp"><td colSpan={servers.length + 1}>配布元がわからないもの(手で置いた jar など)</td></tr>}
                 {unknownRows.map((r) => (
-                  <tr key={`n:${r.name}`}>
+                  <tr key={`n:${r.g}`}>
                     <td translate="no">{r.name}</td>
                     {servers.map((s) => {
                       const f = r.files[s.id];

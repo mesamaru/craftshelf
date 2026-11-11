@@ -13,7 +13,7 @@ import { CF_KEY, CurseForgeError, curseforgeClient } from "./curseforge";
 import { addonSetItem, installHistory, libraryDep, libraryFavorite, libraryFile, libraryTag, serverChange, serverSet, storageTarget, teamCurseforge, teamOption } from "./db/schema";
 import { hint, open, seal } from "./secrets";
 import { fileStore, uploadService } from "./uploads";
-import { analyzeJar, jarKey } from "./jar";
+import { type JarMeta, analyzeJar, jarMeta } from "./jar";
 import { eventService } from "./events";
 import { jobService } from "./jobs";
 import { type Deps, remote, serverOf, serverScope, worldOf } from "./servers";
@@ -346,24 +346,58 @@ export function modTools(deps: Deps) {
     return rec?.title ?? filename;
   }
 
-  // ファイルの見分ける名前(jarKey)。サーバー・場所・大きさが同じなら読み直さない(Pterodactyl はファイルを取ってくるので)
-  const keyMemo = new Map<string, string>();
+  // jar の中の説明ファイルから読んだ名前・版・前提(jarMeta)。サーバー・場所・大きさが同じなら読み直さない(Pterodactyl はファイルを取ってくるので)。読めなければ null
+  const metaMemo = new Map<string, JarMeta>();
+  async function metaOf(target: Target, dir: string, name: string, size: number): Promise<JarMeta | null> {
+    const k = `${target.row.id}:${dir}/${name}:${size}`;
+    let m = metaMemo.get(k);
+    if (!m) {
+      try {
+        m = jarMeta(await target.client.readBytes(target.remoteId, `${dir}/${name}`, IDENTIFY_BYTES));
+      } catch {
+        return null;
+      }
+      if (metaMemo.size >= 5000) metaMemo.clear();
+      metaMemo.set(k, m);
+    }
+    return m;
+  }
+  /** サーバーに入っている jar(データパックは除く。IDENTIFY_MAX 個まで)の説明ファイルの内容 */
+  async function metasIn(target: Target, p: Profile) {
+    const out = new Map<string, JarMeta>();
+    for (const f of (await addonsIn(target, p)).filter((x) => !x.datapack && JAR.test(x.name)).slice(0, IDENTIFY_MAX)) {
+      const m = await metaOf(target, f.dir, f.name, f.size);
+      if (m) out.set(f.name, m);
+    }
+    return out;
+  }
+  /**
+   * 手で置いた jar(このアプリの記録が無いもの)の、必須の前提(plugin.yml の depend など)のうち、サーバーに入っていないもの。
+   * shortcut: Mod の前提は、fabric-api のようにまとめて入っているものの名前が合わず誤って出るので、プラグイン(Paper・Velocity・Bungee)だけ確かめる。要るなら Mod の provides も読む
+   */
+  async function unmetOf(target: Target, p: Profile) {
+    const known = new Set((await db.select({ f: installedMod.filename }).from(installedMod).where(eq(installedMod.serverId, target.row.id))).map((r) => r.f));
+    const metas = await metasIn(target, p);
+    const have = new Set([...metas].filter(([f]) => !isDisabled(f)).map(([, m]) => m.key));
+    const need = new Map<string, { name: string; by: string[] }>(); // 前提の見分ける名前 → 書いてあった名前と、使うもの
+    for (const [f, m] of metas) {
+      if (known.has(f) || isDisabled(f)) continue;
+      for (const d of m.depends.filter((x) => /^(plugin|velocity):/.test(x.key))) {
+        if (!have.has(d.key)) need.set(d.key, { name: d.name, by: [...(need.get(d.key)?.by ?? []), m.name || f] });
+      }
+    }
+    // 配布元から入れたもの(記録がある jar)も、中の名前で入っていると数える(説明ファイルの名前が、記録の名前と違うこともあるので)
+    const titles = new Set((await db.select({ t: installedMod.title }).from(installedMod).where(eq(installedMod.serverId, target.row.id))).map((r) => `plugin:${r.t.toLowerCase()}`));
+    return [...need].filter(([d]) => !titles.has(d)).map(([, d]) => ({ name: d.name, by: [...new Set(d.by)] }));
+  }
   /** dir に、filename と同じ名前(plugin.yml の name・Mod の id)の jar がほかのファイル名で入っていれば、その名前(skip は除く) */
   async function sameNamed(target: Target, dir: string, filename: string, skip: string[]) {
-    const read = (name: string) => target.client.readBytes(target.remoteId, `${dir}/${name}`, IDENTIFY_BYTES).then(jarKey, () => "");
-    const mine = await read(filename);
+    const mine = (await target.client.readBytes(target.remoteId, `${dir}/${filename}`, IDENTIFY_BYTES).then(jarMeta, () => null))?.key;
     if (!mine) return [];
     const out: string[] = [];
     for (const f of await remote(() => target.client.listFiles(target.remoteId, dir))) {
       if (!f.isFile || f.name === filename || skip.includes(f.name) || !/\.jar$/i.test(f.name)) continue; // 無効・外したものは読み込まれないので見ない
-      const k = `${target.row.id}:${dir}/${f.name}:${f.size}`;
-      let key = keyMemo.get(k);
-      if (key === undefined) {
-        key = await read(f.name);
-        if (keyMemo.size >= 5000) keyMemo.clear();
-        keyMemo.set(k, key);
-      }
-      if (key === mine) out.push(f.name);
+      if ((await metaOf(target, dir, f.name, f.size))?.key === mine) out.push(f.name);
     }
     return out;
   }
@@ -618,13 +652,13 @@ export function modTools(deps: Deps) {
     return { missing: missing.sort((a, b) => a.title.localeCompare(b.title)), errors: [...new Set(errors)] };
   }
 
-  return { teamPinsOf, files, missingOf, pickOf, modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, pinsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn, dirOf, addonsIn, packVersions };
+  return { metasIn, unmetOf, teamPinsOf, files, missingOf, pickOf, modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, pinsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn, dirOf, addonsIn, packVersions };
 }
 
 export function libraryService(deps: Deps) {
   const { db, auth } = deps;
   const { record } = eventService(deps);
-  const { teamPinsOf, files, missingOf, modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, pinsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn, dirOf, addonsIn, packVersions } = modTools(deps);
+  const { metasIn, unmetOf, teamPinsOf, files, missingOf, modrinth, spiget, curseforge, cfKeyOf, latestFile, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, pinsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn, dirOf, addonsIn, packVersions } = modTools(deps);
   // このチームで探せる配布元(CurseForge は API キーを設定したときだけ)
   const sourcesOf = async (teamId: string) => ["modrinth", "spigot", ...((await cfKeyOf(teamId)) ? ["curseforge"] : [])];
   const sourceOf = (v: string) => {
@@ -956,9 +990,12 @@ export function libraryService(deps: Deps) {
     /** このサーバーで、入っているものの必須の前提が無いもの(配布元に問い合わせる) */
     async serverDeps(headers: Headers, serverId: string) {
       const who = await requireTeam(auth, headers);
-      const { row } = await serverOf(deps, who, serverId); // ほかのチーム・割り当てられていないサーバーは見せない
+      const target = await serverOf(deps, who, serverId); // ほかのチーム・割り当てられていないサーバーは見せない
+      const { row } = target;
       const r = await depsReport(who, { serverId: row.id });
-      return { missing: (r.servers[0]?.missing ?? []).map(({ byKeys: _, ...m }) => m), errors: r.errors };
+      // unmet: 手で置いた jar が書いている必須の前提(plugin.yml の depend など)のうち、入っていないもの。配布元の前提(missing)とは別に出す
+      const profile = await profileOf(row.id);
+      return { missing: (r.servers[0]?.missing ?? []).map(({ byKeys: _, ...m }) => m), errors: r.errors, unmet: profile ? await unmetOf(target, profile) : [] };
     },
 
     /** アイテムの版(配布元のもの。新しい順)。SpigotMC は更新のお知らせを版の代わりに出す。アップロードしたものは空(「版を見る」で見る) */
@@ -1131,6 +1168,8 @@ export function libraryService(deps: Deps) {
       const records = new Map((await db.select().from(installedMod).where(eq(installedMod.serverId, row.id))).map((r) => [r.filename, r]));
       const holds = await holdsOf(row.id);
       const pins = await pinsOf(row.id);
+      // このアプリの記録が無い jar(手で置いたもの)は、中の説明ファイルから名前・版を読む
+      const metas = files.some((f) => !f.datapack && JAR.test(f.name) && !records.has(f.name)) ? await metasIn(target, profile) : new Map<string, JarMeta>();
       const history = new Set((await db.select({ source: installHistory.source, projectId: installHistory.projectId }).from(installHistory)
         .where(eq(installHistory.serverId, row.id))).filter((h) => h.source !== "spigot").map((h) => `${h.source}:${h.projectId}`));
       return {
@@ -1139,6 +1178,7 @@ export function libraryService(deps: Deps) {
           const r = records.get(f.name);
           return {
             filename: f.name, size: f.size, disabled: isDisabled(f.name), datapack: f.datapack,
+            ...(!r && metas.get(f.name)?.key ? { name: metas.get(f.name)!.name, version: metas.get(f.name)!.version, key: metas.get(f.name)!.key } : {}),
             ...(r ? { source: r.source, projectId: r.projectId, versionId: r.versionId, versionNumber: r.versionNumber, title: r.title, held: holds.has(`${r.source}:${r.projectId}`), pinned: pins.get(`${r.source}:${r.projectId}`)?.versionNumber ?? null, canRollback: history.has(`${r.source}:${r.projectId}`) } : {}),
           };
         }).sort((a, b) => (a.title ?? a.filename).localeCompare(b.title ?? b.filename)),

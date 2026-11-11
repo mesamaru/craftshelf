@@ -186,7 +186,7 @@ function Overview({ st, state, control, server, soft, onPower, onSoftware, onTab
     }
   };
   const info = typeof soft === "object" ? soft : null;
-  const todo = (a.profile && a.updates && n > 0 ? 1 : 0) + (a.deps?.missing.length ?? 0) + (info?.update ? 1 : 0) + (a.profile ? 0 : 1);
+  const todo = (a.profile && a.updates && n > 0 ? 1 : 0) + (a.deps?.missing.length ?? 0) + (a.deps?.unmet.length ?? 0) + (info?.update ? 1 : 0) + (a.profile ? 0 : 1);
   return (
     <>
       {control && <Power server={server} state={state} onPower={onPower} />}
@@ -223,6 +223,12 @@ function Overview({ st, state, control, server, soft, onPower, onSoftware, onTab
                 }); }}>{busy === "all" ? "最新にしています…" : "最新にする"}</Btn>}
               </Row>
             )}
+            {a.deps?.unmet.map((d) => (
+              <div className="row" key={`unmet:${d.name}`}>
+                <span className="badge bad">前提</span>
+                <span className="mid"><span className="ttl" translate="no">{d.name}</span><span className="sub"><span translate="no">{d.by.join("、")}</span> が使います(入っていません)</span></span>
+              </div>
+            ))}
             {a.deps?.missing.map((d) => (
               <div className="row" key={`dep:${d.source}:${d.projectId}`}>
                 <span className="badge bad">前提</span>
@@ -313,8 +319,14 @@ function Addons(a: AddonProps) {
         <Chip on={filter === "off"} onClick={() => setFilter(filter === "off" ? "" : "off")}>無効<span className="n">{off}</span></Chip>
       </ChipBar>
 
-      {a.deps && a.deps.missing.length > 0 && (
+      {a.deps && (a.deps.missing.length > 0 || a.deps.unmet.length > 0) && (
         <section className="group">
+          {a.deps.unmet.map((d) => (
+            <div className="row" key={`unmet:${d.name}`}>
+              <span className="badge bad">前提不足</span>
+              <span className="mid"><span className="ttl" translate="no">{d.name}</span><span className="sub"><span translate="no">{d.by.join("、")}</span> が使います(入っていません)</span></span>
+            </div>
+          ))}
           {a.deps.missing.map((d) => (
             <div className="row" key={`dep:${d.source}:${d.projectId}`}>
               <span className="badge bad">前提不足</span>
@@ -343,13 +355,13 @@ function Addons(a: AddonProps) {
               <span className="ic"><ItemIcon type={m.datapack ? "datapack" : type} url={m.projectId ? icons.get(`${m.source}:${m.projectId}`) : undefined} /></span>
               <span className="mid">
                 <span className="ttl">
-                  <span translate="no">{m.title ?? m.filename}</span>
+                  <span translate="no">{m.title ?? m.name ?? m.filename}</span>
                   {m.datapack && <span className="tag">データパック</span>}
                   {m.disabled && <span className="tag">無効</span>}
                   {m.held && <span className="tag">更新を止めています</span>}
                   {m.pinned && <span className="tag" title="結び付けたセットで版を固定しています">固定</span>}
                 </span>
-                <span className="sub" translate="no">{u ? <>{m.versionNumber} → <b>{u.latest}</b></> : m.title ? `${m.versionNumber} · ${m.filename}` : m.filename}</span>
+                <span className="sub" translate="no">{u ? <>{m.versionNumber} → <b>{u.latest}</b></> : m.title ? `${m.versionNumber} · ${m.filename}` : m.name ? `${m.version ? `${m.version} · ` : ""}${m.filename}` : m.filename}</span>
               </span>
               {u && edit && (
                 <Btn kind="tint" sm disabled={!!busy} onClick={() => run(m.filename, async () => {

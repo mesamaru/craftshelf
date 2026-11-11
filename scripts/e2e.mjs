@@ -5,6 +5,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
+import { makeZip } from "../tests/zip.ts"; // Node 24 は .ts をそのまま読める
 
 const base = process.env.E2E_URL || "http://localhost:3123";
 const channel = process.env.E2E_BROWSER || "msedge";
@@ -50,11 +51,25 @@ await step("登録するとライブラリが開く", async () => {
 await step("左のメニュー・スマホの下のタブで画面を移れる", async () => {
   await page.locator("aside.side a.nav", { hasText: "セット" }).click();
   await page.waitForURL(base + "/sets");
+  await page.locator("aside.side a.nav", { hasText: "ホーム" }).click(); // ホーム(v02 のダッシュボード)
+  await page.waitForURL(base + "/home");
+  await page.getByText("登録しているもの").waitFor();
+  await page.getByRole("heading", { name: "種類ごとの件数" }).waitFor();
+  await page.screenshot({ path: ".e2e/home.png", fullPage: true });
+  // ‹ で畳むとアイコンだけ(この端末に覚える)、› で戻る
+  await page.getByRole("button", { name: "メニューを畳む" }).click();
+  if (!(await page.evaluate(() => document.documentElement.classList.contains("side-mini")))) throw new Error("メニューが畳まれていません");
+  if (await page.locator("aside.side .nav .t", { hasText: "ホーム" }).isVisible()) throw new Error("畳んでも名前が出ています");
+  await page.screenshot({ path: ".e2e/side-mini.png" });
+  await page.reload();
+  await page.getByRole("button", { name: "メニューを広げる" }).click();
+  await page.locator("aside.side .nav .t", { hasText: "ホーム" }).waitFor();
   await page.setViewportSize({ width: 390, height: 844 });
   await page.locator(".tabbar").getByRole("link", { name: "サーバー" }).click();
   await page.waitForURL(base + "/servers");
-  await page.locator(".tabbar").getByRole("button", { name: "その他" }).click();
-  await page.getByRole("dialog").getByRole("link", { name: "設定", exact: true }).click();
+  await page.locator(".tabbar").getByRole("link", { name: "ホーム" }).click();
+  await page.waitForURL(base + "/home");
+  await page.locator(".top").getByRole("link", { name: "設定" }).click(); // スマホの設定は上のバー
   await page.waitForURL(base + "/settings");
   // スマホの設定は一覧から押して入り、「‹ 設定」で一覧に戻る
   await page.locator(".set-nav").getByRole("link", { name: "メンバー" }).click();
@@ -175,6 +190,38 @@ await step("フォルダのサーバーを足すと、一覧と詳細のタブ�
   await page.keyboard.press("Escape");
   await page.goto(base + "/servers/" + page.url().split("/servers/")[1].split("?")[0] + "/files"); // 前の URL はファイルのタブへ
   await page.waitForURL(/tab=files/);
+});
+
+// ライブラリはアドオンの管理(v02 と同じ形)。どのサーバーに入っているかは出さない
+await step("ドラッグ&ドロップの欄から jar を足すと、一覧と詳しくのシートに出る(サーバーのことは出さない)", async () => {
+  await page.goto(base + "/");
+  if (!(await page.locator(".dropcard").count())) return console.log("     (アップロードは自分用の版だけ)");
+  await page.locator(".dropcard input[type=file]").first().setInputFiles({ name: "E2EPlugin-1.0.jar", mimeType: "application/java-archive",
+    buffer: Buffer.from(makeZip({ "plugin.yml": "name: E2EPlugin\nversion: 1.0\nmain: a.B\n", "a/B.class": "x" }, false)) });
+  const row = page.locator(".items .row", { hasText: "E2EPlugin" });
+  await row.getByText(/^1\.0 · 1 バージョン · [\d.]+ (B|KB) · /).waitFor();
+  if (await row.locator(".srvs").count()) throw new Error("一覧にサーバーの印が出ています");
+  await page.screenshot({ path: ".e2e/library-item.png", fullPage: true });
+  await row.click();
+  await page.waitForURL(/item=/);
+  const sheet = page.getByRole("dialog", { name: "E2EPlugin" });
+  await sheet.getByText("保存しているバージョン(1)").waitFor();
+  await sheet.getByText("配布元が未設定です").waitFor();
+  if (await sheet.getByRole("tab", { name: "サーバー" }).count()) throw new Error("詳しくにサーバーのタブがあります");
+  if (await sheet.getByText("E2E", { exact: true }).count()) throw new Error("詳しくにサーバーの名前が出ています");
+  // サーバーに入れるのは ⋯ から、入れる先を選ぶ
+  await sheet.getByRole("button", { name: "その他の操作" }).click();
+  await page.getByRole("menuitem", { name: "サーバーに入れる…" }).click();
+  await page.getByRole("dialog", { name: "サーバーに入れる" }).getByText("E2E").waitFor();
+  await page.screenshot({ path: ".e2e/library-sheet.png" });
+  await page.keyboard.press("Escape"); // 重ねたシートは上のものだけ閉じる
+  await page.getByRole("dialog", { name: "サーバーに入れる" }).waitFor({ state: "detached" });
+  await sheet.getByText("保存しているバージョン(1)").waitFor();
+  await page.goBack(); // 戻るボタンで詳しくを閉じる
+  await page.getByRole("dialog").waitFor({ state: "detached" });
+  if (page.url().includes("item=")) throw new Error("閉じても URL にアイテムが残っています");
+  // 数のカードに「サーバーで使用中」は無い
+  if (await page.getByText("サーバーで使用中").count()) throw new Error("「サーバーで使用中」が出ています");
 });
 
 // ビルドしたものでは HttpError のクラスが 2 つの束に分かれるので、エラーが 500 にならず理由どおりに返るかを確かめる(03.67.01)

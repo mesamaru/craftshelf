@@ -38,7 +38,15 @@ const BACKGROUND = /^\/api\/me\/background\?v=\d+$/;
 /** アカウントに保存する部分 */
 export type SavedTheme = { mode: Mode; accent: Accent; preset: Preset; dim: number; blur: number };
 export type Theme = SavedTheme & { background: string };
-export const DEFAULT_THEME: SavedTheme = { mode: "auto", accent: "auto", preset: "standard", dim: 0, blur: 0 };
+// 初めは v02 と同じオーロラ(緑・暗い背景。03.68.00 から。前は standard)
+export const DEFAULT_THEME: SavedTheme = { mode: "auto", accent: "auto", preset: "aurora", dim: 0, blur: 0 };
+
+/** アクセントの色で塗ったところの文字の色(明るい色には、その色を暗くしたもの。v02 の緑のボタンの黒っぽい文字) */
+export function inkOn(hex: string) {
+  const n = Number.parseInt(hex.slice(1), 16);
+  const lum = (0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255)) / 255;
+  return lum > 0.55 ? `color-mix(in srgb, ${hex} 18%, #000)` : "#fff";
+}
 
 const num = (v: unknown, max: number) => (typeof v === "number" && Number.isFinite(v) ? Math.max(0, Math.min(max, Math.round(v))) : 0);
 /** 保存できる形にそろえる(知らない値は既定に。サーバーでも使う) */
@@ -75,7 +83,9 @@ export function applyTheme(t: Theme = getTheme()) {
   const mode = p.tone ?? t.mode;
   if (mode === "auto") root.removeAttribute("data-theme");
   else root.setAttribute("data-theme", mode);
-  root.style.setProperty("--accent", t.accent === "auto" ? p.accent ?? ACCENTS.blue : ACCENTS[t.accent]);
+  const accent = t.accent === "auto" ? p.accent ?? ACCENTS.green : ACCENTS[t.accent];
+  root.style.setProperty("--accent", accent);
+  root.style.setProperty("--accent-ink", inkOn(accent));
   if (t.background) {
     // 文字が読めるよう、画像の上に薄いガラスを重ねる
     root.style.setProperty("--bg", `linear-gradient(var(--bg-veil), var(--bg-veil)), url("${t.background}") center / cover no-repeat`);

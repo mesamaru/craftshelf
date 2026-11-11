@@ -53,6 +53,13 @@ describe("英語表示", () => {
     expect(translate("要る範囲: サーバーの操作(編集者以上)")).toBe("Needs: Server control (Editor or higher)");
     expect(translate("この API トークンの範囲では、この操作はできません(要る範囲: 管理)")).toBe("This API token's scopes do not allow this (needs: Admin)");
     expect(translate("戻しました(12 ファイル)。前のワールドは world.craftshelf-before-restore-1 に残しています")).toBe("Restored (12 files). The previous world is kept as world.craftshelf-before-restore-1");
+    // 03.68.00: v02 に合わせた枠・ホーム・ライブラリ
+    expect(translate("5.4.145 · 2 バージョン · 2.4 KB · 2026/11/11")).toBe("5.4.145 · 2 versions · 2.4 KB · 2026/11/11");
+    expect(translate("1.0 · 1 バージョン")).toBe("1.0 · 1 version");
+    expect(translate("2 / 5 済み")).toBe("2 / 5 done");
+    expect(translate("残り 3 件 ›")).toBe("3 more ›");
+    expect(translate("未同期 2")).toBe("2 behind");
+    expect(translate("ホーム")).toBe("Home");
     // 03.67.00: 設定の 2 段・セット
     expect(translate("メンバー(3 人)")).toBe("Members (3)");
     expect(translate("中身(2 件)")).toBe("Contents (2)");

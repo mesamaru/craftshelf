@@ -7,7 +7,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { maybeImportV02Backgrounds, prefsReportPath } from "~/server/import-v02";
 import { HttpError } from "~/server/guard";
 import { PREF_LIMITS, prefService } from "~/server/prefs";
-import { cleanTheme } from "~/lib/theme";
+import { DEFAULT_THEME, cleanTheme, inkOn } from "~/lib/theme";
 import { setup } from "./helpers";
 
 let t: Awaited<ReturnType<typeof setup>>;
@@ -33,6 +33,10 @@ describe("見た目の設定", () => {
 
   it("知らない値・範囲の外は既定にそろえる。ログインしていない・API トークンでは保存できない", async () => {
     expect(cleanTheme({ mode: "x", accent: "red", preset: "<script>", dim: 999, blur: -3 })).toEqual({ mode: "auto", accent: "auto", preset: "standard", dim: 80, blur: 0 });
+    // 初めは v02 と同じオーロラ。緑など明るいアクセントの上の文字は暗く、青の上は白
+    expect(DEFAULT_THEME.preset).toBe("aurora");
+    expect(inkOn("#30d18a")).toContain("#000");
+    expect(inkOn("#0a84ff")).toBe("#fff");
     await expect(prefs.setTheme(new Headers(), {})).rejects.toBeInstanceOf(HttpError);
     await expect(prefs.setTheme(new Headers({ "x-api-key": "cs_wrongwrongwrong" }), {})).rejects.toMatchObject({ status: 401 });
   });

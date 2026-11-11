@@ -11,6 +11,7 @@ import { outdatedLibraryServers } from "~/lib/library-api";
 import { addAgentServer, createAgent, listAgents, removeAgent } from "~/lib/agents-api";
 import { STATE_LABELS, kindLabel } from "~/lib/platforms";
 import { Btn, Chip, ChipBar, Info, Seg, Sheet } from "~/lib/ui";
+import { MobileSearch, StoragePill } from "~/lib/shell";
 
 export const Route = createFileRoute("/servers")({
   beforeLoad: ({ context }) => {
@@ -75,7 +76,9 @@ function Servers() {
             <span>「すべて更新」は、このアプリで入れた Mod・プラグインに新しい版があれば入れます。「更新を止める」にしたもの・無効にしたもの・種類を決めていないサーバーは変えません。変更はサーバーの再起動で反映されます。</span>
           </Info>
         </h1>
+        <StoragePill />
       </header>
+      <MobileSearch />
 
       <ChipBar label="絞り込み" tools={<>
         {edit && servers.length > 0 && <Btn kind="tint" sm onClick={() => setSheet("update")}>すべて更新</Btn>}
@@ -89,6 +92,7 @@ function Servers() {
         <span className="vsep" />
         <Link to="/software" className="chip">本体</Link>
         <Link to="/ports" className="chip">ポート</Link>
+        <Link to="/compare" className="chip">比較</Link>
       </ChipBar>
       {error && <p className="error" role="alert">{error}</p>}
 

@@ -10,7 +10,7 @@ import { type Channel, type ItemSource, SOURCE_LABEL, isChannel, isItemSource, p
 import { ModrinthError, type ProjectType, modrinthClient } from "./modrinth";
 import { SpigetError, spigetClient } from "./spiget";
 import { CF_KEY, CurseForgeError, curseforgeClient } from "./curseforge";
-import { addonSetItem, installHistory, libraryDep, libraryFavorite, libraryFile, libraryTag, serverChange, serverSet, teamCurseforge, teamOption } from "./db/schema";
+import { addonSetItem, installHistory, libraryDep, libraryFavorite, libraryFile, libraryTag, serverChange, serverSet, storageTarget, teamCurseforge, teamOption } from "./db/schema";
 import { hint, open, seal } from "./secrets";
 import { fileStore, uploadService } from "./uploads";
 import { analyzeJar, jarKey } from "./jar";
@@ -785,8 +785,16 @@ export function libraryService(deps: Deps) {
       const listed = new Set(items.map((i) => `${i.source}:${i.projectId}`));
       const links = items.length ? await db.select().from(libraryDep).where(inArray(libraryDep.itemId, items.map((i) => i.id))) : [];
       const [opt] = await db.select({ channel: teamOption.channel, keepFiles: teamOption.keepFiles, keepVersions: teamOption.keepVersions }).from(teamOption).where(eq(teamOption.teamId, teamId));
-      const fileCount = new Map((await db.select({ itemId: libraryFile.itemId, n: count() }).from(libraryFile).innerJoin(libraryItem, eq(libraryFile.itemId, libraryItem.id))
-        .where(eq(libraryItem.teamId, teamId)).groupBy(libraryFile.itemId)).map((r) => [r.itemId, r.n]));
+      // 保存先にある版: 数・大きさの合計・いちばん新しく足した版(一覧の「版 · N バージョン · 大きさ」)
+      const fileRows = await db.select({ itemId: libraryFile.itemId, size: libraryFile.size, version: libraryFile.version }).from(libraryFile)
+        .innerJoin(libraryItem, eq(libraryFile.itemId, libraryItem.id)).where(eq(libraryItem.teamId, teamId)).orderBy(desc(libraryFile.createdAt));
+      const fileSum = new Map<string, { n: number; size: number; version: string }>();
+      for (const f of fileRows) {
+        const s = fileSum.get(f.itemId) ?? { n: 0, size: 0, version: f.version };
+        fileSum.set(f.itemId, { n: s.n + 1, size: s.size + f.size, version: s.version });
+      }
+      const [store] = deps.local ? await db.select({ name: storageTarget.name, kind: storageTarget.kind }).from(storageTarget)
+        .where(and(eq(storageTarget.teamId, teamId), eq(storageTarget.active, true))) : [];
       return {
         channel: (opt?.channel === "all" ? "all" : "release") as Channel, // 受け取る版のチームの既定
         keep: { files: opt?.keepFiles ?? false, versions: opt?.keepVersions ?? 0 }, // 保存の設定のチームの既定(配布元のファイルを保存する・古い版を残す数)
@@ -799,8 +807,13 @@ export function libraryService(deps: Deps) {
           installs: installs.filter((r) => r.source === i.source && r.projectId === i.projectId).map(({ serverId, serverName, versionNumber, filename, disabled }) => ({ serverId, serverName, versionNumber, filename, disabled, pinned: pins.get(`${serverId}:${i.source}:${i.projectId}`) ?? null })),
           pack: packOf(i.pack), // Modパック: 使った版と、配布元のいちばん新しい版(使っていなければ null)
           // 保存先にある版の数(アップロード・保存したもの)と、保存の設定("" / null = チームの既定)
-          files: fileCount.get(i.id) ?? 0, keepFiles: i.keepFiles, keepVersions: i.keepVersions,
+          files: fileSum.get(i.id)?.n ?? 0, keepFiles: i.keepFiles, keepVersions: i.keepVersions,
+          // 一覧に出す版(保存したいちばん新しい版。無ければ、サーバーに入っている版)と、保存した版の大きさの合計(バイト)
+          version: fileSum.get(i.id)?.version || installs.find((r) => r.source === i.source && r.projectId === i.projectId)?.versionNumber || "",
+          size: fileSum.get(i.id)?.size ?? 0,
         })),
+        // 使っている保存先(自分用の版だけ。name が "" ならパネルの中 = ローカル)
+        storage: deps.local ? { name: store?.name ?? "", kind: store?.kind ?? "" } : null,
         // 配布元はわかっているが、ライブラリに無いもの(ライブラリから外したものなど)
         orphans: installs.filter((r) => !listed.has(`${r.source}:${r.projectId}`)).map(({ serverId, source, projectId, title, versionNumber, filename, disabled }) => ({ serverId, source, projectId, title, versionNumber, filename, disabled })),
         // 種類を決めていないサーバーには入れられない(type が null)。kinds は入れられる種類(プラグイン・Mod と、ワールドがあればデータパック)

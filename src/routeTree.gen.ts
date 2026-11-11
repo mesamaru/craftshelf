@@ -16,6 +16,7 @@ import { Route as BackupRouteImport } from './routes/backup'
 import { Route as CleanupRouteImport } from './routes/cleanup'
 import { Route as CompareRouteImport } from './routes/compare'
 import { Route as ForgotRouteImport } from './routes/forgot'
+import { Route as HomeRouteImport } from './routes/home'
 import { Route as JobsRouteImport } from './routes/jobs'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as PortsRouteImport } from './routes/ports'
@@ -83,6 +84,11 @@ const CompareRoute = CompareRouteImport.update({
 const ForgotRoute = ForgotRouteImport.update({
   id: '/forgot',
   path: '/forgot',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const HomeRoute = HomeRouteImport.update({
+  id: '/home',
+  path: '/home',
   getParentRoute: () => rootRouteImport,
 } as any)
 const JobsRoute = JobsRouteImport.update({
@@ -259,6 +265,7 @@ export interface FileRoutesByFullPath {
   '/cleanup': typeof CleanupRoute
   '/compare': typeof CompareRoute
   '/forgot': typeof ForgotRoute
+  '/home': typeof HomeRoute
   '/jobs': typeof JobsRoute
   '/login': typeof LoginRoute
   '/ports': typeof PortsRoute
@@ -301,6 +308,7 @@ export interface FileRoutesByTo {
   '/cleanup': typeof CleanupRoute
   '/compare': typeof CompareRoute
   '/forgot': typeof ForgotRoute
+  '/home': typeof HomeRoute
   '/jobs': typeof JobsRoute
   '/login': typeof LoginRoute
   '/ports': typeof PortsRoute
@@ -344,6 +352,7 @@ export interface FileRoutesById {
   '/cleanup': typeof CleanupRoute
   '/compare': typeof CompareRoute
   '/forgot': typeof ForgotRoute
+  '/home': typeof HomeRoute
   '/jobs': typeof JobsRoute
   '/login': typeof LoginRoute
   '/ports': typeof PortsRoute
@@ -388,6 +397,7 @@ export interface FileRouteTypes {
     | '/cleanup'
     | '/compare'
     | '/forgot'
+    | '/home'
     | '/jobs'
     | '/login'
     | '/ports'
@@ -430,6 +440,7 @@ export interface FileRouteTypes {
     | '/cleanup'
     | '/compare'
     | '/forgot'
+    | '/home'
     | '/jobs'
     | '/login'
     | '/ports'
@@ -472,6 +483,7 @@ export interface FileRouteTypes {
     | '/cleanup'
     | '/compare'
     | '/forgot'
+    | '/home'
     | '/jobs'
     | '/login'
     | '/ports'
@@ -515,6 +527,7 @@ export interface RootRouteChildren {
   CleanupRoute: typeof CleanupRoute
   CompareRoute: typeof CompareRoute
   ForgotRoute: typeof ForgotRoute
+  HomeRoute: typeof HomeRoute
   JobsRoute: typeof JobsRoute
   LoginRoute: typeof LoginRoute
   PortsRoute: typeof PortsRoute
@@ -599,6 +612,13 @@ declare module '@tanstack/react-router' {
       path: '/forgot'
       fullPath: '/forgot'
       preLoaderRoute: typeof ForgotRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/home': {
+      id: '/home'
+      path: '/home'
+      fullPath: '/home'
+      preLoaderRoute: typeof HomeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/jobs': {
@@ -843,6 +863,7 @@ const rootRouteChildren: RootRouteChildren = {
   CleanupRoute: CleanupRoute,
   CompareRoute: CompareRoute,
   ForgotRoute: ForgotRoute,
+  HomeRoute: HomeRoute,
   JobsRoute: JobsRoute,
   LoginRoute: LoginRoute,
   PortsRoute: PortsRoute,

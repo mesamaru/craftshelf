@@ -3,9 +3,25 @@ import { type ButtonHTMLAttributes, type ReactNode, useEffect, useRef, useState 
 import { createPortal } from "react-dom";
 
 // 線だけの小さなアイコン(24 × 24)
+// メニューのアイコンは v02 と同じ形(ライブラリ = 箱・ホーム = 4 つの四角・セット = 重ねた板)
 const ICONS = {
-  library: <><rect x="3" y="4" width="18" height="16" rx="3" /><path d="M8 4v16" /></>,
-  sets: <><rect x="3" y="3" width="8" height="8" rx="2" /><rect x="13" y="3" width="8" height="8" rx="2" /><rect x="3" y="13" width="8" height="8" rx="2" /><rect x="13" y="13" width="8" height="8" rx="2" /></>,
+  library: <><path d="M12 3 4 7.5v9L12 21l8-4.5v-9z" /><path d="M4 7.5 12 12l8-4.5M12 12v9" /></>,
+  home: <><rect x="4" y="4" width="7" height="7" rx="2" /><rect x="13" y="4" width="7" height="7" rx="2" /><rect x="4" y="13" width="7" height="7" rx="2" /><rect x="13" y="13" width="7" height="7" rx="2" /></>,
+  sets: <><path d="M12 3 3 7.5l9 4.5 9-4.5z" /><path d="M3 12l9 4.5 9-4.5M3 16.5 12 21l9-4.5" /></>,
+  plus: <path d="M12 5v14M5 12h14" />,
+  reload: <><path d="M20 12a8 8 0 1 1-2.3-5.7" /><path d="M20 4v5h-5" /></>,
+  bell: <><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9" /><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0" /></>,
+  back: <path d="m15 18-6-6 6-6" />,
+  fwd: <path d="m9 18 6-6-6-6" />,
+  tray: <><path d="M4 13h4l2 3h4l2-3h4" /><path d="M4 13 6.5 5h11L20 13v6H4z" /></>,
+  link: <><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1" /><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" /></>,
+  wand: <><path d="m4 20 11-11M14 4v3M18 6l-2 2M20 10h-3" /></>,
+  puzzle: <path d="M10 4a2 2 0 1 1 4 0v2h4v4h-2a2 2 0 1 0 0 4h2v4h-4v-2a2 2 0 1 0-4 0v2H6v-4h2a2 2 0 1 0 0-4H6V6h4z" />,
+  edit: <><path d="M4 20h4L19 9l-4-4L4 16z" /><path d="m13 7 4 4" /></>,
+  download: <><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 20h14" /></>,
+  trash: <><path d="M4 7h16M10 11v6M14 11v6" /><path d="M6 7l1 13h10l1-13M9 7V4h6v3" /></>,
+  file: <><path d="M6 3h8l4 4v14H6z" /><path d="M14 3v4h4" /></>,
+  disk: <><rect x="3" y="5" width="18" height="14" rx="3" /><path d="M7 15h.01M11 15h6" /></>,
   servers: <><rect x="3" y="4" width="18" height="7" rx="2" /><rect x="3" y="13" width="18" height="7" rx="2" /><path d="M7 7.5h.01M7 16.5h.01" /></>,
   compare: <path d="M8 3v18M16 3v18M3 8h5M16 16h5" />,
   team: <><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0 1 13 0" /><circle cx="17" cy="9" r="2.5" /><path d="M15.5 14.5A5 5 0 0 1 21.5 19" /></>,
@@ -23,6 +39,9 @@ export const Icon = ({ name }: { name: IconName }) => (
 );
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement>;
+
+/** ファイルの大きさ(v02 と同じ「2.0 KB」の形) */
+export const fmtSize = (n: number) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : n >= 1024 ** 2 ? `${(n / 1024 ** 2).toFixed(1)} MB` : n >= 1024 ? `${(n / 1024).toFixed(1)} KB` : `${n} B`);
 
 /** カプセル型のボタン。kind: pri = いちばん大事な 1 つ / sec = ふつう / tint = すすめる操作 / red = 消す・外す */
 export function Btn({ kind = "sec", sm, className, ...p }: ButtonProps & { kind?: "pri" | "sec" | "tint" | "red"; sm?: boolean }) {
@@ -107,17 +126,19 @@ const Over = ({ children }: { children: ReactNode }) => (typeof document === "un
 /** 右から出るシート(スマホは下から)。外を押す・Esc・✕ で閉じる。head は題の前(アイコン)、actions は題の後ろ(☆ など)に置く */
 export function Sheet({ title, label, head, actions, onClose, children }: { title: ReactNode; label?: string; head?: ReactNode; actions?: ReactNode; onClose: () => void; children: ReactNode }) {
   const close = useRef<HTMLButtonElement>(null);
+  const self = useRef<HTMLElement>(null);
   useEffect(() => {
     const back = document.activeElement as HTMLElement | null;
     close.current?.focus();
-    const key = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    // シートの上にシートを重ねたときは、いちばん上のものだけ閉じる
+    const key = (e: KeyboardEvent) => { if (e.key === "Escape" && self.current === [...document.querySelectorAll(".sheet")].at(-1)) onClose(); };
     document.addEventListener("keydown", key);
     return () => { document.removeEventListener("keydown", key); back?.focus?.(); };
   }, []);
   return (
     <Over>
       <div className="scrim sheet-scrim" onMouseDown={onClose} />
-      <aside className="sheet" role="dialog" aria-modal="true" aria-label={label ?? (typeof title === "string" ? title : undefined)}>
+      <aside ref={self} className="sheet" role="dialog" aria-modal="true" aria-label={label ?? (typeof title === "string" ? title : undefined)}>
         <div className="grab" />
         <header>{head}<h3>{title}</h3>{actions}<button ref={close} type="button" className="iconbtn" aria-label="閉じる" onClick={onClose}><Icon name="close" /></button></header>
         <div className="body">{children}</div>

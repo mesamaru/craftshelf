@@ -134,8 +134,8 @@ function AddFromUrl() {
 
 // ファイルをアップロード(自分用の版だけ)。jar を調べて、名前と版・動くサーバーの種類を読み取る。
 // いくつでも・フォルダごと(中の .jar だけ)・ドラッグ&ドロップでも選べる。1 つずつ順に送る
-const isAddon = (f: File) => /[.](jar|zip|mrpack)$/i.test(f.name);
-async function droppedFiles(dt: DataTransfer): Promise<File[]> {
+export const isAddon = (f: File) => /[.](jar|zip|mrpack)$/i.test(f.name);
+export async function droppedFiles(dt: DataTransfer): Promise<File[]> {
   type Entry = { isFile: boolean; isDirectory: boolean; file?: (ok: (f: File) => void, ng: () => void) => void;
     createReader?: () => { readEntries: (ok: (l: Entry[]) => void, ng: () => void) => void } };
   const out: File[] = [];
@@ -159,9 +159,9 @@ async function droppedFiles(dt: DataTransfer): Promise<File[]> {
   return out;
 }
 
-function Upload() {
+/** ファイルを 1 つずつ送ってライブラリに載せる(「＋ 追加」のシートと、ライブラリの画面のドラッグ&ドロップの欄で使う) */
+export function useUploader() {
   const [busy, setBusy] = useState("");
-  const [over, setOver] = useState(false);
   const [results, setResults] = useState<{ name: string; ok: boolean; text: string }[]>([]);
   const send = async (list: File[]) => {
     if (!list.length) {
@@ -187,7 +187,25 @@ function Upload() {
     const l = Array.from(files ?? []);
     if (l.length) send(folder ? l.filter(isAddon) : l);
   };
+  return { busy, results, send, pick, clear: () => setResults([]) };
+}
+
+/** 送った結果の一覧 */
+export function UploadResults({ results }: { results: { name: string; ok: boolean; text: string }[] }) {
   const ok = results.filter((r) => r.ok).length;
+  return <>
+    {results.length > 1 && <p className="muted">{`${results.length} 個のうち ${ok} 個を載せました`}</p>}
+    {results.length > 0 && (
+      <section className="group">
+        {results.map((r, i) => <p key={i} className={`row ${r.ok ? "muted" : "error"}`} translate="no">{r.name ? `${r.name}: ` : ""}{r.ok ? `載せました — ${r.text}` : r.text}</p>)}
+      </section>
+    )}
+  </>;
+}
+
+function Upload() {
+  const { busy, results, send, pick } = useUploader();
+  const [over, setOver] = useState(false);
   return (
     <>
       <div className={`drop${over ? " on" : ""}`}
@@ -203,12 +221,7 @@ function Upload() {
       <p className="muted small">jar・zip・mrpack、1 つ 1 GB まで
         <Info><span>配布元に無いプラグイン・Mod(jar)と、データパック・リソースパック・シェーダー・Modパック(zip・mrpack)を、ファイルのままライブラリに載せます。jar は中の plugin.yml・fabric.mod.json などから名前・版・動くサーバーの種類を、zip は pack.mcmeta・shaders/ などから種類を読み取り、同じ名前のものは新しい版として足します。置き場所は「チーム」→「保存先」で決められます(1 つ 1 GB まで)。</span></Info>
       </p>
-      {results.length > 1 && <p className="muted">{`${results.length} 個のうち ${ok} 個を載せました`}</p>}
-      {results.length > 0 && (
-        <section className="group">
-          {results.map((r, i) => <p key={i} className={`row ${r.ok ? "muted" : "error"}`} translate="no">{r.name ? `${r.name}: ` : ""}{r.ok ? `載せました — ${r.text}` : r.text}</p>)}
-        </section>
-      )}
+      <UploadResults results={results} />
     </>
   );
 }

@@ -12,7 +12,7 @@ const PATHS: Record<string, string> = {
 export function ItemIcon({ type, url }: { type: string; url?: string }) {
   if (url) return <img src={url} alt="" width={40} height={40} loading="lazy" />;
   return (
-    <span className="icon-ph" aria-hidden="true">
+    <span className={`icon-ph t-${type}`} aria-hidden="true">
       {PATHS[type] && (
         <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d={PATHS[type]} /></svg>
       )}

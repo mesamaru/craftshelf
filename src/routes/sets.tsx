@@ -13,6 +13,7 @@ import { SOURCE_LABEL, isSource } from "~/lib/sources";
 import { useCan } from "~/lib/use-can";
 import { localEnabled } from "~/lib/servers-api";
 import { zipPlan } from "~/lib/saved-api";
+import { MobileSearch, StoragePill } from "~/lib/shell";
 import { downloadZip } from "~/lib/zip-download";
 
 export const Route = createFileRoute("/sets")({
@@ -55,7 +56,9 @@ function Sets() {
             <span>「版を選ぶ」で版を固定すると、セットを入れる・そろえる・予約・自動更新で、新しい版ではなくその版を入れます(サーバーの種類・バージョンに合わない版は、結果に知らせて飛ばします)。セットを結び付けたすべてのサーバーで同じ版になります。サーバーの画面の「更新を止める」は、そのサーバーだけ今入っている版のままにするもので、固定より先に効きます。SpigotMC のものは固定できません(いちばん新しい版だけを入れられます)。</span>
           </Info>
         </h1>
+        <StoragePill />
       </header>
+      <MobileSearch />
       <ChipBar label="セット" tools={<>
         <Btn sm onClick={() => setSheet("schedule")}>予約</Btn>
         {edit && <Btn kind="pri" sm onClick={() => setSheet("new")}>＋ 作る</Btn>}

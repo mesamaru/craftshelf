@@ -59,7 +59,7 @@ function Ports() {
   useEffect(() => { if (data.servers.length && data.servers.every((s) => !s.scannedAt)) rescan(); }, []);
 
   return (
-    <main className="page fill">
+    <main className="page fill wide">
       <Link to="/servers" className="back">‹ サーバー</Link>
       <header className="bar">
         <h1>ポート<small>{`${data.servers.length} 台`}</small><Info>ポートは Pterodactyl の割り当てと、種類ごとの設定ファイルから読み取ります。重複は同じマシン(Pterodactyl のノード)の中だけで確かめます。番号を押すと、そのサーバーのポートを変えられます。</Info></h1>

@@ -5,9 +5,11 @@ import { libraryCatalog } from "./library-api";
 import { listServers } from "./servers-api";
 import { listSets } from "./sets-api";
 
-type Hit = { label: string; sub: string; to: string; params?: Record<string, string> };
+type Hit = { label: string; sub: string; to: string; params?: Record<string, string>; search?: Record<string, string> };
 const PAGES: Hit[] = [
   { label: "ライブラリ", sub: "画面", to: "/" },
+  { label: "ホーム", sub: "画面", to: "/home" },
+  { label: "アドオンの整理", sub: "画面", to: "/cleanup" },
   { label: "サーバー", sub: "画面", to: "/servers" },
   { label: "セット", sub: "画面", to: "/sets" },
   { label: "サーバーの比較", sub: "画面", to: "/compare" },
@@ -55,10 +57,8 @@ export function Palette() {
       setData([
         ...servers.map((s) => ({ label: s.name, sub: "サーバー", to: "/servers/$id", params: { id: s.id } })),
         ...sets.map((s) => ({ label: s.name, sub: "セット", to: "/sets" })),
-        ...(cat?.items ?? []).map((i) => {
-          const at = i.installs[0];
-          return at ? { label: i.title, sub: `ライブラリ · ${at.serverName}`, to: "/servers/$id", params: { id: at.serverId } } : { label: i.title, sub: "ライブラリ", to: "/" };
-        }),
+        // ライブラリのものは、ライブラリの詳しくを開く(どのサーバーに入っているかはライブラリには出さない。03.68.00 から)
+        ...(cat?.items ?? []).map((i) => ({ label: i.title, sub: "ライブラリ", to: "/", search: { item: i.id } })),
       ]);
     });
   }, [open]);
@@ -71,7 +71,7 @@ export function Palette() {
   const go = (h: Hit | undefined) => {
     if (!h) return;
     setOpen(false);
-    router.navigate({ to: h.to as never, params: h.params as never });
+    router.navigate({ to: h.to as never, params: h.params as never, search: h.search as never });
   };
   if (!open) return null;
   return (

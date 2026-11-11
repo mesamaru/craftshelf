@@ -14,8 +14,8 @@ export const Route = createRootRoute({
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
-      { name: "theme-color", content: "#eef2f7", media: "(prefers-color-scheme: light)" },
-      { name: "theme-color", content: "#0b1220", media: "(prefers-color-scheme: dark)" },
+      { name: "theme-color", content: "#f2f2f7", media: "(prefers-color-scheme: light)" },
+      { name: "theme-color", content: "#000000", media: "(prefers-color-scheme: dark)" },
       { title: "CraftShelf" },
     ],
     links: [

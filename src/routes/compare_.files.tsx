@@ -66,7 +66,7 @@ function FileCompare() {
   });
 
   return (
-    <main className="page fill">
+    <main className="page fill wide">
       <header className="bar">
         <h1>比較<Info>比べるサーバーを 2 台以上選んでください(8 台まで)。設定ファイル(server.properties・plugins・config の中など)を並べて見比べ、左のサーバーの中身をほかのサーバーへ写せます。見る・直すのは管理者以上です(チームの設定で、編集者にも許せます)。</Info></h1>
       </header>

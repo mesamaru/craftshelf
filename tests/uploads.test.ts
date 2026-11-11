@@ -88,6 +88,9 @@ describe("アップロード", () => {
     const item = (await lib.catalog(owner)).items.find((i) => i.title === "MyPlugin")!;
     expect(item.source).toBe("upload");
     expect((await up.files(viewer, item.id)).map((f) => f.version)).toEqual(["1.1", "1.0"]);
+    // 一覧の「版 · N バージョン · 大きさ」と、使っている保存先(まだパネルの中)
+    expect(item).toMatchObject({ version: "1.1", files: 2, size: plugin("1.0").length + plugin("1.1").length });
+    expect((await lib.catalog(viewer)).storage).toEqual({ name: "", kind: "" });
   });
 
   it("本文を少しずつ受け取って取り込む(一時ファイルは残さない)。ログインしていない人の本文は受け取らない", async () => {

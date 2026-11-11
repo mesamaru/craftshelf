@@ -1,6 +1,62 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  // 03.68.00: v02 に合わせた枠・ホーム・ライブラリ
+  "メニューを広げる": "Expand menu",
+  "メニューを畳む": "Collapse menu",
+  "お気に入りを上に": "Favorites first",
+  "追加が新しい順": "Newest added",
+  "更新があるものを上に": "Updates first",
+  "バージョンが多い順": "Most versions",
+  "保存先を決める": "Choose storage",
+  "ローカルのままにする": "Keep local",
+  "保存先を開く": "Open storage",
+  "初めはこのパネルの中(ローカル)に保存します。NAS などに置くなら、保存先を足します。": "At first, files are saved inside the panel (local). To keep them on a NAS or similar, add a storage.",
+  "アドオンを追加する": "Add add-ons",
+  "サーバーをつなぐ": "Connect servers",
+  "サーバーを開く": "Open servers",
+  "バックアップを設定する": "Set up backups",
+  "バックアップを開く": "Open backups",
+  "通知を受け取る": "Get notifications",
+  "Discord 通知を開く": "Open Discord notifications",
+  "はじめの設定": "Getting started",
+  "ドラッグ&ドロップで追加": "Drag & drop to add",
+  "配布元に無いプラグイン・Mod(jar)と、データパック・リソースパック・シェーダー・Modパック(zip・mrpack)を、ファイルのままライブラリに載せます。名前・版・種類は中身から読み取り、同じ名前のものは新しい版として足します(1 つ 1 GB まで)。":
+    "Puts plugins and mods (jar) that aren't on a source, and data packs, resource packs, shaders and modpacks (zip, mrpack), into the library as files. Name, version and type are read from the contents; items with the same name are added as a new version (up to 1 GB each).",
+  "ファイルを選択": "Choose files",
+  "配布サイトで探す": "Search sources",
+  "配布元で絞り込む": "Filter by source",
+  "対応 MC で絞り込む": "Filter by MC",
+  "対応 MC が不明": "Unknown MC",
+  "タグで絞り込む": "Filter by tag",
+  "配布元のページを開く": "Open source page",
+  "配布元が未設定です": "No source set",
+  "配布元が未設定": "No source",
+  "アップロードしたもの": "Uploaded",
+  "アップロードしたものは、ファイルのまま扱います(配布元からは更新しません)。配布元のものを使うときは、「＋ 追加」で配布元から足してください。":
+    "Uploaded items are kept as files (they aren't updated from a source). To use the source's version, add it from the source with “＋ Add”.",
+  "ページを開く": "Open page",
+  "入れられるサーバーがありません": "No server can take this",
+  "手で決めた前提は、このアドオンを入れるサーバーに一緒に入れます。配布元の前提(必須)が、入っているサーバーに無ければ下に出します。":
+    "Hand-set dependencies are installed together on servers that get this add-on. Required dependencies from the source that are missing on installed servers are listed below.",
+  "前提はそろっています": "All dependencies are present",
+  "登録しているもの": "Registered",
+  "使っている容量": "Storage used",
+  "更新があるもの": "Updates",
+  "配布元の連携": "Source links",
+  "確かめると、ここに更新が出ます": "Check to see updates here",
+  "すべて最新です": "Everything is up to date",
+  "配布元のあるものを足すと、ここに更新が出ます": "Add items from a source to see updates here",
+  "今すぐ確認": "Check now",
+  "最近追加したもの": "Recently added",
+  "まだ何も登録されていません": "Nothing registered yet",
+  "種類ごとの件数": "By type",
+  "確認が必要なもの": "Needs attention",
+  "まだサーバーがありません": "No servers yet",
+  "確かめる ›": "Check ›",
+  "保存先とバックアップ": "Storage and backups",
+  "自動バックアップ": "Automatic backup",
+  "設定されていません": "Not set up",
   // 03.67.00: 設定の 2 段・セット・残りの画面
   "パスワードと二段階認証": "Password and two-factor",
   "見た目と言語": "Appearance and language",
@@ -1605,6 +1661,18 @@ export const EN: Record<string, string> = {
 };
 /** 1 文字だけのもの(曜日など)。文全体が一致したときだけ置き換える */
 export const EN_WHOLE: Record<string, string> = {
+  // 03.68.00
+  "ホーム": "Home",
+  "お知らせ": "Notifications",
+  "ローカル": "Local",
+  "選択": "Select",
+  "最新": "Latest",
+  "あとで": "Later",
+  "使わない": "Don't use",
+  "大きい順": "Largest",
+  "同期済み": "In sync",
+  "連携済み": "Linked",
+  "未連携": "Not linked",
   // 03.67.00
   "パネル": "Panel",
   "お問い合わせ": "Contact",
@@ -1711,6 +1779,18 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  // 03.68.00: v02 に合わせた枠・ホーム・ライブラリ
+  [/(\d+) バージョン/, (_, n) => (n === "1" ? "1 version" : `${n} versions`)], // 一覧の「版 · N バージョン · 大きさ」
+  [/^ほか (\d+) 台$/, "$1 more"],
+  [/^(\d+) \/ (\d+) 済み$/, "$1 / $2 done"],
+  [/^(\d+) 台を更新しました$/, "Updated $1 servers"],
+  [/^古い版が入っているサーバーがあります\((\d+) 台\)$/, "Some servers have an old version ($1)"],
+  [/^保存しているバージョン\((\d+)\)$/, "Saved versions ($1)"],
+  [/^(\d+) 台に足りません$/, "Missing on $1 servers"],
+  [/^(\d+) 件を確認対象にしています$/, "Checking $1 items"],
+  [/^残り (\d+) 件 ›$/, "$1 more ›"],
+  [/^(\d+) 件を管理中$/, "Managing $1"],
+  [/^未同期 (\d+)$/, "$1 behind"],
   // 03.67.00
   [/^メンバー\((\d+) 人\)$/, "Members ($1)"],
   [/^中身\((\d+) 件\)$/, "Contents ($1)"],

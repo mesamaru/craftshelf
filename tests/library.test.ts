@@ -166,6 +166,9 @@ describe("ライブラリ(チームの目録)", () => {
     let cat = await lib.catalog(viewer);
     expect(cat.items.map((i) => [i.title, i.projectType, i.installs.map((x) => `${x.serverName} ${x.versionNumber}`)])).toEqual([["LuckPerms", "plugin", ["サバイバル 5.5.0"]]]);
     expect(cat.servers).toEqual([{ id, name: "サバイバル", type: "plugin", kinds: ["plugin", "datapack"] }]);
+    // 保存した版が無ければ、一覧の版はサーバーに入っている版。サービス版には保存先が無い
+    expect(cat.items[0]).toMatchObject({ version: "5.5.0", files: 0, size: 0 });
+    expect(cat.storage).toBeNull();
     await lib.remove(editor, id, "LuckPerms-5.5.0.jar");
     cat = await lib.catalog(viewer);
     expect(cat.items[0].installs).toEqual([]);

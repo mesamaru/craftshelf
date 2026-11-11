@@ -320,7 +320,9 @@ export function serverService(deps: Deps) {
 
     /** フォルダのサーバーの起動・停止・RCON の設定(パスワードは返さない。管理者以上だけ) */
     async localSettings(headers: Headers, id: string) {
-      const { teamId } = await requireTeam(auth, headers, { server: ["update"], ...HOST_ADMIN });
+      const who = await requireTeam(auth, headers, { server: ["update"], ...HOST_ADMIN });
+      const { teamId } = who;
+      await needServerAccess(deps, who, id);
       const [l] = await db.select().from(localServer).innerJoin(server, eq(localServer.serverId, server.id)).where(and(eq(server.id, id), eq(server.teamId, teamId)));
       if (!l) throw new HttpError(404, "フォルダのサーバーが見つかりません");
       const x = l.local_server;
@@ -329,7 +331,9 @@ export function serverService(deps: Deps) {
 
     /** 起動・停止・RCON を設定する(パネルの PC でコマンドを実行するので、管理者以上だけ)。rconPassword は undefined なら変えない */
     async setLocalSettings(headers: Headers, id: string, input: { control: string; startCmd: string; stopCmd: string; container: string; rconPort: number | null; rconPassword?: string }) {
-      const { teamId, user } = await requireTeam(auth, headers, { server: ["update"], ...HOST_ADMIN });
+      const who = await requireTeam(auth, headers, { server: ["update"], ...HOST_ADMIN });
+      const { teamId, user } = who;
+      await needServerAccess(deps, who, id);
       const [l] = await db.select({ name: server.name }).from(localServer).innerJoin(server, eq(localServer.serverId, server.id)).where(and(eq(server.id, id), eq(server.teamId, teamId)));
       if (!l) throw new HttpError(404, "フォルダのサーバーが見つかりません");
       if (!(CONTROLS as readonly string[]).includes(input.control)) throw new HttpError(400, "起動・停止の方法を選んでください");
@@ -367,7 +371,9 @@ export function serverService(deps: Deps) {
     },
 
     async removeServer(headers: Headers, id: string) {
-      const { teamId, user } = await requireTeam(auth, headers, { server: ["delete"] });
+      const who = await requireTeam(auth, headers, { server: ["delete"] });
+      const { teamId, user } = who;
+      await needServerAccess(deps, who, id);
       const r = await db.delete(server).where(and(eq(server.id, id), eq(server.teamId, teamId))).returning({ name: server.name });
       if (r.length === 0) throw new HttpError(404, "サーバーが見つかりません");
       await record({ teamId, userId: user.id, kind: "admin", action: "サーバーを外す", target: r[0].name });

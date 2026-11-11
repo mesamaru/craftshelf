@@ -6,6 +6,7 @@ import type { FetchLike } from "~/server/net";
 import { numericEntries, portLike, readPort, writePort } from "~/server/port-config";
 import { portService } from "~/server/ports";
 import { serverService } from "~/server/servers";
+import { teamService } from "~/server/teams";
 import { setup } from "./helpers";
 
 const KEY = "ptlc_0123456789abcdefghij";
@@ -98,11 +99,14 @@ describe("ポート管理(サーバーから読み取る)", () => {
   let owner: Headers;
   let viewer: Headers;
   let outsider: Headers;
+  let servers: ReturnType<typeof serverService>;
+  let teams: ReturnType<typeof teamService>;
 
   beforeAll(async () => {
     t = await setup();
     const deps = { db: t.db, auth: t.auth, secret: SECRET, fetch: fake };
-    const servers = serverService(deps);
+    servers = serverService(deps);
+    teams = teamService(deps);
     ports = portService(deps);
     owner = t.headers(await t.signUp("オーナー", "owner@example.com"));
     const c = await servers.addConnection(owner, { name: "", url: "panel.example.com", apiKey: KEY });
@@ -201,5 +205,27 @@ describe("ポート管理(サーバーから読み取る)", () => {
     expect(await code(ports.savePorts(outsider, s.id, [{ port: 9000 }]))).toBe(404); // ほかのチームのサーバーは見つからない
     expect((await ports.overview(outsider)).servers).toEqual([]);
     expect(await code(ports.setServerInfo(outsider, s.id, { groupId: null, memo: "" }))).toBe(404);
+  });
+
+  it("割り当てで制限された人は、割り当てていないサーバーのポートを見ることも変えることもできない", async () => {
+    const o = await ports.overview(owner);
+    const lobby = o.servers.find((s) => s.name === "00-ロビー")!;
+    const build = o.servers.find((s) => s.name === "22-建築")!;
+    const me = (await servers.assignments(owner)).members.find((m) => m.name === "閲覧者")!;
+    await teams.setMemberGrants(owner, me.userId, ["server:update"]);
+    await servers.setAssignment(owner, me.userId, true, [lobby.id]);
+    expect((await ports.overview(viewer)).servers.map((s) => s.name)).toEqual(["00-ロビー"]);
+    expect(await code(ports.setServerInfo(viewer, build.id, { groupId: null, memo: "x" }))).toBe(403);
+    expect(await code(ports.savePorts(viewer, build.id, [{ port: 9100 }]))).toBe(403);
+    expect(await code(ports.scan(viewer, build.id))).toBe(403);
+    const scanned = await ports.scan(viewer); // 全部を読むと言っても、読むのは割り当てたものだけ
+    expect(scanned.servers.map((s) => s.name)).toEqual(["00-ロビー"]);
+    expect(scanned.problems.every((p) => p.serverId === lobby.id)).toBe(true);
+    // 割り当てていないサーバーと同じ番号にしようとしても、そのサーバーの名前は返さない
+    const other = (await ports.overview(owner)).servers.find((s) => s.id === build.id)!.ports.find((p) => p.source === "file")!;
+    const e = await ports.savePorts(viewer, lobby.id, [{ id: undefined, port: other.port }]).catch((x) => x);
+    expect(e).toBeInstanceOf(HttpError);
+    expect((e as Error).message).not.toContain("22-建築");
+    await servers.setAssignment(owner, me.userId, false, []);
   });
 });

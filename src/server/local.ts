@@ -208,11 +208,12 @@ export function localClient(root: string, fetch: FetchLike, control: Control): P
       const dir = inside(root, directory);
       await mkdir(dir, { recursive: true });
       // 転送(Spiget → CDN)は、配布元の CDN へのものだけを 3 回まで追う
-      let res = await fetch(url, { signal: AbortSignal.timeout(300_000) });
+      // fetch の標準は転送を自分で追う(エージェントが渡すもの)ので、ここでは必ず自分で確かめて追う
+      let res = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(300_000) });
       for (let i = 0; i < 3 && res.status >= 300 && res.status < 400; i++) {
         const next = new URL(res.headers.get("location") ?? "", url);
         if (next.protocol !== "https:" || !PULL_HOSTS.has(next.host)) throw new PteroError("配布元の外へ転送されたので、取り込みませんでした");
-        res = await fetch(next.toString(), { signal: AbortSignal.timeout(300_000) });
+        res = await fetch(next.toString(), { redirect: "manual", signal: AbortSignal.timeout(300_000) });
       }
       if (!res.ok || !res.body) throw new PteroError(`ファイルを取ってこられませんでした(HTTP ${res.status})`);
       const size = Number(res.headers.get("content-length") ?? 0);

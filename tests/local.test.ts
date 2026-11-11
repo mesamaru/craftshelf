@@ -1,5 +1,6 @@
 // フォルダでつなぐサーバー(自分用の版だけ)。本物のフォルダ・偽の Modrinth / Spiget・偽の RCON で確かめる
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer as createHttp } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -151,6 +152,25 @@ describe("大きいファイル", () => {
     expect(readFileSync(out, "utf8").length).toBe(3000);
     await expect(c.readToFile("", "plugins/Big.jar", 2999, out + "2")).rejects.toThrow("大きすぎます");
     expect(existsSync(out + "2")).toBe(false);
+  });
+});
+
+describe("取り込みの転送", () => {
+  it("fetch の転送の追い方に頼らない(redirect: manual で頼み、許可した取得先でなければ追わない)", async () => {
+    // 本物の fetch(Node 標準。エージェントが渡すもの)で、許可していない所へ転送するサーバーに頼む
+    let evilHit = 0;
+    const evil = createHttp((_q, r) => { evilHit++; r.end("jar"); });
+    await new Promise<void>((r) => evil.listen(0, "127.0.0.1", () => r()));
+    const evilUrl = `http://127.0.0.1:${(evil.address() as { port: number }).port}/x.jar`;
+    const front = createHttp((_q, r) => { r.writeHead(302, { location: evilUrl }); r.end(); });
+    await new Promise<void>((r) => front.listen(0, "127.0.0.1", () => r()));
+    const frontUrl = `http://127.0.0.1:${(front.address() as { port: number }).port}/a`;
+    const dir = mkdtempSync(join(tmpdir(), "cs-rd-"));
+    const c = localClient(dir, fetch, { control: "", startCmd: "", stopCmd: "", container: "", rconPort: null, rconPassword: "" });
+    await expect(c.pull("", frontUrl, "plugins", "x.jar")).rejects.toThrow("配布元の外");
+    expect(evilHit).toBe(0);
+    expect(existsSync(join(dir, "plugins", "x.jar"))).toBe(false);
+    front.close(); evil.close();
   });
 });
 

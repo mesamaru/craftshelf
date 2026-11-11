@@ -7,7 +7,7 @@ import { portGroup, portKind, server, serverPort, serverPortInfo } from "./db/sc
 import { HttpError, isHttpError, requireTeam } from "./guard";
 import { eventService } from "./events";
 import { portLike, readPort, writePort } from "./port-config";
-import { type Deps, remote, serverOf, serverScope } from "./servers";
+import { type Deps, type Who, needServerAccess, remote, serverOf, serverScope } from "./servers";
 
 export const PORT_LIMITS = { kindsPerTeam: 30, groupsPerTeam: 50, manualPerServer: 30, scanPluginFolders: 40 };
 
@@ -39,12 +39,17 @@ export function portService(deps: Deps) {
     await db.insert(portKind).values(DEFAULT_KINDS.map((x, i) => ({ id: randomUUID(), teamId, name: x.name, mode: "free", proto: x.proto, file: x.file, key: x.key, position: i })));
   }
 
-  async function overviewOf(teamId: string) {
+  // who の割り当てで使えるサーバーだけを返す(管理者・オーナー・制限なしの人は全部)。問題の検出も見えるサーバーの中だけでする
+  // everyone: 重なる番号の確かめだけに、割り当てのないサーバーも含めて読む(返す人には見せない)
+  async function overviewOf(who: Who, everyone = false) {
+    const { teamId } = who;
+    const scope = everyone ? null : await serverScope(deps, who);
     await ensureKinds(teamId);
     const kinds = await db.select().from(portKind).where(eq(portKind.teamId, teamId)).orderBy(asc(portKind.position));
     const groups = await db.select().from(portGroup).where(eq(portGroup.teamId, teamId)).orderBy(asc(portGroup.position));
     const rows = await db.select({ id: server.id, name: server.name, groupId: serverPortInfo.groupId, memo: serverPortInfo.memo, machine: serverPortInfo.machine, scannedAt: serverPortInfo.scannedAt })
-      .from(server).leftJoin(serverPortInfo, eq(serverPortInfo.serverId, server.id)).where(eq(server.teamId, teamId)).orderBy(asc(server.name));
+      .from(server).leftJoin(serverPortInfo, eq(serverPortInfo.serverId, server.id)).where(eq(server.teamId, teamId)).orderBy(asc(server.name))
+      .then((all) => all.filter((r) => !scope || scope.has(r.id)));
     const ports = rows.length ? await db.select().from(serverPort).where(inArray(serverPort.serverId, rows.map((r) => r.id))).orderBy(asc(serverPort.port)) : [];
     const servers = rows.map((r) => ({
       ...r, memo: r.memo ?? "", machine: r.machine ?? "",
@@ -53,9 +58,11 @@ export function portService(deps: Deps) {
     return { kinds, groups, servers, problems: findProblems(servers, kinds, groups), catalog: PORT_CATALOG };
   }
 
-  const serverInTeam = async (teamId: string, id: string) => {
-    const [s] = await db.select({ id: server.id }).from(server).where(and(eq(server.id, id), eq(server.teamId, teamId)));
+  // チームのサーバーで、割り当てで使えるものか(ほかのチームのものは 404、割り当てられていなければ 403)
+  const serverInTeam = async (who: Who, id: string) => {
+    const [s] = await db.select({ id: server.id }).from(server).where(and(eq(server.id, id), eq(server.teamId, who.teamId)));
     if (!s) throw new HttpError(404, "サーバーが見つかりません");
+    await needServerAccess(deps, who, id);
   };
 
   // * を含むファイルの場所は、フォルダーの中から名前が合うものを探す(Geyser-Spigot など)
@@ -125,9 +132,7 @@ export function portService(deps: Deps) {
     /** 表に出すもの: 種類・グループ・サーバーごとのポート・問題 */
     async overview(headers: Headers) {
       const who = await requireTeam(auth, headers);
-      const scope = await serverScope(deps, who);
-      const ov = await overviewOf(who.teamId);
-      return scope ? { ...ov, servers: ov.servers.filter((s) => scope.has(s.id)) } : ov;
+      return overviewOf(who);
     },
 
     /** 読み取り直す(serverId を渡すとその 1 台、無ければチームの全部)。失敗したサーバーは理由を返し、残りは続ける */
@@ -137,8 +142,13 @@ export function portService(deps: Deps) {
       const { teamId } = who;
       await ensureKinds(teamId);
       const kinds = await db.select().from(portKind).where(eq(portKind.teamId, teamId));
-      const list = await db.select().from(server).where(serverId ? and(eq(server.teamId, teamId), eq(server.id, serverId)) : eq(server.teamId, teamId));
-      if (serverId && !list.length) throw new HttpError(404, "サーバーが見つかりません");
+      const scope = await serverScope(deps, who);
+      const list = (await db.select().from(server).where(serverId ? and(eq(server.teamId, teamId), eq(server.id, serverId)) : eq(server.teamId, teamId)))
+        .filter((s) => !scope || scope.has(s.id));
+      if (serverId && !list.length) {
+        await serverInTeam(who, serverId); // 無ければ 404、割り当てがなければ 403
+        throw new HttpError(404, "サーバーが見つかりません");
+      }
       // どのマシン(Pterodactyl のノード)で動くか: パネルの一覧から
       const nodes = new Map<string, string>();
       for (const connId of new Set(list.map((s) => s.pteroConnectionId).filter((x): x is string => !!x))) {
@@ -157,12 +167,13 @@ export function portService(deps: Deps) {
           failed.push({ name: s.name, message: e.message });
         }
       }
-      return { failed, ...(await overviewOf(teamId)) };
+      return { failed, ...(await overviewOf(who)) };
     },
 
     /** 種類とグループを並び順ごと保存する(無くなったものは消す) */
     async saveRules(headers: Headers, input: RuleInput) {
-      const { teamId, user } = await requireTeam(auth, headers, { server: ["update"] });
+      const who = await requireTeam(auth, headers, { server: ["update"] });
+      const { teamId, user } = who;
       if (input.kinds.length > PORT_LIMITS.kindsPerTeam) throw new HttpError(400, `種類は ${PORT_LIMITS.kindsPerTeam} 個までです`);
       if (input.groups.length > PORT_LIMITS.groupsPerTeam) throw new HttpError(400, `グループは ${PORT_LIMITS.groupsPerTeam} 個までです`);
       const kinds = input.kinds.map((k, i) => {
@@ -194,20 +205,21 @@ export function portService(deps: Deps) {
         for (const g of groups) await tx.insert(portGroup).values(g).onConflictDoUpdate({ target: portGroup.id, set: { ...g, id: undefined, teamId: undefined } });
       });
       await record({ teamId, userId: user.id, kind: "admin", action: "ポートの種類とグループを変更", detail: `種類 ${kinds.length} 個・グループ ${groups.length} 個` });
-      return overviewOf(teamId);
+      return overviewOf(who);
     },
 
     /** サーバーのグループとメモ */
     async setServerInfo(headers: Headers, serverId: string, input: { groupId: string | null; memo: string }) {
-      const { teamId } = await requireTeam(auth, headers, { server: ["update"] });
-      await serverInTeam(teamId, serverId);
+      const who = await requireTeam(auth, headers, { server: ["update"] });
+      const { teamId } = who;
+      await serverInTeam(who, serverId);
       if (input.groupId) {
         const [g] = await db.select({ id: portGroup.id }).from(portGroup).where(and(eq(portGroup.id, input.groupId), eq(portGroup.teamId, teamId)));
         if (!g) throw new HttpError(404, "グループが見つかりません");
       }
       const set = { groupId: input.groupId || null, memo: txt(input.memo, 100) };
       await db.insert(serverPortInfo).values({ serverId, ...set }).onConflictDoUpdate({ target: serverPortInfo.serverId, set });
-      return overviewOf(teamId);
+      return overviewOf(who);
     },
 
     /**
@@ -217,8 +229,9 @@ export function portService(deps: Deps) {
     async savePorts(headers: Headers, serverId: string, changes: PortChange[]) {
       const who = await requireTeam(auth, headers, { server: ["update"] });
       const { teamId, user } = who;
-      await serverInTeam(teamId, serverId);
-      const ov = await overviewOf(teamId);
+      await serverInTeam(who, serverId);
+      const ov = await overviewOf(who, true);
+      const scope = await serverScope(deps, who);
       const me = ov.servers.find((s) => s.id === serverId)!;
       const kindIds = new Set(ov.kinds.map((k) => k.id));
       const byId = new Map(me.ports.map((p) => [p.id, p]));
@@ -256,7 +269,7 @@ export function portService(deps: Deps) {
         .filter(({ p }) => !p.ignored && p.source !== "found");
       for (const c of checked) {
         const hit = all.find(({ p }) => p.id !== c.id && p.port === c.port);
-        if (hit) throw new HttpError(400, `${c.port} は「${hit.s.id === serverId ? me.name : hit.s.name}」${hit.p.label ? `の ${hit.p.label}` : ""}が使っています`);
+        if (hit) throw new HttpError(400, `${c.port} は「${hit.s.id === serverId ? me.name : !scope || scope.has(hit.s.id) ? hit.s.name : "割り当てのないサーバー"}」${hit.p.label ? `の ${hit.p.label}` : ""}が使っています`);
       }
 
       if (writes.length) {
@@ -283,15 +296,17 @@ export function portService(deps: Deps) {
       const wroteFiles = [...new Set(writes.map((w) => w.file))];
       await record({ teamId, userId: user.id, kind: "admin", action: "ポートを変更", target: me.name,
         detail: writes.map((w) => `${w.file} の ${w.key} → ${w.port}`).join("\n") || `${changes.length} 件` });
-      return { wroteFiles, ...(await overviewOf(teamId)) };
+      return { wroteFiles, ...(await overviewOf(who)) };
     },
 
     /** 見つけたポートを管理する(種類を選ぶか、新しい種類を作る)。同じファイル・項目は、ほかのサーバーでも読むようになる */
     async adoptFound(headers: Headers, portId: string, input: { kindId?: string; newKindName?: string }) {
-      const { teamId } = await requireTeam(auth, headers, { server: ["update"] });
+      const who = await requireTeam(auth, headers, { server: ["update"] });
+      const { teamId } = who;
       const [p] = await db.select({ p: serverPort, teamId: server.teamId }).from(serverPort).innerJoin(server, eq(serverPort.serverId, server.id))
         .where(and(eq(serverPort.id, portId), eq(server.teamId, teamId)));
       if (!p || p.p.source !== "found") throw new HttpError(404, "見つけたポートが見つかりません");
+      await needServerAccess(deps, who, p.p.serverId);
       let kindId = input.kindId ?? null;
       if (input.newKindName) {
         const kinds = await db.select({ id: portKind.id }).from(portKind).where(eq(portKind.teamId, teamId));
@@ -304,7 +319,7 @@ export function portService(deps: Deps) {
       }
       // 新しい種類はファイル・項目を持つので、次からは種類として読む。既存の種類に入れたものは、このサーバーで覚えて読み直す
       await db.update(serverPort).set({ source: input.newKindName ? "file" : "adopted", kindId, updatedAt: new Date() }).where(eq(serverPort.id, portId));
-      return overviewOf(teamId);
+      return overviewOf(who);
     },
   };
 }

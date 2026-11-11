@@ -13,7 +13,7 @@ export const getAppState = createServerFn({ method: "GET" }).handler(async () =>
   // v02 の二段階認証のまま(v03 で設定し直していない)か
   const legacy = !s.user.twoFactorEnabled && (await db.select({ id: legacyTotp.userId }).from(legacyTotp).where(eq(legacyTotp.userId, s.user.id))).length > 0;
   const { id, name, email, twoFactorEnabled, displayUsername, username } = s.user;
-  return { user: { id, name, email, username: displayUsername || username || null, twoFactorEnabled: !!twoFactorEnabled, legacyTotp: legacy, theme: await prefs.theme(id), background: await prefs.backgroundUrl(id) }, app };
+  return { user: { id, name, email, username: displayUsername || username || null, twoFactorEnabled: !!twoFactorEnabled, legacyTotp: legacy, theme: await prefs.theme(id), dash: await prefs.dash(id), background: await prefs.backgroundUrl(id) }, app };
 });
 
 export type SessionUser = NonNullable<Awaited<ReturnType<typeof getAppState>>["user"]>;

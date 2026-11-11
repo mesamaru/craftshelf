@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
 import { beforeAll, describe, expect, it } from "vitest";
-import { maybeImportV02Backgrounds, prefsReportPath } from "~/server/import-v02";
+import { backgroundReportPath, maybeImportV02Backgrounds, maybeImportV02Dash, prefsReportPath } from "~/server/import-v02";
+import { DASH_DEFAULT, cleanDash } from "~/lib/dash";
 import { HttpError } from "~/server/guard";
 import { PREF_LIMITS, prefService } from "~/server/prefs";
 import { DEFAULT_THEME, cleanTheme, inkOn } from "~/lib/theme";
@@ -102,5 +103,58 @@ describe("v02 の背景画像の取り込み", () => {
     expect(await prefs.backgroundUrl(await idOf(h[2]))).toBe("");
     expect(await prefs.backgroundUrl(await idOf(h[3]))).toBeNull();
     expect(await maybeImportV02Backgrounds(t.db, { v02Dir, v03Dir })).toBeNull();
+  });
+});
+
+describe("ホームのウィジェットの並び", () => {
+  it("保存したものは本人のアカウントから読める。知らないもの・長すぎるものは落とし、足りないものは足す", async () => {
+    const a = t.headers(await t.signUp("Dash A", "dash-a@example.com"));
+    const b = t.headers(await t.signUp("Dash B", "dash-b@example.com"));
+    const idOf = async (h: Headers) => (await t.auth.api.getSession({ headers: h }))!.user.id;
+    expect(await prefs.dash(await idOf(a))).toBeNull();
+    const saved = await prefs.setDash(a, {
+      order: ["servers", "nope", "x0123abcd", "tiles", "servers"], hidden: ["links", "zzz"], full: ["tiles", "x0123abcd"],
+      custom: [
+        { id: "x0123abcd", type: "todo", title: "あ".repeat(100), items: [{ t: "牛乳", d: true }, { t: " ", d: false }] },
+        { id: "bad", type: "memo" }, { id: "x0123abcd", type: "memo" }, { id: "x00000001", type: "script" },
+      ],
+    });
+    expect(saved.order.slice(0, 3)).toEqual(["servers", "x0123abcd", "tiles"]);
+    expect(saved.order).toHaveLength(9); // 足りない標準のウィジェットは後ろに足す
+    expect(saved.hidden).toEqual(["links"]);
+    expect(saved.custom).toHaveLength(1);
+    expect(saved.custom[0].title).toHaveLength(40);
+    expect(saved.custom[0].items).toEqual([{ t: "牛乳", d: true }]);
+    expect(await prefs.dash(await idOf(a))).toEqual(saved);
+    expect(await prefs.dash(await idOf(b))).toBeNull();
+    expect(cleanDash(undefined).order).toEqual(DASH_DEFAULT.order);
+    await expect(prefs.setDash(new Headers({ "x-api-key": "cs_wrongwrongwrong" }), {})).rejects.toMatchObject({ status: 401 });
+  });
+
+  it("v02 のウィジェットの並び(メモ・ToDo など)を一度だけ引き継ぐ(v03 で決めた人は上書きしない)", async () => {
+    const v02Dir = mkdtempSync(join(tmpdir(), "cs-v02dash-"));
+    const v03Dir = mkdtempSync(join(tmpdir(), "cs-v03dash-"));
+    const d = new DatabaseSync(join(v02Dir, "index.db"));
+    d.exec("CREATE TABLE users (id INTEGER PRIMARY KEY, username TEXT, prefs TEXT NOT NULL DEFAULT '{}')");
+    const add = d.prepare("INSERT INTO users (id, username, prefs) VALUES (?,?,?)");
+    const dash = { order: ["recent", "x1a2b3c4d", "tiles"], hidden: ["cats"], full: ["tiles"], custom: [{ id: "x1a2b3c4d", type: "memo", title: "メモ", md: true, text: "# こんにちは" }] };
+    add.run(11, "並べた人", JSON.stringify({ dash }));
+    add.run(12, "決め直した人", JSON.stringify({ dash }));
+    add.run(13, "何もしない人", JSON.stringify({ theme: "mint" }));
+    d.close();
+    const h: Headers[] = [];
+    for (const n of [11, 12, 13]) h.push(t.headers(await t.signUp(`v02-dash-${n}`, `u${n}@v02.craftshelf.invalid`)));
+    const idOf = async (x: Headers) => (await t.auth.api.getSession({ headers: x }))!.user.id;
+    await prefs.setDash(h[1], { order: ["tiles"] });
+    expect(await maybeImportV02Dash(t.db, { v02Dir, v03Dir })).toBeNull(); // 背景画像の取り込みのあとで
+    writeFileSync(backgroundReportPath(v03Dir), "{}");
+    const r = (await maybeImportV02Dash(t.db, { v02Dir, v03Dir }))!;
+    expect(r.users).toEqual(["並べた人"]);
+    const mine = (await prefs.dash(await idOf(h[0])))!;
+    expect(mine.order.slice(0, 3)).toEqual(["recent", "x1a2b3c4d", "tiles"]);
+    expect(mine.custom[0]).toMatchObject({ type: "memo", md: true, text: "# こんにちは" });
+    expect((await prefs.dash(await idOf(h[1])))!.order[0]).toBe("tiles");
+    expect(await prefs.dash(await idOf(h[2]))).toBeNull();
+    expect(await maybeImportV02Dash(t.db, { v02Dir, v03Dir })).toBeNull();
   });
 });

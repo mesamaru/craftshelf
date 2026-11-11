@@ -615,13 +615,17 @@ a.pill:hover { background: var(--glass2); }
 .cl-param .input { padding: 5px 8px; }
 .sheet .panel-foot { bottom: -20px; background: var(--glass2); padding-bottom: 6px; }
 
-/* セットのカード(src/routes/sets.tsx) */
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; align-items: start; }
-button.group.set-card { padding: 0; text-align: left; font: inherit; color: inherit; cursor: pointer; width: 100%; }
-button.group.set-card:hover { border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+/* セット(src/routes/sets.tsx。v02 と同じ: 一言と「＋ セットを作成」、2 列のカード) */
+.view-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.view-head p { margin: 0; flex: 1 1 280px; }
+.cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
+.set-card .card-b { gap: 8px; }
+.set-card .group.flat .row { min-height: 46px; padding-top: 7px; padding-bottom: 7px; }
+.card.empty { padding: 36px 16px; text-align: center; color: var(--muted); }
+.card.empty .big { font-size: 40px; line-height: 1.2; }
+.card.empty p { margin: 6px 0 0; }
+@media (max-width: 899px) { .cards { grid-template-columns: 1fr; } }
 .set-ic { background: var(--accent); color: var(--accent-ink); font-weight: 800; font-size: 16px; }
-.set-card .row.tags { flex-wrap: wrap; gap: 4px; min-height: 0; padding-top: 8px; padding-bottom: 12px; }
-.set-card .tag { margin-left: 0; max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .set-nav .ttl { font-weight: 500; }
 a.mid { color: inherit; text-decoration: none; }
 .row select:not(.trail) { font: inherit; font-size: 13px; color: var(--text); background: transparent; border: 1px solid var(--line); border-radius: 10px; padding: 4px 8px; }
@@ -720,8 +724,10 @@ select.sel option, .row select option { background: var(--sheet); color: var(--t
 .tile .v small { font-size: 15px; font-weight: 600; color: var(--muted); margin-left: 3px; }
 .tile .s { font-size: 12.5px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tile.warn .v { color: var(--warn); }
-.dash { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: start; }
-.dcol { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+/* ウィジェットは 2 列(上から下へ詰める。狭いときは 1 列) */
+.dash { columns: 2; column-gap: 14px; }
+.dash > .widget { break-inside: avoid; margin-bottom: 14px; }
+.dash > .widget:last-child { margin-bottom: 0; }
 .card { border-radius: var(--r-card); overflow: hidden; box-shadow: var(--shadow); }
 .card-h { display: flex; justify-content: space-between; align-items: center; gap: 10px; padding: 14px 16px 6px; min-height: 48px; }
 .card-h h4 { margin: 0; font-size: 16px; font-weight: 700; }
@@ -741,7 +747,7 @@ select.sel option, .row select option { background: var(--sheet); color: var(--t
 .kv span:first-child { color: var(--muted); }
 a.kv.linkish span:first-child { color: var(--text); font-weight: 600; }
 a.kv.linkish span:last-child { color: var(--accent); font-weight: 600; }
-@media (max-width: 900px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dash { grid-template-columns: 1fr; } }
+@media (max-width: 900px) { .tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .dash { columns: 1; } }
 @media (max-width: 720px) {
   .toolbar { top: 66px; }
   .toolbar .row1 { flex-wrap: wrap; }
@@ -766,3 +772,107 @@ a.kv.linkish span:last-child { color: var(--accent); font-weight: 600; }
 .sheet > header .iconbtn, .sheet > header .rbtn { width: 32px; height: 32px; background: var(--chip); color: var(--text); }
 .sheet > header .iconbtn svg, .sheet > header .rbtn svg { width: 16px; height: 16px; }
 .items .row[aria-current="true"] { background: var(--accent-soft); }
+
+/* ===== サーバー(src/routes/servers.tsx・servers.$id.tsx)。v02 と同じ 1 つの画面: 左に一覧、右に詳細。幅 900 px まで(スマホ)は一覧 → 詳細 ===== */
+.srv-top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.srv-split { display: grid; grid-template-columns: 320px minmax(0, 1fr); gap: 18px; align-items: start; }
+.srv-side { position: sticky; top: 84px; max-height: calc(100vh - 110px); overflow: auto; padding: 0 4px 8px 0; scrollbar-gutter: stable; scrollbar-width: thin; }
+.srv-main { min-width: 0; }
+.srv-page { display: flex; flex-direction: column; gap: 12px; }
+.sstats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+.sstats > * { border-radius: 14px; padding: 10px 12px; text-align: left; font: inherit; color: var(--text); min-width: 0; }
+.sstats > button { cursor: pointer; }
+.sstats > button:disabled { cursor: default; }
+.sstats small { display: block; font-size: 12px; font-weight: 600; color: var(--muted); }
+.sstats b { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.sstats b i { font-style: normal; font-size: 13px; color: var(--muted); font-weight: 500; margin-left: 2px; }
+.sstats .warn b { color: var(--warn); }
+.sgrp { font-size: 12.5px; color: var(--muted); margin: 14px 6px 6px; }
+.slist .row[aria-current="true"] { background: var(--accent-soft); }
+.sall { width: 100%; margin-top: 14px; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--r-card); text-align: left; cursor: pointer; font: inherit; color: var(--text); box-shadow: var(--shadow); }
+.sall > svg { width: 20px; height: 20px; color: var(--accent); flex: none; }
+.srv-back { display: none; }
+.srv-hero { display: flex; align-items: center; gap: 12px; }
+.srv-hero .m { flex: 1; min-width: 0; }
+.srv-hero h2 { margin: 0; font-size: 24px; line-height: 1.2; font-weight: 800; letter-spacing: -0.02em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.srv-hero small { font-size: 13px; color: var(--muted); }
+/* 状態の印(● 稼働中) */
+.spill { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; padding: 4px 10px; border-radius: 999px; background: var(--chip); color: var(--muted); white-space: nowrap; flex: none; word-break: keep-all; }
+.spill .dot { width: 8px; height: 8px; }
+.spill.ok { background: var(--accent-soft); color: var(--accent); }
+.spill.warn { background: rgba(255, 159, 10, 0.16); color: var(--warn-ink); }
+/* 上に止まるタブ: 下の一覧が透けて重ならないよう、濃いガラスの下地を付ける(v02 の 02.25.03) */
+.srv-page > .tabs { position: sticky; top: 84px; z-index: 5; background: var(--glass2); box-shadow: var(--shadow); }
+.srv-main .stats { grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); }
+/* 起動・再起動・停止 */
+.srv-qacts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.srv-qacts button { display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 4px; border-radius: 16px; color: var(--text); font: 600 12.5px/1.3 var(--font); cursor: pointer; }
+.srv-qacts button svg { width: 20px; height: 20px; color: var(--accent); }
+.srv-qacts button:hover:not(:disabled) { background: var(--accent-soft); }
+.srv-qacts button:disabled { opacity: 0.45; cursor: default; }
+@media (max-width: 1279px) { .srv-main .two { grid-template-columns: 1fr; } }
+@media (max-width: 899px) {
+  .srv-split { grid-template-columns: 1fr; }
+  .srv-side { position: static; max-height: none; overflow: visible; padding: 0; scrollbar-gutter: auto; }
+  .srv.has-id > .bar, .srv.has-id > .msearch, .srv.has-id > .srv-top, .srv.has-id .srv-side { display: none; }
+  .srv:not(.has-id) .srv-main { display: none; }
+  .srv-back { display: inline-flex; margin-top: -4px; }
+  .srv-page > .tabs { top: 66px; }
+}
+
+/* ===== ホームのウィジェット(src/routes/home.tsx・src/lib/dash-widgets.tsx。v02 の「ウィジェットを編集」) ===== */
+.dash-top { display: flex; gap: 8px; justify-content: flex-end; align-items: center; flex-wrap: wrap; }
+.widgets { display: flex; flex-direction: column; gap: 14px; }
+.widget { min-width: 0; }
+.widgets.editing .widget { padding: 6px; border-radius: calc(var(--r-card) + 6px); border: 1.5px dashed color-mix(in srgb, var(--accent) 55%, transparent); }
+.widget.off { opacity: 0.45; }
+.widget.dragging { opacity: 0.4; }
+.wbar { display: flex; align-items: center; gap: 4px; padding: 3px 4px; margin-bottom: 6px; border-radius: 14px; background: var(--chip); }
+.whandle { cursor: grab; color: var(--muted); display: grid; place-items: center; width: 24px; }
+.whandle svg { width: 16px; height: 16px; }
+.wname { font-weight: 600; font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.wbar .rbtn:disabled { opacity: 0.35; cursor: default; }
+.cw .card-h .muted { font-size: 12.5px; }
+.memo-body .plain { white-space: pre-wrap; overflow-wrap: anywhere; }
+.md { overflow-wrap: anywhere; font-size: 14px; line-height: 1.6; }
+.md > :first-child { margin-top: 0; }
+.md h3, .md h4, .md h5, .md h6 { margin: 8px 0 2px; font-size: 15px; }
+.md p { margin: 4px 0; }
+.md ul, .md ol { margin: 4px 0; padding-left: 1.3em; }
+.md blockquote { margin: 4px 0; padding-left: 10px; border-left: 3px solid var(--line); color: var(--muted); }
+.md pre { margin: 6px 0; padding: 8px 10px; border-radius: 10px; background: var(--chip); overflow: auto; }
+.md pre code { background: none; padding: 0; }
+.md a { color: var(--accent); }
+.md hr { border: 0; border-top: 1px solid var(--line); }
+.todo-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.todo-row:last-child { border-bottom: 0; }
+.todo-row .t { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.todo-row.done .t { text-decoration: line-through; color: var(--muted); }
+.todo-add { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
+.todo-add .input { padding: 8px 12px; }
+.clockw { text-align: center; }
+.clockw .dig { font-size: 40px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1.2; }
+.clockw .dig span { font-size: 22px; color: var(--muted); font-weight: 600; }
+.clockw .dig-sub { color: var(--muted); font-size: 13px; }
+.aclock { width: 150px; height: 150px; display: block; margin: 0 auto; }
+.aclock .face { fill: var(--chip); stroke: var(--line); }
+.aclock .tick { stroke: var(--muted); }
+.aclock .hh, .aclock .mh { stroke: var(--text); }
+.aclock .sh { stroke: var(--accent); }
+.aclock .sh-dot { fill: var(--accent); }
+.datew .d1 { color: var(--muted); font-size: 13px; }
+.datew .d2 { font-size: 30px; font-weight: 800; letter-spacing: -0.02em; }
+.datew .d2 span { font-size: 16px; color: var(--muted); font-weight: 600; margin-left: 4px; }
+.datew .d3 { color: var(--muted); font-size: 13px; }
+textarea.row { display: block; width: 100%; outline: none; resize: vertical; line-height: 1.5; min-height: 120px; }
+@media (max-width: 899px) { .widgets.editing .widget { padding: 4px; } }
+
+/* ===== 設定の一覧の色つきの四角(v02 の cicon。種類の色と同じ) ===== */
+.cicon { width: 29px; height: 29px; border-radius: 8px; display: grid; place-items: center; flex: none; color: #fff; background: var(--c, #8e8e93); box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25); }
+.cicon svg { width: 17px; height: 17px; }
+.c-plugin { --c: #0a84ff; } .c-mod { --c: #30d158; } .c-datapack { --c: #ff9f0a; } .c-resourcepack { --c: #bf5af2; }
+.c-other { --c: #8e8e93; } .c-teal { --c: #40c8e0; } .c-red { --c: #ff453a; }
+.set-nav .ttl { white-space: normal; } /* 英語は長いので折り返す */
+.set-nav .account-row { min-height: 64px; }
+.set-nav .account-row .av { width: 40px; height: 40px; font-size: 16px; }
+.set-nav .group + div .gtitle, .set-nav > .group + .group { margin-top: 12px; }

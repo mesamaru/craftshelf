@@ -121,6 +121,13 @@ async function build() {
     } catch (e) {
       console.error("[v02] 背景画像の取り込みに失敗しました(v02 のデータはそのままです):", e);
     }
+    const { maybeImportV02Dash } = await import("./import-v02");
+    try {
+      const r = await maybeImportV02Dash(db, env);
+      if (r?.users.length) console.log(`[v02] ホームのウィジェットの並びを引き継ぎました: ${r.users.join("、")}`);
+    } catch (e) {
+      console.error("[v02] ホームのウィジェットの並びの取り込みに失敗しました(v02 のデータはそのままです):", e);
+    }
     const { maybeImportV02Pins } = await import("./import-v02");
     try {
       const r = await maybeImportV02Pins(db, { ...env, fetch: safeFetch });

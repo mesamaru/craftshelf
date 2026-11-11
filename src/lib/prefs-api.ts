@@ -11,3 +11,8 @@ export const saveMyTheme = createServerFn({ method: "POST" })
 export const saveMyBackground = createServerFn({ method: "POST" })
   .validator(z.object({ image: z.string().max(4 * 1024 * 1024).nullable() }))
   .handler(async ({ data }) => (await import("~/server/instance")).prefs.setBackground(getRequest().headers, data.image));
+
+// ホームのウィジェットの並び(メモ・ToDo の中身も入る。~/lib/dash の cleanDash でそろえて返す)
+export const saveMyDash = createServerFn({ method: "POST" })
+  .validator(z.object({ layout: z.unknown() }))
+  .handler(async ({ data }) => (await import("~/server/instance")).prefs.setDash(getRequest().headers, data.layout));

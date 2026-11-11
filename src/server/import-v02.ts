@@ -1039,6 +1039,37 @@ export async function maybeImportV02Backgrounds(db: Db, opts: { v02Dir: string; 
   }
 }
 
+// ホームのウィジェットの並び(03.69.00 から。v02 の users.prefs.dash = order・hidden・full・custom のメモ / ToDo / 時計 / 今日の日付)。
+// 背景画像の取り込みのあとで一度だけ(前に取り込んだパネルも、次の起動で)。v03 でもう並びを決めた人は上書きしない。v02 のウィジェットの名前は v03 と同じ
+export const dashReportPath = (v03Dir: string) => join(v03Dir, "import-v02-dash.json");
+
+export async function maybeImportV02Dash(db: Db, opts: { v02Dir: string; v03Dir: string }): Promise<{ at: string; users: string[] } | null> {
+  const dbFile = join(opts.v02Dir, "index.db");
+  if (!existsSync(dbFile) || !existsSync(backgroundReportPath(opts.v03Dir)) || existsSync(dashReportPath(opts.v03Dir))) return null;
+  const { cleanDash } = await import("~/lib/dash");
+  const v02 = new DatabaseSync(dbFile, { readOnly: true });
+  try {
+    const report = { at: new Date().toISOString(), users: [] as string[] };
+    for (const u of has(v02, "users", "prefs") ? all(v02, "SELECT id, username, prefs FROM users") : []) {
+      let p: Row = {};
+      try {
+        p = JSON.parse(str(u.prefs) || "{}") as Row;
+      } catch { /* 読めない設定は飛ばす */ }
+      if (!p.dash || typeof p.dash !== "object") continue;
+      const [v03] = await db.select({ id: schema.user.id }).from(schema.user).where(eq(schema.user.email, `u${str(u.id)}@v02.craftshelf.invalid`));
+      if (!v03) continue;
+      const dash = JSON.stringify(cleanDash(p.dash));
+      const added = await db.insert(schema.userPref).values({ userId: v03.id, dash }).onConflictDoNothing().returning({ id: schema.userPref.userId });
+      const done = added.length ? added : await db.update(schema.userPref).set({ dash }).where(and(eq(schema.userPref.userId, v03.id), isNull(schema.userPref.dash))).returning({ id: schema.userPref.userId });
+      if (done.length) report.users.push(str(u.username));
+    }
+    writeFileSync(dashReportPath(opts.v03Dir), JSON.stringify(report, null, 2) + "\n", { mode: 0o600 });
+    return report;
+  } finally {
+    v02.close();
+  }
+}
+
 // 結果のファイルを読む(無い・読めないときは null)
 export function readReportFile<T>(file: string): T | null {
   try {

@@ -94,9 +94,44 @@ export const EN: Record<string, string> = {
   "曜日と時刻": "Days and time",
   "「そろえる」は、結び付けたサーバーに足りないものを入れ、新しい版があれば更新します(セットを結び付けるのは、サーバーの画面の「アドオン」の「そろえる」)。「サーバーに入れる」は、選んだサーバーにまだ入っていないものだけを入れます。": "“Sync” installs what is missing on linked servers and updates to new versions (link a set from a server's “Add-ons” → “Sync”). “Add to a server” installs only what is not yet on the chosen server.",
   "まとめて": "All at once",
+  // 03.69.00: v02 に合わせたサーバー・セット・設定・ホームのウィジェット
+  "対応が必要": "Needs attention",
+  "CurseForge API キー": "CurseForge API key",
+  "問題なし": "All good",
+  "押すと、配布元に問い合わせて確かめ直します": "Click to check the sources again",
+  "サーバーをつなぐと、ここに状態・アドオン・ファイルなどが出ます。「＋ サーバーを追加」から、Pterodactyl のサーバー・フォルダのサーバー・エージェントをつなげます。":
+    "Once you connect servers, their status, add-ons, files and more show up here. Use “＋ Add server” to connect a Pterodactyl server, a folder server or an agent.",
+  "やることはありません": "Nothing to do",
+  "よく使う組み合わせをセットにして、サーバーにまとめて入れます。": "Save combinations you use often as a set and add them to servers all at once.",
+  "＋ セットを作成": "＋ Create set",
+  "セットを作成": "Create set",
+  "常に最新": "Always latest",
+  "(固定)": " (pinned)",
+  "まだセットがありません": "No sets yet",
+  "＋ ウィジェットを追加": "＋ Add widget",
+  "初期状態に戻す": "Reset to default",
+  "ウィジェットを編集": "Edit widgets",
+  "足すウィジェット": "Widget to add",
+  "ToDo リスト": "To-do list",
+  "今日の日付": "Today's date",
+  "メモを直す": "Edit note",
+  "右上のボタンからメモを書けます": "Use the button at the top right to write a note",
+  "やることを追加": "Add a to-do",
+  "完了したものを消す": "Clear completed",
+  "半分の幅にする": "Make half width",
+  "全幅にする": "Make full width",
+  "非表示にする": "Hide",
+  "表示する": "Show",
+  "題(空なら「メモ」)": "Title (blank = “Note”)",
+  "Markdown で書く": "Write in Markdown",
+  "パネルのアップデート": "Panel update",
+  "利用状況の送信": "Usage reporting",
+  "ユーザーと権限": "Users and permissions",
+  "ユーザーごとの利用状況": "Usage by user",
+  "お問い合わせ・要望": "Contact and requests",
   // 03.66.00: サーバーの一覧・詳細
-  "Pterodactyl パネル・パネルから見えるフォルダ・エージェント(家の中のサーバー機)のサーバーをまとめて扱います。押すと、状態・アドオン・ファイル・コンソール・バックアップ・設定を開きます。":
-    "Manage servers from Pterodactyl panels, folders the panel can see and agents (server machines at home) in one place. Open one to see its status, add-ons, files, console, backups and settings.",
+  "Pterodactyl パネル・パネルから見えるフォルダ・エージェント(家の中のサーバー機)のサーバーをまとめて扱います。左の一覧から選ぶと、状態・コンソール・アドオン・ファイル・保存(バックアップ)・設定を開きます。":
+    "Manage servers from Pterodactyl panels, folders the panel can see and agents (server machines at home) in one place. Pick one in the list on the left to see its status, console, add-ons, files, backups (Backup tab) and settings.",
   "「すべて更新」は、このアプリで入れた Mod・プラグインに新しい版があれば入れます。「更新を止める」にしたもの・無効にしたもの・種類を決めていないサーバーは変えません。変更はサーバーの再起動で反映されます。":
     "“Update all” installs new versions of mods and plugins installed by this app. Held and disabled items, and servers without a type, are not changed. Changes take effect after the server restarts.",
   "このアプリで入れた Mod・プラグインに新しい版があれば入れます(止めたもの・無効にしたものは除く)。": "Installs new versions of mods and plugins installed by this app (except held and disabled ones).",
@@ -563,7 +598,6 @@ export const EN: Record<string, string> = {
   "最後に送った日時": "Last sent",
   "送る内容を見る": "Show what is sent",
   "開発の参考にするため、版・OS・使っている機能・登録数(おおまかな範囲)だけを送ります。名前・ファイル名・アドレス・IP アドレスなどは送りません。送るのは、ここをオンにしたときだけです。": "To help development, only the version, OS, features in use and rough counts are sent. Names, file names, addresses and IP addresses are never sent. Nothing is sent unless this is turned on.",
-  "お問い合わせ・要望": "Contact and requests",
   "お問い合わせの種類": "Type of inquiry",
   "返事の宛先(任意。Discord の名前・メールアドレスなど)": "Where to reply (optional: Discord name, email, etc.)",
   "版と OS も送る": "Include version and OS",
@@ -1661,6 +1695,23 @@ export const EN: Record<string, string> = {
 };
 /** 1 文字だけのもの(曜日など)。文全体が一致したときだけ置き換える */
 export const EN_WHOLE: Record<string, string> = {
+  // 03.69.00
+  "編集": "Edit",
+  "稼働": "Running",
+  "人数": "Players",
+  "連携": "Integrations",
+  "完了": "Done",
+  "前へ": "Previous",
+  "後ろへ": "Next",
+  "時計": "Clock",
+  "デジタル": "Digital",
+  "アナログ": "Analog",
+  "やること": "To do",
+  "ストレージ": "Storage",
+  "運用": "Operations",
+  "ツール": "Tools",
+  "サポート": "Support",
+  "表示": "Display",
   // 03.68.00
   "ホーム": "Home",
   "お知らせ": "Notifications",
@@ -1779,6 +1830,18 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  // 03.69.00
+  [/^ほか (\d+) 件$/, "$1 more"],
+  [/^アドオン (\d+)$/, "Add-ons $1"],
+  [/^(\d+) 台・(\d+) 件$/, "$1 servers · $2 updates"],
+  [/^残り (\d+) 件$/, "$1 left"],
+  [/^足せるウィジェットは (\d+) 個までです$/, "You can add up to $1 widgets"],
+  [/^「(.+)」を消しますか\?$/, "Delete “$1”?"],
+  [/^今年の (\d+) 日目$/, "Day $1 of the year"],
+  [/^(\d{4})年$/, "$1"],
+  [/^(\d+)月(\d+)日$/, (_, m, d) => `${["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][Number(m) - 1]} ${d}`],
+  [/^\(([日月火水木金土])\)$/, (_, d) => `(${DAY[d]})`],
+  [/^(\d+)\/(\d+)\(([日月火水木金土])\)$/, (_, m, d, w) => `${m}/${d} (${DAY[w]})`],
   // 03.68.00: v02 に合わせた枠・ホーム・ライブラリ
   [/(\d+) バージョン/, (_, n) => (n === "1" ? "1 version" : `${n} versions`)], // 一覧の「版 · N バージョン · 大きさ」
   [/^ほか (\d+) 台$/, "$1 more"],

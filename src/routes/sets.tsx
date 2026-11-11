@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
+import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { ApplyResults } from "~/lib/apply-results";
 import { libraryCatalog, libraryItemVersions } from "~/lib/library-api";
@@ -8,7 +8,7 @@ import { getSchedule, setSchedule } from "~/lib/schedule-api";
 import { ITEM_TYPES, PLATFORMS, PLATFORM_IDS } from "~/lib/platforms";
 import { ItemIcon } from "~/lib/type-icon";
 import { addSetDeps, applySet, createSet, listSets, pinSetItem, removeSet, renameSet, setMissingDeps, syncServerSet, toggleSetItem } from "~/lib/sets-api";
-import { Btn, Chip, ChipBar, Info, Menu, Sheet } from "~/lib/ui";
+import { Btn, Chip, Info, Menu, Sheet } from "~/lib/ui";
 import { SOURCE_LABEL, isSource } from "~/lib/sources";
 import { useCan } from "~/lib/use-can";
 import { localEnabled } from "~/lib/servers-api";
@@ -32,7 +32,7 @@ type SetRow = Awaited<ReturnType<typeof listSets>>[number];
 type Catalog = Awaited<ReturnType<typeof libraryCatalog>>;
 type Result = Awaited<ReturnType<typeof applySet>>;
 
-// セット: ライブラリから選んだものの組み合わせを、サーバーにまとめて入れる。カードを押すとシートで中身・前提・版の固定・サーバー
+// セット(v02 と同じ形): 見出しの下に一言と「＋ セットを作成」、2 列のカード(名前・件数・中身・操作)。編集・サーバーに入れるは右のシートで、中身・前提・版の固定・サーバーを扱う
 function Sets() {
   const { user } = Route.useRouteContext();
   const { sets, catalog } = Route.useLoaderData();
@@ -59,19 +59,21 @@ function Sets() {
         <StoragePill />
       </header>
       <MobileSearch />
-      <ChipBar label="セット" tools={<>
+      <div className="view-head">
+        <p className="muted">よく使う組み合わせをセットにして、サーバーにまとめて入れます。</p>
+        <span className="grow" />
         <Btn sm onClick={() => setSheet("schedule")}>予約</Btn>
-        {edit && <Btn kind="pri" sm onClick={() => setSheet("new")}>＋ 作る</Btn>}
-      </>}>{null}</ChipBar>
+        {edit && <Btn kind="pri" onClick={() => setSheet("new")}>＋ セットを作成</Btn>}
+      </div>
       {sets.length === 0 && (
-        <section className="group"><div className="row muted">まだセットがありません。{edit ? "「＋ 作る」で作れます。" : ""}</div></section>
+        <section className="card glass empty"><span className="big" aria-hidden="true">🧺</span><p>まだセットがありません</p></section>
       )}
       <div className="cards">
-        {sets.map((s) => <SetCard key={s.id} set={s} onOpen={() => setOpen(s.id)} />)}
+        {sets.map((s) => <SetCard key={s.id} set={s} edit={edit} local={local} onOpen={() => setOpen(s.id)} onChange={reload} />)}
       </div>
       {opened && <SetSheet set={opened} catalog={catalog} edit={edit} local={local} onChange={reload} onClose={() => setOpen("")} />}
       {sheet === "new" && (
-        <Sheet title="セットを作る" onClose={() => setSheet("")}>
+        <Sheet title="セットを作成" onClose={() => setSheet("")}>
           <NewSet onCreated={() => { reload(); setSheet(""); }} />
           <FromModpack onCreated={reload} servers={can({ server: ["update"] }) ? catalog.servers : []} />
         </Sheet>
@@ -81,25 +83,53 @@ function Sets() {
   );
 }
 
-// セットのカード: 名前・件数・結び付けたサーバー・中身の名前
-function SetCard({ set, onOpen }: { set: SetRow; onOpen: () => void }) {
+const SHOW_ITEMS = 5;
+// セットのカード: 名前・件数・中身(版の固定 / 常に最新)・結び付けたサーバー・操作
+function SetCard({ set, edit, local, onOpen, onChange }: { set: SetRow; edit: boolean; local: boolean; onOpen: () => void; onChange: () => void }) {
+  const plan = useServerFn(zipPlan);
+  const remove = useServerFn(removeSet);
+  const [error, setError] = useState("");
   return (
-    <button type="button" className="group set-card" onClick={onOpen}>
-      <span className="row">
-        <span className="ic set-ic" aria-hidden="true" translate="no">{set.name.slice(0, 1).toUpperCase()}</span>
-        <span className="mid">
-          <span className="ttl" translate="no">{set.name}</span>
-          <span className="sub">{`${set.items.length} 件 · `}{set.servers.length ? <span translate="no">{set.servers.map((x) => x.name).join("・")}</span> : "サーバーなし"}</span>
-        </span>
-        {set.items.some((i) => i.versionId) && <span className="badge ok">版を固定</span>}
-        <span className="chev" aria-hidden="true">›</span>
-      </span>
-      <span className="row tags">
-        {set.items.length === 0 && <span className="sub">まだ何も入っていません</span>}
-        {set.items.slice(0, 6).map((i) => <span key={i.id} className="tag" translate="no">{i.title}</span>)}
-        {set.items.length > 6 && <span className="tag">{`+${set.items.length - 6}`}</span>}
-      </span>
-    </button>
+    <section className="card glass set-card">
+      <div className="card-h">
+        <h4 translate="no">{set.name}</h4>
+        <span className="badge cat">{`${set.items.length} 件`}</span>
+      </div>
+      <div className="card-b">
+        {set.items.length === 0 && <p className="dash-empty">まだ何も入っていません</p>}
+        {set.items.length > 0 && (
+          <div className="group flat">
+            {set.items.slice(0, SHOW_ITEMS).map((i) => (
+              <Link key={i.id} to="/" search={{ item: i.id }} className="row click">
+                <span className="ic"><ItemIcon type={i.projectType} url={i.iconUrl} /></span>
+                <span className="mid">
+                  <span className="ttl" translate="no">{i.title}</span>
+                  <span className="sub">{i.versionId ? <><b translate="no">{i.versionNumber}</b>(固定)</> : "常に最新"}</span>
+                </span>
+                <span className="chev" aria-hidden="true">›</span>
+              </Link>
+            ))}
+            {set.items.length > SHOW_ITEMS && <button type="button" className="row link" onClick={onOpen}>{`ほか ${set.items.length - SHOW_ITEMS} 件`}</button>}
+          </div>
+        )}
+        {set.servers.length > 0 && <p className="sub" translate="no">{set.servers.map((x) => x.name).join("・")}</p>}
+        <div className="chips">
+          {local && set.items.length > 0 && <Btn kind="tint" sm onClick={() => { downloadZip(plan, { setId: set.id }).catch((e) => setError(message(e))); }}>zip でダウンロード</Btn>}
+          {edit && <Btn sm onClick={onOpen}>サーバーに入れる</Btn>}
+          <Btn sm onClick={onOpen}>{edit ? "編集" : "開く"}</Btn>
+          {edit && <Btn kind="red" sm onClick={async () => {
+            if (!confirm(`セット「${set.name}」を消しますか?(ライブラリとサーバーはそのままです)`)) return;
+            try {
+              await remove({ data: { id: set.id } });
+              onChange();
+            } catch (e) {
+              setError(message(e));
+            }
+          }}>削除</Btn>}
+        </div>
+        {error && <p className="error" role="alert">{error}</p>}
+      </div>
+    </section>
   );
 }
 

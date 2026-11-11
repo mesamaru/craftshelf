@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-router";
+import { Link, Outlet, createFileRoute, redirect, useParams, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
   addConnection, addLocalServer, addServers, browseHost, listConnections, listServers, localEnabled, remoteServers, removeConnection, serverStatus,
@@ -8,9 +8,11 @@ import { useCan } from "~/lib/use-can";
 import { ApplyResults } from "~/lib/apply-results";
 import { updateServers } from "~/lib/sets-api";
 import { outdatedLibraryServers } from "~/lib/library-api";
+import { filesAccess } from "~/lib/files-api";
 import { addAgentServer, createAgent, listAgents, removeAgent } from "~/lib/agents-api";
 import { STATE_LABELS, kindLabel } from "~/lib/platforms";
-import { Btn, Chip, ChipBar, Info, Seg, Sheet } from "~/lib/ui";
+import { type Status, ServerStatusCtx } from "~/lib/server-status";
+import { Btn, Icon, type IconName, Info, Seg, Sheet } from "~/lib/ui";
 import { MobileSearch, StoragePill } from "~/lib/shell";
 
 export const Route = createFileRoute("/servers")({
@@ -25,110 +27,141 @@ export const Route = createFileRoute("/servers")({
 const message = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
 
 type Server = Awaited<ReturnType<typeof listServers>>[number];
-type Status = Awaited<ReturnType<typeof serverStatus>>;
-// サーバーの一覧: 稼働の点・名前・種類 · 人数 · 応答・印。上の欄で絞り込み・すべて更新・追加
+// 更新の確かめは配布元に問い合わせるので、開くたびにはしない(10 分は前の結果を使う。「更新」の数を押すと、いつでも確かめ直す)
+const OLD_TTL = 10 * 60_000;
+let lastOld: { team: string; at: number; map: Map<string, number> } | null = null;
+
+// サーバー(v02 と同じ 1 つの画面): 上に 比較・サーバー本体・ファイル比較・ポート・処理と「＋ サーバーを追加」、
+// 左に 稼働・更新・人数の数と「対応が必要」「問題なし」のサーバーの一覧と「すべて更新」、右に選んだサーバーの詳細(servers.$id.tsx)。
+// 幅 900 px まで(スマホ)は一覧 → 詳細の 2 画面
 function Servers() {
   const { user } = Route.useRouteContext();
   const { servers, connections, local } = Route.useLoaderData();
-  const { can } = useCan(user.id);
+  const { can, team } = useCan(user.id);
+  const id = (useParams({ strict: false }) as { id?: string }).id;
   const router = useRouter();
   const reload = () => router.invalidate();
   const edit = can({ library: ["edit"] });
   const create = can({ server: ["create"] });
   const status = useServerFn(serverStatus);
   const outdated = useServerFn(outdatedLibraryServers);
+  const access = useServerFn(filesAccess);
   const [st, setSt] = useState<Record<string, Status | string>>({}); // 文字はつながらなかった理由
-  const [filter, setFilter] = useState<"" | "running" | "old">("");
-  const [old, setOld] = useState<Map<string, number> | null>(null); // サーバー → 古い版の数
+  const [old, setOld] = useState<Map<string, number> | null>(() => (lastOld && lastOld.team === team?.id && Date.now() - lastOld.at < OLD_TTL ? lastOld.map : null)); // サーバー → 古い版の数
+  const [checking, setChecking] = useState(false);
+  const [files, setFiles] = useState(false);
   const [sheet, setSheet] = useState<"" | "add" | "update">("");
   const [error, setError] = useState("");
 
+  const read = (sid: string) => status({ data: { id: sid } }).then((x) => setSt((p) => ({ ...p, [sid]: x })), (e) => setSt((p) => ({ ...p, [sid]: message(e) })));
   useEffect(() => {
-    const read = () => { for (const s of servers) status({ data: { id: s.id } }).then((x) => setSt((p) => ({ ...p, [s.id]: x })), (e) => setSt((p) => ({ ...p, [s.id]: message(e) }))); };
-    read();
-    const t = setInterval(() => { if (!document.hidden) read(); }, 15_000);
+    const all = () => { for (const s of servers) read(s.id); };
+    all();
+    const t = setInterval(() => { if (!document.hidden) all(); }, 15_000);
     return () => clearInterval(t);
   }, [servers]);
-  // 「更新あり」は配布元に問い合わせるので、押したときだけ確かめる(ライブラリと同じ)
+  useEffect(() => { access().then((a) => setFiles(a.allowed), () => setFiles(false)); }, [team?.id]);
+  // 「更新あり」は配布元に問い合わせる。開いたとき(前の結果が新しければそれを使う)と、「更新」の数を押したときに確かめる
   const checkOld = () => {
+    setChecking(true);
     setError("");
     outdated().then((r) => {
       const n = new Map<string, number>();
-      for (const x of r) for (const id of x.serverIds) n.set(id, (n.get(id) ?? 0) + 1);
+      for (const x of r) for (const sid of x.serverIds) n.set(sid, (n.get(sid) ?? 0) + 1);
+      lastOld = { team: team?.id ?? "", at: Date.now(), map: n };
       setOld(n);
-    }, (e) => { setError(message(e)); setFilter(""); });
+    }, (e) => setError(message(e))).finally(() => setChecking(false));
   };
-  const toggleOld = () => {
-    if (filter === "old") return setFilter("");
-    setFilter("old");
-    if (!old) checkOld();
-  };
-  const stateOf = (id: string) => { const x = st[id]; return typeof x === "object" ? x.state : ""; };
+  useEffect(() => { if (servers.length && !old) checkOld(); }, [team?.id, servers.length]);
+
+  const stateOf = (sid: string) => { const x = st[sid]; return typeof x === "object" ? x.state : ""; };
   const running = servers.filter((s) => stateOf(s.id) === "running").length;
-  const shown = servers.filter((s) => (filter === "running" ? stateOf(s.id) === "running" : filter === "old" ? !!old?.get(s.id) : true));
+  const players = servers.reduce((n, s) => { const x = st[s.id]; return n + (typeof x === "object" ? x.ping?.online ?? 0 : 0); }, 0);
+  const updates = old ? servers.reduce((n, s) => n + (old.get(s.id) ?? 0), 0) : null;
+  const behind = servers.filter((s) => old?.get(s.id));
+  const need = behind;
+  const ok = servers.filter((s) => !old?.get(s.id));
+  const ordered = [...need, ...ok];
+  const group = (title: string, list: Server[]) => list.length > 0 && (
+    <div key={title || "all"}>
+      {title && <div className="sgrp">{title}</div>}
+      <section className="group slist">{list.map((s) => <ServerRow key={s.id} server={s} st={st[s.id]} old={old?.get(s.id) ?? 0} checked={!!old} on={s.id === id} />)}</section>
+    </div>
+  );
+  const link = (to: string, icon: IconName, label: string) => <Link to={to as "/"} className="btn tint sm"><Icon name={icon} />{label}</Link>;
 
   return (
-    <main className="page fill">
-      <header className="bar">
-        <h1>サーバー<small>{`${servers.length} 台`}</small>
-          <Info>
-            <span>Pterodactyl パネル・パネルから見えるフォルダ・エージェント(家の中のサーバー機)のサーバーをまとめて扱います。押すと、状態・アドオン・ファイル・コンソール・バックアップ・設定を開きます。</span>
-            <span>「すべて更新」は、このアプリで入れた Mod・プラグインに新しい版があれば入れます。「更新を止める」にしたもの・無効にしたもの・種類を決めていないサーバーは変えません。変更はサーバーの再起動で反映されます。</span>
-          </Info>
-        </h1>
-        <StoragePill />
-      </header>
-      <MobileSearch />
-
-      <ChipBar label="絞り込み" tools={<>
-        {edit && servers.length > 0 && <Btn kind="tint" sm onClick={() => setSheet("update")}>すべて更新</Btn>}
-        {create && <Btn kind="pri" sm onClick={() => setSheet("add")}>＋ 追加</Btn>}
-      </>}>
-        <Chip on={!filter} onClick={() => setFilter("")}>すべて</Chip>
-        <Chip on={filter === "running"} onClick={() => setFilter(filter === "running" ? "" : "running")}>稼働中<span className="n">{running}</span></Chip>
-        <Chip on={filter === "old"} warn onClick={toggleOld} title="古い版が入っているサーバー(配布元に問い合わせます。更新を止めたものは除きます)">
-          更新あり{old && <span className="n">{[...old.values()].filter(Boolean).length}</span>}
-        </Chip>
-        <span className="vsep" />
-        <Link to="/software" className="chip">本体</Link>
-        <Link to="/ports" className="chip">ポート</Link>
-        <Link to="/compare" className="chip">比較</Link>
-      </ChipBar>
-      {error && <p className="error" role="alert">{error}</p>}
-
-      <section className="group">
-        {servers.length === 0 && (
-<div className="row muted">まだサーバーがありません。</div>
-        )}
-        {servers.length > 0 && shown.length === 0 && <div className="row muted">{filter === "old" && !old ? "更新を確かめています…" : "条件に合うサーバーはありません"}</div>}
-        {shown.map((s) => <ServerRow key={s.id} server={s} st={st[s.id]} old={old?.get(s.id) ?? 0} />)}
-      </section>
-
-      {sheet === "update" && <UpdateAll servers={servers} onClose={() => setSheet("")} />}
-      {sheet === "add" && <AddServer connections={connections} local={local && can({ member: ["update"] })} admin={can({ server: ["delete"] })} onDone={reload} onClose={() => setSheet("")} />}
-    </main>
+    <ServerStatusCtx.Provider value={{ st, refresh: (sid) => setTimeout(() => read(sid), 1500), first: ordered[0]?.id ?? null, old }}>
+      <main className={`page fill srv${id ? " has-id" : ""}`}>
+        <header className="bar">
+          <h1>サーバー
+            <Info>
+              <span>Pterodactyl パネル・パネルから見えるフォルダ・エージェント(家の中のサーバー機)のサーバーをまとめて扱います。左の一覧から選ぶと、状態・コンソール・アドオン・ファイル・保存(バックアップ)・設定を開きます。</span>
+              <span>「すべて更新」は、このアプリで入れた Mod・プラグインに新しい版があれば入れます。「更新を止める」にしたもの・無効にしたもの・種類を決めていないサーバーは変えません。変更はサーバーの再起動で反映されます。</span>
+            </Info>
+          </h1>
+          <StoragePill />
+        </header>
+        <MobileSearch />
+        <div className="srv-top">
+          {link("/compare", "compare", "比較")}
+          {link("/software", "servers", "サーバー本体")}
+          {files && link("/compare/files", "file", "ファイル比較")}
+          {link("/ports", "tray", "ポート")}
+          {link("/jobs", "jobs", "処理")}
+          <span className="grow" />
+          {create && <Btn kind="pri" onClick={() => setSheet("add")}>＋ サーバーを追加</Btn>}
+        </div>
+        {error && <p className="error" role="alert">{error}</p>}
+        <div className="srv-split">
+          <aside className="srv-side" aria-label="サーバーの一覧">
+            <div className="sstats">
+              <div className="glass"><small>稼働</small><b>{running}<i>{`/${servers.length}`}</i></b></div>
+              <button type="button" className={`glass${updates ? " warn" : ""}`} disabled={checking} onClick={checkOld} title="押すと、配布元に問い合わせて確かめ直します">
+                <small>更新</small><b>{checking && updates === null ? "…" : updates ?? "—"}</b>
+              </button>
+              <div className="glass"><small>人数</small><b>{players}</b></div>
+            </div>
+            {servers.length === 0 && <section className="group"><div className="row muted">まだサーバーがありません。</div></section>}
+            {group(need.length ? "対応が必要" : "", need)}
+            {group(need.length ? "問題なし" : "", ok)}
+            {edit && servers.length > 0 && (
+              <button type="button" className="sall glass" onClick={() => setSheet("update")}>
+                <Icon name="reload" />
+                <span className="mid"><span className="ttl">すべて更新</span>{updates ? <span className="sub">{`${behind.length} 台・${updates} 件`}</span> : null}</span>
+                <span className="btn tint sm">更新</span>
+              </button>
+            )}
+          </aside>
+          <div className="srv-main"><Outlet /></div>
+        </div>
+        {sheet === "update" && <UpdateAll servers={servers} onClose={() => setSheet("")} />}
+        {sheet === "add" && <AddServer connections={connections} local={local && can({ member: ["update"] })} admin={can({ server: ["delete"] })} onDone={reload} onClose={() => setSheet("")} />}
+      </main>
+    </ServerStatusCtx.Provider>
   );
 }
 
-function ServerRow({ server, st, old }: { server: Server; st: Status | string | undefined; old: number }) {
+// 一覧の 1 行: 稼働の点・名前・「種類 · 状態」・印(更新 N / 最新)
+function ServerRow({ server, st, old, checked, on }: { server: Server; st: Status | string | undefined; old: number; checked: boolean; on: boolean }) {
   const s = typeof st === "object" ? st : null;
   const state = s?.state ?? (typeof st === "string" ? "unknown" : "");
   const kind = kindLabel(server.platform, server.mcVersion);
   return (
-    <Link to="/servers/$id" params={{ id: server.id }} className="row click">
+    <Link to="/servers/$id" params={{ id: server.id }} className="row click" aria-current={on ? "true" : undefined}>
       <span className={`dot ${state}`} aria-hidden="true" />
       <span className="mid">
         <span className="ttl" translate="no">{server.name}</span>
         <span className="sub">
-          {kind && <span translate="no">{`${kind} · `}</span>}
-          {typeof st === "string" ? <span className="error">{st}</span>
+          <span translate="no">{kind || server.connection || ""}</span>
+          {" · "}
+          {typeof st === "string" ? <span className="error">つながりません</span>
             : !s ? "確認中…"
-            : s.state === "running" && s.ping ? `${s.ping.online} / ${s.ping.max} 人 · ${s.ping.latency} ms`
+            : s.state === "running" && s.ping ? `${s.ping.online} / ${s.ping.max} 人`
             : STATE_LABELS[s.state] ?? "状態がわかりません"}
-          {server.connection && <> · <span translate="no">{server.connection}</span></>}
         </span>
       </span>
-      {old > 0 && <span className="badge upd">{`更新 ${old}`}</span>}
+      {old > 0 ? <span className="badge upd">{`更新 ${old}`}</span> : checked && server.platform ? <span className="badge ok">最新</span> : null}
       <span className="chev" aria-hidden="true">›</span>
     </Link>
   );

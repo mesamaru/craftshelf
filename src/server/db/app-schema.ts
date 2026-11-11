@@ -578,6 +578,8 @@ export const userPref = pgTable("user_pref", {
   // 03.63.00 から。背景画像(縮めた画像の data URL。PREF_LIMITS.backgroundBytes まで)と、変えた時刻(画面はこれを URL に付けて読み直す)
   background: text("background"),
   backgroundAt: timestamp("background_at"),
+  // 03.69.00 から。ホームのウィジェットの並び(~/lib/dash の DashLayout の JSON)
+  dash: text("dash"),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 

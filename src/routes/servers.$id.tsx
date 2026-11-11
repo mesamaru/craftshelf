@@ -1,27 +1,29 @@
 import { type ReactNode, useEffect, useState } from "react";
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { Link, createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { identifyMods, libraryCatalog, serverChanges, undoChange, installMod, installedMods, modUpdates, modVersions, removeMod, rollbackMod, searchMods, serverDetail, serverMissingDeps, setModEnabled, setModHold } from "~/lib/library-api";
 import { importServerFile } from "~/lib/uploads-api";
 import { ApplyResults } from "~/lib/apply-results";
 import { ITEM_TYPES, PLATFORMS, STATE_LABELS, kindLabel, kindsOf } from "~/lib/platforms";
 import { ItemIcon } from "~/lib/type-icon";
-import { listServers, powerServer, serverStatus } from "~/lib/servers-api";
+import { listServers, powerServer } from "~/lib/servers-api";
 import { filesAccess } from "~/lib/files-api";
 import { bindServerSet, copyServer, listSets, syncServerSet, updateServers } from "~/lib/sets-api";
 import { SOURCE_LABEL, type Source, pageUrl } from "~/lib/sources";
+import { type Status, useServerStatus } from "~/lib/server-status";
 import { useCan } from "~/lib/use-can";
 import { softwareInfo } from "~/lib/software-api";
 import { createWorldBackup, removeWorldBackup, restoreWorldBackup, setWorldBackup, worldBackups } from "~/lib/worlds-api";
 import { Console, Files } from "~/lib/server-files";
 import { COPY_LABEL, type CopyMode, DAY_NAMES, type SettingKey, SettingSheet, SettingsRows, type SoftInfo } from "~/lib/server-settings";
-import { Btn, Chip, ChipBar, Info, Menu, Row, Sheet, Tabs } from "~/lib/ui";
+import { Btn, Chip, ChipBar, Icon, Info, Menu, Row, Sheet, Tabs } from "~/lib/ui";
 
-const TABS = [["overview", "概要"], ["addons", "アドオン"], ["files", "ファイル"], ["console", "コンソール"], ["backup", "バックアップ"], ["settings", "設定"]] as const;
+// タブは v02 の並びと名前(「保存」= ワールドのバックアップとアドオンの変更の履歴)
+const TABS = [["overview", "概要"], ["console", "コンソール"], ["addons", "アドオン"], ["files", "ファイル"], ["backup", "保存"], ["settings", "設定"]] as const;
 type Tab = (typeof TABS)[number][0];
 const isTab = (v: unknown): v is Tab => TABS.some(([t]) => t === v);
 
-export const Route = createFileRoute("/servers_/$id")({
+export const Route = createFileRoute("/servers/$id")({
   // 開いているタブは URL に残す(戻るボタンで前のタブへ)。概要は付けない
   validateSearch: (s: Record<string, unknown>): { tab?: Tab } => (isTab(s.tab) && s.tab !== "overview" ? { tab: s.tab } : {}),
   beforeLoad: ({ context, params }) => {
@@ -36,11 +38,11 @@ const message = (e: unknown) => (e instanceof Error ? e.message : "うまくい�
 
 type Installed = Awaited<ReturnType<typeof installedMods>>["items"][number];
 type Update = Awaited<ReturnType<typeof modUpdates>>[number];
-type Status = Awaited<ReturnType<typeof serverStatus>>;
 type Deps = Awaited<ReturnType<typeof serverMissingDeps>>;
 const CONNECTION: Record<string, string> = { ptero: "Pterodactyl", local: "フォルダ", agent: "エージェント" };
 
-// サーバーの詳細: 見出しの欄(状態・起動と停止)と、概要・アドオン・ファイル・コンソール・バックアップ・設定のタブ
+// サーバーの詳細(右の欄): 名前・種類 · つなぎ方・状態の印と、概要・コンソール・アドオン・ファイル・保存・設定のタブ。
+// 起動・再起動・停止は概要の 3 つのボタン。状態は左の一覧が読んだものを使う(server-status.ts)
 function ServerPage() {
   const { user, app } = Route.useRouteContext();
   const server = Route.useLoaderData();
@@ -50,13 +52,13 @@ function ServerPage() {
   const perms = { update: can({ server: ["update"] }), edit: can({ library: ["edit"] }), admin: can({ member: ["update"] }), remove: can({ server: ["delete"] }) };
   const control = !!me && can({ server: ["control"] });
 
-  const status = useServerFn(serverStatus);
+  const { st: all, refresh } = useServerStatus();
+  const st: Status | null = typeof all[server.id] === "object" ? (all[server.id] as Status) : null;
   const list = useServerFn(installedMods);
   const check = useServerFn(modUpdates);
   const missingDeps = useServerFn(serverMissingDeps);
   const loadSoft = useServerFn(softwareInfo);
   const access = useServerFn(filesAccess);
-  const [st, setSt] = useState<Status | null>(null);
   const [items, setItems] = useState<Installed[] | null>(null);
   const [datapacks, setDatapacks] = useState<string | null>(null); // ワールドのデータパックのフォルダ
   const [updates, setUpdates] = useState<Map<string, Update> | null>(null);
@@ -67,12 +69,6 @@ function ServerPage() {
   const [sheet, setSheet] = useState<SettingKey | "">("");
   const [version, setVersion] = useState(0); // 設定を変えたら、設定のタブの要約を読み直す
 
-  const readStatus = () => status({ data: { id: server.id } }).then(setSt, () => setSt(null));
-  useEffect(() => {
-    readStatus();
-    const t = setInterval(() => { if (!document.hidden) readStatus(); }, 15_000);
-    return () => clearInterval(t);
-  }, [server.id]);
   const reloadSoft = () => loadSoft({ data: { id: server.id } }).then(setSoft, (e) => setSoft(message(e)));
   useEffect(() => { reloadSoft(); access().then((a) => setFiles(a.allowed), () => setFiles(false)); }, [server.id]);
   const checkDeps = () => { if (server.profile) missingDeps({ data: { id: server.id } }).then(setDeps, () => setDeps(null)); };
@@ -85,24 +81,36 @@ function ServerPage() {
   useEffect(() => {
     setItems(null);
     setUpdates(null);
+    setDeps(null);
     reload();
     checkDeps();
     if (server.profile) checkUpdates();
   }, [server.id, server.profile?.platform, server.profile?.mcVersion]);
 
   const go = (t: Tab) => navigate({ to: "/servers/$id", params: { id: server.id }, search: t === "overview" ? {} : { tab: t } });
-  const tabs = TABS.filter(([t]) => (t !== "console" || control));
+  const tabs = TABS.filter(([t]) => t !== "console" || control).map(([t, n]) => [t, t === "addons" && items ? `${n} ${items.length}` : n] as const);
   const shown = tabs.some(([t]) => t === tab) ? tab : "overview";
   const addons = { id: server.id, profile: server.profile, items, updates, deps, error, edit: perms.edit, local: app.mode === "self",
     dir: server.profile ? [PLATFORMS[server.profile.platform as keyof typeof PLATFORMS]?.dir, datapacks].filter(Boolean).map((d) => `${d}/`).join("・") : "",
     sources: server.sources as Source[], onChange: () => { reload(); checkDeps(); }, onUpdates: checkUpdates, setUpdates };
+  const kind = kindLabel(server.profile?.platform, server.profile?.mcVersion);
+  const state = st?.state ?? "";
 
   return (
-    <main className="page fill">
-      <Hero server={server} st={st} control={control} files={!!files} onPower={() => setTimeout(readStatus, 1500)} />
+    <div className="srv-page" key={server.id}>
+      <Link to="/servers" className="back srv-back">‹ サーバー</Link>
+      <div className="srv-hero">
+        <div className="m">
+          <h2 translate="no">{server.name}</h2>
+          <small>{kind && <span translate="no">{`${kind} · `}</span>}{CONNECTION[server.kind] ?? server.kind}</small>
+        </div>
+        <span className={`spill${state === "running" ? " ok" : state === "starting" || state === "stopping" ? " warn" : ""}`}>
+          <span className={`dot ${state}`} aria-hidden="true" />{!st ? "確認中…" : STATE_LABELS[state] ?? "状態がわかりません"}
+        </span>
+      </div>
       <Tabs label="サーバーの画面" value={shown} options={tabs} onChange={go} />
-      {shown === "overview" && <Overview {...addons} st={st} soft={soft} onSoftware={() => setSheet("software")} onProfile={() => setSheet("profile")} canProfile={perms.update}
-        onTab={go} />}
+      {shown === "overview" && <Overview {...addons} st={st} state={state} control={control} server={server} soft={soft} onPower={() => refresh(server.id)}
+        onSoftware={() => setSheet("software")} onProfile={() => setSheet("profile")} canProfile={perms.update} onTab={go} />}
       {shown === "addons" && <Addons {...addons} onProfile={() => setSheet("profile")} canProfile={perms.update} />}
       {shown === "files" && (files === null ? <p className="muted">読み込んでいます…</p> : files ? <Files id={server.id} />
         : <section className="group"><div className="row muted">設定ファイルを見る・直すのは、チームの管理者とオーナーだけです(チームの設定で、編集者にも許せます)。</div></section>)}
@@ -110,18 +118,15 @@ function ServerPage() {
       {shown === "backup" && <Backup id={server.id} control={control} admin={perms.update} edit={perms.edit} items={items} onChange={addons.onChange} />}
       {shown === "settings" && <SettingsRows server={server} perms={perms} soft={soft} version={version} onOpen={setSheet} />}
       {sheet && <SettingSheet kind={sheet} server={server} perms={perms} soft={soft} reloadSoft={reloadSoft} onChanged={() => setVersion((v) => v + 1)} onClose={() => setSheet("")} />}
-    </main>
+    </div>
   );
 }
 
-// 見出しの欄: アイコン・名前・稼働中/停止中・種類・つなぎ方・起動/再起動/停止・⋯
-function Hero({ server, st, control, files, onPower }:
-  { server: Awaited<ReturnType<typeof serverDetail>>; st: Status | null; control: boolean; files: boolean; onPower: () => void }) {
-  const navigate = useNavigate();
+// 起動・再起動・停止(v02 の 3 つのボタン。いまの状態でできないものは薄くする)
+function Power({ server, state, onPower }: { server: { id: string; name: string }; state: string; onPower: () => void }) {
   const power = useServerFn(powerServer);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const state = st?.state ?? "";
   const send = async (signal: "start" | "stop" | "restart") => {
     if (signal === "stop" && !confirm(`${server.name} を停止しますか?`)) return;
     setBusy(true);
@@ -135,35 +140,17 @@ function Hero({ server, st, control, files, onPower }:
       setBusy(false);
     }
   };
-  const kind = kindLabel(server.profile?.platform, server.profile?.mcVersion);
+  const off = state === "offline";
+  const tile = (signal: "start" | "restart" | "stop", icon: "play" | "reload" | "stop", label: string, disabled: boolean) => (
+    <button type="button" className="glass" disabled={busy || disabled} onClick={() => send(signal)}><Icon name={icon} /><span>{label}</span></button>
+  );
   return (
     <>
-      <section className="hero glass">
-        <span className="big" aria-hidden="true" translate="no">{server.name.slice(0, 1).toUpperCase()}</span>
-        <div className="who">
-          <h1 translate="no">{server.name}</h1>
-          <div className="meta">
-            <span><span className={`dot ${state}`} aria-hidden="true" /><b>{!st ? "確認中…" : STATE_LABELS[state] ?? "状態がわかりません"}</b></span>
-            {kind && <span translate="no">{kind}</span>}
-            <span>{CONNECTION[server.kind] ?? server.kind}</span>
-          </div>
-        </div>
-        <div className="acts">
-          {control && (state === "offline"
-            ? <Btn kind="pri" disabled={busy} onClick={() => send("start")}>起動</Btn>
-            : <>
-              <Btn disabled={busy} onClick={() => send("restart")}>再起動</Btn>
-              <Btn kind="red" disabled={busy} onClick={() => send("stop")}>停止</Btn>
-            </>)}
-          <Menu items={[
-            { label: "アドオンの比較", onClick: () => navigate({ to: "/compare" }) },
-            files && { label: "ファイル比較", onClick: () => navigate({ to: "/compare/files" }) },
-            { label: "サーバー本体の一覧", onClick: () => navigate({ to: "/software" }) },
-            { label: "ポート", onClick: () => navigate({ to: "/ports" }) },
-            { label: "処理の一覧", onClick: () => navigate({ to: "/jobs" }) },
-          ]} />
-        </div>
-      </section>
+      <div className="srv-qacts pw3">
+        {tile("start", "play", "起動", state === "running" || state === "starting")}
+        {tile("restart", "reload", "再起動", off)}
+        {tile("stop", "stop", "停止", off)}
+      </div>
       {error && <p className="error" role="alert">{error}</p>}
     </>
   );
@@ -175,8 +162,9 @@ type AddonProps = {
   onProfile: () => void; canProfile: boolean;
 };
 
-// 概要: 人数・CPU・メモリ・応答、要確認(押すと直せる)、最近の変更
-function Overview({ st, soft, onSoftware, onTab, ...a }: AddonProps & { st: Status | null; soft: SoftInfo | string | null; onSoftware: () => void; onTab: (t: Tab) => void }) {
+// 概要: 起動・再起動・停止、人数・CPU・メモリ・応答、やること(押すと直せる)、最近の変更
+function Overview({ st, state, control, server, soft, onPower, onSoftware, onTab, ...a }:
+  AddonProps & { st: Status | null; state: string; control: boolean; server: { id: string; name: string }; soft: SoftInfo | string | null; onPower: () => void; onSoftware: () => void; onTab: (t: Tab) => void }) {
   const run = useServerFn(updateServers);
   const install = useServerFn(installMod);
   const [busy, setBusy] = useState("");
@@ -201,6 +189,7 @@ function Overview({ st, soft, onSoftware, onTab, ...a }: AddonProps & { st: Stat
   const todo = (a.profile && a.updates && n > 0 ? 1 : 0) + (a.deps?.missing.length ?? 0) + (info?.update ? 1 : 0) + (a.profile ? 0 : 1);
   return (
     <>
+      {control && <Power server={server} state={state} onPower={onPower} />}
       <div className="stats">
         <div className="stat glass"><small>プレイヤー</small><div className="v">{p ? p.online : "—"}{p && <span>{` / ${p.max}`}</span>}</div>
           {p && p.sample.length > 0 && <span className="sub" translate="no">{p.sample.join("、")}{p.online > p.sample.length ? " …" : ""}</span>}</div>
@@ -212,7 +201,7 @@ function Overview({ st, soft, onSoftware, onTab, ...a }: AddonProps & { st: Stat
       </div>
       <div className="two">
         <div>
-          <div className="gtitle">要確認</div>
+          <div className="gtitle">やること</div>
           <section className="group">
             {!a.profile && (
               <div className="row">
@@ -249,7 +238,7 @@ function Overview({ st, soft, onSoftware, onTab, ...a }: AddonProps & { st: Stat
                 <span className="chev" aria-hidden="true">›</span>
               </Row>
             )}
-            {a.updates && todo === 0 && <div className="row muted">要確認はありません</div>}
+            {a.updates && todo === 0 && <div className="row muted">やることはありません</div>}
             {a.error && <p className="row error" role="alert">{a.error}</p>}
             {results && <ApplyResults server={results.server} verb="最新にした" list={results.results} empty="新しい版はありませんでした。" />}
             {error && <p className="row error" role="alert">{error}</p>}

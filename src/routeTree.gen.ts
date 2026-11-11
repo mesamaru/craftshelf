@@ -37,7 +37,8 @@ import { Route as ApiModpackRouteImport } from './routes/api/modpack'
 import { Route as CompareFilesRouteImport } from './routes/compare_.files'
 import { Route as InviteIdRouteImport } from './routes/invite.$id'
 import { Route as SSplatRouteImport } from './routes/s.$'
-import { Route as ServersIdRouteImport } from './routes/servers_.$id'
+import { Route as ServersIndexRouteImport } from './routes/servers.index'
+import { Route as ServersIdRouteImport } from './routes/servers.$id'
 import { Route as ApiAgentPollRouteImport } from './routes/api/agent/poll'
 import { Route as ApiAgentResultRouteImport } from './routes/api/agent/result'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
@@ -191,10 +192,15 @@ const SSplatRoute = SSplatRouteImport.update({
   path: '/s/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ServersIndexRoute = ServersIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => ServersRoute,
+} as any)
 const ServersIdRoute = ServersIdRouteImport.update({
-  id: '/servers_/$id',
-  path: '/servers/$id',
-  getParentRoute: () => rootRouteImport,
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => ServersRoute,
 } as any)
 const ApiAgentPollRoute = ApiAgentPollRouteImport.update({
   id: '/api/agent/poll',
@@ -271,7 +277,7 @@ export interface FileRoutesByFullPath {
   '/ports': typeof PortsRoute
   '/privacy': typeof PrivacyRoute
   '/reset': typeof ResetRoute
-  '/servers': typeof ServersRoute
+  '/servers': typeof ServersRouteWithChildren
   '/sets': typeof SetsRoute
   '/settings': typeof SettingsRoute
   '/shares': typeof SharesRoute
@@ -287,6 +293,7 @@ export interface FileRoutesByFullPath {
   '/invite/$id': typeof InviteIdRoute
   '/s/$': typeof SSplatRoute
   '/servers/$id': typeof ServersIdRoute
+  '/servers/': typeof ServersIndexRoute
   '/api/agent/poll': typeof ApiAgentPollRoute
   '/api/agent/result': typeof ApiAgentResultRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -314,7 +321,6 @@ export interface FileRoutesByTo {
   '/ports': typeof PortsRoute
   '/privacy': typeof PrivacyRoute
   '/reset': typeof ResetRoute
-  '/servers': typeof ServersRoute
   '/sets': typeof SetsRoute
   '/settings': typeof SettingsRoute
   '/shares': typeof SharesRoute
@@ -330,6 +336,7 @@ export interface FileRoutesByTo {
   '/invite/$id': typeof InviteIdRoute
   '/s/$': typeof SSplatRoute
   '/servers/$id': typeof ServersIdRoute
+  '/servers': typeof ServersIndexRoute
   '/api/agent/poll': typeof ApiAgentPollRoute
   '/api/agent/result': typeof ApiAgentResultRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -358,7 +365,7 @@ export interface FileRoutesById {
   '/ports': typeof PortsRoute
   '/privacy': typeof PrivacyRoute
   '/reset': typeof ResetRoute
-  '/servers': typeof ServersRoute
+  '/servers': typeof ServersRouteWithChildren
   '/sets': typeof SetsRoute
   '/settings': typeof SettingsRoute
   '/shares': typeof SharesRoute
@@ -373,7 +380,8 @@ export interface FileRoutesById {
   '/compare_/files': typeof CompareFilesRoute
   '/invite/$id': typeof InviteIdRoute
   '/s/$': typeof SSplatRoute
-  '/servers_/$id': typeof ServersIdRoute
+  '/servers/$id': typeof ServersIdRoute
+  '/servers/': typeof ServersIndexRoute
   '/api/agent/poll': typeof ApiAgentPollRoute
   '/api/agent/result': typeof ApiAgentResultRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
@@ -419,6 +427,7 @@ export interface FileRouteTypes {
     | '/invite/$id'
     | '/s/$'
     | '/servers/$id'
+    | '/servers/'
     | '/api/agent/poll'
     | '/api/agent/result'
     | '/api/auth/$'
@@ -446,7 +455,6 @@ export interface FileRouteTypes {
     | '/ports'
     | '/privacy'
     | '/reset'
-    | '/servers'
     | '/sets'
     | '/settings'
     | '/shares'
@@ -462,6 +470,7 @@ export interface FileRouteTypes {
     | '/invite/$id'
     | '/s/$'
     | '/servers/$id'
+    | '/servers'
     | '/api/agent/poll'
     | '/api/agent/result'
     | '/api/auth/$'
@@ -504,7 +513,8 @@ export interface FileRouteTypes {
     | '/compare_/files'
     | '/invite/$id'
     | '/s/$'
-    | '/servers_/$id'
+    | '/servers/$id'
+    | '/servers/'
     | '/api/agent/poll'
     | '/api/agent/result'
     | '/api/auth/$'
@@ -533,7 +543,7 @@ export interface RootRouteChildren {
   PortsRoute: typeof PortsRoute
   PrivacyRoute: typeof PrivacyRoute
   ResetRoute: typeof ResetRoute
-  ServersRoute: typeof ServersRoute
+  ServersRoute: typeof ServersRouteWithChildren
   SetsRoute: typeof SetsRoute
   SettingsRoute: typeof SettingsRoute
   SharesRoute: typeof SharesRoute
@@ -548,7 +558,6 @@ export interface RootRouteChildren {
   CompareFilesRoute: typeof CompareFilesRoute
   InviteIdRoute: typeof InviteIdRoute
   SSplatRoute: typeof SSplatRoute
-  ServersIdRoute: typeof ServersIdRoute
   ApiAgentPollRoute: typeof ApiAgentPollRoute
   ApiAgentResultRoute: typeof ApiAgentResultRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -761,12 +770,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/servers_/$id': {
-      id: '/servers_/$id'
-      path: '/servers/$id'
+    '/servers/': {
+      id: '/servers/'
+      path: '/'
+      fullPath: '/servers/'
+      preLoaderRoute: typeof ServersIndexRouteImport
+      parentRoute: typeof ServersRoute
+    }
+    '/servers/$id': {
+      id: '/servers/$id'
+      path: '/$id'
       fullPath: '/servers/$id'
       preLoaderRoute: typeof ServersIdRouteImport
-      parentRoute: typeof rootRouteImport
+      parentRoute: typeof ServersRoute
     }
     '/api/agent/poll': {
       id: '/api/agent/poll'
@@ -855,6 +871,19 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface ServersRouteChildren {
+  ServersIdRoute: typeof ServersIdRoute
+  ServersIndexRoute: typeof ServersIndexRoute
+}
+
+const ServersRouteChildren: ServersRouteChildren = {
+  ServersIdRoute: ServersIdRoute,
+  ServersIndexRoute: ServersIndexRoute,
+}
+
+const ServersRouteWithChildren =
+  ServersRoute._addFileChildren(ServersRouteChildren)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ActivityRoute: ActivityRoute,
@@ -869,7 +898,7 @@ const rootRouteChildren: RootRouteChildren = {
   PortsRoute: PortsRoute,
   PrivacyRoute: PrivacyRoute,
   ResetRoute: ResetRoute,
-  ServersRoute: ServersRoute,
+  ServersRoute: ServersRouteWithChildren,
   SetsRoute: SetsRoute,
   SettingsRoute: SettingsRoute,
   SharesRoute: SharesRoute,
@@ -884,7 +913,6 @@ const rootRouteChildren: RootRouteChildren = {
   CompareFilesRoute: CompareFilesRoute,
   InviteIdRoute: InviteIdRoute,
   SSplatRoute: SSplatRoute,
-  ServersIdRoute: ServersIdRoute,
   ApiAgentPollRoute: ApiAgentPollRoute,
   ApiAgentResultRoute: ApiAgentResultRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

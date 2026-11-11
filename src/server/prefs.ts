@@ -1,5 +1,6 @@
-// 個人の設定(アカウントごと。どの端末でも同じ): 見た目と背景画像(03.63.00 から。前はブラウザごとに置いていた)
+// 個人の設定(アカウントごと。どの端末でも同じ): 見た目と背景画像(03.63.00 から。前はブラウザごとに置いていた)と、ホームのウィジェットの並び(03.69.00 から)
 import { eq } from "drizzle-orm";
+import { type DashLayout, cleanDash } from "~/lib/dash";
 import { BACKGROUND_MAX_BYTES, BACKGROUND_URL, type SavedTheme, cleanTheme } from "~/lib/theme";
 import { userPref } from "./db/schema";
 import { HttpError, requireUser } from "./guard";
@@ -64,6 +65,26 @@ export function prefService(deps: Pick<Deps, "db" | "auth">) {
       const [r] = await db.select({ bg: userPref.background }).from(userPref).where(eq(userPref.userId, s.user.id));
       const m = r?.bg?.match(DATA_URL);
       return m ? { type: `image/${m[1]}`, data: Buffer.from(m[2], "base64") } : null;
+    },
+
+    /** ホームのウィジェットの並び(まだ決めていなければ null。画面は既定の並びを使う) */
+    async dash(userId: string): Promise<DashLayout | null> {
+      const [r] = await db.select({ dash: userPref.dash }).from(userPref).where(eq(userPref.userId, userId));
+      if (!r?.dash) return null;
+      try {
+        return cleanDash(JSON.parse(r.dash));
+      } catch {
+        return null;
+      }
+    },
+
+    /** ホームのウィジェットの並びを保存する(ログインしている本人だけ。知らないもの・長すぎるものは落として、そろえた形を返す) */
+    async setDash(headers: Headers, layout: unknown): Promise<DashLayout> {
+      const s = await session(headers);
+      const dash = cleanDash(layout);
+      const values = { userId: s.user.id, dash: JSON.stringify(dash), updatedAt: new Date() };
+      await db.insert(userPref).values(values).onConflictDoUpdate({ target: userPref.userId, set: values });
+      return dash;
     },
 
     /** 見た目を保存する(ログインしている本人だけ。API トークンでは変えない) */

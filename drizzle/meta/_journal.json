@@ -253,6 +253,13 @@
       "when": 1794264031181,
       "tag": "0035_saved_check_background",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1794358091850,
+      "tag": "0036_user_pref_dash",
+      "breakpoints": true
     }
   ]
 }

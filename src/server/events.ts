@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, ilike, lt, inArray, or, sql } from "drizzle-orm";
 import { auditLog, noticeSeen, organization, teamNotify, user, server } from "./db/schema";
-import { HttpError, requireTeam, allowed } from "./guard";
+import { HttpError, holds, requireTeam } from "./guard";
 import type { Deps } from "./servers";
 import { hint, open, seal } from "./secrets";
 
@@ -73,6 +73,29 @@ export function eventService(deps: Deps) {
     }
   }
 
+  // お知らせ(recent)・どこまで読んだか(seen)の中身。requireTeam の結果(who)を受け取り、認証を繰り返さない
+  async function recentOf(who: Awaited<ReturnType<typeof requireTeam>>) {
+    const admin = holds(who, { audit: ["read"] });
+    const rows = await db.select({ id: auditLog.id, kind: auditLog.kind, action: auditLog.action, target: auditLog.target, detail: auditLog.detail, at: auditLog.at, userId: auditLog.userId, userName: user.name })
+      .from(auditLog).leftJoin(user, eq(auditLog.userId, user.id))
+      .where(and(eq(auditLog.teamId, who.teamId), ...(admin ? [] : [inArray(auditLog.kind, MEMBER_KINDS)])))
+      .orderBy(desc(auditLog.at)).limit(admin ? 30 : 100);
+    const { serverScope } = await import("./servers");
+    const scope = admin ? null : await serverScope(deps as never, who);
+    let names: string[] = [];
+    if (scope) names = (await db.select({ id: server.id, name: server.name }).from(server).where(eq(server.teamId, who.teamId))).filter((s) => scope.has(s.id)).map((s) => s.name);
+    return rows
+      .filter((r) => !scope || r.userId === who.user.id || names.some((n) => r.target.includes(n)))
+      .slice(0, 30)
+      .map(({ userId, ...r }) => ({ ...r, at: r.at.toISOString(), userName: r.userName ?? "", mine: userId === who.user.id }));
+  }
+
+  async function seenOf(who: Awaited<ReturnType<typeof requireTeam>>) {
+    const { teamId, user: me } = who;
+    const [r] = await db.select({ at: noticeSeen.seenAt }).from(noticeSeen).where(and(eq(noticeSeen.userId, me.id), eq(noticeSeen.teamId, teamId)));
+    return r?.at.toISOString() ?? null;
+  }
+
   return {
     record,
 
@@ -94,27 +117,19 @@ export function eventService(deps: Deps) {
      * サーバーを割り当てられている人には、割り当てられたサーバーの名前が入ったもの(と自分の操作)だけを出す。mine は自分がした操作(未読に数えない)
      */
     async recent(headers: Headers) {
-      const who = await requireTeam(auth, headers);
-      const admin = await allowed(auth, headers, { audit: ["read"] });
-      const rows = await db.select({ id: auditLog.id, kind: auditLog.kind, action: auditLog.action, target: auditLog.target, detail: auditLog.detail, at: auditLog.at, userId: auditLog.userId, userName: user.name })
-        .from(auditLog).leftJoin(user, eq(auditLog.userId, user.id))
-        .where(and(eq(auditLog.teamId, who.teamId), ...(admin ? [] : [inArray(auditLog.kind, MEMBER_KINDS)])))
-        .orderBy(desc(auditLog.at)).limit(admin ? 30 : 100);
-      const { serverScope } = await import("./servers");
-      const scope = admin ? null : await serverScope(deps as never, who);
-      let names: string[] = [];
-      if (scope) names = (await db.select({ id: server.id, name: server.name }).from(server).where(eq(server.teamId, who.teamId))).filter((s) => scope.has(s.id)).map((s) => s.name);
-      return rows
-        .filter((r) => !scope || r.userId === who.user.id || names.some((n) => r.target.includes(n)))
-        .slice(0, 30)
-        .map(({ userId, ...r }) => ({ ...r, at: r.at.toISOString(), userName: r.userName ?? "", mine: userId === who.user.id }));
+      return recentOf(await requireTeam(auth, headers));
     },
 
     /** お知らせをどこまで読んだか(利用者ごと。まだなら null) */
     async seen(headers: Headers) {
-      const { teamId, user: me } = await requireTeam(auth, headers);
-      const [r] = await db.select({ at: noticeSeen.seenAt }).from(noticeSeen).where(and(eq(noticeSeen.userId, me.id), eq(noticeSeen.teamId, teamId)));
-      return r?.at.toISOString() ?? null;
+      return seenOf(await requireTeam(auth, headers));
+    },
+
+    /** お知らせと、どこまで読んだか(recent と seen を、認証 1 回で) */
+    async feed(headers: Headers) {
+      const who = await requireTeam(auth, headers);
+      const [items, seenAt] = await Promise.all([recentOf(who), seenOf(who)]);
+      return { items, seenAt };
     },
 
     /** ここまで読んだ(先へ進めるだけ。記録の時刻をそのまま受け取る) */

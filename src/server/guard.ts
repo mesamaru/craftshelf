@@ -95,10 +95,37 @@ export const jsonList = (v: string | null | undefined): string[] => {
  * Better Auth も同じ役割で確かめる)に、チームの設定(編集者にも設定ファイル)と、メンバーごとの足し引き(member_perm)を合わせる
  */
 export async function memberPerms(auth: Auth, teamId: string, userId: string) {
+  return (await memberAccess(auth, teamId, userId))?.perms ?? null;
+}
+
+/** memberPerms と同じ確かめ(毎回データベースを読む。キャッシュしない)で、役割(owner,admin など)も返す。requireTeam が 1 回だけ読み、結果を呼び出しの中で使い回す */
+export async function memberAccess(auth: Auth, teamId: string, userId: string) {
   const [m] = await auth.appDb.select({ role: member.role, allow: memberPerm.allow, deny: memberPerm.deny, editorFiles: teamOption.editorFiles }).from(member)
     .leftJoin(memberPerm, eq(memberPerm.memberId, member.id)).leftJoin(teamOption, eq(teamOption.teamId, member.organizationId))
     .where(and(eq(member.organizationId, teamId), eq(member.userId, userId)));
-  return m ? permsOf(m.role, { allow: jsonList(m.allow), deny: jsonList(m.deny), editorFiles: !!m.editorFiles }) : null;
+  return m ? { role: m.role, perms: permsOf(m.role, { allow: jsonList(m.allow), deny: jsonList(m.deny), editorFiles: !!m.editorFiles }) } : null;
+}
+
+type Resolved = { apiKey: { readOnly: boolean; scopes: TokenScope[] } | null };
+// その権限があるか(API トークンは、トークンの範囲とその人の今の権限の両方)。無ければ 403
+function authorize(s: Resolved, perms: ReadonlySet<string>, permissions: Permissions) {
+  if (s.apiKey) {
+    if (s.apiKey.readOnly) throw new HttpError(403, "読み取りだけの API トークンでは、この操作はできません");
+    const lack = scopesFor(permissions).filter((x) => !s.apiKey!.scopes.includes(x));
+    if (lack.length) throw new HttpError(403, `この API トークンの範囲では、この操作はできません(要る範囲: ${lack.map((x) => SCOPE_LABELS[x]).join("、")})`);
+  }
+  if (!permits(perms, permissions)) throw new HttpError(403, "この操作をする権限がありません");
+}
+
+/** requireTeam が返した人が、この権限を持っているか(データベースは読まない。同じ呼び出しの中で認証を繰り返さないために使う) */
+export function holds(who: Resolved & { perms: ReadonlySet<string> }, permissions: Permissions) {
+  try {
+    authorize(who, who.perms, permissions);
+    return true;
+  } catch (e) {
+    if (isHttpError(e) && e.status === 403) return false;
+    throw e;
+  }
 }
 
 // チームの中の操作。いまもそのチームのメンバーかを必ず確かめる(外された人のセッションに、選んでいたチームが残っていても断る)。
@@ -107,17 +134,11 @@ export async function requireTeam(auth: Auth, headers: Headers, permissions?: Pe
   const s = await requireUser(auth, headers);
   const teamId = s.session.activeOrganizationId;
   if (!teamId) throw new HttpError(403, "チームを選んでください");
-  const perms = await memberPerms(auth, teamId, s.user.id);
-  if (!perms) throw new HttpError(403, "このチームのメンバーではありません");
-  if (permissions) {
-    if (s.apiKey) {
-      if (s.apiKey.readOnly) throw new HttpError(403, "読み取りだけの API トークンでは、この操作はできません");
-      const lack = scopesFor(permissions).filter((x) => !s.apiKey.scopes.includes(x));
-      if (lack.length) throw new HttpError(403, `この API トークンの範囲では、この操作はできません(要る範囲: ${lack.map((x) => SCOPE_LABELS[x]).join("、")})`);
-    }
-    if (!permits(perms, permissions)) throw new HttpError(403, "この操作をする権限がありません");
-  }
-  return { ...s, teamId };
+  const access = await memberAccess(auth, teamId, s.user.id);
+  if (!access) throw new HttpError(403, "このチームのメンバーではありません");
+  if (permissions) authorize(s, access.perms, permissions);
+  // role・perms は、この確かめで読んだもの(続く処理が役割・権限を読み直さずに使える)
+  return { ...s, teamId, role: access.role, perms: access.perms };
 }
 
 /** その権限があるか(無くても例外にしない) */

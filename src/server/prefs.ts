@@ -1,5 +1,5 @@
 // 個人の設定(アカウントごと。どの端末でも同じ): 見た目と背景画像(03.63.00 から。前はブラウザごとに置いていた)と、ホームのウィジェットの並び(03.69.00 から)
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { type DashLayout, cleanDash } from "~/lib/dash";
 import { BACKGROUND_MAX_BYTES, BACKGROUND_URL, type SavedTheme, cleanTheme } from "~/lib/theme";
 import { userPref } from "./db/schema";
@@ -30,7 +30,27 @@ export function backgroundOf(data: Uint8Array) {
 
 export function prefService(deps: Pick<Deps, "db" | "auth">) {
   const { db, auth } = deps;
-  const rowOf = async (userId: string) => (await db.select({ theme: userPref.theme, at: userPref.backgroundAt, has: userPref.background }).from(userPref).where(eq(userPref.userId, userId)))[0];
+  // 見た目・背景・ウィジェットの並びを 1 回で読む(背景画像の中身(最大 2 MB)は読まず、あるかだけ)
+  const rowOf = async (userId: string) => (await db.select({ theme: userPref.theme, at: userPref.backgroundAt, has: sql<boolean>`coalesce(${userPref.background} <> '', false)`, dash: userPref.dash })
+    .from(userPref).where(eq(userPref.userId, userId)))[0];
+  type Row = Awaited<ReturnType<typeof rowOf>>;
+  const themeOf = (r: Row): SavedTheme | null => {
+    if (!r?.theme) return null;
+    try {
+      return cleanTheme(JSON.parse(r.theme));
+    } catch {
+      return null;
+    }
+  };
+  const bgOf = (r: Row) => (!r?.at ? null : r.has ? `${BACKGROUND_URL}?v=${r.at.getTime()}` : "");
+  const dashOf = (r: Row): DashLayout | null => {
+    if (!r?.dash) return null;
+    try {
+      return cleanDash(JSON.parse(r.dash));
+    } catch {
+      return null;
+    }
+  };
   const session = async (headers: Headers) => {
     const s = await requireUser(auth, headers);
     if (s.apiKey) throw new HttpError(403, "見た目は、ログインしてから変えてください");
@@ -40,13 +60,13 @@ export function prefService(deps: Pick<Deps, "db" | "auth">) {
   return {
     /** 保存した見た目(まだ無ければ null) */
     async theme(userId: string): Promise<SavedTheme | null> {
+      return themeOf(await rowOf(userId));
+    },
+
+    /** 見た目・背景画像の場所・ホームのウィジェットの並びを、まとめて 1 回で(getAppState 用。個別に読むのと同じ値) */
+    async appState(userId: string) {
       const r = await rowOf(userId);
-      if (!r?.theme) return null;
-      try {
-        return cleanTheme(JSON.parse(r.theme));
-      } catch {
-        return null;
-      }
+      return { theme: themeOf(r), dash: dashOf(r), background: bgOf(r) };
     },
 
     /**
@@ -54,9 +74,7 @@ export function prefService(deps: Pick<Deps, "db" | "auth">) {
      * (画面は null のときだけ、前にブラウザに置いた背景画像をアカウントに移す)
      */
     async backgroundUrl(userId: string): Promise<string | null> {
-      const r = await rowOf(userId);
-      if (!r?.at) return null;
-      return r.has ? `${BACKGROUND_URL}?v=${r.at.getTime()}` : "";
+      return bgOf(await rowOf(userId));
     },
 
     /** 背景画像(ログインしている本人のもの。無ければ null) */
@@ -69,13 +87,7 @@ export function prefService(deps: Pick<Deps, "db" | "auth">) {
 
     /** ホームのウィジェットの並び(まだ決めていなければ null。画面は既定の並びを使う) */
     async dash(userId: string): Promise<DashLayout | null> {
-      const [r] = await db.select({ dash: userPref.dash }).from(userPref).where(eq(userPref.userId, userId));
-      if (!r?.dash) return null;
-      try {
-        return cleanDash(JSON.parse(r.dash));
-      } catch {
-        return null;
-      }
+      return dashOf(await rowOf(userId));
     },
 
     /** ホームのウィジェットの並びを保存する(ログインしている本人だけ。知らないもの・長すぎるものは落として、そろえた形を返す) */

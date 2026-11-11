@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import { serverFileHistory, teamOption, user } from "./db/schema";
 import { eventService } from "./events";
-import { HttpError, isHttpError, allowed, requireTeam } from "./guard";
+import { HttpError, holds, isHttpError, requireTeam } from "./guard";
 import { type Deps, remote, serverOf } from "./servers";
 import { alignAll, splitLines } from "~/lib/diff";
 
@@ -53,8 +53,8 @@ export function fileService(deps: Deps) {
   return {
     /** 設定ファイルを見る・直せるか(画面でボタンを出すか決める)と、編集者にも許しているか */
     async access(headers: Headers) {
-      const { teamId } = await requireTeam(auth, headers);
-      return { allowed: await allowed(auth, headers, { files: ["edit"] }), editors: await editorFiles(teamId) };
+      const who = await requireTeam(auth, headers);
+      return { allowed: holds(who, { files: ["edit"] }), editors: await editorFiles(who.teamId) };
     },
 
     /** 編集者にも設定ファイルを見る・直すのを許す・やめる(管理者以上) */

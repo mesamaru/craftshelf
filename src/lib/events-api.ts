@@ -19,10 +19,7 @@ export const setNotify = createServerFn({ method: "POST" })
 export const testNotify = createServerFn({ method: "POST" }).handler(async () => (await svc()).testNotify(headers()));
 
 // お知らせと、どこまで読んだか(利用者ごとにサーバーに残す)
-export const recentEvents = createServerFn({ method: "GET" }).handler(async () => {
-  const s = await svc();
-  return { items: await s.recent(headers()), seenAt: await s.seen(headers()) };
-});
+export const recentEvents = createServerFn({ method: "GET" }).handler(async () => (await svc()).feed(headers()));
 
 export const markNoticesSeen = createServerFn({ method: "POST" })
   .validator(z.object({ at: z.string().max(40) }))

@@ -4,7 +4,7 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { and, asc, count, desc, eq, gt, inArray, isNull, lt, max, or, sql } from "drizzle-orm";
 import { addonSet, auditLog, installedMod, libraryFile, libraryItem, member, server, shareLink, storageTarget, user } from "./db/schema";
 import { eventService } from "./events";
-import { HttpError, allowed, requireTeam } from "./guard";
+import { HttpError, holds, requireTeam } from "./guard";
 import type { Deps } from "./servers";
 import { fileStore } from "./uploads";
 import { zipStream } from "./zip";
@@ -58,8 +58,9 @@ export function shareService(deps: Deps) {
 
     /** 共有リンクの一覧(自分が作ったもの。管理者はチームのすべて) */
     async list(headers: Headers) {
-      const { teamId, user: me } = await requireTeam(auth, headers);
-      const admin = await allowed(auth, headers, { member: ["update"] });
+      const who = await requireTeam(auth, headers);
+      const { teamId, user: me } = who;
+      const admin = holds(who, { member: ["update"] });
       const rows = await db.select({ s: shareLink, by: user.name }).from(shareLink).leftJoin(user, eq(shareLink.createdBy, user.id))
         .where(and(eq(shareLink.teamId, teamId), ...(admin ? [] : [eq(shareLink.createdBy, me.id)]))).orderBy(desc(shareLink.createdAt));
       const now = Date.now();
@@ -72,9 +73,10 @@ export function shareService(deps: Deps) {
 
     /** 共有リンクを止める(作った人か、管理者)。期限を今にして、記録(ダウンロードの回数)は一覧に残す */
     async stop(headers: Headers, id: string) {
-      const { teamId, user: me } = await requireTeam(auth, headers);
+      const who = await requireTeam(auth, headers);
+      const { teamId, user: me } = who;
       const [s] = await db.select().from(shareLink).where(and(eq(shareLink.id, id), eq(shareLink.teamId, teamId)));
-      const admin = await allowed(auth, headers, { member: ["update"] });
+      const admin = holds(who, { member: ["update"] });
       if (!s || (s.createdBy !== me.id && !admin)) throw new HttpError(404, "見つかりません");
       await db.update(shareLink).set({ expiresAt: new Date() }).where(eq(shareLink.id, id));
       await record({ teamId, userId: me.id, kind: "admin", action: "共有リンクを止める", target: s.name });
@@ -82,9 +84,10 @@ export function shareService(deps: Deps) {
 
     /** 共有リンクを消す(作った人か、管理者) */
     async remove(headers: Headers, id: string) {
-      const { teamId, user: me } = await requireTeam(auth, headers);
+      const who = await requireTeam(auth, headers);
+      const { teamId, user: me } = who;
       const [s] = await db.select().from(shareLink).where(and(eq(shareLink.id, id), eq(shareLink.teamId, teamId)));
-      const admin = await allowed(auth, headers, { member: ["update"] });
+      const admin = holds(who, { member: ["update"] });
       if (!s || (s.createdBy !== me.id && !admin)) throw new HttpError(404, "見つかりません");
       await db.delete(shareLink).where(eq(shareLink.id, id));
       await record({ teamId, userId: me.id, kind: "admin", action: "共有リンクを消す", target: s.name });

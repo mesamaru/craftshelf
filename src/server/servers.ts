@@ -60,11 +60,12 @@ async function connectionOf({ db, secret, fetch }: Deps, teamId: string, id: str
 
 // チームのサーバーと、それを操作する Pterodactyl のクライアント(ほかのチームのものは 404)
 // 操作する人(requireTeam の結果)。役割は API トークンならトークンの、そうでなければチームでのもの
-export type Who = { teamId: string; user: { id: string }; apiKey?: { role: string } | null };
+export type Who = { teamId: string; user: { id: string }; apiKey?: { role: string } | null; role?: string };
 
 /** 割り当てで使えるサーバーの ID(すべて使えるなら null)。管理者・オーナーは制限しない */
 export async function serverScope(deps: Deps, who: Who): Promise<Set<string> | null> {
-  const role = who.apiKey?.role ?? (await deps.db.select({ role: member.role }).from(member)
+  // requireTeam が読んだ役割があれば、それを使う(同じ呼び出しの中で役割を読み直さない)
+  const role = who.role ?? who.apiKey?.role ?? (await deps.db.select({ role: member.role }).from(member)
     .where(and(eq(member.organizationId, who.teamId), eq(member.userId, who.user.id))))[0]?.role ?? "";
   if (!role) return new Set(); // メンバーでない(外された)人には何も見せない
   if (role.split(",").some((r) => r === "owner" || r === "admin")) return null;

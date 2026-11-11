@@ -5,7 +5,7 @@ import { and, asc, count, eq, inArray } from "drizzle-orm";
 import { GRANTS, GRANT_LABELS, isGrant, permsOf } from "~/lib/permissions";
 import { account, legacyTotp, member, memberPerm, organization, passkey, session, teamOption, twoFactor, user as userTable } from "./db/schema";
 import { eventService } from "./events";
-import { HttpError, jsonList, memberPerms, requireTeam, requireUser } from "./guard";
+import { HttpError, jsonList, requireTeam, requireUser } from "./guard";
 import type { Deps } from "./servers";
 
 const isOwner = (role: string | null | undefined) => !!role && role.split(",").includes("owner");
@@ -21,8 +21,8 @@ export function teamService(deps: Deps) {
   return {
     /** 自分の、選んでいるチームでの権限("種類:操作" の一覧。画面でボタンを出すか決める) */
     async myPerms(headers: Headers) {
-      const { teamId, user } = await requireTeam(auth, headers);
-      return { perms: [...((await memberPerms(auth, teamId, user.id)) ?? [])].sort() };
+      const { perms } = await requireTeam(auth, headers); // requireTeam が毎回データベースで確かめた権限(もう一度読まない)
+      return { perms: [...perms].sort() };
     },
 
     /** メンバーごとの権限(管理者以上): 役割だけのときの権限・足したもの・引いたもの・今の権限(足し引きできるものだけ) */

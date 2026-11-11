@@ -7,14 +7,16 @@ export const getAppState = createServerFn({ method: "GET" }).handler(async () =>
   const { auth, db, env, prefs } = await import("~/server/instance");
   const { signupOpen } = await import("~/server/auth");
   const s = await auth.api.getSession({ headers: getRequest().headers });
-  const app = { mode: env.mode, signupOpen: await signupOpen(db, env.mode), mail: !!env.mail, verifyEmail: !!env.mail && env.mode === "service" };
+  // ログインしている人がいれば、自分用の版の登録はもう締まっている(最初の 1 人がいる)ので、数えない
+  const app = { mode: env.mode, signupOpen: s ? env.mode === "service" : await signupOpen(db, env.mode), mail: !!env.mail, verifyEmail: !!env.mail && env.mode === "service" };
   if (!s) return { user: null, app };
   const { eq } = await import("drizzle-orm");
   const { legacyTotp } = await import("~/server/db/schema");
   // v02 の二段階認証のまま(v03 で設定し直していない)か
   const legacy = !s.user.twoFactorEnabled && (await db.select({ id: legacyTotp.userId }).from(legacyTotp).where(eq(legacyTotp.userId, s.user.id))).length > 0;
   const { id, name, email, twoFactorEnabled, displayUsername, username } = s.user;
-  return { user: { id, name, email, username: displayUsername || username || null, twoFactorEnabled: !!twoFactorEnabled, legacyTotp: legacy, theme: await prefs.theme(id), dash: await prefs.dash(id), background: await prefs.backgroundUrl(id) }, app };
+  const { theme, dash, background } = await prefs.appState(id);
+  return { user: { id, name, email, username: displayUsername || username || null, twoFactorEnabled: !!twoFactorEnabled, legacyTotp: legacy, theme, dash, background }, app };
 });
 
 /** 画面を移るたびに読み直さない(ブラウザでは 30 秒覚える。ログイン・ログアウト・チームの切り替え・設定の変更などの書き込みや「読み直す」で捨てる) */

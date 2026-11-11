@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { editLibraryItem, favoriteLibraryItem, installMod, libraryCatalog, libraryItemChangelog, libraryItemVersions, libraryMissingDeps,
+import { editLibraryItem, favoriteLibraryItem, installMod, libraryCatalog, modVersions, libraryItemChangelog, libraryItemVersions, libraryMissingDeps,
   linkLibraryDep, modpackFromItem, outdatedLibraryServers, relinkLibraryItem, removeLibraryItem, tagLibraryItems } from "~/lib/library-api";
 import { LIBRARY_CHANGED, UploadResults, droppedFiles, libraryChanged, useUploader } from "~/lib/library-add";
 import { ITEM_TYPES, ITEM_TYPE_IDS, type ItemType, mcCompare, mcCovers, mcRange } from "~/lib/platforms";
@@ -18,6 +18,7 @@ import { useCan, useTeamKey } from "~/lib/use-can";
 import { MobileSearch, OPEN_ADD, StoragePill } from "~/lib/shell";
 import { listSets, toggleSetItem } from "~/lib/sets-api";
 import { ActionBar, Btn, Chip, Icon, Info, Menu, Sheet, fmtSize } from "~/lib/ui";
+import { SupportBadge, VersionChooser, type VRow, confirmUnsupported } from "~/lib/version-picker";
 
 // ?item= で開いているアイテム(戻るボタンで閉じる)。?type= ?f= はホームから来たときの絞り込み
 type Search = { item?: string; type?: string; f?: "upd" | "deps" | "nomc" };
@@ -436,6 +437,7 @@ function Bulk({ ids, cat, share, allShown, onAll, onClear, onDone }:
       )}
       {sheet === "install" && (
         <Sheet title="サーバーに入れる" onClose={() => setSheet("")}>
+          <p className="sub">サーバーごとに、そのサーバーの Minecraft に合う最新版を入れます</p>
           <section className="group">
             {cat.servers.map((s) => {
               const n = fits(s).length;
@@ -584,45 +586,76 @@ function SourceBox({ item, url }: { item: CatItem; url: string | null }) {
   );
 }
 
-// 入れる先を選ぶ(種類が合うサーバー。Modパックは Mod のサーバーに中身と設定ファイル)
+// 入れる先を選ぶ(種類が合うサーバー。Modパックは Mod のサーバーに中身と設定ファイル)。
+// サーバーごとに、そのサーバーの Minecraft に合う最新版を出す(サーバーが違えば合う版も違う)。「版を選ぶ」で別の版も選べる
 function InstallSheet({ item, cat, pack, onPack, onInstalled, onClose }:
   { item: CatItem; cat: Catalog; pack: boolean; onPack: (serverId: string) => void; onInstalled: () => void; onClose: () => void }) {
-  const install = useServerFn(installMod);
-  const [busy, setBusy] = useState("");
-  const [done, setDone] = useState<Set<string>>(new Set());
-  const [error, setError] = useState("");
   const rows = pack ? cat.servers.filter((s) => s.type === "mod") : cat.servers.filter((s) => s.kinds.includes(item.projectType as ItemType));
-  const put = async (serverId: string) => {
-    if (pack) {
-      if (confirm("Modパックの中の Mod と設定ファイル(overrides)を、このサーバーに入れますか?(同じ名前のセットも作ります。上書きした設定ファイルは履歴から戻せます)")) onPack(serverId);
-      return;
-    }
-    setBusy(serverId);
-    setError("");
-    try {
-      await install({ data: { id: serverId, projectId: item.projectId, source: item.source as ItemSource } });
-      setDone((d) => new Set(d).add(serverId));
-      onInstalled();
-    } catch (e) {
-      setError(message(e));
-    } finally {
-      setBusy("");
-    }
-  };
   return (
     <Sheet title="サーバーに入れる" onClose={onClose}>
       <section className="group">
         {rows.length === 0 && <div className="row muted">入れられるサーバーがありません</div>}
-        {rows.map((s) => (
-          <div key={s.id} className="row">
-            <span className="mid"><span className="ttl" translate="no">{s.name}</span></span>
-            {done.has(s.id) ? <span className="badge ok">入れました</span>
-              : <Btn kind="tint" sm disabled={!!busy} onClick={() => put(s.id)}>{busy === s.id ? "入れています…" : "入れる"}</Btn>}
-          </div>
-        ))}
+        {rows.map((s) => <PutRow key={s.id} s={s} item={item} pack={pack} onPack={onPack} onInstalled={onInstalled} />)}
       </section>
-      {error && <p className="error" role="alert">{error}</p>}
     </Sheet>
+  );
+}
+
+function PutRow({ s, item, pack, onPack, onInstalled }: { s: Catalog["servers"][number]; item: CatItem; pack: boolean; onPack: (serverId: string) => void; onInstalled: () => void }) {
+  const install = useServerFn(installMod);
+  const load = useServerFn(modVersions);
+  const [rows, setRows] = useState<VRow[] | null>(null);
+  const [chosen, setChosen] = useState<{ v: VRow; auto: boolean } | null>(null); // 選んだ版(null = 合う最新版)
+  const [choosing, setChoosing] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState("");
+  const source = item.source as ItemSource;
+  useEffect(() => {
+    if (pack) return;
+    load({ data: { id: s.id, projectId: item.projectId, source } }).then(setRows, () => setRows([])); // 読めなければ、版を選ばずに入れる
+  }, [s.id, item.projectId]);
+  const v = chosen?.v ?? rows?.find((r) => r.suggested);
+  const put = async () => {
+    if (pack) {
+      if (confirm("Modパックの中の Mod と設定ファイル(overrides)を、このサーバーに入れますか?(同じ名前のセットも作ります。上書きした設定ファイルは履歴から戻せます)")) onPack(s.id);
+      return;
+    }
+    if (v && !confirmUnsupported(v, s.mc)) return;
+    setBusy(true);
+    setError("");
+    try {
+      await install({ data: { id: s.id, projectId: item.projectId, source, versionId: chosen && !chosen.auto ? chosen.v.versionId : undefined, unsupported: v?.support === "no" } });
+      setDone(true);
+      onInstalled();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="row put">
+      <span className="mid">
+        <span className="ttl" translate="no">{s.name}</span>
+        {!pack && !rows && <span className="sub">版を確かめています…</span>}
+        {!pack && rows && !v && <span className="sub">合う版がありません</span>}
+        {!pack && v && <span className="sub" translate="no">{v.versionNumber}</span>}
+        {!pack && v && <span className="sub">{chosen && !chosen.auto ? "選んだ版" : s.mc ? `サーバー ${s.mc} に合う最新版` : "合う最新版"}</span>}
+        {error && <span className="sub error" role="alert">{error}</span>}
+      </span>
+      {v && !pack && <SupportBadge s={v.support} />}
+      {done ? <span className="badge ok">入れました</span> : <>
+        {!pack && rows && rows.length > 0 && <Btn sm disabled={busy} onClick={() => setChoosing(true)}>版を選ぶ</Btn>}
+        <Btn kind="tint" sm disabled={busy || (!pack && !rows)} onClick={put}>{busy ? "入れています…" : "入れる"}</Btn>
+      </>}
+      {choosing && (
+        <Sheet title={<span translate="no">{item.title}</span>} label={item.title} onClose={() => setChoosing(false)}>
+          <p className="sub"><span translate="no">{s.name}</span></p>
+          <VersionChooser args={{ id: s.id, projectId: item.projectId, source }} mc={s.mc} label="この版にする" onChoose={(x, auto) => { setChosen({ v: x, auto }); setChoosing(false); }} />
+        </Sheet>
+      )}
+    </div>
   );
 }
 

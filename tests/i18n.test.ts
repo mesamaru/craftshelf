@@ -51,6 +51,15 @@ describe("英語表示", () => {
     expect(translate("新しいパスワード(10 文字以上)")).toBe("New password (10+ characters)");
     expect(translate("匿名の利用状況を送る(1 日 1 回)")).toBe("Send anonymous usage (once a day)");
     expect(translate("この版は、このサーバーの種類・バージョンに合いません")).toBe("This version does not fit this server's type and version");
+    // サーバーに入れるときの版の選び方(03.73.00)
+    expect(translate("サーバー 1.20.4 に合う 5.3.2 を入れます(最新は 5.4.1)")).toBe("Installing 5.3.2, the newest that fits server 1.20.4 (latest is 5.4.1)");
+    expect(translate("5.4.1 はサーバー 1.20.4 に対応していません(合う最新版は 5.3.2)")).toBe("5.4.1 is not compatible with server 1.20.4 (best match is 5.3.2)");
+    expect(translate("5.4.1 は、このサーバー(Minecraft 1.20.4)に対応していません。入れると動かないおそれがあります。それでも入れますか?")).toMatch(/^5\.4\.1 is not compatible with this server \(Minecraft 1\.20\.4\)/);
+    expect(translate("このサーバーの種類・バージョン(1.20.4)に合う版がありません(対応する最新の Minecraft は 1.21 です)")).toMatch(/^No version fits this server's type and version \(1\.20\.4\) \(the newest Minecraft supported is 1\.21\)/);
+    expect([translate("対応"), translate("対応不明"), translate("非対応"), translate("合う最新版")]).toEqual(["Compatible", "Unknown", "Incompatible", "Best match"]);
+    expect(translate("MC 1.20.4〜1.20.6 · 2026-02-01 · Modrinth・保存済み")).toBe("MC 1.20.4–1.20.6 · 2026-02-01 · Modrinth · saved");
+    expect(translate("MC 1.8.9〜1.21.4(1.20.4 は未対応) · 2024-10-26 · Modrinth")).toBe("MC 1.8.9–1.21.4 (not 1.20.4) · 2024-10-26 · Modrinth");
+    expect([translate("サーバー 1.20.4 に合う最新版"), translate("選んだ版")]).toEqual(["Best match for server 1.20.4", "Chosen version"]);
     expect(translate("2 個")).toBe("2 items"); // パスキーの数など
     expect(translate("1 個")).toBe("1 item");
     expect(translate("自動")).toBe("Auto");

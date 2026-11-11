@@ -166,8 +166,25 @@ export const EN: Record<string, string> = {
   "サーバー本体を選んだビルドに入れ替える(mc・build を省くといちばん新しいもの。restart: true で再起動も)": "Replace the server software with a chosen build (omit mc and build for the newest; restart: true also restarts)",
   "サーバー本体を残した jar に戻す(file を省くといちばん新しいもの)": "Roll the server software back to a kept jar (omit file for the newest)",
   "このサーバーに入れられるものを配布元で探す(query、source: modrinth / spigot / curseforge。kind: datapack でデータパック)": "Search the sources for things installable on this server (query, source: modrinth / spigot / curseforge; kind: datapack for data packs)",
-  "入れる・更新する(source: modrinth / spigot / curseforge / upload、projectId。versionId で版を選べる。kind: datapack でデータパックとしてワールドの datapacks に。ライブラリでデータパックにしたものは省いてよい)":
-    "Install or update (source: modrinth / spigot / curseforge / upload, projectId; versionId picks a version; kind: datapack installs into the world's datapacks; may be omitted for items marked as data packs in the library)",
+  "入れる・更新する(source: modrinth / spigot / curseforge / upload、projectId。版を省くと、このサーバーの Minecraft に対応するいちばん新しい版。versionId で版を選べる(対応しない版は unsupported: true を付けたときだけ)。kind: datapack でデータパックとしてワールドの datapacks に。ライブラリでデータパックにしたものは省いてよい)":
+    "Install or update (source: modrinth / spigot / curseforge / upload, projectId; without a version, the newest one compatible with this server's Minecraft; versionId picks a version (an incompatible one only with unsupported: true); kind: datapack installs into the world's datapacks; may be omitted for items marked as data packs in the library)",
+  "このサーバーに入れる版の一覧(新しい順。source、projectId、kind: datapack)。各版に、サーバーの Minecraft に対応するか(support: ok / no / unknown)・配布元の版か(upstream)・ライブラリに保存してあるか(saved)・版を選ばずに入れるとき選ばれる版か(suggested)が付く":
+    "Versions that can be installed on this server (newest first; source, projectId, kind: datapack). Each has whether it is compatible with the server's Minecraft (support: ok / no / unknown), whether it comes from the source (upstream), whether it is saved in the library (saved) and whether it is the one picked when no version is given (suggested)",
+  // 03.73.00: サーバーに入れるときの版の選び方
+  "合う最新版": "Best match",
+  "保存済み": "saved",
+  "ライブラリに保存": "Saved in library",
+  "選べる版がありません": "No versions to choose from",
+  "版を読み込んでいます…": "Loading versions…",
+  "配布元から版を読めないので、ライブラリに保存した版だけを出しています": "Can't read versions from the source, so only versions saved in the library are shown",
+  "入れるもの": "What to add",
+  "ライブラリから探す": "Search the library",
+  "入れられるものがライブラリにありません": "Nothing in the library can be added",
+  "‹ 一覧へ": "‹ Back to list",
+  "版を確かめています…": "Checking versions…",
+  "選んだ版": "Chosen version",
+  "合う版がありません": "No matching version",
+  "サーバーごとに、そのサーバーの Minecraft に合う最新版を入れます": "Installs the newest version that fits each server's Minecraft",
   "入っている Mod・プラグイン・データパック(datapack: true の行はワールドの datapacks のもの)": "Installed mods, plugins and data packs (rows with datapack: true are in the world's datapacks)",
   "Modパックのアイテムからセットを作る(serverId を渡すと、そのサーバーに設定ファイルと中身も入れる。管理者以上)": "Create a set from a modpack item (with serverId, also installs its config files and contents on that server; admins and above)",
   "外す(filename)": "Remove (filename)",
@@ -724,7 +741,7 @@ export const EN: Record<string, string> = {
   "いちばん新しい版": "Newest version",
   "(テスト版)": " (pre-release)",
   "選べる版がありません(SpigotMC は、いちばん新しい版だけです)": "No versions to choose (SpigotMC offers only the newest)",
-  "「導入」を押すと、そのサーバーに入れるものとして選べます(いちばん新しい版。タグのボタンで別の版も選べます。もう一度押すと選ぶのをやめます)。入っている版を押すと、版を変える・外すができます。古い版を選んだものは「更新を止める」にします。サーバーの種類に合わないところは「—」です。": "Press “Install” to pick it for that server (the newest version; use the tag button to choose another; press again to cancel). Press an installed version to change or remove it. Older versions you choose are set to “Pause updates”. “—” means the server type doesn't fit.",
+  "「導入」を押すと、そのサーバーに入れるものとして選べます(そのサーバーの Minecraft に合う最新版。タグのボタンで別の版も選べます。もう一度押すと選ぶのをやめます)。入っている版を押すと、版を変える・外すができます。古い版を選んだものは「更新を止める」にします。サーバーの種類に合わないところは「—」です。": "Press “Install” to pick it for that server (the newest version that fits the server's Minecraft; use the tag button to choose another; press again to cancel). Press an installed version to change or remove it. Older versions you choose are set to “Pause updates”. “—” means the server type doesn't fit.",
   "版を変える・外す": "Change version or remove",
   "版を選んでください…": "Choose a version…",
   "変えています…": "Changing…",
@@ -1707,6 +1724,10 @@ export const EN: Record<string, string> = {
 };
 /** 1 文字だけのもの(曜日など)。文全体が一致したときだけ置き換える */
 export const EN_WHOLE: Record<string, string> = {
+  // 03.73.00
+  "対応": "Compatible",
+  "対応不明": "Unknown",
+  "非対応": "Incompatible",
   // 03.69.00
   "編集": "Edit",
   "稼働": "Running",
@@ -2204,6 +2225,21 @@ export const EN_RULES: [RegExp, To][] = [
   [/^残す数は 0〜(\d+) にしてください\(0 は整理しない\)$/, "Keep 0–$1 (0 = no cleanup)"],
   [/^(配布元のファイルを保存する|配布元のファイルは保存しない)・(?:新しい方から (\d+) 個残す|古い版は整理しない)$/, (_, a, n) => `${a === "配布元のファイルを保存する" ? "Save files from sources" : "Don't save files from sources"} · ${n ? `keep the newest ${n}` : "no cleanup of old versions"}`],
   [/^(チームの既定|保存する|保存しない)・(残す数はチームの既定|(\d+) 個残す|整理しない)$/, (_, a, b, n) => `${({ チームの既定: "Team default", 保存する: "Save", 保存しない: "Don't save" } as Record<string, string>)[a]} · ${n ? `keep ${n}` : b === "整理しない" ? "no cleanup" : "keep count: team default"}`],
+  // 03.73.00: サーバーに入れるときの版の選び方
+  [/^サーバー (.+) に合う (.+) を入れます\(最新は (.+)\)$/, "Installing $2, the newest that fits server $1 (latest is $3)"],
+  [/^サーバー (.+) に合う最新版 (.+) を入れます$/, "Installing $2, the newest that fits server $1"],
+  [/^このサーバーに合う (.+) を入れます\(最新は (.+)\)$/, "Installing $1, the newest that fits this server (latest is $2)"],
+  [/^このサーバーに合う最新版 (.+) を入れます$/, "Installing $1, the newest that fits this server"],
+  [/^(.+) は(?:サーバー (.+) に|このサーバーに)対応していません(?:\(合う最新版は (.+)\))?$/, (_, v, mc, best) => `${v} is not compatible with ${mc ? `server ${mc}` : "this server"}${best ? ` (best match is ${best})` : ""}`],
+  [/^(.+) を入れます(?:\(合う最新版は (.+)\))?$/, (_, v, best) => `Installing ${v}${best ? ` (best match is ${best})` : ""}`],
+  [/^(.+) は、このサーバー\(Minecraft (.+)\)に対応していません。入れると動かないおそれがあります。それでも入れますか[?？]$/, "$1 is not compatible with this server (Minecraft $2) and may not work if installed. Install anyway?"],
+  [/^(.+) を入れました(?:。前提も入れました: (.+))?$/, (_, t, deps) => `Installed ${t}${deps ? `. Also installed requirements: ${deps}` : ""}`],
+  [/^サーバー (.+) に合う最新版$/, "Best match for server $1"],
+  [/\((\d[\d.]*) は未対応\)/g, " (not $1)"],
+  [/^この版は、このサーバーの Minecraft\((.+)\)に対応していません\(対応: (.+)\)。確かめたうえで入れるときは unsupported: true を付けてください$/, "This version is not compatible with this server's Minecraft ($1) (supports: $2). To install it anyway, add unsupported: true"],
+  [/^このサーバーの種類・バージョン(?:\((.+?)\))?に合う版がありません\(対応する最新の Minecraft は (.+) です\)$/, (_, mc, latest) => `No version fits this server's type and version${mc ? ` (${mc})` : ""} (the newest Minecraft supported is ${latest})`],
+  [/^このサーバーの種類・バージョン(?:\((.+?)\))?に合う版がありません\(外部からのダウンロードを許していない版は入れられません\)$/, (_, mc) => `No version fits this server's type and version${mc ? ` (${mc})` : ""} (versions that do not allow external downloads cannot be installed)`],
+  [/^このサーバーの種類・バージョン\((.+?)\)に合う版がありません$/, "No version fits this server's type and version ($1)"],
   // 03.62.00
   [/^前に確かめたとき: (.+)$/, "Last checked: $1"],
   [/^v([\d.]+) → v([\d.]+)\(自動\)$/, "v$1 → v$2 (automatic)"],

@@ -28,8 +28,8 @@ export const searchMods = createServerFn({ method: "GET" })
   .handler(async ({ data }) => (await svc()).search(headers(), data.id, data.query, data.source, data.kind));
 
 export const installMod = createServerFn({ method: "POST" })
-  .validator(z.object({ id: sid, projectId: z.string().max(20), source, versionId: z.string().min(1).max(64).optional(), kind }))
-  .handler(async ({ data }) => (await svc()).install(headers(), data.id, data.projectId, data.source, data.versionId, data.kind));
+  .validator(z.object({ id: sid, projectId: z.string().max(20), source, versionId: z.string().min(1).max(64).optional(), kind, unsupported: z.boolean().optional() }))
+  .handler(async ({ data }) => (await svc()).install(headers(), data.id, data.projectId, data.source, data.versionId, data.kind, data.unsupported));
 
 export const modVersions = createServerFn({ method: "GET" })
   .validator(z.object({ id: sid, projectId: z.string().max(20), source, kind }))

@@ -2,7 +2,7 @@
 // ファイルはこのアプリを通さず、サーバーが CurseForge の CDN(forgecdn.net)から直接取り込む。
 // 作者が外部からのダウンロードを許していないもの(downloadUrl が無い)は、取り込めないので扱わない
 import { type ItemType, MC_VERSION, PLATFORMS, type Platform, mcClean } from "~/lib/platforms";
-import { type FileChoice, type Hit, type ItemVersion, type PickOpts, SAFE_FILE, type VersionChoice, pickVersion } from "./modrinth";
+import { type FileChoice, type Hit, type ItemVersion, type PickOpts, SAFE_FILE, type UpRow, releaseType } from "./modrinth";
 import { htmlToText } from "./html-text";
 import type { FetchLike } from "./net";
 
@@ -93,21 +93,17 @@ export function curseforgeClient(fetch: FetchLike, apiKey: string) {
     /** 種類だけで探す(ライブラリに足すとき) */
     searchType: (query: string, type: ItemType) => find(query, type),
 
-    /** このサーバーの種類・バージョンに合う、いちばん新しい安定版のファイル(取り込めないものは null) */
-    async latestFile(projectId: string, platform: Platform, mcVersion: string | null, opts: PickOpts = {}): Promise<FileChoice | null> {
-      const files = await rawFiles(projectId, platform, mcVersion, opts.loaders, opts.type);
-      const releases = opts.channel === "all" ? [] : files.filter((f) => f.releaseType === 1);
-      // 作り(loaders)は CurseForge では gameVersions に入る(Fabric・Forge など)。プラグイン・データパックは種類で絞れないので日付だけで選ぶ
-      const pool = (releases.length ? releases : files).map((f) => ({ ...f, date_published: f.fileDate, loaders: f.gameVersions.map((g) => g.toLowerCase()) }));
-      const f = pickVersion(pool, !opts.type && PLATFORMS[platform].type === "mod" ? PLATFORMS[platform].loaders : []);
-      return f ? choiceOf(projectId, f) : null;
-    },
-
-    /** このサーバーの種類・バージョンに合うファイル(新しい順・30 個まで。版を選んで入れるとき) */
-    async files(projectId: string, platform: Platform, mcVersion: string | null, opts: PickOpts = {}): Promise<VersionChoice[]> {
-      const files = await rawFiles(projectId, platform, mcVersion, opts.loaders, opts.type);
-      return files.sort((a, b) => Date.parse(b.fileDate) - Date.parse(a.fileDate)).slice(0, 30)
-        .map((f) => ({ ...choiceOf(projectId, f), date: f.fileDate, release: f.releaseType === 1 }));
+    /**
+     * このサーバーの種類の、取り込めるファイル(Minecraft のバージョンでは絞らない。対応は mcVersions で見る)。
+     * CurseForge の一覧は 1 ページ(新しい 50 個)までなので、mcVersion があれば、そのバージョンのファイルも別に問い合わせて足す(古いサーバーの版が 51 個目より後でも見つかるように)
+     */
+    async rows(projectId: string, platform: Platform, mcVersion: string | null, opts: PickOpts = {}): Promise<UpRow[]> {
+      const all = await rawFiles(projectId, platform, null, opts.loaders, opts.type);
+      const mine = mcVersion ? (await rawFiles(projectId, platform, mcVersion, opts.loaders, opts.type)).filter((f) => !all.some((x) => x.id === f.id)) : [];
+      return [...all, ...mine].map((f) => ({
+        ...choiceOf(projectId, f), date: f.fileDate, type: releaseType(RELEASE_TYPE[f.releaseType]),
+        mcVersions: mcClean(f.gameVersions), loaders: f.gameVersions.map((g) => g.toLowerCase()),
+      }));
     },
 
     /** ファイルのフィンガープリントから探す(見つかったものだけ。フィンガープリント → ファイル) */

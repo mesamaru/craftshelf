@@ -2,13 +2,13 @@
 // ファイルはこのアプリを通さず、Pterodactyl が Spiget の CDN(api.spiget.org → cdn.spiget.org)から直接取り込む。
 // SpigotMC の外のサイトで配っているもの(external)・有料のもの(premium)は、取り込めないので扱わない
 import { type Platform, mcClean } from "~/lib/platforms";
-import { type FileChoice, type Hit, type ItemVersion, SAFE_JAR } from "./modrinth";
+import { type Hit, type ItemVersion, SAFE_JAR, type UpRow } from "./modrinth";
 import { htmlToText } from "./html-text";
 import type { FetchLike } from "./net";
 
 const API = "https://api.spiget.org/v2";
 const UA = "mesamaru/craftshelf (https://github.com/mesamaru/craftshelf)";
-const FIELDS = "id,name,tag,downloads,external,premium,category,version,testedVersions";
+const FIELDS = "id,name,tag,downloads,external,premium,category,version,testedVersions,updateDate";
 
 export class SpigetError extends Error {}
 export const SPIGET_ID = /^\d{1,9}$/;
@@ -53,7 +53,7 @@ export function spigetClient(fetch: FetchLike) {
   }
   const resource = async (id: string): Promise<Resource | null> => (SPIGET_ID.test(id) ? get(`/resources/${id}?fields=${FIELDS}`) : null);
   const installable = (r: Resource) => !r.external && !r.premium && !NOT_PLUGIN.has(r.category?.id ?? 0);
-  const hit = (r: Resource): Hit => ({ projectId: String(r.id), slug: "", title: String(r.name ?? ""), summary: String(r.tag ?? ""), downloads: Number(r.downloads ?? 0), iconUrl: iconOf(r.id), author: "" });
+  const hit = (r: Resource): Hit => ({ projectId: String(r.id), slug: "", title: String(r.name ?? ""), summary: String(r.tag ?? ""), downloads: Number(r.downloads ?? 0), iconUrl: iconOf(r.id), author: "", mcVersions: mcClean(r.testedVersions) });
 
   async function find(query: string, keep: (r: Resource) => boolean): Promise<Hit[]> {
     const q = new URLSearchParams({ size: "50", fields: FIELDS, sort: "-downloads" });
@@ -68,8 +68,11 @@ export function spigetClient(fetch: FetchLike) {
     /** プラグインを探す(ライブラリに足すとき) */
     searchAll: (query: string) => find(query, () => true),
 
-    /** いちばん新しい版のファイル(このサーバーの種類で動かない・取り込めないものは null) */
-    async latestFile(projectId: string, platform: Platform): Promise<FileChoice | null> {
+    /**
+     * いちばん新しい版のファイル(このサーバーの種類で動かない・取り込めないものは null)。SpigotMC は前の版を取ってこられないので、版はこれだけ。
+     * mcVersions は作者が「試した」と書いたバージョン(粗いので loose)
+     */
+    async latestFile(projectId: string, platform: Platform): Promise<UpRow | null> {
       const r = await resource(projectId);
       if (!r || !installable(r) || !spigetFits(r.category?.id ?? 0, platform)) return null;
       const v = await get(`/resources/${r.id}/versions/latest`);
@@ -77,7 +80,8 @@ export function spigetClient(fetch: FetchLike) {
       if (!versionId) return null;
       const versionNumber = String(v?.name ?? versionId);
       // 取り込ませる URL は、こちらで組み立てる Spiget のものだけ(Spiget の CDN へ転送される)
-      return { projectId: String(r.id), versionId, versionNumber, filename: jarName(r.id, r.name, versionNumber), url: `${API}/resources/${r.id}/download`, sha512: "", size: 0 };
+      return { projectId: String(r.id), versionId, versionNumber, filename: jarName(r.id, r.name, versionNumber), url: `${API}/resources/${r.id}/download`, sha512: "", size: 0,
+        date: r.updateDate ? new Date(Number(r.updateDate) * 1000).toISOString() : "", type: "release", mcVersions: mcClean(r.testedVersions), loaders: [], loose: true };
     },
 
     // mcVersions は作者が「試した」と書いたバージョン(1.20 のように、細かい番号の無いことが多い)

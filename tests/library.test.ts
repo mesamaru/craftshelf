@@ -16,6 +16,7 @@ const files = new Map<string, string[]>([["plugins", ["Other-1.0.jar"]]]);
 const pulls: { url: string; directory: string; filename: string }[] = [];
 let latest = { id: "ver00001", number: "5.4.0", filename: "LuckPerms-5.4.0.jar", url: "" };
 let lastSearch = "";
+const searches: string[] = []; // 探した条件(バージョンで絞ったものと、絞らずに「合わないもの」を足すもの)
 
 const fake: FetchLike = async (url, init) => {
   const u = new URL(url);
@@ -23,6 +24,7 @@ const fake: FetchLike = async (url, init) => {
   if (u.host === "api.modrinth.com") {
     if (u.pathname === "/v2/search") {
       lastSearch = u.searchParams.get("facets") ?? "";
+      searches.push(lastSearch);
       return json({ hits: [{ project_id: PID, slug: "luckperms", title: "LuckPerms", description: "権限", downloads: 10, icon_url: "https://evil.example/x.png" }] });
     }
     if (u.pathname === `/v2/project/${PID}`) return json({ title: "LuckPerms", slug: "luckperms", project_type: "plugin" });
@@ -109,9 +111,11 @@ describe("Mod・プラグイン", () => {
     const hits = await lib.search(viewer, id, "luck");
     expect(hits[0].title).toBe("LuckPerms");
     expect(hits[0].iconUrl).toBe("");
-    expect(lastSearch).toContain("categories:paper");
-    expect(lastSearch).toContain("versions:1.21.1");
-    expect(lastSearch).toContain("project_type:plugin");
+    expect(searches.at(-2)).toContain("categories:paper");
+    expect(searches.at(-2)).toContain("versions:1.21.1");
+    expect(searches.at(-2)).toContain("project_type:plugin");
+    expect(searches.at(-1)).not.toContain("versions:"); // バージョンで絞った 1 回と、絞らない 1 回(合わないものをあとに並べる)
+    expect(hits[0].support).toBe("ok");
   });
 
   it("編集者が入れると、Pterodactyl が Modrinth から直接取り込み、一覧に版が出る", async () => {
@@ -166,7 +170,7 @@ describe("ライブラリ(チームの目録)", () => {
     await lib.install(editor, id, PID);
     let cat = await lib.catalog(viewer);
     expect(cat.items.map((i) => [i.title, i.projectType, i.installs.map((x) => `${x.serverName} ${x.versionNumber}`)])).toEqual([["LuckPerms", "plugin", ["サバイバル 5.5.0"]]]);
-    expect(cat.servers).toEqual([{ id, name: "サバイバル", type: "plugin", kinds: ["plugin", "datapack"] }]);
+    expect(cat.servers).toEqual([{ id, name: "サバイバル", type: "plugin", kinds: ["plugin", "datapack"], mc: "1.21.1" }]);
     // 保存した版が無ければ、一覧の版はサーバーに入っている版。サービス版には保存先が無い
     expect(cat.items[0]).toMatchObject({ version: "5.5.0", files: 0, size: 0 });
     expect(cat.storage).toBeNull();

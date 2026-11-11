@@ -110,10 +110,8 @@ describe("版を選んで入れる", () => {
     expect(await row(D)).toMatchObject({ versionNumber: "1.0", held: true });
   });
 
-  it("一覧に無い版(ほかのもの・合わないもの)と、SpigotMC の版は受け付けない", async () => {
+  it("一覧に無い版(ほかのもの)は受け付けない(SpigotMC の版は tests/vpick.test.ts)", async () => {
     expect(await code(lib.install(owner, id, D, "modrinth", versions[A][0].id))).toBe(400);
-    expect(await code(lib.install(owner, id, "28140", "spigot", "1"))).toBe(400);
-    expect(await lib.versions(owner, id, "spigot", "28140")).toEqual([]);
   });
 });
 

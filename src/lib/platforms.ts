@@ -46,6 +46,19 @@ export const mcCovers = (list: readonly string[], v: string) => list.some((e) =>
 /** 対応 MC の一覧から、リリースの番号だけを古い順に(スナップショットなどは除く) */
 export const mcClean = (list: unknown) =>
   Array.isArray(list) ? [...new Set(list.map(String).filter((v) => MC_VERSION.test(v)))].sort(mcCompare).slice(-200) : [];
+export type Support = "ok" | "no" | "unknown";
+/**
+ * サーバーの Minecraft バージョン mc に、その版(対応 MC の一覧 list)が対応するか。
+ * mc が決まっていない・一覧が空なら unknown。loose は「試した版」のような粗い一覧(1.20 が 1.20.x を含む)で、
+ * 一覧にあればその版、全部より古いサーバーだけ no(新しい jar は古いサーバーで読み込めない)、あとは unknown
+ */
+export function supportOf(mc: string | null | undefined, list: readonly string[], loose = false): Support {
+  const l = mcClean(list);
+  if (!mc || !MC_VERSION.test(mc) || !l.length) return "unknown";
+  if (loose ? mcCovers(l, mc) : l.includes(mc)) return "ok";
+  return !loose || mcCompare(mc, l[0]) < 0 ? "no" : "unknown";
+}
+
 /** 対応 MC の範囲の表示("1.20.1〜1.21.4") */
 export function mcRange(list: readonly string[]) {
   const l = mcClean(list);

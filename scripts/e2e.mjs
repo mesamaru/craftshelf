@@ -332,6 +332,7 @@ await step("ドラッグ&ドロップの欄から jar を足すと、一覧と�
   await sheet.getByRole("button", { name: "その他の操作" }).click();
   await page.getByRole("menuitem", { name: "サーバーに入れる…" }).click();
   await page.getByRole("dialog", { name: "サーバーに入れる" }).getByText("E2E").waitFor();
+  await page.getByRole("dialog", { name: "サーバーに入れる" }).getByText(/サーバー 1\.21\.4 に合う最新版/).waitFor(); // サーバーごとに、そのサーバーに合う最新版を出す
   await page.screenshot({ path: ".e2e/library-sheet.png" });
   await page.keyboard.press("Escape"); // 重ねたシートは上のものだけ閉じる
   await page.getByRole("dialog", { name: "サーバーに入れる" }).waitFor({ state: "detached" });
@@ -365,6 +366,37 @@ await step("配布元に紐づけたアドオンは、ライブラリ・検索�
   await page.locator(".palette-input").fill("LuckPerms");
   await page.locator(".palette-hit .ic img").waitFor();
   await page.screenshot({ path: ".e2e/icons.png" });
+  await page.keyboard.press("Escape");
+});
+
+// サーバーの「＋ 入れる」は 2 段: プラグインの一覧(探す・ライブラリ)→ 版の一覧(対応の印・合う最新版を選んでおく)(本物の Modrinth につなぐ。つながらなければ飛ばす)
+await step("「＋ 入れる」は、プラグインの一覧 → 版の一覧の 2 段で、合う最新版が選ばれている", async () => {
+  await page.goto(base + "/servers");
+  const link = page.locator(".srv-side a.row", { hasText: "E2E" }).first();
+  if (!(await link.waitFor({ timeout: 8000 }).then(() => true, () => false))) return console.log("     (フォルダのサーバーは自分用の版だけ)");
+  await link.click();
+  await page.waitForURL(/\/servers\/[^/?]+/);
+  await page.goto(`${base}/servers/${page.url().split("/servers/")[1].split("?")[0]}?tab=addons`);
+  await page.getByRole("button", { name: "＋ 入れる" }).click();
+  const dlg = page.locator(".sheet").last();
+  await dlg.getByRole("tab", { name: "探す" }).waitFor();
+  await dlg.getByRole("tab", { name: "ライブラリ" }).waitFor();
+  await dlg.locator("input[type=search]").fill("luckperms");
+  await dlg.locator("input[type=search]").press("Enter");
+  if (!(await dlg.locator(".row.click").first().waitFor({ timeout: 20000 }).then(() => true, () => false))) return console.log("     (Modrinth につながらないので飛ばします)");
+  await dlg.locator(".row.click .badge", { hasText: /^(対応|対応不明|非対応)$/ }).first().waitFor(); // 一覧の行に対応の印
+  await dlg.locator(".row.click").first().click();
+  await dlg.locator(".vlist .vrow").first().waitFor({ timeout: 20000 });
+  if ((await dlg.locator(".vlist .vrow.sel").count()) !== 1) throw new Error("選ばれている版が 1 つではありません");
+  if ((await dlg.locator(".vlist .vrow .tag", { hasText: "合う最新版" }).count()) > 1) throw new Error("合う最新版の印が複数あります");
+  await dlg.locator(".vlist .vrow .badge").first().waitFor(); // 版ごとの対応の印
+  const why = await dlg.locator(".vwhy").innerText();
+  if (!/サーバー 1\.21\.4 に合う/.test(why)) throw new Error(`なぜその版かの 1 行がありません: ${why}`);
+  await page.screenshot({ path: ".e2e/addon-versions.png" });
+  await dlg.getByRole("button", { name: "‹ 一覧へ" }).click(); // 1 段目へ戻る
+  await dlg.locator("input[type=search]").waitFor();
+  await dlg.getByRole("tab", { name: "ライブラリ" }).click();
+  await dlg.locator(".row", { hasText: "E2EPlugin" }).first().waitFor(); // ライブラリのものから選べる
   await page.keyboard.press("Escape");
 });
 

@@ -9,7 +9,8 @@ const UA = "mesamaru/craftshelf (https://github.com/mesamaru/craftshelf)";
 
 export class ModrinthError extends Error {}
 
-export type Hit = { projectId: string; slug: string; title: string; summary: string; downloads: number; iconUrl: string; author: string };
+// mcVersions = 対応する Minecraft が分かるとき(SpigotMC の「試した版」)
+export type Hit = { projectId: string; slug: string; title: string; summary: string; downloads: number; iconUrl: string; author: string; mcVersions?: string[] };
 // deps: 一緒に入れる必要がある前提(Modrinth の required)のプロジェクトの ID
 export type FileChoice = { projectId: string; versionId: string; versionNumber: string; filename: string; url: string; sha512: string; size: number; deps?: string[] };
 
@@ -46,9 +47,11 @@ export const SAFE_FILE = /^[A-Za-z0-9][A-Za-z0-9._+\- ]{0,120}\.(jar|zip|mrpack)
 // サーバーで動くものだけを探す種類(リソースパック・シェーダーはクライアントで使う。Modパックはクライアント用のものも持てるように)
 const SERVER_SIDE = new Set<string>(["plugin", "mod", "datapack"]);
 
-// 版を選ぶときの一覧の 1 行
-export type VersionChoice = FileChoice & { date: string; release: boolean };
 const VERSIONS_SHOWN = 30;
+// 配布元の版 1 つ(ダウンロードできるもの)。mcVersions は対応する Minecraft(Modrinth・CurseForge は細かい番号まで。loose は SpigotMC の「試した版」のように粗い)
+export type ReleaseType = "release" | "beta" | "alpha";
+export type UpRow = FileChoice & { date: string; type: ReleaseType; mcVersions: string[]; loaders: string[]; loose?: boolean };
+export const releaseType = (v: unknown): ReleaseType => (v === "beta" || v === "alpha" ? v : "release");
 
 export function modrinthClient(fetch: FetchLike) {
   async function get(path: string, body?: unknown) {
@@ -98,23 +101,16 @@ export function modrinthClient(fetch: FetchLike) {
       return find(query, [[`project_type:${type}`], ...(SERVER_SIDE.has(type) ? [["server_side!=unsupported"]] : [])]);
     },
 
-    // サーバーの種類とバージョンに合う、いちばん新しい安定版のファイル(無ければ null)。
-    // 同じ時期に作りの違う版(Paper 向けと Bukkit 向けなど)が出ていれば、サーバーの種類向けのもの(loaders の前のほう)を選ぶ
-    // channel が all なら、ベータ・アルファも含めていちばん新しいもの
-    async latestFile(projectId: string, platform: Platform, mcVersion: string | null, opts: PickOpts = {}): Promise<FileChoice | null> {
-      const versions = await rawVersions(projectId, platform, mcVersion, opts.loaders);
-      const releases = opts.channel === "all" ? [] : versions.filter((x) => x.version_type === "release");
-      const v = pickVersion(releases.length ? releases : versions, opts.loaders ?? PLATFORMS[platform].loaders);
-      return v ? fileOf(projectId, v) : null;
-    },
-
-    /** サーバーの種類とバージョンに合う版(新しい順・${VERSIONS_SHOWN} 個まで。版を選んで入れるとき) */
-    async versions(projectId: string, platform: Platform, mcVersion: string | null, opts: PickOpts = {}): Promise<VersionChoice[]> {
-      const time = (v: Record<string, unknown>) => Date.parse(String(v.date_published)) || 0;
-      return (await rawVersions(projectId, platform, mcVersion, opts.loaders)).sort((a, b) => time(b) - time(a)).flatMap((v) => {
+    /**
+     * 動く作り(opts.loaders。無ければサーバーの種類のもの)のすべての版(Minecraft のバージョンでは絞らない。対応は mcVersions で見る)。
+     * ダウンロードできるもの(配布元の CDN にあるもの)だけ
+     */
+    async rows(projectId: string, platform: Platform, opts: PickOpts = {}): Promise<UpRow[]> {
+      return (await rawVersions(projectId, platform, null, opts.loaders)).flatMap((v) => {
         const f = fileOf(projectId, v);
-        return f ? [{ ...f, date: String(v.date_published ?? ""), release: v.version_type === "release" }] : [];
-      }).slice(0, VERSIONS_SHOWN);
+        const list = (k: string) => (Array.isArray(v[k]) ? (v[k] as unknown[]).map(String) : []);
+        return f ? [{ ...f, date: String(v.date_published ?? ""), type: releaseType(v.version_type), mcVersions: mcClean(v.game_versions), loaders: list("loaders") }] : [];
+      });
     },
 
     /** プロジェクトの名前などを、まとめて取る(ID → 中身) */

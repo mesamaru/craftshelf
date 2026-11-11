@@ -63,13 +63,13 @@ describe("CurseForge のクライアント", () => {
     expect((await c.searchType("we", "plugin")).map((h) => [h.title, h.slug])).toEqual([["WorldEdit", "bukkit-plugins/worldedit"]]);
   });
 
-  it("サーバーの作りに合う、新しい安定版を選ぶ。ダウンロードできないもの・種類の違うものは選ばない", async () => {
-    expect((await c.latestFile("100", "fabric", "1.21.1"))?.filename).toBe("sodium-extra-fabric-0.6.jar");
-    expect((await c.latestFile("100", "forge", "1.21.1"))?.filename).toBe("sodium-extra-forge-0.6.jar");
-    expect((await c.latestFile("100", "fabric", null))?.url).toBe("https://edge.forgecdn.net/files/11/sodium-extra-fabric-0.6.jar");
-    expect(await c.latestFile("200", "fabric", null)).toBeNull();
-    expect(await c.latestFile("100", "paper", null)).toBeNull(); // Mod は Paper のサーバーに入れない
-    expect((await c.latestFile("300", "paper", null))?.filename).toBe("worldedit-bukkit-7.3.jar");
+  it("ファイルを対応する Minecraft つきで返す。ダウンロードできないもの・種類の違うものは出さない(合う版を選ぶのはライブラリ)", async () => {
+    const rows = await c.rows("100", "fabric", "1.21.1");
+    expect(rows.map((r) => [r.versionId, r.type, r.mcVersions])).toEqual([["11", "release", ["1.21.1"]], ["12", "release", ["1.21.1"]], ["13", "beta", ["1.21.1"]]]);
+    expect(rows[0].url).toBe("https://edge.forgecdn.net/files/11/sodium-extra-fabric-0.6.jar");
+    expect(await c.rows("200", "fabric", null)).toEqual([]); // 外部からのダウンロードを許していない
+    expect(await c.rows("100", "paper", null)).toEqual([]); // Mod は Paper のサーバーに入れない
+    expect((await c.rows("300", "paper", null)).map((r) => r.filename)).toEqual(["worldedit-bukkit-7.3.jar"]);
   });
 });
 

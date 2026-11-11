@@ -3,11 +3,12 @@
 import { createHash, randomUUID } from "node:crypto";
 import { cfFingerprint } from "./fingerprint";
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
-import { ITEM_TYPES, PLATFORMS, MC_VERSION, LOADERS, type Platform, isItemType, isPlatform, kindsOf, mcClean, mcCovers } from "~/lib/platforms";
+import { ITEM_TYPES, PLATFORMS, MC_VERSION, LOADERS, type Platform, isItemType, isPlatform, kindsOf, mcClean, mcCovers, mcRange, supportOf, type Support } from "~/lib/platforms";
 import { installedMod, libraryItem, server, serverHold, serverProfile, user as userTable } from "./db/schema";
 import { HttpError, isHttpError, requireTeam } from "./guard";
 import { type Channel, type ItemSource, SOURCE_LABEL, isChannel, isItemSource, parseSourceUrl } from "~/lib/sources";
-import { ModrinthError, type ProjectType, modrinthClient } from "./modrinth";
+import { ModrinthError, type ProjectType, type UpRow, modrinthClient } from "./modrinth";
+import { bestOf, mcLatest } from "./addon-versions";
 import { SpigetError, spigetClient } from "./spiget";
 import { CF_KEY, CurseForgeError, curseforgeClient } from "./curseforge";
 import { addonSetItem, installHistory, libraryDep, libraryFavorite, libraryFile, libraryTag, serverChange, serverSet, storageTarget, teamCurseforge, teamOption } from "./db/schema";
@@ -26,6 +27,8 @@ const TAGS_PER_ITEM = 20;
 // 配布元を中身から探すとき: 1 回に調べる数と、1 つの大きさの上限
 const IDENTIFY_MAX = 100;
 const IDENTIFY_BYTES = 100 * 1024 * 1024;
+// 版の一覧(サーバーのアドオンの「入れる」「版を変える」)に出す版の数
+const VERSIONS_LISTED = 100;
 // 変更の履歴は 1 台につき新しい 30 件まで(古いものの、外して残したファイルも消す)
 const CHANGES_KEPT = 30;
 const REMOVED_SUFFIX = ".craftshelf-removed";
@@ -102,6 +105,9 @@ export async function fromSource<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 type Target = Awaited<ReturnType<typeof serverOf>>;
+type FileRow = typeof libraryFile.$inferSelect;
+/** 版の一覧の 1 行: 配布元の版と、ライブラリに保存した版を合わせたもの(同じ版は 1 行)。support = このサーバーの Minecraft に対応するか、stored = 保存した版 */
+export type VRow = UpRow & { support: Support; upstream: boolean; stored: FileRow | null };
 // kind = "datapack" なら、サーバーの種類ではなくデータパックとして(版の選び方・置き場所)
 export type Profile = { platform: Platform; mcVersion: string | null; kind?: "datapack" };
 /** この種類のアイテムを、このサーバーに入れるときの選び方(入れられない種類なら null) */
@@ -159,7 +165,43 @@ export function modTools(deps: Deps) {
   // 置くファイルの形(プラグイン・Mod は .jar、データパックは .zip)
   const fits = (p: Profile, filename: string) => (p.kind ? /\.zip$/i : /\.jar$/i).test(filename);
 
-  // 配布元ごとの、入れる版・プロジェクトの名前。アップロードしたものは、保存先のファイル(upload)を返す
+  // 入れる版の選び方: 受け取る版・動く作り(rank = 同じ時期の版の中で先にする作り)・手で決めた対応 MC がサーバーのバージョンを含むか(含めば、配布元の対応 MC では絞らない)
+  async function selection(source: ItemSource, projectId: string, p: Profile, teamId: string) {
+    const { mcVersion, channel, ...opts } = await pickOf(teamId, source, projectId, p);
+    const rank: readonly string[] = source === "curseforge" ? (!opts.type && PLATFORMS[p.platform].type === "mod" ? PLATFORMS[p.platform].loaders : []) : opts.loaders ?? PLATFORMS[p.platform].loaders;
+    return { opts, channel, rank, manual: !!p.mcVersion && mcVersion === null };
+  }
+  type Selection = Awaited<ReturnType<typeof selection>>;
+  /** 配布元の版(Minecraft のバージョンでは絞らず、それぞれに対応の印を付ける)。memo なら LATEST_MEMO.ms のあいだ覚える(版の一覧・更新の確かめ用。つながらなかった結果は覚えない) */
+  async function upstreamRows(source: ItemSource, projectId: string, p: Profile, teamId: string, sel: Selection, memo = false): Promise<VRow[]> {
+    if (source === "upload" || (source === "spigot" && p.kind)) return [];
+    const get = async (): Promise<UpRow[]> => {
+      if (source === "spigot") return [await fromSource(() => spiget.latestFile(projectId, p.platform))].flatMap((f) => (f ? [f] : []));
+      const cf = source === "curseforge" ? await curseforge(teamId) : null;
+      return fromSource(() => (cf ? cf.rows(projectId, p.platform, p.mcVersion, sel.opts) : modrinth.rows(projectId, p.platform, sel.opts)));
+    };
+    let rows: Promise<UpRow[]>;
+    if (memo && LATEST_MEMO.ms > 0) {
+      const key = `${latestKey(teamId, source, projectId, p)}|rows|${(sel.opts.loaders ?? []).join(",")}`;
+      const hit = latestMemo.get(key);
+      if (hit && Date.now() - hit.at < LATEST_MEMO.ms) rows = hit.p as Promise<UpRow[]>;
+      else {
+        rows = get();
+        if (latestMemo.size >= LATEST_MEMO.max) for (const [k, m] of latestMemo) if (Date.now() - m.at >= LATEST_MEMO.ms || latestMemo.size >= LATEST_MEMO.max) latestMemo.delete(k);
+        latestMemo.set(key, { at: Date.now(), p: rows });
+        rows.catch(() => { if (latestMemo.get(key)?.p === rows) latestMemo.delete(key); });
+      }
+    } else rows = get();
+    return (await rows).filter((r) => fits(p, r.filename))
+      .map((r) => ({ ...r, support: sel.manual ? "ok" as const : supportOf(p.mcVersion, r.mcVersions, r.loose), upstream: true, stored: null }));
+  }
+  const toChoice = (r: VRow) => ({ projectId: r.projectId, versionId: r.versionId, versionNumber: r.versionNumber, filename: r.filename, url: r.url, sha512: r.sha512, size: r.size, deps: r.deps, upload: undefined });
+  // 保存した版を、入れるファイルの形にする(保存先から送る)
+  const savedFile = (projectId: string, s: FileRow) =>
+    ({ projectId, versionId: s.upstreamVersionId, versionNumber: s.version || s.filename, filename: s.filename, url: "", sha512: "", size: s.size, upload: s, deps: [] as string[] });
+  const parseMc = (s: string) => mcClean(parseList(s) ?? []);
+
+  // 配布元の、いちばん合う版(Minecraft に対応するもののうち、受け取る版のとおりのいちばん新しいもの)と、入れるファイルの形。アップロードしたものは、保存先のファイル(upload)を返す
   async function latestFile(source: ItemSource, projectId: string, p: Profile, teamId: string) {
     if (source === "upload") {
       const r = await files.pick(teamId, projectId, p.platform, p.kind);
@@ -167,12 +209,9 @@ export function modTools(deps: Deps) {
       const f = r.file;
       return { projectId, versionId: f.id, versionNumber: f.version || f.filename, filename: f.filename, url: "", sha512: "", size: f.size, upload: f, deps: [] as string[] };
     }
-    if (source === "spigot" && p.kind) return null;
-    const cf = source === "curseforge" ? await curseforge(teamId) : null;
-    const { mcVersion, ...opts } = await pickOf(teamId, source, projectId, p);
-    const f = await fromSource(() => (cf ? cf.latestFile(projectId, p.platform, mcVersion, opts)
-      : source === "spigot" ? spiget.latestFile(projectId, p.platform) : modrinth.latestFile(projectId, p.platform, mcVersion, opts)));
-    return f && fits(p, f.filename) ? { ...f, upload: undefined } : null;
+    const sel = await selection(source, projectId, p, teamId);
+    const r = bestOf(await upstreamRows(source, projectId, p, teamId, sel), sel.channel, sel.rank);
+    return r ? toChoice(r) : null;
   }
   /** latestFile を LATEST_MEMO.ms の間覚えたもの(更新の確かめ用)。配布元のものだけ覚え、つながらなかった結果は覚えない */
   function latestChecked(source: ItemSource, projectId: string, p: Profile, teamId: string) {
@@ -186,24 +225,57 @@ export function modTools(deps: Deps) {
     pr.catch(() => { if (latestMemo.get(key)?.p === pr) latestMemo.delete(key); });
     return pr;
   }
-  // 保存した版を、入れるファイルの形にする(保存先から送る)
-  const savedFile = (projectId: string, s: NonNullable<Awaited<ReturnType<typeof files.savedOf>>>) =>
-    ({ projectId, versionId: s.upstreamVersionId, versionNumber: s.version || s.filename, filename: s.filename, url: "", sha512: "", size: s.size, upload: s, deps: [] as string[] });
-  /** 入れる版(latestFile)。配布元につながらない・合う版が無いときは、保存した版のうち合ういちばん新しいものを使う(配布元が消えても入れられる) */
-  async function latestOrSaved(source: ItemSource, projectId: string, p: Profile, teamId: string) {
-    if (source === "upload") return latestFile(source, projectId, p, teamId);
-    let err: HttpError | null = null;
+  /**
+   * このサーバーに入れられる版の全部(新しい順): 配布元の版と、ライブラリに保存した版を合わせたもの(同じ版は 1 行)。
+   * 配布元につながらなくても、保存した版があればそれだけで返す(つながらない理由は error)。upload は、アップロードした版
+   */
+  async function mergedRows(source: ItemSource, projectId: string, p: Profile, teamId: string, memo = false) {
+    const sel = await selection(source, projectId, p, teamId);
+    if (source === "upload") {
+      const rows: VRow[] = (await files.choices(teamId, projectId, p.platform, p.kind)).files.map((f) => {
+        const mc = parseMc(f.mcVersions);
+        return { projectId, versionId: f.id, versionNumber: f.version || f.filename, filename: f.filename, url: "", sha512: "", size: f.size, deps: [], date: f.date_published, type: "release" as const,
+          mcVersions: mc, loaders: f.loaders, loose: true, support: sel.manual || supportOf(p.mcVersion, mc, true) === "ok" ? "ok" as const : "unknown" as const, upstream: false, stored: null };
+      });
+      return { rows, error: null, sel };
+    }
+    let error: HttpError | null = null;
+    let rows: VRow[] = [];
     try {
-      const f = await latestFile(source, projectId, p, teamId);
-      if (f) return f;
+      rows = await upstreamRows(source, projectId, p, teamId, sel, memo);
     } catch (e) {
       if (!isHttpError(e)) throw e;
-      err = e;
+      error = e;
     }
-    const s = deps.local ? await files.savedPick(teamId, source, projectId, p.platform, p.kind) : null;
-    if (s) return savedFile(projectId, s);
-    if (err) throw err;
+    const stored = deps.local ? await files.savedAll(teamId, source, projectId, p.platform, p.kind) : [];
+    for (const s of stored) {
+      const up = rows.find((r) => r.versionId === s.upstreamVersionId);
+      if (up) up.stored = s;
+      else {
+        const mc = parseMc(s.mcVersions);
+        rows.push({ projectId, versionId: s.upstreamVersionId, versionNumber: s.version || s.filename, filename: s.filename, url: "", sha512: "", size: s.size, deps: [], date: "", type: "release", // shortcut: 配布元の公開日が分からないので日付なし(一覧では配布元の版のあと・合う最新版は配布元の版を先に)。公開日を保存するようになったら日付で並べる
+          
+          mcVersions: mc, loaders: parseList(s.loaders) ?? [], loose: true, support: sel.manual ? "ok" : supportOf(p.mcVersion, mc, true), upstream: false, stored: s });
+      }
+    }
+    return { rows: rows.sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0)), error, sel };
+  }
+  /** 入れる版(版を選ばずに入れるとき): 配布元か保存した版のうち、このサーバーの Minecraft に対応するいちばん新しいもの。配布元につながらない・合う版が無いときは、保存した版を使う */
+  async function latestOrSaved(source: ItemSource, projectId: string, p: Profile, teamId: string) {
+    if (source === "upload") return latestFile(source, projectId, p, teamId);
+    const { rows, error, sel } = await mergedRows(source, projectId, p, teamId);
+    const r = bestOf(rows, sel.channel, sel.rank);
+    if (r) return r.upstream ? toChoice(r) : savedFile(projectId, r.stored!);
+    if (error) throw error;
     return null;
+  }
+  /** 入れられる版が無いときの理由(このサーバーの種類・バージョンに合う版が無い。対応する最新の Minecraft を添える) */
+  async function noFitReason(source: ItemSource, projectId: string, p: Profile, teamId: string) {
+    if (source === "spigot") return "このサーバーの種類で動く版がありません(SpigotMC の外で配っているもの・有料のものは入れられません)";
+    if (source === "upload") return "このサーバーの種類で動く版が、アップロードしたものの中にありません";
+    const { rows } = await mergedRows(source, projectId, p, teamId, true).catch(() => ({ rows: [] as VRow[] }));
+    const latest = mcLatest(rows);
+    return `このサーバーの種類・バージョン${p.mcVersion ? `(${p.mcVersion})` : ""}に合う版がありません${latest ? `(対応する最新の Minecraft は ${latest} です)` : source === "curseforge" ? "(外部からのダウンロードを許していない版は入れられません)" : ""}`;
   }
 
   /** 置き場所(サーバーの種類のフォルダか、データパックならワールドの datapacks) */
@@ -245,7 +317,13 @@ export function modTools(deps: Deps) {
       const [f] = await db.select().from(libraryFile).where(eq(libraryFile.id, versionId));
       return f ? { projectId, versionId: f.id, versionNumber: f.version || f.filename, filename: f.filename, url: "", sha512: "", size: f.size, upload: f, deps: [] as string[] } : null;
     }
-    if (source === "spigot") return null;
+    if (source === "spigot") {
+      // SpigotMC は前の版を取ってこられないので、保存した版か、いまのいちばん新しい版だけ
+      const s = await files.savedOf(teamId, source, projectId, versionId);
+      if (s) return savedFile(projectId, s);
+      const f = await fromSource(() => spiget.latestFile(projectId, "paper"));
+      return f?.versionId === versionId ? toChoice({ ...f, support: "unknown", upstream: true, stored: null }) : null;
+    }
     const cf = source === "curseforge" ? await curseforge(teamId) : null;
     try {
       const file = await fromSource(() => (cf ? cf.file(projectId, versionId) : modrinth.version(projectId, versionId)));
@@ -259,17 +337,11 @@ export function modTools(deps: Deps) {
     return s ? savedFile(projectId, s) : null;
   }
 
-  // このサーバーに入れられる版(新しい順)。SpigotMC は前の版を取ってこられないので空
+  // このサーバーの Minecraft に合う版(新しい順。対応不明を含み、非対応は除く)。セットで固定した版・そろえる元の版が、このサーバーに入れられるかの確かめに使う
   async function versionsOf(source: ItemSource, projectId: string, p: Profile, teamId: string) {
-    if (source === "spigot") return [];
-    if (source === "upload") {
-      return (await files.choices(teamId, projectId, p.platform, p.kind)).files.slice(0, 30)
-        .map((f) => ({ versionId: f.id, versionNumber: f.version || f.filename, date: f.date_published, release: true }));
-    }
-    const cf = source === "curseforge" ? await curseforge(teamId) : null;
-    const { mcVersion, ...opts } = await pickOf(teamId, source, projectId, p);
-    return (await fromSource(() => (cf ? cf.files(projectId, p.platform, mcVersion, opts) : modrinth.versions(projectId, p.platform, mcVersion, opts))))
-      .filter((v) => fits(p, v.filename));
+    const { rows, error } = await mergedRows(source, projectId, p, teamId);
+    if (error && !rows.length) throw error;
+    return rows.filter((r) => r.support !== "no");
   }
 
   // 変更の履歴に残す(古いものは消し、外して残したファイルも消す。p はサーバーの種類。ファイルの置き場所を決めるのに使う)
@@ -436,13 +508,7 @@ export function modTools(deps: Deps) {
     opts: { file?: Awaited<ReturnType<typeof fileById>>; depth?: number } = {}): Promise<Installed> {
     const { row, client, remoteId } = target;
     const first = opts.file ?? await latestOrSaved(source, projectId, p, teamId);
-    if (!first) {
-      throw new HttpError(404, source === "spigot"
-        ? "このサーバーの種類で動く版がありません(SpigotMC の外で配っているもの・有料のものは入れられません)"
-        : source === "upload" ? "このサーバーの種類で動く版が、アップロードしたものの中にありません"
-        : source === "curseforge" ? "このサーバーの種類・バージョンに合う版がありません(外部からのダウンロードを許していない版は入れられません)"
-        : "このサーバーの種類・バージョンに合う版がありません");
-    }
+    if (!first) throw new HttpError(404, await noFitReason(source, projectId, p, teamId));
     // 保存した版があれば、配布元から取らずに保存先から送る
     const saved = !first.upload && source !== "upload" && local ? await files.savedOf(teamId, source, projectId, first.versionId) : null;
     const file = saved ? { ...first, upload: saved } : first;
@@ -680,13 +746,13 @@ export function modTools(deps: Deps) {
     return { missing: missing.sort((a, b) => a.title.localeCompare(b.title)), errors: [...new Set(errors)] };
   }
 
-  return { metasIn, unmetOf, teamPinsOf, files, missingOf, pickOf, modrinth, spiget, curseforge, cfKeyOf, latestFile, latestChecked, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, pinsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn, dirOf, addonsIn, packVersions };
+  return { metasIn, unmetOf, teamPinsOf, files, missingOf, pickOf, modrinth, spiget, curseforge, cfKeyOf, latestFile, latestChecked, fileById, versionsOf, mergedRows, project, profileOf, needProfile, remember, installInto, holdsOf, pinsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn, dirOf, addonsIn, packVersions };
 }
 
 export function libraryService(deps: Deps) {
   const { db, auth } = deps;
   const { record } = eventService(deps);
-  const { metasIn, unmetOf, teamPinsOf, files, missingOf, modrinth, spiget, curseforge, cfKeyOf, latestFile, latestChecked, fileById, versionsOf, project, profileOf, needProfile, remember, installInto, holdsOf, pinsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn, dirOf, addonsIn, packVersions } = modTools(deps);
+  const { metasIn, unmetOf, teamPinsOf, files, missingOf, modrinth, spiget, curseforge, cfKeyOf, latestFile, latestChecked, fileById, versionsOf, mergedRows, project, profileOf, needProfile, remember, installInto, holdsOf, pinsOf, updatesOf, logChange, removeFrom, restoreConfig, identifyIn, dirOf, addonsIn, packVersions } = modTools(deps);
   // このチームで探せる配布元(CurseForge は API キーを設定したときだけ)
   const sourcesOf = async (teamId: string) => ["modrinth", "spigot", ...((await cfKeyOf(teamId)) ? ["curseforge"] : [])];
   const sourceOf = (v: string) => {
@@ -858,7 +924,7 @@ export function libraryService(deps: Deps) {
         .from(installedMod).innerJoin(server, eq(installedMod.serverId, server.id))
         .where(eq(server.teamId, teamId)).orderBy(asc(server.name))).filter((r) => mine(r.serverId)).map((r) => ({ ...r, disabled: isDisabled(r.filename) }));
       const pins = await teamPinsOf(teamId); // 結び付けたセットで固定した版(「固定」と出す)
-      const servers = await db.select({ id: server.id, name: server.name, platform: serverProfile.platform })
+      const servers = await db.select({ id: server.id, name: server.name, platform: serverProfile.platform, mcVersion: serverProfile.mcVersion })
         .from(server).leftJoin(serverProfile, eq(serverProfile.serverId, server.id)).where(eq(server.teamId, teamId)).orderBy(asc(server.name));
       const listed = new Set(items.map((i) => `${i.source}:${i.projectId}`));
       const links = items.length ? await db.select().from(libraryDep).where(inArray(libraryDep.itemId, items.map((i) => i.id))) : [];
@@ -893,7 +959,7 @@ export function libraryService(deps: Deps) {
         // 配布元はわかっているが、ライブラリに無いもの(ライブラリから外したものなど)
         orphans: installs.filter((r) => !listed.has(`${r.source}:${r.projectId}`)).map(({ serverId, source, projectId, title, versionNumber, filename, disabled }) => ({ serverId, source, projectId, title, versionNumber, filename, disabled })),
         // 種類を決めていないサーバーには入れられない(type が null)。kinds は入れられる種類(プラグイン・Mod と、ワールドがあればデータパック)
-        servers: servers.filter((x) => mine(x.id)).map((x) => ({ id: x.id, name: x.name, type: isPlatform(x.platform) ? PLATFORMS[x.platform].type : null, kinds: kindsOf(x.platform) })),
+        servers: servers.filter((x) => mine(x.id)).map((x) => ({ id: x.id, name: x.name, type: isPlatform(x.platform) ? PLATFORMS[x.platform].type : null, kinds: kindsOf(x.platform), mc: x.mcVersion ?? "" })),
         sources: await sourcesOf(teamId),
       };
     },
@@ -1307,7 +1373,10 @@ export function libraryService(deps: Deps) {
       return { filename: to };
     },
 
-    /** 配布元で、このサーバーの種類とバージョンに合うものを探す(kind = "datapack" ならデータパック) */
+    /**
+     * 配布元で、このサーバーの種類とバージョンに合うものを探す(kind = "datapack" ならデータパック)。
+     * 合うもの(support: ok)を先に、そのあとに合わないもの(no)・SpigotMC のように分からないもの(unknown)。サーバーのバージョンが決まっていなければ全部 unknown
+     */
     async search(headers: Headers, id: string, query: string, source = "modrinth", kind?: string) {
       const who = await requireTeam(auth, headers);
       const { teamId } = who;
@@ -1318,17 +1387,38 @@ export function libraryService(deps: Deps) {
       if (dp && !profileFor(p, dp)) throw new HttpError(400, "このサーバーにはワールドが無いので、データパックは入れられません");
       if (src === "spigot" && (dp || PLATFORMS[p.platform].type !== "plugin")) throw new HttpError(400, "SpigotMC にあるのはプラグインだけです");
       const cf = src === "curseforge" ? await curseforge(teamId) : null;
-      return fromSource(() => (cf ? cf.search(query, p.platform, p.mcVersion, dp) : src === "spigot" ? spiget.search(query, p.platform) : modrinth.search(query, p.platform, p.mcVersion, dp)));
+      const rank = { ok: 0, unknown: 1, no: 2 };
+      return fromSource(async () => {
+        if (src === "spigot") return (await spiget.search(query, p.platform)).map((h) => ({ ...h, support: supportOf(p.mcVersion, h.mcVersions ?? [], true) })).sort((a, b) => rank[a.support] - rank[b.support]);
+        const find = (mc: string | null) => (cf ? cf.search(query, p.platform, mc, dp) : modrinth.search(query, p.platform, mc, dp));
+        const fit = await find(p.mcVersion);
+        if (!p.mcVersion) return fit.map((h) => ({ ...h, support: "unknown" as Support }));
+        const seen = new Set(fit.map((h) => h.projectId)); // 配布元のバージョンの絞り込みから漏れたもの(そのバージョンの版が無い)も、あとに並べる
+        return [...fit.map((h) => ({ ...h, support: "ok" as Support })), ...(await find(null)).filter((h) => !seen.has(h.projectId)).map((h) => ({ ...h, support: "no" as Support }))];
+      });
     },
 
-    /** このサーバーに入れられる版(新しい順・30 個まで)。SpigotMC は、いちばん新しい版しか取ってこられないので空 */
+    /**
+     * このアイテムの版の全部(新しい順・VERSIONS_LISTED 個まで)に、このサーバーの Minecraft に対応するか(support: ok / no / unknown)・
+     * 配布元の版か(upstream)・ライブラリに保存してあるか(saved)を付けて返す。suggested = 版を選ばずに入れるときに選ばれる版(合う最新版)
+     * SpigotMC は、前の版を取ってこられないので、いちばん新しい版と保存した版だけ
+     */
     async versions(headers: Headers, id: string, source: string, projectId: string, kind?: string) {
       const who = await requireTeam(auth, headers);
       const { teamId } = who;
       const { row } = await serverOf(deps, who, id);
-      const p = await targetProfile(teamId, row.id, await needProfile(row.id), source, projectId, kind);
-      return (await versionsOf(sourceOf(source), projectId, p, teamId))
-        .map(({ versionId, versionNumber, date, release }) => ({ versionId, versionNumber, date, release }));
+      const src = sourceOf(source);
+      const p = await targetProfile(teamId, row.id, await needProfile(row.id), src, projectId, kind);
+      const { rows, error, sel } = await mergedRows(src, projectId, p, teamId, true);
+      if (error && !rows.length) throw error;
+      const best = bestOf(rows, sel.channel, sel.rank);
+      // 多すぎる版は新しいほうだけ(合う最新版は必ず入れる)
+      const shown = rows.slice(0, VERSIONS_LISTED);
+      if (best && !shown.includes(best)) shown.push(best);
+      return shown.map((r) => ({
+        versionId: r.versionId, versionNumber: r.versionNumber, date: r.date, type: r.type, release: r.type === "release", mcVersions: r.mcVersions, filename: r.filename,
+        support: r.support, upstream: r.upstream, saved: !!r.stored || src === "upload", suggested: r === best,
+      }));
     },
 
     /**
@@ -1336,7 +1426,7 @@ export function libraryService(deps: Deps) {
      * versionId を渡すとその版を入れ、いちばん新しい版でなければ「更新を止める」にする(そろえる・予約で戻されないように)。
      * データパックは、kind = "datapack" か、ライブラリの種類がデータパックのとき(ワールドの datapacks に入れる)
      */
-    async install(headers: Headers, id: string, projectId: string, source = "modrinth", versionId?: string, kind?: string) {
+    async install(headers: Headers, id: string, projectId: string, source = "modrinth", versionId?: string, kind?: string, unsupported = false) {
       const src = sourceOf(source);
       const who = await requireTeam(auth, headers, { library: ["edit"] });
       const { teamId, user } = who;
@@ -1345,12 +1435,14 @@ export function libraryService(deps: Deps) {
       let file: Awaited<ReturnType<typeof fileById>> = null;
       let hold = false;
       if (versionId) {
-        if (src === "spigot") throw new HttpError(400, "SpigotMC のものは版を選べません(いちばん新しい版だけを入れられます)");
-        // 一覧に出した版(このサーバーの種類・バージョンに合うもの)だけを受け付ける
-        if (!(await versionsOf(src, projectId, p, teamId)).some((v) => v.versionId === versionId)) throw new HttpError(400, "この版は、このサーバーの種類・バージョンに合いません");
+        // 版の一覧に出した版だけを受け付ける。Minecraft に対応しない版は、unsupported: true(確かめたうえで)のときだけ
+        const { rows, error, sel } = await mergedRows(src, projectId, p, teamId, true);
+        const chosen = rows.find((v) => v.versionId === versionId);
+        if (!chosen) throw error && !rows.length ? error : new HttpError(400, "この版は、このサーバーの種類・バージョンに合いません");
+        if (chosen.support === "no" && !unsupported) throw new HttpError(400, `この版は、このサーバーの Minecraft(${p.mcVersion})に対応していません(対応: ${mcRange(chosen.mcVersions) || "不明"})。確かめたうえで入れるときは unsupported: true を付けてください`);
         file = await fileById(src, projectId, versionId, teamId);
         if (!file) throw new HttpError(404, "その版は見つかりません");
-        hold = (await latestFile(src, projectId, p, teamId))?.versionId !== versionId;
+        hold = bestOf(rows, sel.channel, sel.rank)?.versionId !== versionId;
       } else {
         // 結び付けたセットで版を固定しているものは、版を選ばなければ(「更新」を押しても)固定した版を入れる
         const pin = (await pinsOf(row.id)).get(`${src}:${projectId}`);

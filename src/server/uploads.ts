@@ -114,16 +114,17 @@ export function fileStore(deps: Deps) {
     return (await db.select().from(libraryFile).where(and(eq(libraryFile.itemId, i.id), eq(libraryFile.upstreamVersionId, versionId))))[0] ?? null;
   }
 
-  /** 保存した版のうち、このサーバーの種類に合ういちばん新しいもの(配布元につながらない・版が消えたときに使う) */
-  async function savedPick(teamId: string, source: string, projectId: string, platform: Platform, kind?: "datapack") {
+  /** 保存した版(配布元のもの)のうち、このサーバーの種類に合うもの(新しい順。配布元につながらない・版が消えたときにも入れられるように) */
+  async function savedAll(teamId: string, source: string, projectId: string, platform: Platform, kind?: "datapack") {
     const i = await itemBy(teamId, source, projectId);
-    if (!i) return null;
+    if (!i) return [];
     const want: readonly string[] = kind ? [] : PLATFORMS[platform].loaders;
-    const ext = kind ? /\.zip$/i : /\.jar$/i;
+    const ext = kind ? /.zip$/i : /.jar$/i;
     const rows = await db.select().from(libraryFile).where(and(eq(libraryFile.itemId, i.id), ne(libraryFile.upstreamVersionId, ""))).orderBy(desc(libraryFile.createdAt));
-    const fit = rows.filter((f) => ext.test(f.filename)).map((f) => ({ row: f, loaders: JSON.parse(f.loaders) as string[], date_published: f.createdAt.toISOString() }))
-      .filter((f) => !want.length || !f.loaders.length || f.loaders.some((l) => want.includes(l)));
-    return pickVersion(fit, want)?.row ?? null;
+    return rows.filter((f) => ext.test(f.filename)).filter((f) => {
+      const loaders = JSON.parse(f.loaders) as string[];
+      return !want.length || !loaders.length || loaders.some((l) => want.includes(l)); // 調べられなかったものは、種類が合えば使う
+    });
   }
 
   /**
@@ -223,7 +224,7 @@ export function fileStore(deps: Deps) {
     return removed;
   }
 
-  return { storeOf, pick, choices, read, stream, withTemp, tempPath, configOf, defaultConfig, activeOf, optionOf, keepOf, savedOf, savedPick, saveUpstream, keepSaved, prune, keptVersions, dropFile, removeStored };
+  return { storeOf, pick, choices, read, stream, withTemp, tempPath, configOf, defaultConfig, activeOf, optionOf, keepOf, savedOf, savedAll, saveUpstream, keepSaved, prune, keptVersions, dropFile, removeStored };
 }
 
 export async function sha256Of(path: string) {

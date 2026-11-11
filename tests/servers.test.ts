@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { pteroConnection } from "~/server/db/schema";
 import { HttpError } from "~/server/guard";
 import type { FetchLike } from "~/server/net";
-import { serverService } from "~/server/servers";
+import { SERVER_LIMITS, serverService } from "~/server/servers";
 import { setup } from "./helpers";
 
 const KEY = "ptlc_0123456789abcdefghij";
@@ -116,5 +116,24 @@ describe("Pterodactyl パネル", () => {
   it("パネルの登録を消すと、そこから追加したサーバーも外れる", async () => {
     await svc.removeConnection(owner, connectionId);
     expect(await svc.listServers(owner)).toHaveLength(0);
+  });
+});
+
+describe("サーバーの台数に上限は無い", () => {
+  const many = Array.from({ length: 45 }, (_, i) => ({ attributes: { identifier: `s${String(i).padStart(3, "0")}`, name: `サーバー ${i + 1}` } }));
+  const fakeMany: FetchLike = async (url, init) => {
+    const u = new URL(url);
+    if ((init?.headers as Record<string, string>)?.Authorization !== `Bearer ${KEY}`) return new Response("{}", { status: 401 });
+    if (u.pathname === "/api/client") return Response.json({ data: many, meta: { pagination: { total_pages: 1 } } });
+    return new Response("{}", { status: 404 });
+  };
+
+  it("20 台を超えても、まとめて足せる(足りない分だけ断る、ということはしない)。パネルの登録の上限(5 つ)は変わらない", async () => {
+    const svc2 = serverService({ db: t.db, auth: t.auth, secret: SECRET, fetch: fakeMany });
+    const owner = t.headers(await t.signUp("大量", "many@example.com"));
+    const c = await svc2.addConnection(owner, { name: "多い", url: "panel.example.com", apiKey: KEY });
+    expect(await svc2.addServers(owner, c.id, many.map((m) => m.attributes.identifier))).toMatchObject({ added: 45 });
+    expect(await svc2.listServers(owner)).toHaveLength(45);
+    expect(SERVER_LIMITS).toEqual({ connectionsPerTeam: 5 });
   });
 });

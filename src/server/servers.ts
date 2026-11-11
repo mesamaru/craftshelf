@@ -17,7 +17,8 @@ import { type AgentHub, agentClient } from "./agent-hub";
 import type { PteroClient } from "./ptero";
 
 // 無料で使える範囲
-export const SERVER_LIMITS = { connectionsPerTeam: 5, serversPerTeam: 20 };
+// (サーバーの台数に上限は無い。03.72.00 から)
+export const SERVER_LIMITS = { connectionsPerTeam: 5 };
 
 // allowPrivate: 自分用の版では、家の中のアドレス・http のパネルも登録できる
 // local: 自分用の版だけ。フォルダでつなぐサーバーを使えるようにする(dataDir はパネルのデータの場所。サーバーにはできない)
@@ -209,8 +210,6 @@ export function serverService(deps: Deps) {
       const picked = [...new Set(remoteIds)].map((r) => available.get(r)).filter((s) => !!s);
       if (picked.length === 0) return { added: 0 };
       const r = await db.transaction(async (tx) => {
-        const [{ n }] = await tx.select({ n: count() }).from(server).where(eq(server.teamId, teamId));
-        if (n + picked.length > SERVER_LIMITS.serversPerTeam) throw new HttpError(400, `サーバーは 1 チーム ${SERVER_LIMITS.serversPerTeam} 台までです`);
         const rows = picked.map((s) => ({ id: randomUUID(), teamId, kind: "ptero", name: s.name || s.identifier, pteroConnectionId: connectionId, remoteId: s.identifier }));
         const inserted = await tx.insert(server).values(rows).onConflictDoNothing().returning({ id: server.id, name: server.name, remoteId: server.remoteId });
         return { added: inserted.length, names: inserted.map((x) => x.name), rows: inserted.map((x) => ({ id: x.id, remoteId: x.remoteId ?? "" })) };
@@ -304,8 +303,6 @@ export function serverService(deps: Deps) {
       const dup = await db.select({ id: localServer.serverId }).from(localServer).innerJoin(server, eq(localServer.serverId, server.id))
         .where(and(eq(server.teamId, teamId), eq(localServer.rootDir, root)));
       if (dup.length) throw new HttpError(400, "このフォルダのサーバーは、もう追加しています");
-      const [{ n }] = await db.select({ n: count() }).from(server).where(eq(server.teamId, teamId));
-      if (n >= SERVER_LIMITS.serversPerTeam) throw new HttpError(400, `サーバーは 1 チーム ${SERVER_LIMITS.serversPerTeam} 台までです`);
       const jars = input.jar ? [basename(input.jar)] : readdirSync(root).filter((f) => f.toLowerCase().endsWith(".jar"));
       const found = jars.map(detectFromJar).find((d) => d.platform) ?? { platform: null, mcVersion: null };
       const id = randomUUID();

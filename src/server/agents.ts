@@ -6,7 +6,7 @@ import { MC_VERSION, isPlatform } from "~/lib/platforms";
 import { agent, agentServer, server, serverProfile } from "./db/schema";
 import { eventService } from "./events";
 import { HttpError, requireTeam } from "./guard";
-import { type Deps, SERVER_LIMITS } from "./servers";
+import type { Deps } from "./servers";
 
 export const AGENT_TEAM_LIMIT = 5;
 const TOKEN = /^ca_[A-Za-z0-9_-]{40,60}$/;
@@ -83,8 +83,6 @@ export function agentService(deps: Deps) {
       if ((await db.select().from(agentServer).where(and(eq(agentServer.agentId, agentId), eq(agentServer.key, key)))).length) {
         throw new HttpError(400, "このサーバーは、もう追加しています");
       }
-      const [{ n }] = await db.select({ n: count() }).from(server).where(eq(server.teamId, teamId));
-      if (n >= SERVER_LIMITS.serversPerTeam) throw new HttpError(400, `サーバーは 1 チーム ${SERVER_LIMITS.serversPerTeam} 台までです`);
       const id = randomUUID();
       await db.transaction(async (tx) => {
         await tx.insert(server).values({ id, teamId, kind: "agent", name: s.name, remoteId: key });

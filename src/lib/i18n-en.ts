@@ -1864,6 +1864,7 @@ export const EN_RULES: [RegExp, To][] = [
   [/^(\d+) 台に足りません$/, "Missing on $1 servers"],
   [/^(\d+) 件を確認対象にしています$/, "Checking $1 items"],
   [/^残り (\d+) 件 ›$/, "$1 more ›"],
+  [/^残り (\d+) 台 ›$/, "$1 more ›"],
   [/^(\d+) 件を管理中$/, "Managing $1"],
   [/^未同期 (\d+)$/, "$1 behind"],
   // 03.67.00
@@ -2089,7 +2090,6 @@ export const EN_RULES: [RegExp, To][] = [
   [/^サーバー「(.+?)」$/, "Server “$1”"],
   [/^フォルダのサーバー「(.+?)」$/, "Folder server “$1”"],
   [/^フォルダのサーバー\((\d+) 台\)は、ライブラリと一緒に取り込みます$/, "Folder servers ($1) are imported together with the library"],
-  [/^サーバーは 1 チーム (\d+) 台までです$/, "Up to $1 servers per team"],
   [/^登録できるパネルは (\d+) つまでです$/, "Up to $1 panels can be registered"],
   [/^セット「(.+?)」を消しますか[?？]\(ライブラリとサーバーはそのままです\)$/, "Delete set “$1”? (The library and servers are kept)"],
   [/^セット「(.+?)」の (\d+) 件$/, "$2 items in set “$1”"],

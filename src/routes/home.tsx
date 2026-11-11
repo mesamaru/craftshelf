@@ -24,6 +24,7 @@ export const Route = createFileRoute("/home")({
 const message = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
 type Catalog = Awaited<ReturnType<typeof libraryCatalog>>;
 type CatItem = Catalog["items"][number];
+const SHOW_SERVERS = 8; // サーバー欄は 8 台まで。残りは「ほか N 台」でサーバーの一覧へ(数十台でもカードが長くならない)
 const SHOW = 4; // 一覧は 4 件まで。あとは「もっと見る」でライブラリへ
 const NAMES = Object.fromEntries(DASH_WIDGETS) as Record<string, string>;
 
@@ -150,7 +151,7 @@ function Home() {
           {cat.servers.length === 0 && <p className="dash-empty">まだサーバーがありません</p>}
           {cat.servers.length > 0 && (
             <div className="group flat">
-              {cat.servers.map((s) => {
+              {cat.servers.slice(0, SHOW_SERVERS).map((s) => {
                 const n = items.filter((i) => i.installs.some((x) => x.serverId === s.id)).length;
                 const behind = old ? [...old.values()].filter((ids) => ids.includes(s.id)).length : null;
                 return (
@@ -162,6 +163,7 @@ function Home() {
                   </Link>
                 );
               })}
+              {cat.servers.length > SHOW_SERVERS && <Link to="/servers" className="kv linkish"><span>もっと見る</span><span>{`残り ${cat.servers.length - SHOW_SERVERS} 台 ›`}</span></Link>}
             </div>
           )}
         </div>

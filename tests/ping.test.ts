@@ -3,7 +3,7 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { handle, loadConf, makeClients } from "~/agent/main";
 import { HttpError } from "~/server/guard";
 import { gamePort, parseStatus, ping } from "~/server/mcping";
@@ -78,7 +78,10 @@ describe("サーバーの状態に人数を出す", () => {
     const outsider = t.headers(await t.signUp("ほか", "other@example.com"));
     await expect(servers.status(outsider, id)).rejects.toSatisfy((e) => e instanceof HttpError && e.status === 404);
     writeFileSync(join(root, "server.properties"), "server-port=1\n");
+    vi.useFakeTimers({ toFake: ["Date"] }); // 状態は 5 秒覚えている。覚えが切れたあとは、ポートの変更が見える
+    vi.setSystemTime(Date.now() + 6000);
     expect(await servers.status(owner, id)).toMatchObject({ state: "offline", ping: null });
+    vi.useRealTimers();
   });
 
   it("エージェントは、自分のサーバーのポートにだけ問い合わせる", async () => {

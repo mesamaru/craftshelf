@@ -188,6 +188,7 @@ export const EN: Record<string, string> = {
   "テスト版": "test version",
   // API の説明・トークンの範囲・処理の一覧・見た目のテーマ・ホーム画面に追加(03.57.00)
   "サーバーの種類(platform: paper・fabric など)と Minecraft のバージョン(mcVersion)を設定する": "Set the server type (platform: paper, fabric, etc.) and Minecraft version (mcVersion)",
+  "権限のあるサーバーすべての状態を 1 回で(id → 状態。つながらないサーバーは理由の文。ids にサーバーの ID をカンマで区切ると絞れる。外への問い合わせは同時に 8 つまで・5 秒は覚えた結果)": "Status of every server you can use, in one call (id → status; a server that cannot be reached gets a reason string; ids = server IDs separated by commas to narrow it; at most 8 outside requests at a time, results kept for 5 seconds)",
   "サーバーの状態(動いているか・CPU・メモリ・ping: 人数・名前の一部・応答の速さ)": "Server status (running or not, CPU, memory; ping: players, some names, latency)",
   "最近のログ(logs/latest.log の最後の行。lines で 20〜1000 行)": "Recent log (last lines of logs/latest.log; lines: 20–1000)",
   "サーバー本体の今のビルドと、いちばん新しいビルド": "Current and newest build of the server software",

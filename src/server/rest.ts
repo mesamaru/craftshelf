@@ -16,6 +16,7 @@ const num = (v: unknown, d: number) => (typeof v === "number" ? v : typeof v ===
 export const ROUTES: Route[] = [
   // サーバー
   { method: "GET", path: "/servers", scope: "read", summary: "サーバーの一覧", handler: (s, h) => s.servers.listServers(h) },
+  { method: "GET", path: "/servers/statuses", scope: "read", summary: "権限のあるサーバーすべての状態を 1 回で(id → 状態。つながらないサーバーは理由の文。ids にサーバーの ID をカンマで区切ると絞れる。外への問い合わせは同時に 8 つまで・5 秒は覚えた結果)", handler: (s, h, _p, b) => s.servers.statuses(h, str(b.ids) ? str(b.ids).split(",").filter(Boolean).slice(0, 200) : undefined) },
   { method: "GET", path: "/servers/:id", scope: "read", summary: "サーバーの名前・種類・バージョン", handler: (s, h, [id]) => s.library.detail(h, id) },
   { method: "POST", path: "/servers/:id/profile", scope: "admin", summary: "サーバーの種類(platform: paper・fabric など)と Minecraft のバージョン(mcVersion)を設定する", example: { platform: "paper", mcVersion: "1.21.4" }, handler: (s, h, [id], b) => s.library.setProfile(h, id, { platform: str(b.platform), mcVersion: str(b.mcVersion) }) },
   { method: "GET", path: "/servers/:id/status", scope: "read", summary: "サーバーの状態(動いているか・CPU・メモリ・ping: 人数・名前の一部・応答の速さ)", handler: (s, h, [id]) => s.servers.status(h, id) },

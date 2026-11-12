@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, createFileRoute, redirect, useParams, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
-  addConnection, addLocalServer, addServers, browseHost, listConnections, listServers, remoteServers, sharedLocalEnabled, sharedServers, removeConnection, serverStatus,
+  addConnection, addLocalServer, addServers, browseHost, listConnections, listServers, remoteServers, sharedLocalEnabled, sharedServers, removeConnection,
 } from "~/lib/servers-api";
 import { useCan, useTeamKey } from "~/lib/use-can";
 import { shared } from "~/lib/shared";
@@ -12,7 +12,7 @@ import { outdatedLibraryServers } from "~/lib/library-api";
 import { filesAccess } from "~/lib/files-api";
 import { addAgentServer, createAgent, listAgents, removeAgent } from "~/lib/agents-api";
 import { STATE_LABELS, kindLabel } from "~/lib/platforms";
-import { type Status, ServerStatusCtx } from "~/lib/server-status";
+import { type Status, ServerStatusCtx, refreshStatus, useStatuses } from "~/lib/server-status";
 import { Btn, Chip, ChipBar, Icon, type IconName, Info, Seg, Sheet } from "~/lib/ui";
 import { SERVER_FILTERS, SERVER_SORTS, type ServerFilter, type ServerItem, type ServerSort, arrange, isServerSort } from "~/lib/server-list";
 import { MobileSearch, StoragePill } from "~/lib/shell";
@@ -51,24 +51,16 @@ function Servers() {
   const reload = () => router.invalidate();
   const edit = can({ library: ["edit"] });
   const create = can({ server: ["create"] });
-  const status = useServerFn(serverStatus);
   const outdated = useServerFn(outdatedLibraryServers);
   const access = useServerFn(filesAccess);
-  const [st, setSt] = useState<Record<string, Status | string>>({}); // 文字はつながらなかった理由
   const [old, setOld] = useState<Map<string, number> | null>(() => (lastOld && lastOld.team === teamKey && Date.now() - lastOld.at < OLD_TTL ? lastOld.map : null)); // サーバー → 古い版の数
   const [checking, setChecking] = useState(false);
   const [files, setFiles] = useState(false);
   const [sheet, setSheet] = useState<"" | "add" | "update">("");
   const [error, setError] = useState("");
 
-  // 状態の読み込みはメニューの点(shell.tsx)と共有する(10 秒以内に読んだものがあれば、それを使う)
-  const read = (sid: string) => shared(`status:${sid}`, () => status({ data: { id: sid } }), 10_000).then((x) => setSt((p) => ({ ...p, [sid]: x })), (e) => setSt((p) => ({ ...p, [sid]: message(e) })));
-  useEffect(() => {
-    const all = () => { for (const s of servers) read(s.id); };
-    all();
-    const t = setInterval(() => { if (!document.hidden) all(); }, 15_000);
-    return () => clearInterval(t);
-  }, [servers]);
+  // 状態は 15 秒ごとに、権限のあるサーバーぶんを 1 回でまとめて取る(メニューの点・詳細も同じ結果。src/lib/server-status.ts)
+  const st = useStatuses(servers.map((s) => s.id), 15_000, true);
   useEffect(() => { if (teamKey !== null) shared("files-access", () => access(), 5000).then((a) => setFiles(a.allowed), () => setFiles(false)); }, [teamKey]);
   // 「更新あり」は配布元に問い合わせる。開いたとき(前の結果が新しければそれを使う)と、「更新」の数を押したときに確かめる
   const checkOld = (fresh = false) => {
@@ -120,7 +112,7 @@ function Servers() {
   const link = (to: string, icon: IconName, label: string) => <Link to={to as "/"} className="btn tint sm"><Icon name={icon} />{label}</Link>;
 
   return (
-    <ServerStatusCtx.Provider value={{ st, refresh: (sid) => setTimeout(() => read(sid), 1500), first: loaded ? first : null, old }}>
+    <ServerStatusCtx.Provider value={{ st, refresh: refreshStatus, first: loaded ? first : null, old }}>
       <main className={`page fill srv${id ? " has-id" : ""}`}>
         <header className="bar">
           <h1>サーバー

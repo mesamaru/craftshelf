@@ -9,7 +9,8 @@ import { libraryCatalog, librarySummary } from "./library-api";
 import { AddSheet, LIBRARY_CHANGED, libraryChanged } from "./library-add";
 import { OPEN_NOTICES, OPEN_PALETTE } from "./palette";
 import { roleLabel } from "./permissions";
-import { listServers, serverStatus, sharedLocalEnabled } from "./servers-api";
+import { listServers, sharedLocalEnabled } from "./servers-api";
+import { useStatuses } from "./server-status";
 import { unreadCount } from "./notices";
 import { Icon, type IconName, Sheet } from "./ui";
 import { shared, forgetShared } from "./shared";
@@ -58,6 +59,7 @@ export function Shell({ user, children }: { user: { id: string; name: string }; 
   const [sheet, setSheet] = useState<"" | "add" | "notices">("");
   const [mini, setMini] = useState(false);
   const notices = useNotices();
+  const side = useStatuses(servers.slice(0, SIDE_MAX_SERVERS).map((s) => s.id), 60_000); // メニューの点(サーバーの画面が開いていれば、そちらの結果と同じ 1 回で取る)
   const openNoticesRef = useRef<() => void>(() => {}); // Ctrl K の「お知らせ」から開く
   const reloadSum = () => { shared("library-summary", () => loadSummary(), 3000).then(setSum, () => setSum(null)); };
   // 画面を移るたびに数を読み直す(サーバーを足した・消したあと)。ページが同じ時に読んだものは、共有して使う(src/lib/shared.ts)
@@ -120,7 +122,7 @@ export function Shell({ user, children }: { user: { id: string; name: string }; 
           {nav("/servers", "servers", "サーバー", "servers")}
           {servers.length > 0 && (
             <div className="sub-nav">
-              {servers.slice(0, SIDE_MAX_SERVERS).map((s) => <ServerLink key={s.id} server={s} on={path === `/servers/${s.id}` || path.startsWith(`/servers/${s.id}/`)} />)}
+              {servers.slice(0, SIDE_MAX_SERVERS).map((s) => <ServerLink key={s.id} server={s} state={typeof side[s.id] === "object" ? (side[s.id] as { state: string }).state : ""} on={path === `/servers/${s.id}` || path.startsWith(`/servers/${s.id}/`)} />)}
               {servers.length > SIDE_MAX_SERVERS && <Link to="/servers" className="nav"><span className="t">{`ほか ${servers.length - SIDE_MAX_SERVERS} 台`}</span></Link>}
             </div>
           )}
@@ -188,19 +190,8 @@ export const MobileSearch = () => (
   <button type="button" className="msearch" onClick={() => window.dispatchEvent(new Event(OPEN_PALETTE))}><Icon name="search" /><span>検索</span></button>
 );
 
-// メニューのサーバー(稼働の点。1 分ごとに読み直す)
-function ServerLink({ server, on }: { server: Server; on: boolean }) {
-  const status = useServerFn(serverStatus);
-  const [state, setState] = useState("");
-  useEffect(() => {
-    // サーバーの一覧(servers.tsx)が 50 秒以内に読んだ状態があれば、それを使う。見えていないあいだ(タブが裏・最小化)は読まない
-    const read = () => shared(`status:${server.id}`, () => status({ data: { id: server.id } }), 50_000).then((s) => setState(s.state), () => setState(""));
-    const tick = () => { if (!document.hidden) read(); };
-    read();
-    const t = setInterval(tick, 60_000);
-    document.addEventListener("visibilitychange", tick);
-    return () => { clearInterval(t); document.removeEventListener("visibilitychange", tick); };
-  }, [server.id]);
+// メニューのサーバー(稼働の点。状態は src/lib/server-status.ts が取る)
+function ServerLink({ server, on, state }: { server: Server; on: boolean; state: string }) {
   return (
     <Link to="/servers/$id" params={{ id: server.id }} className="nav" aria-current={on ? "page" : undefined}
       title={`${server.name}${state === "running" ? "(稼働中)" : state ? "(停止中)" : ""}`}>

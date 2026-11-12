@@ -9,7 +9,7 @@ import { agentServer, localServer, member, memberServer, memberServerLimit, pter
 import { HttpError, requireTeam } from "./guard";
 import { type FetchLike, UnsafeUrlError, checkPublicUrl, isPublicAddress } from "./net";
 import { type Ping, gamePort, ping } from "./mcping";
-import { POWER_SIGNALS, type PowerSignal, PteroError, pteroClient } from "./ptero";
+import { POWER_SIGNALS, type PowerSignal, PteroError, type Resources, pteroClient } from "./ptero";
 import { eventService } from "./events";
 import { checkRoot, detectFromJar, localClient } from "./local";
 import { hint, open, seal } from "./secrets";
@@ -116,11 +116,33 @@ export async function serverOf(deps: Deps, who: Who | string, id: string) {
 }
 
 const POWER_LABEL: Record<PowerSignal, string> = { start: "起動", stop: "停止", restart: "再起動", kill: "強制停止" };
+const STATUS_TTL = 5000; // 状態を覚えておく時間(ms)
+const STATUS_PARALLEL = 8; // 状態を読むときの、外への同時の問い合わせ
+type Status = Resources & { ping: Ping | null };
 
 export function serverService(deps: Deps) {
   const { db, auth, secret, fetch } = deps;
   const { record } = eventService(deps);
   const addresses = new Map<string, { host: string; port: number; at: number }>(); // Pterodactyl の割り当て(10 分おぼえておく)
+
+  // 状態を読んだ結果の覚え(チーム・サーバーごと。権限は覚えの手前で確かめる。失敗も覚える = つながらないサーバーを続けて叩かない)
+  const statusMemo = new Map<string, { at: number; p: Promise<Status> }>();
+  function remembered(teamId: string, id: string): Promise<Status> {
+    const now = Date.now();
+    for (const [k, v] of statusMemo) if (now - v.at > STATUS_TTL) statusMemo.delete(k);
+    const key = `${teamId}:${id}`;
+    let hit = statusMemo.get(key);
+    if (!hit) statusMemo.set(key, (hit = { at: now, p: readStatus(teamId, id) }));
+    return hit.p;
+  }
+  async function readStatus(teamId: string, id: string): Promise<Status> {
+    const { row, client, remoteId } = await serverOf(deps, teamId, id); // 権限は呼び出し側で確かめてある(まとめての読み取り)
+    const r = await remote(() => client.resources(remoteId));
+    const p = r.state === "offline" ? null : await pingOf(row, client, remoteId);
+    // フォルダのサーバーで動いているかわからないときは、問い合わせの結果で決める(v02 と同じ)
+    const state = r.state === "unknown" && row.kind === "local" ? (p ? "running" : "offline") : r.state;
+    return { ...r, state, ping: p };
+  }
 
   /** Minecraft の Server List Ping(人数・名前の一部・応答の速さ)。つながらなければ null */
   async function pingOf(row: typeof server.$inferSelect, client: PteroClient, remoteId: string): Promise<Ping | null> {
@@ -348,15 +370,32 @@ export function serverService(deps: Deps) {
         detail: { none: "設定しない", command: "コマンド", docker: `Docker(${container})` }[input.control] });
     },
 
-    /** 動いているか・CPU・メモリと、Minecraft のサーバーの人数・名前の一部・応答の速さ(ping。つながらなければ null) */
+    /** 動いているか・CPU・メモリと、Minecraft のサーバーの人数・名前の一部・応答の速さ(ping。つながらなければ null)。5 秒のあいだは覚えた結果を返す */
     async status(headers: Headers, id: string) {
       const who = await requireTeam(auth, headers);
-      const { row, client, remoteId } = await serverOf(deps, who, id);
-      const r = await remote(() => client.resources(remoteId));
-      const p = r.state === "offline" ? null : await pingOf(row, client, remoteId);
-      // フォルダのサーバーで動いているかわからないときは、問い合わせの結果で決める(v02 と同じ)
-      const state = r.state === "unknown" && row.kind === "local" ? (p ? "running" : "offline") : r.state;
-      return { ...r, state, ping: p };
+      await needServerAccess(deps, who, id);
+      return remembered(who.teamId, id);
+    },
+
+    /**
+     * 権限のあるサーバー(ids で絞れる)の状態を 1 回でまとめて返す(id → 状態。つながらなかったサーバーは、理由の文)。
+     * 外への問い合わせは同時に 8 つまで。同じサーバーは 5 秒覚える(画面・人が重なっても重ねて問い合わせない)
+     */
+    async statuses(headers: Headers, ids?: string[]) {
+      const who = await requireTeam(auth, headers);
+      const scope = await serverScope(deps, who);
+      const want = ids && new Set(ids);
+      const rows = await db.select({ id: server.id }).from(server).where(eq(server.teamId, who.teamId));
+      const mine = rows.map((r) => r.id).filter((x) => (!scope || scope.has(x)) && (!want || want.has(x)));
+      const out: Record<string, Status | string> = {};
+      let next = 0;
+      const worker = async () => {
+        for (let id = mine[next++]; id; id = mine[next++]) {
+          out[id] = await remembered(who.teamId, id).catch((e) => (e instanceof HttpError ? e.message : "状態を読めませんでした"));
+        }
+      };
+      await Promise.all(Array.from({ length: Math.min(STATUS_PARALLEL, mine.length) }, worker));
+      return out;
     },
 
     async power(headers: Headers, id: string, signal: PowerSignal) {
@@ -364,6 +403,7 @@ export function serverService(deps: Deps) {
       const who = await requireTeam(auth, headers, { server: ["control"] });
       const { teamId, user } = who;
       const { row, client, remoteId } = await serverOf(deps, who, id);
+      statusMemo.delete(`${teamId}:${id}`); // 操作の前後で状態が変わる(続けて読む画面には、取り直した結果を返す)
       await remote(() => client.power(remoteId, signal));
       await record({ teamId, userId: user.id, kind: "power", action: POWER_LABEL[signal], target: row.name });
     },
@@ -374,6 +414,7 @@ export function serverService(deps: Deps) {
       await needServerAccess(deps, who, id);
       const r = await db.delete(server).where(and(eq(server.id, id), eq(server.teamId, teamId))).returning({ name: server.name });
       if (r.length === 0) throw new HttpError(404, "サーバーが見つかりません");
+      statusMemo.delete(`${teamId}:${id}`);
       await record({ teamId, userId: user.id, kind: "admin", action: "サーバーを外す", target: r[0].name });
     },
   };

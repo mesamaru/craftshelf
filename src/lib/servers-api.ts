@@ -28,6 +28,11 @@ export const serverStatus = createServerFn({ method: "GET" })
   .validator(id)
   .handler(async ({ data }) => (await svc()).status(headers(), data.id));
 
+/** 権限のあるサーバー(ids で絞れる)の状態を 1 回でまとめて取る(id → 状態。つながらないものは理由の文)。取る場所は src/lib/server-status.ts の 1 か所 */
+export const serverStatuses = createServerFn({ method: "GET" })
+  .validator(z.object({ ids: z.array(z.string().min(1).max(64)).max(200).optional() }))
+  .handler(async ({ data }) => (await svc()).statuses(headers(), data.ids));
+
 export const powerServer = createServerFn({ method: "POST" })
   .validator(z.object({ id: z.string().min(1).max(64), signal: z.enum(["start", "stop", "restart", "kill"]) }))
   .handler(async ({ data }) => (await svc()).power(headers(), data.id, data.signal));

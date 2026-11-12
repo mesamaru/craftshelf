@@ -236,7 +236,10 @@ function Overview({ st, state, control, server, soft, onPower, onSoftware, onTab
             {a.deps?.unmet.map((d) => (
               <div className="row" key={`unmet:${d.name}`}>
                 <span className="badge bad">前提</span>
+                {d.install && <AddonIcon type={d.install.projectType} url={d.install.iconUrl} />}
                 <span className="mid"><span className="ttl" translate="no">{d.name}</span><span className="sub"><span translate="no">{d.by.join("、")}</span> が使います(入っていません)</span></span>
+                {d.install && a.edit && <Btn kind="tint" sm disabled={!!busy} onClick={() => act(`dep:${d.install!.projectId}`, () => install({ data: { id: a.id, projectId: d.install!.projectId, source: d.install!.source } }))}>
+                  {busy === `dep:${d.install.projectId}` ? "入れています…" : "入れる"}</Btn>}
               </div>
             ))}
             {a.deps?.missing.map((d) => (
@@ -331,7 +334,10 @@ function Addons(a: AddonProps) {
           {a.deps.unmet.map((d) => (
             <div className="row" key={`unmet:${d.name}`}>
               <span className="badge bad">前提不足</span>
+              {d.install && <AddonIcon type={d.install.projectType} url={d.install.iconUrl} />}
               <span className="mid"><span className="ttl" translate="no">{d.name}</span><span className="sub"><span translate="no">{d.by.join("、")}</span> が使います(入っていません)</span></span>
+              {d.install && edit && <Btn kind="tint" sm disabled={!!busy} onClick={() => run(`dep:${d.install!.projectId}`, () => install({ data: { id, projectId: d.install!.projectId, source: d.install!.source } }))}>
+                {busy === `dep:${d.install.projectId}` ? "入れています…" : "入れる"}</Btn>}
             </div>
           ))}
           {a.deps.missing.map((d) => (

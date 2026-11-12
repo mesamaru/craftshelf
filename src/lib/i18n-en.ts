@@ -224,7 +224,7 @@ export const EN: Record<string, string> = {
   "前の版に戻す(source、projectId。戻したものは更新を止める)": "Roll back to the previous version (source, projectId; rolled-back items are held)",
   "このサーバーで入れた・更新した・外したものの履歴": "History of what was installed, updated or removed on this server",
   "履歴の変更を元に戻す": "Undo a change in the history",
-  "入っているものの必須の前提で、このサーバーに無いもの(配布元に問い合わせる)": "Required dependencies of installed items that this server lacks (asks the sources)",
+  "入っているものの必須の前提で、このサーバーに無いもの(配布元に問い合わせる)。unmet は手で置いた jar の前提(プラグインの depend・Mod の depends・mods.toml の必須の前提。入っている jar の提供する名前と突き合わせる。バージョンの範囲は見ない)で、Mod の前提の id が Modrinth の slug と同じなら install(入れる先)が付く": "Required dependencies of installed items that this server lacks (asks the sources). unmet = prerequisites of hand-placed jars (plugin depend, Mod depends, required entries in mods.toml; matched against the names the installed jars provide; version ranges are not checked); if a Mod prerequisite id equals a Modrinth slug, install (where to install it from) is attached",
   "このサーバーの構成を、ほかのサーバーにそろえる(to: サーバーの ID の配列、mode: update / add / mirror)": "Copy this server's setup to other servers (to: array of server IDs, mode: update / add / mirror)",
   "自動更新を入れる・やめる(enabled: true / false)": "Turn auto update on or off (enabled: true / false)",
   "サーバーにセットを結び付ける(setId。null で外す)": "Bind a set to the server (setId; null unbinds)",

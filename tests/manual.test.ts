@@ -51,12 +51,12 @@ beforeAll(async () => {
 
 describe("jar の説明ファイル", () => {
   it("plugin.yml の depend・paper-plugin.yml の必須の前提・fabric.mod.json の depends を読む(任意の前提・本体は除く)", () => {
-    expect(jarMeta(disk.get("plugins/shop-final-v2.jar")!)).toEqual({ key: "plugin:shopplugin", name: "ShopPlugin", version: "2.1.0", depends: [{ key: "plugin:vault", name: "Vault" }, { key: "plugin:essentials", name: "Essentials" }] });
+    expect(jarMeta(disk.get("plugins/shop-final-v2.jar")!)).toEqual({ key: "plugin:shopplugin", name: "ShopPlugin", version: "2.1.0", depends: [{ key: "plugin:vault", name: "Vault" }, { key: "plugin:essentials", name: "Essentials" }], provides: [] });
     const paper = makeZip({ "paper-plugin.yml": "name: P\nversion: '1'\ndependencies:\n  server:\n    Vault:\n      load: BEFORE\n      required: true\n    Opt:\n      required: false\n" }, false);
     expect(jarMeta(paper).depends).toEqual([{ key: "plugin:vault", name: "Vault" }]);
     const fabric = makeZip({ "fabric.mod.json": '{"id":"m","name":"M","version":"1","depends":{"minecraft":">=1.21","fabric-api":"*"}}' }, false);
     expect(jarMeta(fabric)).toMatchObject({ key: "mod:m", depends: [{ key: "mod:fabric-api", name: "fabric-api" }] });
-    expect(jarMeta(new TextEncoder().encode("zipではない"))).toEqual({ key: "", name: "", version: "", depends: [] });
+    expect(jarMeta(new TextEncoder().encode("zipではない"))).toEqual({ key: "", name: "", version: "", depends: [], provides: [] });
   });
 });
 

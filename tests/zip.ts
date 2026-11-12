@@ -1,12 +1,13 @@
 // テスト用: 小さな zip(jar)を作る(deflate か、そのまま)
 import { deflateRawSync } from "node:zlib";
 
-export function makeZip(entries: Record<string, string>, deflate = true): Uint8Array {
+// 中身は文字か、そのままのバイト(jar の中の jar を入れるとき)
+export function makeZip(entries: Record<string, string | Uint8Array>, deflate = true): Uint8Array {
   const locals: Buffer[] = [];
   const centrals: Buffer[] = [];
   let offset = 0;
   for (const [name, text] of Object.entries(entries)) {
-    const raw = Buffer.from(text, "utf8");
+    const raw = typeof text === "string" ? Buffer.from(text, "utf8") : Buffer.from(text);
     const data = deflate ? deflateRawSync(raw) : raw;
     const n = Buffer.from(name, "utf8");
     const local = Buffer.alloc(30);

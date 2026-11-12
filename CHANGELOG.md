@@ -2,6 +2,14 @@
 
 バージョンは `00.00.00`(メジャー.マイナー.修正)の形式です。
 
+## 03.77.00 - 2026-11-13 Mod の前提の確かめ
+
+- 手で置いた jar の「前提不足」を、プラグインだけでなく Mod(Fabric・Quilt・Forge・NeoForge)にも出すようにしました。見るのは必須の前提だけです: fabric.mod.json / quilt.mod.json の `depends`(Quilt の optional・クライアントだけの Mod は除く)、mods.toml / neoforge.mods.toml の `[[dependencies.<modid>]]` の `mandatory = true` / `type = "required"`(`side = "CLIENT"` は除く)。recommends・suggests・breaks・conflicts は数えません
+- 入っているかは、サーバーに入っている jar(無効にしたものを除く)全部の「提供する名前」と突き合わせます: 自分の id・`provides`・jar の中の jar(Fabric API の部品など。`META-INF/jars/`・`jarjar/`)の id。バージョンの範囲(>=0.5 など)は見ず、あるかどうかだけです(コードに `shortcut:` の注記)
+- 前提にしない名前: minecraft・java・fabricloader・fabric-loader・quilt_loader・forge・neoforge・fml・javafml・lowcodefml・mixinextras。Fabric API の jar の中の jar を読めないときは、fabric-api が入っていれば fabric-api-base・fabric-*-v1 の部品は入っているとみなします。jar が 100 個を超えるサーバーは、全部を読めず誤って出すので Mod の前提は確かめません
+- プラグインの前提と同じ場所・同じ見た目で出します(サーバーの概要の「やること」・アドオンのタブ)。前提の id が Modrinth の slug と同じ Mod なら、「入れる」を付けます(違うものは名前だけ。10 分覚える)。読む jar は今までの 1 回だけ(場所と大きさが同じなら覚えた結果を使う)で、REST の `GET /servers/:id/deps` の `unmet` にも同じものが入ります(`install` が付くことがあります)
+- `tests/modmeta.test.ts` を足しました(Fabric・Quilt・Forge・NeoForge の jar を `makeZip` で作って、足りない・足りている・組み込みは除く・入れ子の Fabric API の部品は満たされる・100 個を超えるときは確かめない)。`tests/zip.ts` の `makeZip` は、中身にバイト列(jar の中の jar)も渡せるようにしました
+
 ## 03.76.00 - 2026-11-13 「サーバーから取り込んだもの」を「アップロード」と区別して出す
 
 - ライブラリのファイル(`library_file`)に出どころの列 `origin` を足しました(移行 `0039_library_file_origin`。足すだけ・前の版に戻しても動く)。upload = 画面・API のアップロード / server = サーバーにあった jar を「ライブラリに取り込む」 / upstream = 配布元から保存した版 / v02 = v02 から取り込んだもの。この版より前の行は空のままで、今までの表示のまま(空 = 配布元の版なら「配布元」、それ以外は「アップロード」)

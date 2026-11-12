@@ -458,33 +458,62 @@ export function modTools(deps: Deps) {
     }
     return m;
   }
-  /** サーバーに入っている jar(データパックは除く。IDENTIFY_MAX 個まで)の説明ファイルの内容 */
+  /** サーバーに入っている jar(データパックは除く。IDENTIFY_MAX 個まで。more = 多すぎて読まなかった数)の説明ファイルの内容 */
   async function metasIn(target: Target, p: Profile) {
-    const out = new Map<string, JarMeta>();
-    for (const f of (await addonsIn(target, p)).filter((x) => !x.datapack && JAR.test(x.name)).slice(0, IDENTIFY_MAX)) {
+    const list = (await addonsIn(target, p)).filter((x) => !x.datapack && JAR.test(x.name));
+    const out = Object.assign(new Map<string, JarMeta>(), { more: Math.max(0, list.length - IDENTIFY_MAX) });
+    for (const f of list.slice(0, IDENTIFY_MAX)) {
       const m = await metaOf(target, f.dir, f.name, f.size);
       if (m) out.set(f.name, m);
     }
     return out;
   }
+  // 前提の id と同じ slug の Modrinth の Mod(「入れる」を付けるため)。10 分覚える(つながらなかったときは覚えない)
+  const slugMemo = new Map<string, { at: number; hit: { source: "modrinth"; projectId: string; title: string; iconUrl: string; projectType: "mod" } | null }>();
+  async function modrinthMod(slug: string) {
+    const m = slugMemo.get(slug);
+    if (m && Date.now() - m.at < 600_000) return m.hit;
+    try {
+      const r = await modrinth.project(slug);
+      const hit = r?.projectType === "mod" ? { source: "modrinth" as const, projectId: r.id, title: r.title, iconUrl: r.iconUrl, projectType: "mod" as const } : null;
+      slugMemo.set(slug, { at: Date.now(), hit });
+      return hit;
+    } catch {
+      return null;
+    }
+  }
+  // Fabric API の部品(fabric-api-base・fabric-*-v1 など)
+  const FABRIC_PART = /^mod:fabric-(?:api-base|[a-z0-9-]+-v\d+)$/;
   /**
-   * 手で置いた jar(このアプリの記録が無いもの)の、必須の前提(plugin.yml の depend など)のうち、サーバーに入っていないもの。
-   * shortcut: Mod の前提は、fabric-api のようにまとめて入っているものの名前が合わず誤って出るので、プラグイン(Paper・Velocity・Bungee)だけ確かめる。要るなら Mod の provides も読む
+   * 手で置いた jar(このアプリの記録が無いもの)の、必須の前提(plugin.yml の depend・Mod の depends・mods.toml の mandatory)のうち、サーバーに入っていないもの。
+   * 入っているかは、入っている jar 全部の「提供する名前」(自分の id・provides・jar の中の jar の id)と突き合わせる。バージョンの範囲は見ない(あるかだけ)。
+   * Mod の前提の id が Modrinth の slug と同じなら、「入れる」ための情報(install)を付ける
+   * shortcut: バージョン範囲(>=0.5 など)は満たしているかまでは見ない。要るなら、provides に版も持たせて比べる。
+   * shortcut: Fabric API の jar の中の jar を読めなかったときは、fabric-api が入っていれば fabric-api-base・fabric-*-v1 は入っているとみなす
    */
   async function unmetOf(target: Target, p: Profile) {
     const known = new Set((await db.select({ f: installedMod.filename }).from(installedMod).where(eq(installedMod.serverId, target.row.id))).map((r) => r.f));
     const metas = await metasIn(target, p);
-    const have = new Set([...metas].filter(([f]) => !isDisabled(f)).map(([, m]) => m.key));
+    // jar が多すぎて全部は読めないとき、Mod の前提は誤って出さないよう確かめない(プラグインは今までどおり)
+    const skipMods = metas.more > 0;
+    const have = new Set([...metas].filter(([f]) => !isDisabled(f)).flatMap(([, m]) => [m.key, ...m.provides]));
+    const partsRead = [...have].some((k) => /^mod:fabric-.+-v\d+$/.test(k));
     const need = new Map<string, { name: string; by: string[] }>(); // 前提の見分ける名前 → 書いてあった名前と、使うもの
     for (const [f, m] of metas) {
       if (known.has(f) || isDisabled(f)) continue;
-      for (const d of m.depends.filter((x) => /^(plugin|velocity):/.test(x.key))) {
-        if (!have.has(d.key)) need.set(d.key, { name: d.name, by: [...(need.get(d.key)?.by ?? []), m.name || f] });
+      for (const d of m.depends.filter((x) => /^(plugin|velocity):/.test(x.key) || (!skipMods && x.key.startsWith("mod:")))) {
+        if (have.has(d.key) || (have.has("mod:fabric-api") && !partsRead && FABRIC_PART.test(d.key))) continue;
+        need.set(d.key, { name: d.name, by: [...(need.get(d.key)?.by ?? []), m.name || f] });
       }
     }
     // 配布元から入れたもの(記録がある jar)も、中の名前で入っていると数える(説明ファイルの名前が、記録の名前と違うこともあるので)
     const titles = new Set((await db.select({ t: installedMod.title }).from(installedMod).where(eq(installedMod.serverId, target.row.id))).map((r) => `plugin:${r.t.toLowerCase()}`));
-    return [...need].filter(([d]) => !titles.has(d)).map(([, d]) => ({ name: d.name, by: [...new Set(d.by)] }));
+    const out: { name: string; by: string[]; install?: NonNullable<Awaited<ReturnType<typeof modrinthMod>>> }[] = [];
+    for (const [key, d] of [...need].filter(([d]) => !titles.has(d))) {
+      const install = key.startsWith("mod:") ? await modrinthMod(key.slice(4)) : null;
+      out.push({ name: d.name, by: [...new Set(d.by)], ...(install ? { install } : {}) });
+    }
+    return out;
   }
   /** dir に、filename と同じ名前(plugin.yml の name・Mod の id)の jar がほかのファイル名で入っていれば、その名前(skip は除く) */
   async function sameNamed(target: Target, dir: string, filename: string, skip: string[]) {

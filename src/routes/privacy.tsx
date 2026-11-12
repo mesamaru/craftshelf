@@ -1,6 +1,10 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
+import { pageTitle } from "~/lib/titles";
 
-export const Route = createFileRoute("/privacy")({ component: Privacy });
+export const Route = createFileRoute("/privacy")({
+  head: () => ({ meta: [{ title: pageTitle("プライバシー") }] }),
+  component: Privacy,
+});
 
 // プライバシーポリシー(サービス版)。公開する前に、運営者が内容を確かめて直す
 function Privacy() {

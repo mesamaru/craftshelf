@@ -3,12 +3,14 @@ import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-rout
 import { authClient } from "~/lib/auth-client";
 import { errorText } from "~/lib/errors";
 import { safeNext } from "~/lib/next";
+import { pageTitle } from "~/lib/titles";
 
 export const Route = createFileRoute("/login")({
   validateSearch: (s: Record<string, unknown>): { next?: string } => (s.next ? { next: safeNext(s.next) } : {}),
   beforeLoad: ({ context, search }) => {
     if (context.user) throw redirect({ href: safeNext(search.next) });
   },
+  head: () => ({ meta: [{ title: pageTitle("ログイン") }] }),
   component: Login,
 });
 

@@ -1,6 +1,10 @@
 import { Link, createFileRoute } from "@tanstack/react-router";
+import { pageTitle } from "~/lib/titles";
 
-export const Route = createFileRoute("/terms")({ component: Terms });
+export const Route = createFileRoute("/terms")({
+  head: () => ({ meta: [{ title: pageTitle("利用規約") }] }),
+  component: Terms,
+});
 
 // 利用規約(サービス版)。公開する前に、運営者が内容を確かめて直す
 function Terms() {

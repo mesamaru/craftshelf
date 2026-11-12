@@ -3,13 +3,11 @@ import type { ReactNode } from "react";
 import { Link, useRouteContext, useRouter } from "@tanstack/react-router";
 import { authClient } from "./auth-client";
 import { roleLabel } from "./permissions";
+import { SETTING_LABEL, type SettingsKey } from "./titles";
 import { Icon, type IconName, Info } from "./ui";
 import { useCan } from "./use-can";
 
-export type SettingsKey =
-  | "profile" | "security" | "passkeys" | "look"
-  | "members" | "perms" | "activity" | "storage" | "shares" | "tokens" | "curseforge" | "setup" | "channel"
-  | "backup" | "versions" | "usage" | "telemetry" | "api" | "import" | "feedback" | "cleanup";
+export type { SettingsKey };
 
 type Entry = { key: SettingsKey; label: string; to: string; s?: string; show: boolean; icon: IconName; color: string };
 type Ctx = { user?: { id: string; name?: string } | null; app: { mode: "self" | "service" } };
@@ -23,40 +21,40 @@ function useGroups(ctx: Ctx): [string, Entry[]][] {
   const e = (key: SettingsKey, label: string, icon: IconName, color: string, to: string, show: boolean, s?: string): Entry => ({ key, label, icon, color, to, s, show });
   const groups: [string, Entry[]][] = [
     ["セキュリティ", [
-      e("security", "パスワードと二段階認証", "key", "c-other", "/settings", true, "security"),
-      e("passkeys", "パスキー", "shield", "c-mod", "/settings", true, "passkeys"),
+      e("security", SETTING_LABEL.security, "key", "c-other", "/settings", true, "security"),
+      e("passkeys", SETTING_LABEL.passkeys, "shield", "c-mod", "/settings", true, "passkeys"),
     ]],
     ["管理", [
-      e("storage", "ストレージ", "servers", "c-plugin", "/storage", self && can({ storage: ["manage"] })),
-      e("members", "ユーザーと権限", "team", "c-resourcepack", "/team", true),
-      e("perms", "権限と割り当て", "shield", "c-other", "/team", admin, "perms"),
-      e("usage", "ユーザーごとの利用状況", "chart", "c-teal", "/usage", admin),
-      e("channel", "受け取る版", "clock", "c-datapack", "/team", admin, "channel"),
+      e("storage", SETTING_LABEL.storage, "servers", "c-plugin", "/storage", self && can({ storage: ["manage"] })),
+      e("members", SETTING_LABEL.members, "team", "c-resourcepack", "/team", true),
+      e("perms", SETTING_LABEL.perms, "shield", "c-other", "/team", admin, "perms"),
+      e("usage", SETTING_LABEL.usage, "chart", "c-teal", "/usage", admin),
+      e("channel", SETTING_LABEL.channel, "clock", "c-datapack", "/team", admin, "channel"),
     ]],
     ["連携", [
-      e("curseforge", "CurseForge API キー", "key", "c-other", "/team", self && can({ integrations: ["manage"] }), "curseforge"),
-      e("tokens", "API トークン", "link", "c-plugin", "/settings", true, "tokens"),
-      e("api", "API の説明", "file", "c-other", "/api-docs", true),
+      e("curseforge", SETTING_LABEL.curseforge, "key", "c-other", "/team", self && can({ integrations: ["manage"] }), "curseforge"),
+      e("tokens", SETTING_LABEL.tokens, "link", "c-plugin", "/settings", true, "tokens"),
+      e("api", SETTING_LABEL.api, "file", "c-other", "/api-docs", true),
     ]],
     ["運用", [
-      e("backup", "バックアップ", "download", "c-mod", "/backup", self && admin),
-      e("activity", "操作の記録と通知", "bell", "c-plugin", "/activity", can({ audit: ["read"] }) || can({ integrations: ["manage"] })),
-      e("shares", "共有リンク", "share", "c-teal", "/shares", self),
+      e("backup", SETTING_LABEL.backup, "download", "c-mod", "/backup", self && admin),
+      e("activity", SETTING_LABEL.activity, "bell", "c-plugin", "/activity", can({ audit: ["read"] }) || can({ integrations: ["manage"] })),
+      e("shares", SETTING_LABEL.shares, "share", "c-teal", "/shares", self),
     ]],
     ["ツール", [
-      e("cleanup", "アドオンの整理", "wand", "c-mod", "/cleanup", can({ library: ["edit"] })),
+      e("cleanup", SETTING_LABEL.cleanup, "wand", "c-mod", "/cleanup", can({ library: ["edit"] })),
     ]],
     ["サポート", [
-      e("feedback", "お問い合わせ・要望", "chat", "c-teal", "/settings", true, "feedback"),
-      e("telemetry", "利用状況の送信", "chart", "c-other", "/settings", panel, "telemetry"),
+      e("feedback", SETTING_LABEL.feedback, "chat", "c-teal", "/settings", true, "feedback"),
+      e("telemetry", SETTING_LABEL.telemetry, "chart", "c-other", "/settings", panel, "telemetry"),
     ]],
     ["表示", [
-      e("look", "見た目と言語", "sparkle", "c-resourcepack", "/settings", true, "look"),
-      e("setup", "はじめの設定", "sparkle", "c-teal", "/team", admin, "setup"),
+      e("look", SETTING_LABEL.look, "sparkle", "c-resourcepack", "/settings", true, "look"),
+      e("setup", SETTING_LABEL.setup, "sparkle", "c-teal", "/team", admin, "setup"),
     ]],
     ["CraftShelf", [
-      e("versions", "パネルのアップデート", "sparkle", "c-mod", "/settings", panel, "versions"),
-      e("import", "v02 からの取り込み", "download", "c-datapack", "/settings", self && admin, "import"),
+      e("versions", SETTING_LABEL.versions, "sparkle", "c-mod", "/settings", panel, "versions"),
+      e("import", SETTING_LABEL.import, "download", "c-datapack", "/settings", self && admin, "import"),
     ]],
   ];
   return groups.map(([g, list]) => [g, list.filter((x) => x.show)]);
@@ -70,7 +68,7 @@ export function SettingsFrame({ at, root, info, children }: { at: SettingsKey; r
   const { me } = useCan(ctx.user?.id ?? "");
   // ログインしていない(API の説明だけは開ける)ときは枠なし
   if (!ctx.user) return <main className="page narrow">{children}</main>;
-  const label = at === "profile" ? "プロフィール" : groups.flatMap(([, l]) => l).find((e) => e.key === at)?.label ?? "";
+  const label = SETTING_LABEL[at];
   const logout = async () => {
     await authClient.signOut();
     await router.invalidate();

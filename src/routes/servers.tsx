@@ -16,6 +16,7 @@ import { type Status, ServerStatusCtx } from "~/lib/server-status";
 import { Btn, Chip, ChipBar, Icon, type IconName, Info, Seg, Sheet } from "~/lib/ui";
 import { SERVER_FILTERS, SERVER_SORTS, type ServerFilter, type ServerItem, type ServerSort, arrange, isServerSort } from "~/lib/server-list";
 import { MobileSearch, StoragePill } from "~/lib/shell";
+import { pageTitle } from "~/lib/titles";
 
 export const Route = createFileRoute("/servers")({
   beforeLoad: ({ context }) => {
@@ -23,6 +24,7 @@ export const Route = createFileRoute("/servers")({
     return { user: context.user };
   },
   loader: async () => ({ servers: await sharedServers(), connections: await listConnections(), local: await sharedLocalEnabled() }),
+  head: () => ({ meta: [{ title: pageTitle("サーバー") }] }),
   component: Servers,
 });
 
@@ -202,7 +204,7 @@ function ServerRow({ server, st, old, checked, on }: { server: Server; st: Statu
             : STATE_LABELS[s.state] ?? "状態がわかりません"}
         </span>
       </span>
-      {old > 0 ? <span className="badge upd">{`更新 ${old}`}</span> : checked && server.platform ? <span className="badge ok">最新</span> : null}
+      {old > 0 ? <span className="badge upd" title={`アドオン: 更新 ${old} 件`}>{`更新 ${old}`}</span> : checked && server.platform ? <span className="badge ok" title="アドオン: 最新(サーバー本体の新しいビルドは、サーバーの画面で確かめます)">最新</span> : null}
       <span className="chev" aria-hidden="true">›</span>
     </Link>
   );

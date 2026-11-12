@@ -1,6 +1,6 @@
 // アドオンの無効化・設定フォルダの退避・ほかのサーバーにそろえる・ライブラリに取り込む・自動更新。
 // フォルダのサーバー(本物のフォルダ)と偽の Modrinth で確かめる(Pterodactyl・エージェントも同じ操作だけを使う)
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -117,6 +117,15 @@ describe("無効にする・有効にする", () => {
     expect(await row(A, LP)).toMatchObject({ filename: "LuckPerms-5.4.0.jar", disabled: false });
     expect((await lib.updates(owner, A)).map((u) => u.latest)).toEqual(["5.5.0"]);
   });
+
+  it("手で置いたもの(アプリで入れていない)を有効にしたときの履歴は、.disabled の付かない名前で残す", async () => {
+    writeFileSync(join(rootA, "plugins", "Hand-2.3.jar.disabled"), "x");
+    await lib.setEnabled(owner, A, "Hand-2.3.jar.disabled", true);
+    expect((await lib.changes(owner, A))[0]).toMatchObject({ action: "有効にする", title: "Hand-2.3.jar" });
+    await lib.setEnabled(owner, A, "Hand-2.3.jar", false);
+    expect((await lib.changes(owner, A))[0]).toMatchObject({ action: "無効にする", title: "Hand-2.3.jar" });
+    rmSync(join(rootA, "plugins", "Hand-2.3.jar.disabled"), { force: true });
+  });
 });
 
 describe("設定フォルダの退避", () => {
@@ -158,19 +167,24 @@ describe("ほかのサーバーにそろえる(検証用から本番へ反映)",
   });
 
   it("「入っているものだけ」は何も足さない。「足りないものも入れる」は同じ版で入れ、止めているものは止める", async () => {
-    expect(await sets.copy(owner, A, [B], "update")).toEqual([{ serverId: B, server: "本番", results: [], error: "" }]);
+    // 入っていないものは入れず、結果には「入っていないので入れません」と出す
+    expect(await sets.copy(owner, A, [B], "update")).toEqual([{ serverId: B, server: "本番", error: "", results: [
+      { title: "LuckPerms", status: "skipped", detail: "入っていないので入れません" }, { title: "Other", status: "skipped", detail: "入っていないので入れません" }] }]);
+    expect(names(rootB)).toEqual([]);
     const [r] = await sets.copy(owner, A, [B], "add");
     expect(r.results.map((x) => [x.title, x.status, x.detail])).toEqual([["LuckPerms", "installed", "5.4.0"], ["Other", "installed", "1.0"]]);
     expect(names(rootB)).toEqual(["LuckPerms-5.4.0.jar", "Other-1.0.jar"]); // いちばん新しい 5.5.0 ではなく、検証用と同じ版
     expect(await row(B, LP)).toMatchObject({ held: true }); // 検証用で前の版に戻して止めていたので
-    expect((await sets.copy(owner, A, [B], "add"))[0].results).toEqual([]); // 同じなら何もしない
+    // 同じなら何もしない(「変えなかった」として、理由つきで結果に出す)
+    expect((await sets.copy(owner, A, [B], "add"))[0].results).toEqual([
+      { title: "LuckPerms", status: "present", detail: "同じ版です(5.4.0)" }, { title: "Other", status: "present", detail: "同じ版です(1.0)" }]);
   });
 
   it("「まったく同じにする」は、そろえる元に無いもの(このアプリで入れたもの)を外す。種類の違うサーバーは理由を返す", async () => {
     await lib.install(owner, B, EX);
     writeFileSync(join(rootB, "plugins", "Hand.jar"), "hand"); // 手で置いたものは触らない
     const r = await sets.copy(owner, A, [B, M], "mirror");
-    expect(r[0].results.map((x) => [x.title, x.status])).toEqual([["Extra", "removed"]]);
+    expect(r[0].results.map((x) => [x.title, x.status])).toEqual([["LuckPerms", "present"], ["Other", "present"], ["Extra", "removed"]]);
     expect(names(rootB)).toEqual(["Extra-1.0.jar.craftshelf-removed", "Hand.jar", "LuckPerms-5.4.0.jar", "Other-1.0.jar"]);
     expect(r[1]).toMatchObject({ server: "Mod", results: [], error: "プラグインのサーバーと Mod のサーバーはそろえられません" });
   });

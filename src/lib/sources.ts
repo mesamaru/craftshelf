@@ -8,6 +8,9 @@ export const isSource = (v: unknown): v is Source => v === "modrinth" || v === "
 export const isItemSource = (v: unknown): v is ItemSource => isSource(v) || v === "upload";
 export const SOURCE_LABEL: Record<ItemSource, string> = { modrinth: "Modrinth", spigot: "SpigotMC", curseforge: "CurseForge", upload: "アップロード" };
 
+/** 出どころの名前(画面に出すとき。知らないものはそのまま) */
+export const sourceLabel = (s: string) => (isItemSource(s) ? SOURCE_LABEL[s] : s);
+
 /** 配布元のページ(アップロードしたものには無い) */
 export const pageUrl = (source: string, projectId: string, slug = "") =>
   source === "upload" ? "" : source === "spigot" ? `https://www.spigotmc.org/resources/${projectId}/`

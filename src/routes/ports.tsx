@@ -6,6 +6,7 @@ import { type Group, type Kind, type Port, freePorts, isPort, rangeOf } from "~/
 import { adoptFoundPort, portOverview, savePortRules, saveServerPorts, scanPorts, setServerPortInfo } from "~/lib/ports-api";
 import { useCan } from "~/lib/use-can";
 import { Bell } from "~/lib/bell";
+import { pageTitle } from "~/lib/titles";
 
 export const Route = createFileRoute("/ports")({
   beforeLoad: ({ context }) => {
@@ -13,6 +14,7 @@ export const Route = createFileRoute("/ports")({
     return { user: context.user };
   },
   loader: () => portOverview(),
+  head: () => ({ meta: [{ title: pageTitle("ポート") }] }),
   component: Ports,
 });
 
@@ -264,7 +266,7 @@ function ServerPanel({ data, server, focus, addKind, edit, onClose, onSaved }:
         </label>
         <label className="row">
           <span>メモ</span>
-          <input className="trail" defaultValue={server.memo} placeholder="担当・用途など" maxLength={100} disabled={!edit} translate="no"
+          <input className="trail" defaultValue={server.memo} placeholder="担当・用途など" maxLength={100} disabled={!edit}
             onBlur={async (e) => { if (e.target.value !== server.memo) try { onSaved(await setInfo({ data: { serverId: server.id, groupId: server.groupId, memo: e.target.value } })); } catch (x) { setError(message(x)); } }} />
         </label>
         <div className="row">
@@ -296,7 +298,7 @@ function ServerPanel({ data, server, focus, addKind, edit, onClose, onSaved }:
               </span>
               <span className="muted small">{SOURCE[d.source] ?? d.source}{d.file ? ` · ${d.file}${d.key ? ` の ${d.key}` : ""}` : ""}{d.source === "allocation" ? "(番号はパネルの「ネットワーク」で変えます)" : ""}</span>
               {st && <span className={`small ${st}`}>{why}{sugg.length > 0 && edit && <> → 空き: {sugg.map((n) => <button key={n} type="button" className="btn sec sm" onClick={() => set(i, { port: String(n) })}>{n}</button>)}</>}</span>}
-              <input className="memo" placeholder="メモ(用途など)" value={d.memo} maxLength={100} disabled={!edit} translate="no" onChange={(e) => set(i, { memo: e.target.value })} />
+              <input className="memo" placeholder="メモ(用途など)" value={d.memo} maxLength={100} disabled={!edit} onChange={(e) => set(i, { memo: e.target.value })} />
             </div>
           );
         })}
@@ -312,7 +314,7 @@ function ServerPanel({ data, server, focus, addKind, edit, onClose, onSaved }:
       </section>
       {edit && (
         <div className="panel-foot">
-          {blocking > 0 ? <p className="error small">重複・番号の誤りが {blocking} 件あるため保存できません</p>
+          {blocking > 0 ? <p className="error small">{`重複・番号の誤りが ${blocking} 件あるため保存できません`}</p>
             : willWrite.length > 0 && <p className="muted small">保存すると書き換えるファイル: {willWrite.join("、")}(サーバーを再起動すると反映されます)</p>}
           {error && <p className="error small" role="alert">{error}</p>}
           {done && <p className="small" role="status">{done}</p>}

@@ -3,12 +3,14 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { Btn, Chip, ChipBar, Info } from "~/lib/ui";
 import { listJobs } from "~/lib/jobs-api";
+import { pageTitle } from "~/lib/titles";
 
 export const Route = createFileRoute("/jobs")({
   beforeLoad: ({ context }) => {
     if (!context.user) throw redirect({ to: "/login", search: { next: "/jobs" } });
     return { user: context.user };
   },
+  head: () => ({ meta: [{ title: pageTitle("処理") }] }),
   component: Jobs,
 });
 
@@ -44,7 +46,7 @@ function Jobs() {
       <span className="mid">
         <span className="ttl">{j.action}{(j.serverName || j.target) && <> · <span translate="no">{[j.serverName, j.target].filter(Boolean).join(" · ")}</span></>}</span>
         <span className="sub">
-          {time(j.createdAt)}{j.userName ? <> · <span translate="no">{j.userName}</span></> : " · 予約・自動"}{took(j) && ` · ${took(j)}`}
+          {time(j.createdAt)}{j.userName ? <> · <span translate="no">{j.userName}</span></> : " · 予約・自動"}{took(j) && <> · <span>{took(j)}</span></>}
         </span>
         {j.detail && <span className={`small pre${j.state === "failed" ? " error" : " muted"}`}>{j.detail}</span>}
       </span>
@@ -53,7 +55,7 @@ function Jobs() {
   return (
     <main className="page fill">
       <header className="bar">
-        <h1>処理の一覧<Info>サーバーへの導入・セットでそろえる・まとめて最新にする・本体の入れ替え・バックアップなどの、時間のかかる処理です。終わったものは 30 日たつと消えます。結果の詳しい内容は「操作の記録」にも残ります。</Info></h1>
+        <h1>処理<Info>サーバーへの導入・セットでそろえる・まとめて最新にする・本体の入れ替え・バックアップなどの、時間のかかる処理です。終わったものは 30 日たつと消えます。結果の詳しい内容は「操作の記録」にも残ります。</Info></h1>
       </header>
       <ChipBar label="絞り込み" tools={<Btn sm onClick={reload}>読み直す</Btn>}>
         <Chip on={filter === "all"} onClick={() => setFilter("all")}>すべて</Chip>

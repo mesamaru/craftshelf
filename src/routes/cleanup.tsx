@@ -1,23 +1,24 @@
 import { useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { ActionBar, Btn, Chip, ChipBar, Info } from "~/lib/ui";
+import { ActionBar, Btn, Chip, ChipBar, Info, fmtSize } from "~/lib/ui";
 import { ITEM_TYPES } from "~/lib/platforms";
 import { cleanupFind, cleanupRemove } from "~/lib/saved-api";
 import { useCan } from "~/lib/use-can";
 import { AddonIcon } from "~/lib/type-icon";
+import { settingsTitle } from "~/lib/titles";
 
 export const Route = createFileRoute("/cleanup")({
   beforeLoad: ({ context }) => {
     if (!context.user) throw redirect({ to: "/login", search: { next: "/cleanup" } });
     return { user: context.user };
   },
+  head: () => ({ meta: [{ title: settingsTitle("cleanup") }] }),
   component: Cleanup,
 });
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
 const TYPE_LABEL: Record<string, string> = ITEM_TYPES;
-const size = (n: number) => (n >= 1024 ** 2 ? `${(n / 1024 ** 2).toFixed(1)} MB` : n > 0 ? `${Math.max(1, Math.round(n / 1024))} KB` : "");
 type Cond = "old" | "dup" | "stale" | "unused";
 // 条件と、数を入れるもの(既定の数と単位)
 const CONDS: Record<Cond, { short: string; label: string; param?: [string, number, string] }> = {
@@ -102,7 +103,7 @@ function Cleanup() {
       </section>
       {rows && (
         <>
-          <div className="gtitle">{rows.length ? `${rows.length} 件が見つかりました${total ? `(選んだもの ${size(total)})` : ""}` : "条件に当てはまるものはありません"}</div>
+          <div className="gtitle">{rows.length ? `${rows.length} 件が見つかりました${total ? `(選んだもの ${fmtSize(total)})` : ""}` : "条件に当てはまるものはありません"}</div>
           {rows.length > 0 && (
             <section className="group">
               {rows.map((r, i) => (
@@ -112,7 +113,7 @@ function Cleanup() {
                   <AddonIcon type={r.projectType} url={r.iconUrl} />
                   <span className="mid">
                     <span className="ttl" translate="no">{r.title}</span>
-                    <span className="sub">{TYPE_LABEL[r.projectType] ?? r.projectType}{" · "}{r.reason}{r.size ? ` · ${size(r.size)}` : ""}</span>
+                    <span className="sub">{TYPE_LABEL[r.projectType] ?? r.projectType}{" · "}{r.reason}{r.size ? ` · ${fmtSize(r.size)}` : ""}</span>
                   </span>
                   {r.kind === "version" ? <span className="tag" translate="no">{r.version}</span> : <span className="badge bad">アドオンごと</span>}
                 </label>

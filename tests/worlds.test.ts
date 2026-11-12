@@ -121,6 +121,9 @@ describe("フォルダのサーバーのワールド", () => {
     expect(existsSync(join(dir, "world"))).toBe(false);
     const [r] = (await t.db.select().from(auditLog)).filter((a) => a.action === "ワールドをバックアップ");
     expect(r.kind).toBe("backup");
+    // 記録の大きさは切り上げない(小さなワールドが「1 MB」にならない)
+    expect(r.detail).toMatch(/\((\d+ B|\d+\.\d KB)・/);
+    expect(r.detail).not.toMatch(/ MB・/);
   });
 
   it("設定は管理者以上。残す数を超えた古いものは消す。名前の外のものは扱わない", async () => {

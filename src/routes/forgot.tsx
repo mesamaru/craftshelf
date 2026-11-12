@@ -2,8 +2,12 @@ import { useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { authClient } from "~/lib/auth-client";
 import { errorText } from "~/lib/errors";
+import { pageTitle } from "~/lib/titles";
 
-export const Route = createFileRoute("/forgot")({ component: Forgot });
+export const Route = createFileRoute("/forgot")({
+  head: () => ({ meta: [{ title: pageTitle("パスワードを忘れたとき") }] }),
+  component: Forgot,
+});
 
 // パスワードを忘れたとき: 登録したメールアドレスに、再設定のリンクを送る(メールを送れるときだけ)
 function Forgot() {

@@ -3,8 +3,12 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SettingsFrame } from "~/lib/settings-frame";
 import { Info } from "~/lib/ui";
 import { ROLE_LABELS, type RoleName } from "~/lib/permissions";
+import { settingsTitle } from "~/lib/titles";
 
-export const Route = createFileRoute("/api-docs")({ component: ApiDocs });
+export const Route = createFileRoute("/api-docs")({
+  head: () => ({ meta: [{ title: settingsTitle("api") }] }),
+  component: ApiDocs,
+});
 
 type Doc = { method: string; path: string; summary: string; scopeLabel: string; role: RoleName; example: Record<string, unknown> | null };
 
@@ -46,7 +50,7 @@ function ApiDocs() {
               <span className="method" translate="no">{d.method}</span> <span className="path" translate="no">{d.path}</span>
               <span className="api-summary">{d.summary}</span>
             </summary>
-            <span className="muted small">{`要る範囲: ${d.scopeLabel}(${ROLE_LABELS[d.role]}以上)`}</span>
+            <span className="muted small"><span>要る範囲: </span><span>{d.scopeLabel}</span><span>{`(${ROLE_LABELS[d.role]}以上)`}</span></span>
             <pre className="curl" translate="no">{curl(d)}</pre>
           </details>
         ))}

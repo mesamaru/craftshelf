@@ -6,6 +6,7 @@ import { adoptMod, identifyMods, installMod, installedMods, libraryCatalog, remo
 import { VersionChooser } from "~/lib/version-picker";
 import { useCan } from "~/lib/use-can";
 import { AddonIcon } from "~/lib/type-icon";
+import { pageTitle } from "~/lib/titles";
 
 export const Route = createFileRoute("/compare")({
   beforeLoad: ({ context }) => {
@@ -13,6 +14,7 @@ export const Route = createFileRoute("/compare")({
     return { user: context.user };
   },
   loader: () => libraryCatalog(),
+  head: () => ({ meta: [{ title: pageTitle("比較") }] }),
   component: Compare,
 });
 

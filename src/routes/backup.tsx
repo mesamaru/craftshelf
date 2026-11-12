@@ -1,20 +1,21 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Info } from "~/lib/ui";
+import { Info, fmtSize } from "~/lib/ui";
 import { SettingsFrame } from "~/lib/settings-frame";
 import { cancelRestore, createBackup, listBackups, reimportV02, restoreBackup, setBackupSchedule } from "~/lib/backup-api";
+import { settingsTitle } from "~/lib/titles";
 
 export const Route = createFileRoute("/backup")({
   beforeLoad: ({ context }) => {
     if (!context.user) throw redirect({ to: "/login", search: { next: "/backup" } });
     return { user: context.user };
   },
+  head: () => ({ meta: [{ title: settingsTitle("backup") }] }),
   component: Backup,
 });
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
-const size = (n: number) => (n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB`);
 
 // パネルのバックアップと復元(自分用の版・管理者以上)
 function Backup() {
@@ -69,7 +70,7 @@ function Backup() {
 
   const row = (name: string, at: string, bytes: number | null) => (
     <div className="row" key={name}>
-      <span className="main"><span translate="no">{at ? new Date(at).toLocaleString("ja-JP") : ""}</span><span className="muted small" translate="no">{name}{bytes !== null ? ` · ${size(bytes)}` : ""}</span></span>
+      <span className="main"><span translate="no">{at ? new Date(at).toLocaleString("ja-JP") : ""}</span><span className="muted small" translate="no">{name}{bytes !== null ? ` · ${fmtSize(bytes)}` : ""}</span></span>
       <a className="trail link" href={`/api/backup/${name}`} download>ダウンロード</a>
       <button className="link" type="button" disabled={!!busy} onClick={async () => {
         if (!confirm("このバックアップから戻しますか?パネルが再起動し、今のデータと入れ替えます(今のデータは消さずに残します)")) return;

@@ -137,7 +137,7 @@ export function modpackService(deps: Deps) {
       let cf = new Map<string, { title: string; slug: string; iconUrl: string }>();
       if (uniq.some((e) => e.source === "curseforge")) {
         const key = await tools.cfKeyOf(teamId);
-        if (!key) throw new HttpError(400, "CurseForge の Modpack を読むには、「チーム」で CurseForge の API キーを設定してください");
+        if (!key) throw new HttpError(400, "CurseForge の Modpack を読むには、設定の「CurseForge API キー」で API キーを設定してください");
         cf = await fromSource(() => curseforgeClient(deps.fetch, key).projects(uniq.filter((e) => e.source === "curseforge").map((e) => e.projectId)));
       }
       const known = uniq.filter((e) => (e.source === "modrinth" ? mr : cf).has(e.projectId));

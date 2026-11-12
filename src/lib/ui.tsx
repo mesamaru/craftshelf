@@ -61,8 +61,7 @@ export const Icon = ({ name }: { name: IconName }) => (
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement>;
 
-/** ファイルの大きさ(v02 と同じ「2.0 KB」の形) */
-export const fmtSize = (n: number) => (n >= 1024 ** 3 ? `${(n / 1024 ** 3).toFixed(1)} GB` : n >= 1024 ** 2 ? `${(n / 1024 ** 2).toFixed(1)} MB` : n >= 1024 ? `${(n / 1024).toFixed(1)} KB` : `${n} B`);
+export { fmtSize } from "./format";
 
 /** カプセル型のボタン。kind: pri = いちばん大事な 1 つ / sec = ふつう / tint = すすめる操作 / red = 消す・外す */
 export function Btn({ kind = "sec", sm, className, ...p }: ButtonProps & { kind?: "pri" | "sec" | "tint" | "red"; sm?: boolean }) {
@@ -170,8 +169,22 @@ export function Sheet({ title, label, head, actions, onClose, children }: { titl
 
 /** 画面の中のタブ(サーバーの詳細の 概要・アドオン など)。シートの中は Seg */
 export function Tabs<T extends string>({ value, options, onChange, label }: { value: T; options: readonly (readonly [T, string])[]; onChange: (v: T) => void; label: string }) {
+  const ref = useRef<HTMLDivElement>(null);
+  // 狭い画面で帯が横に流れるとき、選んだタブを見える位置(真ん中)に寄せる(ページは動かさない)
+  useEffect(() => {
+    const el = ref.current;
+    const show = () => {
+      const on = el?.querySelector<HTMLElement>('[aria-selected="true"]');
+      if (el && on) el.scrollLeft = on.offsetLeft - (el.clientWidth - on.offsetWidth) / 2;
+    };
+    show();
+    // 読み込み直後は文字の幅がまだ決まっていないので、タブの幅が変わるたびに寄せ直す
+    const ro = new ResizeObserver(show);
+    el?.querySelectorAll("button").forEach((b) => ro.observe(b));
+    return () => ro.disconnect();
+  }, [value]);
   return (
-    <div className="tabs glass" role="tablist" aria-label={label}>
+    <div className="tabs glass" role="tablist" aria-label={label} ref={ref}>
       {options.map(([v, text]) => <button key={v} type="button" role="tab" aria-selected={v === value} onClick={() => onChange(v)}>{text}</button>)}
     </div>
   );

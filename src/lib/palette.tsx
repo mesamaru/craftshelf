@@ -5,28 +5,14 @@ import { libraryCatalog } from "./library-api";
 import { listServers } from "./servers-api";
 import { listSets } from "./sets-api";
 import { AddonIcon } from "./type-icon";
+import { PAGE_HITS } from "./titles";
 
-type Hit = { label: string; sub: string; to: string; params?: Record<string, string>; search?: Record<string, string>; icon?: { type: string; url: string } };
-const PAGES: Hit[] = [
-  { label: "ライブラリ", sub: "画面", to: "/" },
-  { label: "ホーム", sub: "画面", to: "/home" },
-  { label: "アドオンの整理", sub: "画面", to: "/cleanup" },
-  { label: "サーバー", sub: "画面", to: "/servers" },
-  { label: "セット", sub: "画面", to: "/sets" },
-  { label: "サーバーの比較", sub: "画面", to: "/compare" },
-  { label: "ファイル比較", sub: "画面", to: "/compare/files" },
-  { label: "ポート", sub: "画面", to: "/ports" },
-  { label: "チーム", sub: "画面", to: "/team" },
-  { label: "アカウントの設定", sub: "画面", to: "/settings" },
-  { label: "操作の記録と Discord への通知", sub: "画面", to: "/activity" },
-  { label: "保存先", sub: "画面", to: "/storage" },
-  { label: "共有リンク", sub: "画面", to: "/shares" },
-  { label: "利用状況", sub: "画面", to: "/usage" },
-  { label: "バックアップ", sub: "画面", to: "/backup" },
-  { label: "処理の一覧", sub: "画面", to: "/jobs" },
-  { label: "API の説明", sub: "画面", to: "/api-docs" },
-];
+type Hit = { label: string; sub: string; action?: "notices"; to: string; params?: Record<string, string>; search?: Record<string, string>; icon?: { type: string; url: string } };
+const PAGES: Hit[] = PAGE_HITS;
 export const OPEN_PALETTE = "craftshelf:palette";
+/** お知らせのシートを開く(shell.tsx が受ける) */
+export const OPEN_NOTICES = "craftshelf:notices";
+const NOTICES: Hit = { label: "お知らせ", sub: "画面", to: "/", action: "notices" };
 
 export function Palette() {
   const router = useRouter();
@@ -66,12 +52,14 @@ export function Palette() {
 
   const hits = useMemo(() => {
     const t = q.trim().toLowerCase();
-    const all = [...PAGES, ...(data ?? [])];
-    return (t ? all.filter((h) => h.label.toLowerCase().includes(t) || h.sub.toLowerCase().includes(t)) : all).slice(0, 30);
+    // 何も打っていないときは、おもな画面・お知らせ・サーバー・セット・ライブラリ(設定の各まとまりは、打つと出る)
+    const all = [...PAGES, NOTICES, ...(data ?? [])];
+    return (t ? all.filter((h) => h.label.toLowerCase().includes(t) || h.sub.toLowerCase().includes(t)) : all.filter((h) => h.sub !== "設定" || h.action)).slice(0, 30);
   }, [q, data]);
   const go = (h: Hit | undefined) => {
     if (!h) return;
     setOpen(false);
+    if (h.action === "notices") return void window.dispatchEvent(new Event(OPEN_NOTICES));
     router.navigate({ to: h.to as never, params: h.params as never, search: h.search as never });
   };
   if (!open) return null;
@@ -92,8 +80,8 @@ export function Palette() {
             <button key={`${h.sub}:${h.label}:${i}`} type="button" role="option" aria-selected={i === sel} className={`row palette-hit${i === sel ? " on" : ""}`}
               onMouseEnter={() => setSel(i)} onClick={() => go(h)}>
               {h.icon && <AddonIcon type={h.icon.type} url={h.icon.url} size="sm" />}
-              <span className="main" translate={h.sub === "画面" ? undefined : "no"}>{h.label}</span>
-              <span className="trail muted small" translate="no">{h.sub}</span>
+              <span className="main" translate={h.sub === "画面" || h.sub === "設定" ? undefined : "no"}>{h.label}</span>
+              <span className="trail muted small">{h.sub}</span>
             </button>
           ))}
         </div>

@@ -5,6 +5,7 @@ import { ActionBar, Btn, Chip, ChipBar, Info } from "~/lib/ui";
 import { sharedServers } from "~/lib/servers-api";
 import { softwareInfo, updateSoftware } from "~/lib/software-api";
 import { useCan } from "~/lib/use-can";
+import { pageTitle } from "~/lib/titles";
 
 export const Route = createFileRoute("/software")({
   beforeLoad: ({ context }) => {
@@ -12,6 +13,7 @@ export const Route = createFileRoute("/software")({
     return { user: context.user };
   },
   loader: () => sharedServers(),
+  head: () => ({ meta: [{ title: pageTitle("サーバー本体") }] }),
   component: Software,
 });
 

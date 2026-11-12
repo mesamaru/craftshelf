@@ -3,12 +3,14 @@ import { Link, createFileRoute, redirect, useRouter } from "@tanstack/react-rout
 import { authClient } from "~/lib/auth-client";
 import { errorText } from "~/lib/errors";
 import { safeNext } from "~/lib/next";
+import { pageTitle } from "~/lib/titles";
 
 export const Route = createFileRoute("/signup")({
   validateSearch: (s: Record<string, unknown>): { next?: string } => (s.next ? { next: safeNext(s.next) } : {}),
   beforeLoad: ({ context, search }) => {
     if (context.user) throw redirect({ href: safeNext(search.next) });
   },
+  head: () => ({ meta: [{ title: pageTitle("アカウントの作成") }] }),
   component: Signup,
 });
 
@@ -43,7 +45,7 @@ function Signup() {
         <section className="group"><p className="row" role="status">{`${email} に確認のメールを送りました。メールのリンクを開くと登録が終わり、ログインできます(24 時間有効)。`}</p></section>
       ) : (
       <form className="group form" onSubmit={(e) => (e.preventDefault(), submit())}>
-        <input className="row" autoComplete="nickname" placeholder="表示名" translate="no"
+        <input className="row" autoComplete="nickname" placeholder="表示名"
           value={name} onChange={(e) => setName(e.target.value)} required />
         <input className="row" type="email" autoComplete="email" placeholder="メールアドレス"
           value={email} onChange={(e) => setEmail(e.target.value)} required />

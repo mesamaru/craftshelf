@@ -16,6 +16,7 @@ import { tarGz, untarGz } from "./tar";
 import { type Ping, gamePort, ping } from "./mcping";
 import { fileStore, fromStorage } from "./uploads";
 import { jobService } from "./jobs";
+import { fmtSize } from "~/lib/format";
 
 export const WORLD_LIMITS = { keepMax: 30, fileBytes: 100 * 1024 * 1024, files: 200_000, depth: 32, stopWaitMs: 120_000 };
 const ASIDE = ".craftshelf-before-restore-"; // 戻す前のワールドを退避するときの名前の後ろ
@@ -168,7 +169,7 @@ export function worldService(deps: Deps) {
         }
         const note = made.skipped.length ? `\n読めなかった・大きすぎて飛ばしたファイル ${made.skipped.length} 個: ${made.skipped.slice(0, 10).join("、")}` : "";
         last.set(serverId, { ok: true, message: file, at: new Date().toISOString() });
-        await record({ teamId, userId, kind: "backup", action: "ワールドをバックアップ", target: row.name, detail: `${file}(${Math.max(1, Math.round(size / 1024 / 1024))} MB・${made.dirs.join("・")})${note}` });
+        await record({ teamId, userId, kind: "backup", action: "ワールドをバックアップ", target: row.name, detail: `${file}(${fmtSize(size)}・${made.dirs.join("・")})${note}` });
         return { name: file };
       } finally {
         rmSync(tmp, { force: true });

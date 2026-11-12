@@ -219,7 +219,7 @@ function Upload() {
         </span>
       </div>
       <p className="muted small">jar・zip・mrpack、1 つ 1 GB まで
-        <Info><span>配布元に無いプラグイン・Mod(jar)と、データパック・リソースパック・シェーダー・Modパック(zip・mrpack)を、ファイルのままライブラリに載せます。jar は中の plugin.yml・fabric.mod.json などから名前・版・動くサーバーの種類を、zip は pack.mcmeta・shaders/ などから種類を読み取り、同じ名前のものは新しい版として足します。置き場所は「チーム」→「保存先」で決められます(1 つ 1 GB まで)。</span></Info>
+        <Info><span>配布元に無いプラグイン・Mod(jar)と、データパック・リソースパック・シェーダー・Modパック(zip・mrpack)を、ファイルのままライブラリに載せます。jar は中の plugin.yml・fabric.mod.json などから名前・版・動くサーバーの種類を、zip は pack.mcmeta・shaders/ などから種類を読み取り、同じ名前のものは新しい版として足します。置き場所は設定の「ストレージ」で決められます(1 つ 1 GB まで)。</span></Info>
       </p>
       <UploadResults results={results} />
     </>

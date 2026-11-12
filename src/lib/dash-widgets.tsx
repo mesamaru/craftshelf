@@ -109,9 +109,9 @@ function MemoSheet({ c, onSave, onClose }: { c: Custom; onSave: (x: Pick<Custom,
   return (
     <Sheet title="メモ" onClose={onClose}>
       <section className="group form">
-        <input className="row" placeholder="題(空なら「メモ」)" maxLength={DASH_LIMITS.title} value={title} onChange={(e) => setTitle(e.target.value)} translate="no" />
+        <input className="row" placeholder="題(空なら「メモ」)" maxLength={DASH_LIMITS.title} value={title} onChange={(e) => setTitle(e.target.value)} />
         <label className="row"><span className="mid">Markdown で書く</span><input type="checkbox" className="switch" checked={md} onChange={(e) => setMd(e.target.checked)} /></label>
-        <textarea className="row memo-text" rows={10} maxLength={DASH_LIMITS.text} placeholder="内容" value={text} onChange={(e) => setText(e.target.value)} translate="no" />
+        <textarea className="row memo-text" rows={10} maxLength={DASH_LIMITS.text} placeholder="内容" value={text} onChange={(e) => setText(e.target.value)} />
       </section>
       {md && <p className="sub" translate="no"># 見出し　**太字**　- リスト　- [ ] やること　[リンク](https://…)</p>}
       <div className="sheet-foot"><span className="grow" /><Btn kind="pri" onClick={() => onSave({ title: title.trim(), md, text })}>保存</Btn></div>

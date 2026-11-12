@@ -1,13 +1,13 @@
 // 全体の枠(ログインした画面だけ)。v02 と同じ形(03.68.00 から):
 // パソコン = 左のメニュー(ライブラリ・ホーム・セット・サーバーと各サーバー、下に お知らせ・設定・自分。‹ で畳むとアイコンだけ)と、上の検索・「＋ 追加」・読み直し。
 // 幅 1000 px まで = 上のバー(名前・読み直し・お知らせ・設定)と下のタブ(ライブラリ・セット・＋・ホーム・サーバー)。検索は見出しの下(MobileSearch)
-import { type ReactNode, createContext, useContext, useEffect, useState } from "react";
+import { type ReactNode, createContext, useContext, useEffect, useRef, useState } from "react";
 import { Link, useRouter, useRouterState } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { markNoticesSeen, recentEvents } from "./events-api";
 import { libraryCatalog, librarySummary } from "./library-api";
 import { AddSheet, LIBRARY_CHANGED, libraryChanged } from "./library-add";
-import { OPEN_PALETTE } from "./palette";
+import { OPEN_NOTICES, OPEN_PALETTE } from "./palette";
 import { roleLabel } from "./permissions";
 import { listServers, serverStatus, sharedLocalEnabled } from "./servers-api";
 import { unreadCount } from "./notices";
@@ -58,6 +58,7 @@ export function Shell({ user, children }: { user: { id: string; name: string }; 
   const [sheet, setSheet] = useState<"" | "add" | "notices">("");
   const [mini, setMini] = useState(false);
   const notices = useNotices();
+  const openNoticesRef = useRef<() => void>(() => {}); // Ctrl K の「お知らせ」から開く
   const reloadSum = () => { shared("library-summary", () => loadSummary(), 3000).then(setSum, () => setSum(null)); };
   // 画面を移るたびに数を読み直す(サーバーを足した・消したあと)。ページが同じ時に読んだものは、共有して使う(src/lib/shared.ts)
   useEffect(() => {
@@ -70,6 +71,7 @@ export function Shell({ user, children }: { user: { id: string; name: string }; 
     sharedLocalEnabled().then(setLocal, () => setLocal(false));
     try { setMini(!!localStorage.getItem(MINI)); } catch {}
     const add = () => setSheet("add");
+    const showNotices = () => openNoticesRef.current();
     // Ctrl B でメニューを畳む・広げる(v02 と同じ。入力欄の中では使わない)
     const key = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "b" && innerWidth >= 1000
@@ -80,8 +82,9 @@ export function Shell({ user, children }: { user: { id: string; name: string }; 
     };
     window.addEventListener(LIBRARY_CHANGED, reloadSum);
     window.addEventListener(OPEN_ADD, add);
+    window.addEventListener(OPEN_NOTICES, showNotices);
     window.addEventListener("keydown", key);
-    return () => { window.removeEventListener(LIBRARY_CHANGED, reloadSum); window.removeEventListener(OPEN_ADD, add); window.removeEventListener("keydown", key); };
+    return () => { window.removeEventListener(LIBRARY_CHANGED, reloadSum); window.removeEventListener(OPEN_ADD, add); window.removeEventListener(OPEN_NOTICES, showNotices); window.removeEventListener("keydown", key); };
   }, []);
   // 畳んだかは <html> の印(操作のバーなど、枠の外に出すものも幅を合わせる)と、この端末に残す
   useEffect(() => {
@@ -98,6 +101,7 @@ export function Shell({ user, children }: { user: { id: string; name: string }; 
     </Link>
   );
   const openNotices = () => { notices.read(); setSheet("notices"); };
+  openNoticesRef.current = openNotices;
   const unread = notices.unread > 0 && <span className="nb" aria-hidden="true">{notices.unread > 99 ? "99+" : notices.unread}</span>;
   return (
     <ShellCtx.Provider value={{ storage: sum?.storage ?? null, admin: can({ storage: ["manage"] }) }}>

@@ -5,12 +5,14 @@ import { SettingsFrame } from "~/lib/settings-frame";
 import { Info } from "~/lib/ui";
 import { listEvents, notifySettings, setNotify, testNotify } from "~/lib/events-api";
 import { useCan } from "~/lib/use-can";
+import { settingsTitle } from "~/lib/titles";
 
 export const Route = createFileRoute("/activity")({
   beforeLoad: ({ context }) => {
     if (!context.user) throw redirect({ to: "/login", search: { next: "/activity" } });
     return { user: context.user };
   },
+  head: () => ({ meta: [{ title: settingsTitle("activity") }] }),
   component: Activity,
 });
 

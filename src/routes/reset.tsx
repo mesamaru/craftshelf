@@ -2,11 +2,13 @@ import { useState } from "react";
 import { Link, createFileRoute } from "@tanstack/react-router";
 import { authClient } from "~/lib/auth-client";
 import { errorText } from "~/lib/errors";
+import { pageTitle } from "~/lib/titles";
 
 export const Route = createFileRoute("/reset")({
   validateSearch: (s: Record<string, unknown>): { token?: string; error?: string } => ({
     ...(typeof s.token === "string" ? { token: s.token } : {}), ...(typeof s.error === "string" ? { error: s.error } : {}),
   }),
+  head: () => ({ meta: [{ title: pageTitle("パスワードの再設定") }] }),
   component: Reset,
 });
 

@@ -3,12 +3,14 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { SettingsFrame } from "~/lib/settings-frame";
 import { listShares, removeShare, stopShare } from "~/lib/shares-api";
+import { settingsTitle } from "~/lib/titles";
 
 export const Route = createFileRoute("/shares")({
   beforeLoad: ({ context }) => {
     if (!context.user) throw redirect({ to: "/login", search: { next: "/shares" } });
     return { user: context.user };
   },
+  head: () => ({ meta: [{ title: settingsTitle("shares") }] }),
   component: Shares,
 });
 

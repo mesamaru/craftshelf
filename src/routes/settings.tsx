@@ -16,6 +16,7 @@ import { ACCENTS, ACCENT_LABELS, type Accent, DEFAULT_THEME, LIMITS, type Mode, 
 import { saveMyBackground, saveMyTheme } from "~/lib/prefs-api";
 import { sendFeedback, setTelemetry, telemetryInfo } from "~/lib/telemetry-api";
 import { deleteAccount } from "~/lib/teams-api";
+import { settingsTitle } from "~/lib/titles";
 
 export const Route = createFileRoute("/settings")({
   validateSearch: (s: Record<string, unknown>): { s?: string } => (typeof s.s === "string" ? { s: s.s } : {}),
@@ -23,6 +24,7 @@ export const Route = createFileRoute("/settings")({
     if (!context.user) throw redirect({ to: "/login" });
     return { user: context.user };
   },
+  head: ({ match }) => ({ meta: [{ title: settingsTitle(match.search.s ?? "profile") }] }),
   component: Settings,
 });
 
@@ -101,7 +103,7 @@ function Profile({ name, username }: { name: string; username: string }) {
   };
   return (
     <form className="group form" onSubmit={(e) => (e.preventDefault(), save())}>
-      <label className="row"><span>表示名</span><input className="trail field" translate="no" maxLength={60} value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} aria-label="表示名" /></label>
+      <label className="row"><span>表示名</span><input className="trail field" maxLength={60} value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} aria-label="表示名" /></label>
       <label className="row"><span>ユーザー名</span><input className="trail field" maxLength={40} autoComplete="username" placeholder="未設定" value={v.username} onChange={(e) => setV({ ...v, username: e.target.value })} aria-label="ユーザー名" /></label>
       <button className="row link" type="submit" disabled={!v.name.trim() || !v.username.trim() && !!username || (v.name.trim() === name && v.username.trim() === username)}>保存</button>
       {note && <p className="row muted" role="status">{note}</p>}

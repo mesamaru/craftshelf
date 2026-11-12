@@ -13,6 +13,7 @@ import { useCan } from "~/lib/use-can";
 import { useServerFn } from "@tanstack/react-start";
 import { ASSIGNABLE_ROLES, GRANTS, GRANT_LABELS, type Grant, type RoleName, roleLabel } from "~/lib/permissions";
 import { serverAssignments, setServerAssignment } from "~/lib/servers-api";
+import { settingsTitle } from "~/lib/titles";
 import { deleteTeam, memberGrants, resetSignIn, setMemberGrants, transferOwner } from "~/lib/teams-api";
 
 export const Route = createFileRoute("/team")({
@@ -21,6 +22,7 @@ export const Route = createFileRoute("/team")({
     if (!context.user) throw redirect({ to: "/login" });
     return { user: context.user };
   },
+  head: ({ match }) => ({ meta: [{ title: settingsTitle(match.search.s ?? "members") }] }),
   component: Team,
 });
 
@@ -117,7 +119,7 @@ function Switcher({ activeId }: { activeId?: string }) {
             {t.id === activeId && <span className="trail">✓</span>}
           </button>
         ))}
-        <input className="row" placeholder="新しいチームの名前" translate="no" value={name} onChange={(e) => setName(e.target.value)} />
+        <input className="row" placeholder="新しいチームの名前" value={name} onChange={(e) => setName(e.target.value)} />
         <button className="btn sec" type="button" onClick={create} disabled={!name.trim()}>チームを作る</button>
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
@@ -138,7 +140,7 @@ function TeamName({ id, name, editable, onDone }: { id: string; name: string; ed
     <form className="group" onSubmit={(e) => (e.preventDefault(), save())}>
       <label className="row">
         <span>チームの名前</span>
-        <input className="trail field" translate="no" maxLength={60} value={value} onChange={(e) => setValue(e.target.value)} aria-label="チームの名前" />
+        <input className="trail field" maxLength={60} value={value} onChange={(e) => setValue(e.target.value)} aria-label="チームの名前" />
         {value !== name && <Btn kind="pri" sm type="submit" disabled={!value.trim()}>保存</Btn>}
       </label>
       {error && <p className="row error" role="alert">{error}</p>}

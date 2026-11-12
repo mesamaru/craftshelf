@@ -3,11 +3,13 @@ import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { authClient } from "~/lib/auth-client";
 import { errorText } from "~/lib/errors";
 import { roleLabel } from "~/lib/permissions";
+import { pageTitle } from "~/lib/titles";
 
 export const Route = createFileRoute("/invite/$id")({
   beforeLoad: ({ context, params }) => {
     if (!context.user) throw redirect({ to: "/login", search: { next: `/invite/${params.id}` } });
   },
+  head: () => ({ meta: [{ title: pageTitle("チームへの招待") }] }),
   component: Invitation,
 });
 

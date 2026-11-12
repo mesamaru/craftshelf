@@ -628,7 +628,7 @@ export async function importCurseforgeKey(db: Db, v02: DatabaseSync, teamId: str
     const key = decryptV02Secret(enc, existsSync(keyFile) ? readFileSync(keyFile, "utf8") : "");
     await db.insert(schema.teamCurseforge).values({ teamId, apiKeySealed: seal(opts.secret, key, `curseforge:${teamId}`), apiKeyHint: hint(key) }).onConflictDoNothing();
   } catch {
-    report.skipped.push({ what: "CurseForge の API キー", detail: "読めませんでした。「チーム」で設定し直してください" });
+    report.skipped.push({ what: "CurseForge の API キー", detail: "読めませんでした。設定の「CurseForge API キー」で設定し直してください" });
   }
 }
 
@@ -855,7 +855,7 @@ export async function maybeImportV02Pins(db: Db, opts: { v02Dir: string; v03Dir:
 export const V02_PERMS: Record<string, { grants: Grant[]; note?: string }> = {
   storage: { grants: ["storage:manage"], note: "パネルのバックアップは、v03 では管理者以上だけです" },
   audit: { grants: ["audit:read"] },
-  integrations: { grants: ["integrations:manage"], note: "Pterodactyl のパネルを登録するのは、v03 では「サーバーを追加する」の権限です(要るなら「チーム」で足してください)" },
+  integrations: { grants: ["integrations:manage"], note: "Pterodactyl のパネルを登録するのは、v03 では「サーバーを追加する」の権限です(要るなら「ユーザーと権限」で足してください)" },
   system: { grants: ["panel:manage"] },
   users: { grants: [], note: "v03 では、メンバーの招待・役割の変更は管理者以上だけです(要るなら役割を管理者にしてください)" },
 };

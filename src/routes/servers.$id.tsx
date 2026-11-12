@@ -17,8 +17,9 @@ import { shared } from "~/lib/shared";
 import { softwareInfo } from "~/lib/software-api";
 import { createWorldBackup, removeWorldBackup, restoreWorldBackup, setWorldBackup, worldBackups } from "~/lib/worlds-api";
 import { Console, Files } from "~/lib/server-files";
-import { COPY_LABEL, type CopyMode, DAY_NAMES, type SettingKey, SettingSheet, SettingsRows, type SoftInfo } from "~/lib/server-settings";
-import { Btn, Chip, ChipBar, Icon, Info, Menu, Row, Seg, Sheet, Tabs } from "~/lib/ui";
+import { COPY_LABEL, CopyModeRow, type CopyMode, DAY_NAMES, type SettingKey, SettingSheet, SettingsRows, type SoftInfo } from "~/lib/server-settings";
+import { pageTitle } from "~/lib/titles";
+import { Btn, Chip, ChipBar, Icon, Info, Menu, Row, Seg, Sheet, Tabs, fmtSize } from "~/lib/ui";
 
 // タブは v02 の並びと名前(「保存」= ワールドのバックアップとアドオンの変更の履歴)
 const TABS = [["overview", "概要"], ["console", "コンソール"], ["addons", "アドオン"], ["files", "ファイル"], ["backup", "保存"], ["settings", "設定"]] as const;
@@ -33,6 +34,7 @@ export const Route = createFileRoute("/servers/$id")({
     return { user: context.user };
   },
   loader: ({ params }) => serverDetail({ data: { id: params.id } }),
+  head: ({ loaderData }) => ({ meta: [{ title: pageTitle(loaderData ? `サーバー: ${loaderData.name}` : "サーバー") }] }),
   component: ServerPage,
 });
 
@@ -112,7 +114,8 @@ function ServerPage() {
       </div>
       <Tabs label="サーバーの画面" value={shown} options={tabs} onChange={go} />
       {shown === "overview" && <Overview {...addons} st={st} state={state} control={control} server={server} soft={soft} onPower={() => refresh(server.id)}
-        onSoftware={() => setSheet("software")} onProfile={() => setSheet("profile")} canProfile={perms.update} onTab={go} />}
+        onSoftware={() => setSheet("software")} onProfile={() => setSheet("profile")} canProfile={perms.update} onTab={go}
+        onSetup={server.kind === "local" && perms.update && perms.admin ? () => { go("settings"); setSheet("control"); } : undefined} />}
       {shown === "addons" && <Addons {...addons} onProfile={() => setSheet("profile")} canProfile={perms.update} />}
       {shown === "files" && (files === null ? <p className="muted">読み込んでいます…</p> : files ? <Files id={server.id} />
         : <section className="group"><div className="row muted">設定ファイルを見る・直すのは、チームの管理者とオーナーだけです(チームの設定で、編集者にも許せます)。</div></section>)}
@@ -125,7 +128,7 @@ function ServerPage() {
 }
 
 // 起動・再起動・停止(v02 の 3 つのボタン。いまの状態でできないものは薄くする)
-function Power({ server, state, onPower }: { server: { id: string; name: string }; state: string; onPower: () => void }) {
+function Power({ server, state, onPower, onSetup }: { server: { id: string; name: string }; state: string; onPower: () => void; onSetup?: () => void }) {
   const power = useServerFn(powerServer);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -153,7 +156,11 @@ function Power({ server, state, onPower }: { server: { id: string; name: string 
         {tile("restart", "reload", "再起動", off)}
         {tile("stop", "stop", "停止", off)}
       </div>
-      {error && <p className="error" role="alert">{error}</p>}
+      {error && (
+        <p className="error" role="alert">{error}
+          {onSetup && error.includes("起動・停止の設定") && <> <button type="button" className="link small" onClick={onSetup}>起動・停止の設定を開く</button></>}
+        </p>
+      )}
     </>
   );
 }
@@ -165,8 +172,8 @@ type AddonProps = {
 };
 
 // 概要: 起動・再起動・停止、人数・CPU・メモリ・応答、やること(押すと直せる)、最近の変更
-function Overview({ st, state, control, server, soft, onPower, onSoftware, onTab, ...a }:
-  AddonProps & { st: Status | null; state: string; control: boolean; server: { id: string; name: string }; soft: SoftInfo | string | null; onPower: () => void; onSoftware: () => void; onTab: (t: Tab) => void }) {
+function Overview({ st, state, control, server, soft, onPower, onSoftware, onTab, onSetup, ...a }:
+  AddonProps & { st: Status | null; state: string; control: boolean; server: { id: string; name: string }; soft: SoftInfo | string | null; onPower: () => void; onSoftware: () => void; onTab: (t: Tab) => void; onSetup?: () => void }) {
   const run = useServerFn(updateServers);
   const install = useServerFn(installMod);
   const [busy, setBusy] = useState("");
@@ -191,7 +198,7 @@ function Overview({ st, state, control, server, soft, onPower, onSoftware, onTab
   const todo = (a.profile && a.updates && n > 0 ? 1 : 0) + (a.deps?.missing.length ?? 0) + (a.deps?.unmet.length ?? 0) + (info?.update ? 1 : 0) + (a.profile ? 0 : 1);
   return (
     <>
-      {control && <Power server={server} state={state} onPower={onPower} />}
+      {control && <Power server={server} state={state} onPower={onPower} onSetup={onSetup} />}
       <div className="stats">
         <div className="stat glass"><small>プレイヤー</small><div className="v">{p ? p.online : "—"}{p && <span>{` / ${p.max}`}</span>}</div>
           {p && p.sample.length > 0 && <span className="sub" translate="no">{p.sample.join("、")}{p.online > p.sample.length ? " …" : ""}</span>}</div>
@@ -423,12 +430,14 @@ function Versions({ id, item, mc, onDone, onClose }: { id: string; item: Install
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const [now, setNow] = useState({ id: item.versionId, number: item.versionNumber }); // 変えたら「今」の印と見出しも変える
   const args: VArgs = { id, projectId: item.projectId!, source: item.source as Source, kind: item.datapack ? "datapack" : undefined };
   const pick = async (v: VRow) => {
     setBusy(true);
     setError("");
     try {
       await install({ data: { ...args, versionId: v.versionId, unsupported: v.support === "no" } });
+      setNow({ id: v.versionId, number: v.versionNumber });
       setNote(`${v.versionNumber} にしました`);
       onDone();
     } catch (e) {
@@ -439,8 +448,8 @@ function Versions({ id, item, mc, onDone, onClose }: { id: string; item: Install
   };
   return (
     <Sheet title={<span translate="no">{item.title}</span>} label={item.title ?? item.filename} onClose={onClose}>
-      <p className="sub">版を変える · 今 <span translate="no">{item.versionNumber}</span></p>
-      <VersionChooser args={args} mc={mc} current={item.versionId} label={busy ? "入れています…" : "この版にする"} busy={busy} onChoose={pick} />
+      <p className="sub">版を変える · 今 <span translate="no">{now.number}</span></p>
+      <VersionChooser args={args} mc={mc} current={now.id} label={busy ? "入れています…" : "この版にする"} busy={busy} onChoose={pick} />
       {note && <p className="muted" role="status" translate="no">{note}</p>}
       {error && <p className="error" role="alert">{error}</p>}
     </Sheet>
@@ -678,12 +687,7 @@ function SetBinding({ id, edit, onSynced }: { id: string; edit: boolean; onSynce
                 {others.map((o) => <option key={o.id} value={o.id} translate="no">{o.name}</option>)}
               </select>
             </div>
-            <div className="row">
-              <span>そろえ方</span>
-              <select className="trail" value={mode} disabled={!!busy} aria-label="そろえ方" onChange={(e) => setMode(e.target.value as CopyMode)}>
-                {(Object.keys(COPY_LABEL) as CopyMode[]).map((k) => <option key={k} value={k}>{COPY_LABEL[k]}</option>)}
-              </select>
-            </div>
+            <CopyModeRow mode={mode} onChange={setMode} disabled={!!busy} />
           </>
         )}
         {edit && sets.length === 0 && <div className="row muted">まだセットがありません。トップの「セット」で作れます。</div>}
@@ -747,7 +751,6 @@ function Changes({ id, edit, items, onChange, limit, onMore }: { id: string; edi
   );
 }
 
-const sizeOf = (n: number | null) => (n === null ? "" : n >= 1024 * 1024 * 1024 ? `${(n / 1024 / 1024 / 1024).toFixed(1)} GB` : n >= 1024 * 1024 ? `${(n / 1024 / 1024).toFixed(1)} MB` : `${Math.ceil(n / 1024)} KB`);
 
 // バックアップ: ワールドのバックアップ(今すぐ・一覧・ダウンロード・戻す・予約)と、アドオンの変更の履歴
 function Backup({ id, control, admin, edit, items, onChange }: { id: string; control: boolean; admin: boolean; edit: boolean; items: Installed[] | null; onChange: () => void }) {
@@ -836,8 +839,8 @@ function Worlds({ id, admin, chips }: { id: string; admin: boolean; chips: React
         {d?.backups.map((b) => (
           <div className="row" key={b.name}>
             <span className="mid">
-              <span className="ttl">{b.at ? new Date(b.at).toLocaleString("ja-JP") : ""}</span>
-              <span className="sub" translate="no">{b.label}{b.size !== null ? ` · ${sizeOf(b.size)}` : ""}</span>
+              <span className="ttl" title={b.label}>{b.at ? new Date(b.at).toLocaleString("ja-JP") : ""}</span>
+              <span className="sub" translate="no">{b.size !== null ? fmtSize(b.size) : ""}{ptero && !b.label.startsWith("CraftShelf ") ? `${b.size !== null ? " · " : ""}${b.label}` : ""}</span>
             </span>
             {!b.done && <span className="badge upd">作っています</span>}
             {b.done && !b.ok && <span className="badge bad">失敗</span>}

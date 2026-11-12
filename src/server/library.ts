@@ -137,7 +137,7 @@ export function modTools(deps: Deps) {
   };
   async function curseforge(teamId: string) {
     const key = await cfKeyOf(teamId);
-    if (!key) throw new HttpError(400, "CurseForge を使うには、「チーム」で CurseForge の API キーを設定してください");
+    if (!key) throw new HttpError(400, "CurseForge を使うには、設定の「CurseForge API キー」で API キーを設定してください");
     return curseforgeClient(deps.fetch, key);
   }
 
@@ -1368,8 +1368,9 @@ export function libraryService(deps: Deps) {
       await remote(() => client.rename(remoteId, dir, filename, to));
       const [rec] = await db.update(installedMod).set({ filename: to }).where(and(eq(installedMod.serverId, row.id), eq(installedMod.filename, filename))).returning({ title: installedMod.title });
       const action = enable ? "有効にする" : "無効にする";
-      await logChange(row.id, user.id, { action, title: rec?.title ?? filename, added: to, removed: { filename } }, target, p);
-      await record({ teamId, userId: user.id, kind: "changes", action, target: row.name, detail: rec?.title ?? filename });
+      const name = rec?.title ?? (enable ? to : filename); // 記録の名前は .disabled の付かないほう(有効にしたあとの名前)
+      await logChange(row.id, user.id, { action, title: name, added: to, removed: { filename } }, target, p);
+      await record({ teamId, userId: user.id, kind: "changes", action, target: row.name, detail: name });
       return { filename: to };
     },
 

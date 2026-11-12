@@ -6,6 +6,7 @@ import { alignAll, splitLines, takeBase } from "~/lib/diff";
 import { configFiles, readServerFile, saveServerFile } from "~/lib/files-api";
 import { sharedServers } from "~/lib/servers-api";
 import { confirmSyntax } from "~/lib/syntax";
+import { pageTitle } from "~/lib/titles";
 
 export const Route = createFileRoute("/compare_/files")({
   beforeLoad: ({ context }) => {
@@ -13,6 +14,7 @@ export const Route = createFileRoute("/compare_/files")({
     return { user: context.user };
   },
   loader: () => sharedServers(),
+  head: () => ({ meta: [{ title: pageTitle("ファイル比較") }] }),
   component: FileCompare,
 });
 
@@ -167,7 +169,7 @@ function FileList({ list, view, setView, busy, onOpen }:
       if (!view.showSame && !changed(f, total)) continue;
       const kind = f.on.length < total ? "miss" : f.same ? "same" : "chg";
       rows.push(
-        <tr key={f.path} className={kind}>
+        <tr key={f.path} className={`${kind} click`} onClick={() => !busy && onOpen(f.path)}>
           <td><button type="button" className="tree-name" style={{ paddingLeft: depth * 18 }} disabled={busy} onClick={() => onOpen(f.path)}>
             <span className="tw" aria-hidden /><span className={"ic " + kind} aria-hidden>{kind === "miss" ? "!" : kind === "chg" ? "≠" : "="}</span><span translate="no">{f.name}</span>
           </button></td>
@@ -278,9 +280,9 @@ function Compare({ opened, onlyDiff, setOnlyDiff, busy, note, onBack, onSave }:
     if (s.content === null) return null;
     return (
       <>
-        <button type="button" className="link small" disabled={busy} onClick={() => setEditing(editing === col ? null : col)}>{editing === col ? "直すのをやめる" : "直す"}</button>
+        <button type="button" className="link small" disabled={busy} title="このサーバーのファイルを、その場で書き換える" onClick={() => setEditing(editing === col ? null : col)}>{editing === col ? "直すのをやめる" : "直す"}</button>
         {col > 0 && drafts[0] !== null && drafts[col] !== drafts[0] && (
-          <button type="button" className="link small" disabled={busy} onClick={() => setCol(col, drafts[0]!)}>基準と同じにする</button>
+          <button type="button" className="link small" disabled={busy} title="このサーバーの中身を、基準のサーバーと同じ内容にする(保存するまでサーバーは変わりません)" onClick={() => setCol(col, drafts[0]!)}>基準と同じにする</button>
         )}
         {changed(col) && (
           <>

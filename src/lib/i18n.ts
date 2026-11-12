@@ -29,9 +29,17 @@ export function setLang(lang: "ja" | "en") {
   location.reload(); // 日本語に戻すときは書き換えた文字を戻せないので、読み込み直す
 }
 
+const TITLE = " - CraftShelf";
+
 /** 日本語の文を英語にする(辞書に無いところは日本語のまま) */
 export function translate(s: string): string {
   if (!dict || !JA.test(s)) return s;
+  // ページのタイトル(「サーバー: 名前 - CraftShelf」「設定: まとまり - CraftShelf」。サーバーの名前は訳さない)
+  if (s.endsWith(TITLE)) {
+    const head = s.slice(0, -TITLE.length);
+    const m = /^(サーバー|設定): (.+)$/.exec(head);
+    return (m ? (m[1] === "設定" ? `Settings: ${translate(m[2])}` : `Server: ${m[2]}`) : translate(head)) + TITLE;
+  }
   const { EN, EN_PUNCT, EN_RULES, EN_WHOLE } = dict;
   const t = s.trim();
   if (t in EN_WHOLE) return s.replace(t, EN_WHOLE[t]);
@@ -85,6 +93,9 @@ export async function startEnglish() {
     return;
   }
   document.documentElement.lang = "en";
+  const title = () => { const t = translate(document.title); if (t !== document.title) document.title = t; };
+  new MutationObserver(title).observe(document.head, { childList: true, subtree: true, characterData: true });
+  title();
   for (const name of ["confirm", "alert", "prompt"] as const) {
     const orig = window[name].bind(window) as (m?: string, d?: string) => never;
     (window as unknown as Record<string, unknown>)[name] = (m?: string, d?: string) => orig(m && translate(String(m)), d);

@@ -55,7 +55,7 @@ export function ShareMaker({ itemIds, name, label }: { itemIds: string[]; name: 
           <button className="link small" type="button" onClick={() => copy(l.text)}>コピー</button>
         </span>
       ))}
-      {made && <span className="muted small">wget・curl は、サーバーのプラグイン・Mod のフォルダで実行すると、そのまま置けます。止める・消すのは「チーム」→「共有リンク」から。</span>}
+      {made && <span className="muted small">wget・curl は、サーバーのプラグイン・Mod のフォルダで実行すると、そのまま置けます。止める・消すのは設定の「共有リンク」から。</span>}
       {error && <span className="error" role="alert">{error}</span>}
     </span>
   );

@@ -1,23 +1,24 @@
 import { useEffect, useState } from "react";
 import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Info } from "~/lib/ui";
+import { Info, fmtSize } from "~/lib/ui";
 import { SettingsFrame } from "~/lib/settings-frame";
 import { SOURCE_LABEL, isItemSource } from "~/lib/sources";
 import { ITEM_TYPES } from "~/lib/platforms";
 import { roleLabel } from "~/lib/permissions";
 import { teamUsage } from "~/lib/shares-api";
+import { settingsTitle } from "~/lib/titles";
 
 export const Route = createFileRoute("/usage")({
   beforeLoad: ({ context }) => {
     if (!context.user) throw redirect({ to: "/login", search: { next: "/usage" } });
     return { user: context.user };
   },
+  head: () => ({ meta: [{ title: settingsTitle("usage") }] }),
   component: Usage,
 });
 
 const TYPE_LABEL: Record<string, string> = ITEM_TYPES;
-const size = (b: number) => (b >= 1024 ** 3 ? `${(b / 1024 ** 3).toFixed(1)} GB` : b >= 1024 ** 2 ? `${(b / 1024 ** 2).toFixed(1)} MB` : `${Math.ceil(b / 1024)} KB`);
 
 // チームの利用状況(管理者以上)
 function Usage() {
@@ -37,13 +38,13 @@ function Usage() {
             {Object.entries(u.items).map(([k, n]) => (
               <div className="row" key={k}><span className="muted">{isItemSource(k) ? SOURCE_LABEL[k] : k}</span><span className="trail">{n} 件</span></div>
             ))}
-            <div className="row"><span>アップロードした版</span><span className="trail">{u.files.count} 個・{size(u.files.bytes)}</span></div>
+            <div className="row"><span>アップロードした版</span><span className="trail">{u.files.count} 個・{fmtSize(u.files.bytes)}</span></div>
           </section>
           {u.storage.length > 0 && (
             <>
               <div className="gtitle">保存先ごと</div>
               <section className="group">
-                {u.storage.map((s) => <div className="row" key={s.name}><span translate="no">{s.name}</span><span className="trail">{s.count} 個・{size(s.bytes)}</span></div>)}
+                {u.storage.map((s) => <div className="row" key={s.name}><span translate="no">{s.name}</span><span className="trail">{s.count} 個・{fmtSize(s.bytes)}</span></div>)}
               </section>
             </>
           )}
@@ -62,7 +63,7 @@ function Usage() {
                   <span><span translate="no">{m.name || m.email}</span> <span className="muted small">{m.role.split(",").map(roleLabel).join("・")}</span></span>
                   <span className="muted small">
                     {`登録 ${m.items} 件`}{Object.keys(m.types).length > 0 && `(${Object.entries(m.types).map(([k, n]) => `${TYPE_LABEL[k] ?? k} ${n}`).join("・")})`}
-                    {` · アップロード ${m.files} 個・${size(m.bytes)} · セット ${m.sets} 個 · 共有リンク ${m.shareLinks} 個`}
+                    {` · アップロード ${m.files} 個・${fmtSize(m.bytes)} · セット ${m.sets} 個 · 共有リンク ${m.shareLinks} 個`}
                   </span>
                   <span className="muted small">
                     {`操作 ${m.actions} 回(30 日で ${m.recentActions} 回)`}{m.lastActionAt ? ` · 最後の操作 ${new Date(m.lastActionAt).toLocaleString("ja-JP")}` : " · 操作はまだありません"}

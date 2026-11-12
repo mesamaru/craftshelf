@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { Btn } from "~/lib/ui";
+import { localDate } from "~/lib/format";
 import { modVersions } from "~/lib/library-api";
 import { mcCompare, mcRange } from "~/lib/platforms";
 import { SOURCE_LABEL, type ItemSource } from "~/lib/sources";
@@ -55,7 +56,7 @@ export function VersionPicker({ rows, source, value, onChange, current, mc }: { 
                 {TYPE[v.type] && <span className="tag">{TYPE[v.type]}</span>}
                 {v.versionId === current && <span className="tag">今</span>}
               </span>
-              <span className="sub">{[span && `MC ${span}${gap ? `(${mc} は未対応)` : ""}`, v.date.slice(0, 10), originOf(v, source)].filter(Boolean).join(" · ")}</span>
+              <span className="sub">{[span && `MC ${span}${gap ? `(${mc} は未対応)` : ""}`, v.date && localDate(v.date), originOf(v, source)].filter(Boolean).join(" · ")}</span>
             </span>
             <SupportBadge s={v.support} />
           </button>

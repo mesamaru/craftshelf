@@ -9,7 +9,7 @@ import { AddonIcon } from "~/lib/type-icon";
 import { sharedLocalEnabled } from "~/lib/servers-api";
 import { listBackups } from "~/lib/backup-api";
 import { notifySettings } from "~/lib/events-api";
-import { CHANNELS, SOURCE_LABEL, type Channel, type ItemSource, isItemSource, pageUrl } from "~/lib/sources";
+import { CHANNELS, type Channel, type ItemSource, isItemSource, pageUrl, sourceLabel } from "~/lib/sources";
 import { removeUploadedFile, uploadedFiles } from "~/lib/uploads-api";
 import { ShareMaker } from "~/lib/share-maker";
 import { saveVersion, setItemSaved, zipPlan } from "~/lib/saved-api";
@@ -19,6 +19,8 @@ import { MobileSearch, OPEN_ADD, StoragePill } from "~/lib/shell";
 import { listSets, toggleSetItem } from "~/lib/sets-api";
 import { ActionBar, Btn, Chip, Icon, Info, Menu, Sheet, fmtSize } from "~/lib/ui";
 import { SupportBadge, VersionChooser, type VRow, confirmUnsupported } from "~/lib/version-picker";
+import { pageTitle } from "~/lib/titles";
+import { itemSub } from "~/lib/item-sub";
 
 // ?item= で開いているアイテム(戻るボタンで閉じる)。?type= ?f= はホームから来たときの絞り込み
 type Search = { item?: string; type?: string; f?: "upd" | "deps" | "nomc" };
@@ -32,20 +34,18 @@ export const Route = createFileRoute("/")({
     if (!context.user) throw redirect({ to: "/login" });
     return { user: context.user };
   },
+  head: () => ({ meta: [{ title: pageTitle("ライブラリ") }] }),
   component: Library,
 });
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
 const TYPE_LABEL: Record<string, string> = ITEM_TYPES;
-const sourceLabel = (s: string) => (isItemSource(s) ? SOURCE_LABEL[s] : s);
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString("ja-JP");
 
 type Catalog = Awaited<ReturnType<typeof libraryCatalog>>;
 type CatItem = Catalog["items"][number];
 type DepInfo = Awaited<ReturnType<typeof libraryMissingDeps>>["items"][number]["servers"];
-/** 一覧の小さな説明(v02 と同じ「版 · N バージョン · 大きさ · 日付」。無いものは出さない) */
-const subOf = (i: CatItem, date = true) =>
-  [i.version, i.files ? `${i.files} バージョン` : "", i.size ? fmtSize(i.size) : "", date ? fmtDate(i.createdAt) : ""].filter(Boolean).join(" · ");
+const subOf = itemSub; // 一覧の小さな説明(src/lib/item-sub.ts)
 
 // 一覧の絞り込み・並べ替え。oldIds は「更新あり」(アイテム → 古い版のサーバー)、depIds は「前提不足」を確かめた結果(確かめるまでは null)
 type Sort = "fav" | "name" | "new" | "old" | "size" | "count";
@@ -154,10 +154,10 @@ function Library() {
       {cat && cat.items.length > 0 && (
         <div className="lsum">
           <button type="button" className={`ls-tile upd${f.old ? " on" : ""}`} aria-pressed={f.old} onClick={toggleOld} title="どこかのサーバーに古い版が入っているもの(配布元に問い合わせます。更新を止めたものは除きます)">
-            <span className="l"><Icon name="reload" />更新あり</span><span className="v">{f.oldIds ? f.oldIds.size : "—"}</span>
+            <span className="l"><Icon name="reload" />更新あり</span><span className="v">{f.oldIds ? f.oldIds.size : "—"}</span>{!f.oldIds && <span className="h">押すと確かめます</span>}
           </button>
           <button type="button" className={`ls-tile deps${f.deps ? " on" : ""}`} aria-pressed={f.deps} onClick={toggleDeps} title="入っているサーバーに、必須の前提が無いもの(配布元に問い合わせます)">
-            <span className="l"><Icon name="puzzle" />前提不足</span><span className="v">{f.depIds ? f.depIds.size : "—"}</span>
+            <span className="l"><Icon name="puzzle" />前提不足</span><span className="v">{f.depIds ? f.depIds.size : "—"}</span>{!f.depIds && <span className="h">押すと確かめます</span>}
           </button>
         </div>
       )}
@@ -369,6 +369,7 @@ function Bulk({ ids, cat, share, allShown, onAll, onClear, onDone }:
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const [res, setRes] = useState<{ server: string; ok: number; already: number; failed: [string, string][] } | null>(null); // 「サーバーに入れる」の結果
   useEffect(() => { loadSets().then(setSets, () => setSets([])); }, []);
   const items = cat.items.filter((i) => ids.includes(i.id));
   const none = busy || !ids.length;
@@ -396,17 +397,26 @@ function Bulk({ ids, cat, share, allShown, onAll, onClear, onDone }:
   // そのサーバーに入れられるもの(種類が合い、まだ入っていない。Modパックはアイテムのシートから)
   const fits = (s: Catalog["servers"][number]) => items.filter((i) => isItemSource(i.source) && i.projectType !== "modpack"
     && s.kinds.includes(i.projectType as ItemType) && !i.installs.some((x) => x.serverId === s.id));
-  const installAll = (s: Catalog["servers"][number]) => run(async () => {
-    let ok = 0;
+  // 入れた・すでに入っていた・入れられなかった(理由つき)を、シートの中に出す(シートは閉じない)
+  const already = (s: Catalog["servers"][number]) => items.filter((i) => i.installs.some((x) => x.serverId === s.id)).length;
+  const installAll = async (s: Catalog["servers"][number]) => {
+    setBusy(true);
+    setError("");
+    setNote("");
+    setRes(null);
+    const out = { server: s.name, ok: 0, already: already(s), failed: [] as [string, string][] };
     for (const i of fits(s)) {
       try {
         await install({ data: { id: s.id, projectId: i.projectId, source: i.source as ItemSource } });
-        ok++;
-      } catch {}
+        out.ok++;
+      } catch (e) {
+        out.failed.push([i.title, message(e)]);
+      }
     }
-    const failed = fits(s).length - ok;
-    return failed ? `${ok} 件を入れました。${failed} 件は入れられませんでした` : `${ok} 件を入れました`;
-  }, false);
+    setRes(out);
+    setBusy(false);
+    onDone(false);
+  };
   const removeAll = () => {
     if (confirm(`${ids.length} 件をライブラリから外しますか?(サーバーに入っているファイルはそのままです)`)) {
       run(async () => { for (const itemId of ids) await remove({ data: { itemId } }); return `${ids.length} 件を外しました`; }, true);
@@ -441,14 +451,25 @@ function Bulk({ ids, cat, share, allShown, onAll, onClear, onDone }:
           <section className="group">
             {cat.servers.map((s) => {
               const n = fits(s).length;
+              const have = already(s);
+              const other = items.length - n - have; // 種類が合わない・入れられないもの
               return (
                 <div key={s.id} className="row">
-                  <span className="mid"><span className="ttl" translate="no">{s.name}</span><span className="sub">{`${n} 件`}</span></span>
-                  <Btn kind="tint" sm disabled={!n} onClick={() => installAll(s)}>入れる</Btn>
+                  <span className="mid"><span className="ttl" translate="no">{s.name}</span>
+                    <span className="sub">{[n ? `${n} 件を入れる` : "入れるものはありません", have ? `入っている ${have}` : "", other > 0 ? `種類が合わない ${other}` : ""].filter(Boolean).join(" · ")}</span></span>
+                  <Btn kind="tint" sm disabled={!n || busy} onClick={() => installAll(s)}>入れる</Btn>
                 </div>
               );
             })}
           </section>
+          {res && (
+            <section className="group" role="status">
+              <div className="row"><span className="main">
+                <span><span translate="no">{res.server}</span>: {[res.ok ? `入れた ${res.ok}` : "", res.already ? `すでに入っていた ${res.already}` : "", res.failed.length ? `入れられなかった ${res.failed.length}` : ""].filter(Boolean).join(" · ") || "入れるものはありませんでした"}</span>
+                {res.failed.map(([t, why]) => <span key={t} className="error"><span translate="no">{t}</span>: {why}</span>)}
+              </span></div>
+            </section>
+          )}
         </Sheet>
       )}
       {sheet === "share" && (
@@ -842,7 +863,7 @@ function EditInfo({ item, teamChannel, onDone, onClose }: { item: CatItem; teamC
             </select>
           </label>
           <label className="edit-field">
-            <span className="muted small">動く作り(カンマで区切る。空なら配布元のとおり)</span>
+            <span className="muted small">対応サーバー(カンマで区切る。空なら配布元のとおり)</span>
             <input value={loaders} disabled={busy} placeholder="例: paper, spigot" onChange={(e) => setLoaders(e.target.value)} />
           </label>
           <label className="edit-field">

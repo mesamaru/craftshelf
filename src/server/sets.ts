@@ -163,7 +163,19 @@ export function setService(deps: Deps) {
     for (const s of from.rows) {
       const key = `${s.source}:${s.projectId}`;
       const now = present.get(key);
-      if (!isItemSource(s.source) || (!now && mode === "update") || now?.versionId === s.versionId) continue;
+      // 入れなかったもの・変えなかったものも、理由つきで結果に出す(画面が「入れた N・更新 N・変えなかった N」と数える)
+      if (!isItemSource(s.source)) {
+        out.push({ title: s.title, status: "skipped", detail: "配布元が分からないので入れません" });
+        continue;
+      }
+      if (!now && mode === "update") {
+        out.push({ title: s.title, status: "skipped", detail: "入っていないので入れません" });
+        continue;
+      }
+      if (now?.versionId === s.versionId) {
+        out.push({ title: s.title, status: "present", detail: `同じ版です(${now.versionNumber})` });
+        continue;
+      }
       if (now && isDisabled(now.filename)) {
         out.push({ title: s.title, status: "present", detail: `無効にしています(${now.versionNumber})` });
         continue;
@@ -184,7 +196,7 @@ export function setService(deps: Deps) {
         const r = await installInto(teamId, userId, target, q, s.source, s.projectId, { file, depth: 0 });
         // そろえる元で更新を止めているもの(古い版にしたもの)は、こちらでも止める(自動更新・予約で戻されないように)
         if (from.holds.has(key)) await db.insert(serverHold).values({ serverId: target.row.id, source: s.source, projectId: s.projectId, createdBy: userId }).onConflictDoNothing();
-        out.push({ title: s.title, status: now ? "updated" : "installed", detail: now ? `${now.versionNumber} → ${r.versionNumber}` : r.versionNumber });
+        out.push({ title: s.title, status: now ? "updated" : "installed", detail: now ? `${now.versionNumber} → ${r.versionNumber}(そろえる元と同じ版)` : r.versionNumber });
       } catch (e) {
         if (!isHttpError(e)) throw e;
         out.push({ title: s.title, status: "failed", detail: e.message });

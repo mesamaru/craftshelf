@@ -1,6 +1,36 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  // 03.73.02: 画面の使いにくさ・見た目・文言の直し
+  "変更を元に戻す": "Undo change",
+  "起動・停止の設定を開く": "Open start/stop settings",
+  "退避": "Set aside",
+  "CraftShelf が、外したり戻したりするときに、消さずに名前を変えて残したものです。「変更の履歴」から元に戻せます。要らなければ消しても構いません。": "Kept by CraftShelf under a new name, instead of being deleted, when something was removed or restored. It can be undone from “Change history”. You can delete it if you don't need it.",
+  "押すと確かめます": "Tap to check",
+  "対応サーバー(カンマで区切る。空なら配布元のとおり)": "Supported servers (comma-separated; empty = as on the source)",
+  "アドオンの種類とバージョン": "Add-on type and version",
+  "アドオン(プラグイン・Mod)を探す・入れるときの条件です。「サーバー本体」(動かしている jar の種類。選べる種類が多く、Leaf・Pufferfish は Paper として扱うなど)とは別に決められます。ふつうはどちらも同じ種類にします。":
+    "These are the conditions used to search for and install add-ons (plugins and mods). They are set separately from “Server software” (the kind of jar being run, which has more choices; Leaf and Pufferfish count as Paper, for example). Usually both are set to the same kind.",
+  "動かしている jar(本体)の種類とビルドです。アドオンを探す条件(「アドオンの種類とバージョン」)とは別です。": "The kind and build of the jar being run. This is separate from the conditions used to search for add-ons (“Add-on type and version”).",
+  "入っているものの版だけ、元と同じにする": "Set only installed items to the same version as the source",
+  "無いものも入れ、入っているものは版を同じにする": "Also install missing items, and match the versions of installed ones",
+  "元と同じ構成にする(足りないものは入れ、元に無いものは外す)": "Match the source exactly (install missing items, remove items the source lacks)",
+  "同じ版です": "Same version",
+  "無効にしています": "Disabled",
+  "配布元が分からないので入れません": "Not installed: the source is unknown",
+  "入っていないので入れません": "Not installed: it isn't on this server",
+  "そろえる元と同じ版": "same as the source",
+  "入れるものはありません": "Nothing to install",
+  "入れるものはありませんでした": "Nothing was installed",
+  "アドオン: 最新(サーバー本体の新しいビルドは、サーバーの画面で確かめます)": "Add-ons: up to date (check the server software's new builds on the server's page)",
+  "このサーバーのファイルを、その場で書き換える": "Edit this server's file right here",
+  "このサーバーの中身を、基準のサーバーと同じ内容にする(保存するまでサーバーは変わりません)": "Make this server's content the same as the base server's (the server isn't changed until you save)",
+  "アカウントの作成": "Create account",
+  "プライバシー": "Privacy",
+  "要る範囲:": "Needs:",
+  "一覧の表示": "List view",
+  "が使います(入っていません)": "uses this (not installed)",
+  "が使います": "uses this",
   // 03.68.00: v02 に合わせた枠・ホーム・ライブラリ
   "メニューを広げる": "Expand menu",
   "メニューを畳む": "Collapse menu",
@@ -626,14 +656,14 @@ export const EN: Record<string, string> = {
   "自分用の版だけで使えます": "Available only in the self-hosted edition",
   "Modpack から作る": "Create from a modpack",
   "Modpack のファイル(.mrpack・CurseForge の zip)を選ぶ": "Choose a modpack file (.mrpack or CurseForge zip)",
-  "Modpack に入っている Mod をライブラリに載せ、Modpack の名前のセットを作ります。Modrinth のものはファイルの中身(SHA-1)で探し、CurseForge のものは「チーム」で API キーを設定すると読めます。設定ファイル(overrides)は、サーバーを選んだときだけ、そのサーバーに書き込みます(テキストの設定ファイルだけ。上書きする前の中身は履歴に残ります。管理者以上)。": "Adds the modpack's mods to the library and creates a set named after the modpack. Modrinth mods are found by file contents (SHA-1); CurseForge modpacks need an API key set under “Team”. Config files (overrides) are written only when you choose a server (text config files only; previous content is kept in the history; admins and above).",
+  "Modpack に入っている Mod をライブラリに載せ、Modpack の名前のセットを作ります。Modrinth のものはファイルの中身(SHA-1)で探し、CurseForge のものは設定の「CurseForge API キー」で API キーを設定すると読めます。設定ファイル(overrides)は、サーバーを選んだときだけ、そのサーバーに書き込みます(テキストの設定ファイルだけ。上書きする前の中身は履歴に残ります。管理者以上)。": "Adds the modpack's mods to the library and creates a set named after the modpack. Modrinth mods are found by file contents (SHA-1); CurseForge modpacks need an API key set under Settings → “CurseForge API key”. Config files (overrides) are written only when you choose a server (text config files only; previous content is kept in the history; admins and above).",
   "設定ファイル(overrides)も書き込むサーバー": "Also write config files (overrides) to",
   "設定ファイルも書き込むサーバー": "Server to write config files to",
   "書き込まない": "Don't write",
   ".mrpack か、CurseForge の Modpack(manifest.json が入った zip)を選んでください": "Choose a .mrpack or a CurseForge modpack (zip with manifest.json)",
   "Modpack の中身が読めませんでした": "Could not read the modpack",
   "ライブラリに載せられる Mod がありませんでした": "No mods could be added to the library",
-  "CurseForge の Modpack を読むには、「チーム」で CurseForge の API キーを設定してください": "To read CurseForge modpacks, set a CurseForge API key under “Team”",
+  "CurseForge の Modpack を読むには、設定の「CurseForge API キー」で API キーを設定してください": "To read CurseForge modpacks, set an API key under Settings: “CurseForge API key”",
   "バックアップ": "Backup",
   "次の起動でバックアップと入れ替えます。": "The backup will replace the data on the next start. ",
   "やめています…": "Cancelling…",
@@ -785,7 +815,7 @@ export const EN: Record<string, string> = {
   "CurseForge の API キーを設定": "Set the CurseForge API key",
   "CurseForge は、自分用の版だけで使えます": "CurseForge is available only in the self-hosted edition",
   "CurseForge へのリクエストが多すぎます。しばらく待ってからお試しください": "Too many requests to CurseForge. Wait a while and try again",
-  "CurseForge を使うには、「チーム」で CurseForge の API キーを設定してください": "To use CurseForge, set a CurseForge API key under “Team”",
+  "CurseForge を使うには、設定の「CurseForge API キー」で API キーを設定してください": "To use CurseForge, set an API key under Settings: “CurseForge API key”",
   "Discord の Webhook の URL を入力してください": "Enter the Discord webhook URL",
   "Discord の Webhook の URL(https://discord.com/api/webhooks/…)を入力してください": "Enter the Discord webhook URL (https://discord.com/api/webhooks/…)",
   "Discord のチャンネルの設定 → 連携サービス → ウェブフックで作った URL を入れてください。URL は暗号化して保存し、画面には最後の 4 文字だけを出します。通知ではメンションはしません。": "Enter the URL created under the channel's Settings → Integrations → Webhooks in Discord. The URL is stored encrypted and only its last 4 characters are shown. Notifications never mention anyone.",
@@ -1302,7 +1332,7 @@ export const EN: Record<string, string> = {
   "止まっています": "Stopped",
   "止めるのをやめる": "Resume",
   "決まった範囲": "Fixed range",
-  "決めた曜日・時刻に、セットを結び付けたすべてのサーバーをそろえる(足りないものを入れ、新しい版があれば更新する)か、何も変えずに更新があるかを確かめます。結果は「チーム」→「操作の記録と Discord への通知」に残り、Discord の「予約の結果」を選んでいれば知らせます。決められるのは管理者以上です。": "On the chosen days and time, either sync every server linked to a set (install what is missing and update anything with a new version) or just check for updates without changing anything. Results go to “Team” → “Activity log and Discord notifications”, and are sent to Discord if “Schedule results” is selected. Admins and above can set this.",
+  "決めた曜日・時刻に、セットを結び付けたすべてのサーバーをそろえる(足りないものを入れ、新しい版があれば更新する)か、何も変えずに更新があるかを確かめます。結果は設定の「操作の記録と通知」に残り、Discord の「予約の結果」を選んでいれば知らせます。決められるのは管理者以上です。": "On the chosen days and time, either sync every server linked to a set (install what is missing and update anything with a new version) or just check for updates without changing anything. Results go to Settings → “Activity and notifications”, and are sent to Discord if “Schedule results” is selected. Admins and above can set this.",
   "消しました": "Deleted",
   "消す": "Delete",
   "版の形が違います": "Invalid version format",
@@ -1375,7 +1405,7 @@ export const EN: Record<string, string> = {
   "読み込み中…": "Loading…",
   "読み込めませんでした": "Could not load",
   "読み込んでいます…": "Loading…",
-  "読めませんでした。「チーム」で設定し直してください": "Could not read it. Set it again under “Team”",
+  "読めませんでした。設定の「CurseForge API キー」で設定し直してください": "Could not read it. Set it again under Settings → “CurseForge API key”",
   "読めませんでした。「保存先」で設定し直してください": "Could not read it. Set it again under “Storage”",
   "読めませんでした。設定し直してください": "Could not read it. Set it again",
   "起動": "Start",
@@ -1406,7 +1436,7 @@ export const EN: Record<string, string> = {
   "選んでください…": "Choose…",
   "配布元": "Source",
   "配布元から足す": "Add from a source",
-  "配布元に無いプラグイン・Mod を、jar のままライブラリに載せます。中の plugin.yml・fabric.mod.json などから名前・版・動くサーバーの種類を読み取り、同じ名前のものは新しい版として足します。置き場所は「チーム」→「保存先」で決められます(1 つ 1 GB まで)。": "Add plugins and mods that are not on any source to the library as jars. The name, version and supported server types are read from plugin.yml, fabric.mod.json, etc.; a file with the same name is added as a new version. Choose where they are stored under “Team” → “Storage” (up to 1 GB each).",
+  "配布元に無いプラグイン・Mod を、jar のままライブラリに載せます。中の plugin.yml・fabric.mod.json などから名前・版・動くサーバーの種類を読み取り、同じ名前のものは新しい版として足します。置き場所は設定の「ストレージ」で決められます(1 つ 1 GB まで)。": "Add plugins and mods that are not on any source to the library as jars. The name, version and supported server types are read from plugin.yml, fabric.mod.json, etc.; a file with the same name is added as a new version. Choose where they are stored under Settings → “Storage” (up to 1 GB each).",
   "配布元の外へ転送されたので、取り込みませんでした": "Not fetched because it redirected outside the source",
   "配布元を選んでください": "Choose a source",
   "閉じる": "Close",
@@ -1458,8 +1488,8 @@ export const EN: Record<string, string> = {
   "ダウンロードできる回数": "Download limit",
   "リンクを作る": "Create link",
   "期限はありません": "No expiry",
-  "wget・curl は、サーバーのプラグイン・Mod のフォルダで実行すると、そのまま置けます。止める・消すのは「チーム」→「共有リンク」から。":
-    "Run wget or curl in the server's plugins or mods folder to put the file there directly. Stop or delete links under “Team” → “Share links”.",
+  "wget・curl は、サーバーのプラグイン・Mod のフォルダで実行すると、そのまま置けます。止める・消すのは設定の「共有リンク」から。":
+    "Run wget or curl in the server's plugins or mods folder to put the file there directly. Stop or delete links under Settings → “Share links”.",
   "まだありません。ライブラリのアップロードしたものの「版を見る」か、選んだものから作れます。": "None yet. Create one from “Versions” of an uploaded item in the library, or from selected items.",
   "止めました・期限切れ": "Stopped or expired",
   "回数を使い切りました": "Download limit reached",
@@ -1498,8 +1528,8 @@ export const EN: Record<string, string> = {
   "結び付けたセットでそろえる": "Sync with the linked set",
   "決めた時刻に、このサーバーの Mod・プラグインを新しい版にする(「更新を止める」にしたもの・無効にしたものは除く)か、結び付けたセットでそろえます。何か変えて「変えたら再起動する」を選んでいれば、サーバーを再起動します。セットの画面の予約(チームで 1 つ)とは別に動きます。時刻は保存したときのブラウザの時間帯です。決められるのは管理者以上です。":
     "At the set time, updates this server's mods and plugins (except held and disabled ones) or syncs it with the linked set. If something changed and “Restart if anything changed” is on, the server restarts. This runs separately from the team schedule on the Sets page. The time uses the browser's time zone when saved. Admins and above can change it.",
-  "決めた曜日・時刻に、セットを結び付けたすべてのサーバーをそろえる(足りないものを入れ、新しい版があれば更新する)か、何も変えずに更新があるかを確かめます。結果は「チーム」→「操作の記録と Discord への通知」に残り、Discord の「予約の結果」を選んでいれば知らせます。決められるのは管理者以上です。サーバーごとの予約(毎日・毎週・変えたら再起動)は、それぞれのサーバーの画面で決められます。":
-    "On the chosen days and time, syncs every server linked to a set (installs missing items and updates to new versions) or only checks for updates without changing anything. Results are kept in “Team” → “Activity log and Discord notifications”, and sent to Discord if “Scheduled results” is selected. Admins and above can change it. Per-server schedules (daily, weekly, restart after changes) are set on each server's page.",
+  "決めた曜日・時刻に、セットを結び付けたすべてのサーバーをそろえる(足りないものを入れ、新しい版があれば更新する)か、何も変えずに更新があるかを確かめます。結果は設定の「操作の記録と通知」に残り、Discord の「予約の結果」を選んでいれば知らせます。決められるのは管理者以上です。サーバーごとの予約(毎日・毎週・変えたら再起動)は、それぞれのサーバーの画面で決められます。":
+    "On the chosen days and time, syncs every server linked to a set (installs missing items and updates to new versions) or only checks for updates without changing anything. Results are kept in Settings → “Activity and notifications”, and sent to Discord if “Scheduled results” is selected. Admins and above can change it. Per-server schedules (daily, weekly, restart after changes) are set on each server's page.",
   // 03.55.00: サーバーの一覧の「すべて最新にする」
   "最新にしています…": "Updating…",
   "すべてのサーバーを最新にする": "Update all servers",
@@ -1524,8 +1554,8 @@ export const EN: Record<string, string> = {
   "ファイルを選ぶ(jar・zip・mrpack。いくつでも)": "Choose files (jar, zip, mrpack; any number)",
   "フォルダを選ぶ(中の jar・zip をまとめて)": "Choose a folder (all jar and zip files in it)",
   "ここにファイルかフォルダをドラッグしても送れます": "You can also drag files or a folder here",
-  "配布元に無いプラグイン・Mod(jar)と、データパック・リソースパック・シェーダー・Modパック(zip・mrpack)を、ファイルのままライブラリに載せます。jar は中の plugin.yml・fabric.mod.json などから名前・版・動くサーバーの種類を、zip は pack.mcmeta・shaders/ などから種類を読み取り、同じ名前のものは新しい版として足します。置き場所は「チーム」→「保存先」で決められます(1 つ 1 GB まで)。":
-    "Adds plugins and mods (jar) and data packs, resource packs, shaders and modpacks (zip, mrpack) that are not on a source to the library as files. For jars the name, version and server types are read from plugin.yml, fabric.mod.json and so on; for zips the type is read from pack.mcmeta, shaders/ and so on. Files with the same name are added as new versions. Choose where they are stored in “Team” → “Storage” (up to 1 GB each).",
+  "配布元に無いプラグイン・Mod(jar)と、データパック・リソースパック・シェーダー・Modパック(zip・mrpack)を、ファイルのままライブラリに載せます。jar は中の plugin.yml・fabric.mod.json などから名前・版・動くサーバーの種類を、zip は pack.mcmeta・shaders/ などから種類を読み取り、同じ名前のものは新しい版として足します。置き場所は設定の「ストレージ」で決められます(1 つ 1 GB まで)。":
+    "Adds plugins and mods (jar) and data packs, resource packs, shaders and modpacks (zip, mrpack) that are not on a source to the library as files. For jars the name, version and server types are read from plugin.yml, fabric.mod.json and so on; for zips the type is read from pack.mcmeta, shaders/ and so on. Files with the same name are added as new versions. Choose where they are stored in Settings → “Storage” (up to 1 GB each).",
   "データパックは、サーバーのワールド(server.properties の level-name)の datapacks に入れます。リソースパック・シェーダーはクライアントで使うものなので、ライブラリで持ち、「詳しく」の版からダウンロードできます。Modパックからは、セットを作ったり、サーバーに中の Mod と設定ファイルを入れたりできます(新しい版が出たらお知らせします)。":
     "Data packs go into the datapacks folder of the server's world (level-name in server.properties). Resource packs and shaders are used on the client, so they are kept in the library and can be downloaded from the versions under “Details”. From a modpack you can create a set or install its mods and config files on a server (you are notified when a new version comes out).",
   "データパック・リソースパック・シェーダー・Modパック(あとから)": "Data packs, resource packs, shaders and modpacks (later)",
@@ -1587,7 +1617,7 @@ export const EN: Record<string, string> = {
   "自分のこのチームでの権限(役割・チームの設定・メンバーごとの足し引きを合わせたもの。\"種類:操作\" の一覧)": "Your permissions in this team (role, team settings and per-member changes combined; a list of \"kind:action\")",
   "ユーザーごとの権限": "Per-user permissions",
   "パネルのバックアップは、v03 では管理者以上だけです": "In v03, panel backups are for admins and above only",
-  "Pterodactyl のパネルを登録するのは、v03 では「サーバーを追加する」の権限です(要るなら「チーム」で足してください)": "In v03, registering a Pterodactyl panel needs the “Add servers” permission (add it under “Team” if needed)",
+  "Pterodactyl のパネルを登録するのは、v03 では「サーバーを追加する」の権限です(要るなら「ユーザーと権限」で足してください)": "In v03, registering a Pterodactyl panel needs the “Add servers” permission (add it under Settings → “CurseForge API key” if needed)",
   "v03 では、メンバーの招待・役割の変更は管理者以上だけです(要るなら役割を管理者にしてください)": "In v03, only admins and above can invite members and change roles (make them an admin if needed)",
   "v03 のチームにいません": "Not in the v03 team",
   "v03 に同じ権限がありません": "v03 has no matching permission",
@@ -1863,6 +1893,26 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  // 03.73.02
+  [/^重複・番号の誤りが (\d+) 件あるため保存できません$/, "Cannot save: $1 duplicate or invalid port numbers"],
+  [/^「(.+?)」(?:の (.+?))?が使っています$/, (_, n, l) => `“${n}”${l ? `'s ${l}` : ""} is using it`],
+  [/^(.+) と同じ番号です$/, "Same number as $1"],
+  [/^ライブラリ管理 (\d+) 件$/, "Library: $1 items"],
+  [/^(\d+) 件を入れる$/, "Add $1"],
+  [/^入っている (\d+)$/, "Installed $1"],
+  [/^種類が合わない (\d+)$/, "Wrong type $1"],
+  [/^入れた (\d+)$/, "Added $1"],
+  [/^更新した (\d+)$/, "Updated $1"],
+  [/^外した (\d+)$/, "Removed $1"],
+  [/^変えなかった (\d+)(?:\((.+)\))?$/, (_, n, r) => `Unchanged ${n}${r ? ` (${r})` : ""}`],
+  [/^入れなかった (\d+)(?:\((.+)\))?$/, (_, n, r) => `Skipped ${n}${r ? ` (${r})` : ""}`],
+  [/^入れられなかった (\d+)$/, "Failed $1"],
+  [/^すでに入っていた (\d+)$/, "Already installed $1"],
+  [/^新しい版あり (\d+)$/, "New version available $1"],
+  [/^入っていない (\d+)$/, "Not installed $1"],
+  [/^同じ版です\((.+?)\)$/, "Same version ($1)"],
+  [/^アドオン: 更新 (\d+) 件$/, "Add-ons: $1 updates"],
+  [/^\((.+)以上\)$/, "($1 or higher)"],
   // 03.69.00
   [/^ほか (\d+) 件$/, "$1 more"],
   [/^アドオン (\d+)$/, "Add-ons $1"],

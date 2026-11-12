@@ -85,7 +85,7 @@ export function SettingsRows({ server, perms, soft, version, onOpen }: { server:
         {p && schedule && (perms.update || schedule.mode !== "off") && row("schedule", "予約", scheduleText(schedule))}
         {local && row("control", "起動・停止・RCON", CONTROL_LABEL[control] ?? "確かめています…")}
         {perms.admin && members !== null && row("members", "割り当てるメンバー", `${members} 人`)}
-        {row("profile", "種類とバージョン", p ? `${PLATFORMS[p.platform as keyof typeof PLATFORMS]?.label ?? p.platform} · ${p.mcVersion || "指定なし"}` : "未設定")}
+        {row("profile", "アドオンの種類とバージョン", p ? `${PLATFORMS[p.platform as keyof typeof PLATFORMS]?.label ?? p.platform} · ${p.mcVersion || "指定なし"} · ${PLATFORMS[p.platform as keyof typeof PLATFORMS]?.dir ?? "plugins"}/` : "未設定")}
         {p && perms.edit && others > 0 && row("promote", "検証用から本番へ反映", "このサーバーの構成をほかのサーバーへ")}
       </section>
       {error && <p className="error" role="alert">{error}</p>}
@@ -105,7 +105,7 @@ export function SettingsRows({ server, perms, soft, version, onOpen }: { server:
 /** 設定の行を押すと出るシート */
 export function SettingSheet({ kind, server, perms, soft, reloadSoft, onChanged, onClose }:
   { kind: SettingKey; server: Detail; perms: Perms; soft: SoftInfo | string | null; reloadSoft: () => Promise<unknown>; onChanged: () => void; onClose: () => void }) {
-  const title = { software: "サーバー本体", schedule: "予約", control: "起動・停止・RCON", members: "割り当てるメンバー", profile: "種類とバージョン", promote: "検証用から本番へ反映" }[kind];
+  const title = { software: "サーバー本体", schedule: "予約", control: "起動・停止・RCON", members: "割り当てるメンバー", profile: "アドオンの種類とバージョン", promote: "検証用から本番へ反映" }[kind];
   return (
     <Sheet title={title} onClose={onClose}>
       {kind === "software" && <Software id={server.id} admin={perms.update} info={soft} reload={reloadSoft} />}
@@ -162,7 +162,9 @@ function Profile({ id, profile, editable, onSaved }:
   }
   return (
     <>
-      <p className="sub">サーバーの種類を選ぶと、合う Mod・プラグインを探せるようになります。</p>
+      <p className="sub">サーバーの種類を選ぶと、合う Mod・プラグインを探せるようになります。
+        <Info>アドオン(プラグイン・Mod)を探す・入れるときの条件です。「サーバー本体」(動かしている jar の種類。選べる種類が多く、Leaf・Pufferfish は Paper として扱うなど)とは別に決められます。ふつうはどちらも同じ種類にします。</Info>
+      </p>
       <section className="group">
         <div className="row">
           <span>種類</span>
@@ -231,6 +233,23 @@ function Members({ id, onSaved }: { id: string; onSaved: () => void }) {
 // そろえ方は 3 通り(入っているものだけ合わせる・足りないものも入れる・まったく同じにする)
 export type CopyMode = "update" | "add" | "mirror";
 export const COPY_LABEL: Record<CopyMode, string> = { update: "入っているものだけ合わせる", add: "足りないものも入れる", mirror: "まったく同じにする" };
+const COPY_HELP: Record<CopyMode, string> = { update: "入っているものの版だけ、元と同じにする", add: "無いものも入れ、入っているものは版を同じにする", mirror: "元と同じ構成にする(足りないものは入れ、元に無いものは外す)" };
+
+/** 「そろえ方」の行: 選んでいる方法の説明を 1 行、3 つの違いは ⓘ に */
+export function CopyModeRow({ mode, onChange, disabled, label = "そろえ方" }: { mode: CopyMode; onChange: (m: CopyMode) => void; disabled?: boolean; label?: string }) {
+  return (
+    <div className="row column">
+      <span className="cm-line">
+        <span className="ttl">そろえ方</span>
+        <Info>{(Object.keys(COPY_LABEL) as CopyMode[]).map((k) => <span key={k}>{`${COPY_LABEL[k]}: ${COPY_HELP[k]}`}</span>)}</Info>
+        <select className="trail" value={mode} disabled={disabled} aria-label={label} onChange={(e) => onChange(e.target.value as CopyMode)}>
+          {(Object.keys(COPY_LABEL) as CopyMode[]).map((k) => <option key={k} value={k}>{COPY_LABEL[k]}</option>)}
+        </select>
+      </span>
+      <span className="muted small">{COPY_HELP[mode]}</span>
+    </div>
+  );
+}
 
 // 検証用から本番へ反映: このサーバーの構成を、選んだほかのサーバーへそろえる
 function CopyServers({ id, name, onDone }: { id: string; name: string; onDone: () => void }) {
@@ -265,12 +284,7 @@ function CopyServers({ id, name, onDone }: { id: string; name: string; onDone: (
         <Info>このサーバーに、このアプリで入れたもの(無効にしたものは除く)と同じ版を、選んだサーバーに入れます。そろえ方はアドオンの「そろえる」と同じです。</Info>
       </p>
       <section className="group">
-        <div className="row">
-          <span>そろえ方</span>
-          <select className="trail" value={mode} aria-label="反映するときのそろえ方" onChange={(e) => setMode(e.target.value as CopyMode)}>
-            {(Object.keys(COPY_LABEL) as CopyMode[]).map((k) => <option key={k} value={k}>{COPY_LABEL[k]}</option>)}
-          </select>
-        </div>
+        <CopyModeRow mode={mode} onChange={setMode} label="反映するときのそろえ方" />
         {others.map((o) => (
           <label className="row" key={o.id}>
             <input type="checkbox" className="ck" checked={to.has(o.id)}
@@ -472,7 +486,7 @@ function Software({ id, admin, info: loaded, reload: reloadInfo }: { id: string;
   return (
     <>
       <p className="sub">今のビルドと、いちばん新しいビルド
-        <Info>入れ替えるときは、サーバーが配布元から直接 jar を取り込みます。入れ替える前の jar はサーバーのフォルダに 5 つまで残し、そこへ戻せます。Paper・Folia・Purpur・Leaf・Pufferfish・Velocity・Waterfall・BungeeCord・Fabric・Vanilla・Mohist・SpongeVanilla は入れ替えられ、Forge・NeoForge・Quilt・Arclight は新しい版があるかだけを確かめます。</Info>
+        <Info>動かしている jar(本体)の種類とビルドです。アドオンを探す条件(「アドオンの種類とバージョン」)とは別です。入れ替えるときは、サーバーが配布元から直接 jar を取り込みます。入れ替える前の jar はサーバーのフォルダに 5 つまで残し、そこへ戻せます。Paper・Folia・Purpur・Leaf・Pufferfish・Velocity・Waterfall・BungeeCord・Fabric・Vanilla・Mohist・SpongeVanilla は入れ替えられ、Forge・NeoForge・Quilt・Arclight は新しい版があるかだけを確かめます。</Info>
       </p>
       <section className="group">
         {!loaded && <div className="row muted">確かめています…</div>}

@@ -259,6 +259,9 @@ describe("保存先の状況・中身・取り込み", () => {
     expect(files.map((f) => [f.filename, f.saved])).toEqual([["Beta-1.0.jar", true]]);
     const [row] = await t.db.select().from(libraryFile).where(eq(libraryFile.id, files[0].id));
     expect(row.upstreamVersionId).toBe("ver00003");
+    expect(row.origin).toBe("upstream"); // 配布元から保存した版
+    const mine = (await t.db.select({ o: libraryFile.origin }).from(libraryFile).innerJoin(libraryItem, eq(libraryFile.itemId, libraryItem.id)).where(eq(libraryItem.title, "MinePlugin")));
+    expect(mine.map((f) => f.o)).toEqual(["upload"]); // 配布元の見つからなかった inbox のものはアップロード扱い
   });
 });
 

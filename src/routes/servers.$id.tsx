@@ -10,7 +10,7 @@ import { AddonIcon } from "~/lib/type-icon";
 import { listServers, powerServer } from "~/lib/servers-api";
 import { filesAccess } from "~/lib/files-api";
 import { bindServerSet, copyServer, listSets, syncServerSet, updateServers } from "~/lib/sets-api";
-import { SOURCE_LABEL, type Source, pageUrl } from "~/lib/sources";
+import { SOURCE_LABEL, type Source, pageUrl, sourceLabel } from "~/lib/sources";
 import { type Status, useServerStatus } from "~/lib/server-status";
 import { useCan } from "~/lib/use-can";
 import { shared } from "~/lib/shared";
@@ -458,7 +458,7 @@ function Versions({ id, item, mc, onDone, onClose }: { id: string; item: Install
 }
 
 // 入れるもの 1 つ(1 段目で選んだもの)
-type Chosen = { source: Source | "upload"; projectId: string; title: string; iconUrl: string; type: "plugin" | "mod" | "datapack" };
+type Chosen = { source: Source | "upload"; projectId: string; title: string; iconUrl: string; type: "plugin" | "mod" | "datapack"; origin?: string };
 
 // 入れる(2 段): 1 段目 = プラグイン(Mod)の一覧(配布元で探す / ライブラリ)、2 段目 = そのものの版の一覧。
 // 一覧の「対応」の印は、このサーバーの Minecraft に対応する版があるか
@@ -560,11 +560,11 @@ function FromLibrary({ have, mc, datapacks, type, onChoose }: { have: Set<string
         {list.map((i) => {
           const installed = have.has(`${i.source}:${i.projectId}`);
           return (
-            <Row key={i.id} onClick={installed ? undefined : () => onChoose({ source: i.source as Source | "upload", projectId: i.projectId, title: i.title, iconUrl: i.iconUrl, type: i.projectType as Chosen["type"] })}>
+            <Row key={i.id} onClick={installed ? undefined : () => onChoose({ source: i.source as Source | "upload", projectId: i.projectId, title: i.title, iconUrl: i.iconUrl, type: i.projectType as Chosen["type"], origin: i.origin })}>
               <AddonIcon type={i.projectType} url={i.iconUrl} />
               <span className="mid">
                 <span className="ttl" translate="no">{i.title}</span>
-                <span className="sub">{[SOURCE_LABEL[i.source as Source | "upload"], i.version].filter(Boolean).join(" · ")}</span>
+                <span className="sub">{[sourceLabel(i.source, i.origin), i.version].filter(Boolean).join(" · ")}</span>
               </span>
               {installed ? <span className="badge ok">入っています</span> : <><SupportBadge s={supportOf(mc, i.mc, i.source === "spigot")} /><span className="chev" aria-hidden="true">›</span></>}
             </Row>
@@ -603,7 +603,7 @@ function PickVersion({ id, mc, chosen, onBack, onInstalled }: { id: string; mc: 
       <button type="button" className="pick-back" onClick={onBack}>‹ 一覧へ</button>
       <div className="pick-head">
         <AddonIcon type={chosen.type} url={chosen.iconUrl} size="lg" />
-        <span className="mid"><span className="ttl" translate="no">{chosen.title}</span><span className="sub">{chosen.source === "upload" ? "アップロード" : SOURCE_LABEL[chosen.source]}</span></span>
+        <span className="mid"><span className="ttl" translate="no">{chosen.title}</span><span className="sub">{sourceLabel(chosen.source, chosen.origin)}</span></span>
       </div>
       {done ? <p className="notice" role="status">{note}</p>
         : <VersionChooser args={{ id, projectId: chosen.projectId, source: chosen.source, kind }} mc={mc} label={busy ? "入れています…" : "入れる"} busy={busy} onChoose={put} />}

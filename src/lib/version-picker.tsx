@@ -7,7 +7,7 @@ import { Btn } from "~/lib/ui";
 import { localDate } from "~/lib/format";
 import { modVersions } from "~/lib/library-api";
 import { mcCompare, mcRange } from "~/lib/platforms";
-import { SOURCE_LABEL, type ItemSource } from "~/lib/sources";
+import { SOURCE_LABEL, type ItemSource, sourceLabel } from "~/lib/sources";
 
 export type VRow = Awaited<ReturnType<typeof modVersions>>[number];
 export type VArgs = { id: string; projectId: string; source: ItemSource; kind?: "datapack" };
@@ -37,7 +37,7 @@ export function whyVersion(rows: VRow[], v: VRow | undefined, mc: string) {
 
 // 出どころ(配布元の版・ライブラリに保存した版)
 const originOf = (v: VRow, source: ItemSource) =>
-  v.upstream && v.saved && source !== "upload" ? `${SOURCE_LABEL[source]}・保存済み` : v.saved ? (source === "upload" ? "アップロード" : "ライブラリに保存") : SOURCE_LABEL[source];
+  v.upstream && v.saved && source !== "upload" ? `${SOURCE_LABEL[source]}・保存済み` : v.saved ? (source === "upload" ? sourceLabel("upload", v.origin) : "ライブラリに保存") : SOURCE_LABEL[source];
 
 /** 版の一覧(選ぶ)。current = いま入っている版の ID */
 export function VersionPicker({ rows, source, value, onChange, current, mc }: { rows: VRow[]; source: ItemSource; value: string; onChange: (v: VRow) => void; current?: string; mc?: string }) {

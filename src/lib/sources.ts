@@ -1,3 +1,4 @@
+import { isOrigin, ORIGIN_LABEL } from "./origin";
 import type { ItemType } from "./platforms";
 // 配布元(画面とサーバーで共有)。Modrinth・SpigotMC は、ファイルをこのアプリを通さず Pterodactyl に直接取り込ませる。
 // upload は利用者がアップロードしたもの(自分用の版だけ。保存先に置いて、サーバーに送る)
@@ -8,8 +9,8 @@ export const isSource = (v: unknown): v is Source => v === "modrinth" || v === "
 export const isItemSource = (v: unknown): v is ItemSource => isSource(v) || v === "upload";
 export const SOURCE_LABEL: Record<ItemSource, string> = { modrinth: "Modrinth", spigot: "SpigotMC", curseforge: "CurseForge", upload: "アップロード" };
 
-/** 出どころの名前(画面に出すとき。知らないものはそのまま) */
-export const sourceLabel = (s: string) => (isItemSource(s) ? SOURCE_LABEL[s] : s);
+/** 配布元の名前(画面に出すとき。知らないものはそのまま)。アップロードしたもの(upload)は、origin(ファイルの出どころ。src/lib/origin.ts)があれば、それで言い分ける */
+export const sourceLabel = (s: string, origin = "") => (s === "upload" && isOrigin(origin) ? ORIGIN_LABEL[origin] : isItemSource(s) ? SOURCE_LABEL[s] : s);
 
 /** 配布元のページ(アップロードしたものには無い) */
 export const pageUrl = (source: string, projectId: string, slug = "") =>

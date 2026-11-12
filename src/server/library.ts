@@ -107,7 +107,7 @@ export async function fromSource<T>(fn: () => Promise<T>): Promise<T> {
 type Target = Awaited<ReturnType<typeof serverOf>>;
 type FileRow = typeof libraryFile.$inferSelect;
 /** 版の一覧の 1 行: 配布元の版と、ライブラリに保存した版を合わせたもの(同じ版は 1 行)。support = このサーバーの Minecraft に対応するか、stored = 保存した版 */
-export type VRow = UpRow & { support: Support; upstream: boolean; stored: FileRow | null };
+export type VRow = UpRow & { support: Support; upstream: boolean; stored: FileRow | null; origin?: string };
 // kind = "datapack" なら、サーバーの種類ではなくデータパックとして(版の選び方・置き場所)
 export type Profile = { platform: Platform; mcVersion: string | null; kind?: "datapack" };
 /** この種類のアイテムを、このサーバーに入れるときの選び方(入れられない種類なら null) */
@@ -235,7 +235,7 @@ export function modTools(deps: Deps) {
       const rows: VRow[] = (await files.choices(teamId, projectId, p.platform, p.kind)).files.map((f) => {
         const mc = parseMc(f.mcVersions);
         return { projectId, versionId: f.id, versionNumber: f.version || f.filename, filename: f.filename, url: "", sha512: "", size: f.size, deps: [], date: f.date_published, type: "release" as const,
-          mcVersions: mc, loaders: f.loaders, loose: true, support: sel.manual || supportOf(p.mcVersion, mc, true) === "ok" ? "ok" as const : "unknown" as const, upstream: false, stored: null };
+          mcVersions: mc, loaders: f.loaders, loose: true, support: sel.manual || supportOf(p.mcVersion, mc, true) === "ok" ? "ok" as const : "unknown" as const, upstream: false, stored: null, origin: f.origin };
       });
       return { rows, error: null, sel };
     }
@@ -930,12 +930,12 @@ export function libraryService(deps: Deps) {
       const links = items.length ? await db.select().from(libraryDep).where(inArray(libraryDep.itemId, items.map((i) => i.id))) : [];
       const [opt] = await db.select({ channel: teamOption.channel, keepFiles: teamOption.keepFiles, keepVersions: teamOption.keepVersions }).from(teamOption).where(eq(teamOption.teamId, teamId));
       // 保存先にある版: 数・大きさの合計・いちばん新しく足した版(一覧の「版 · N バージョン · 大きさ」)
-      const fileRows = await db.select({ itemId: libraryFile.itemId, size: libraryFile.size, version: libraryFile.version }).from(libraryFile)
+      const fileRows = await db.select({ itemId: libraryFile.itemId, size: libraryFile.size, version: libraryFile.version, origin: libraryFile.origin }).from(libraryFile)
         .innerJoin(libraryItem, eq(libraryFile.itemId, libraryItem.id)).where(eq(libraryItem.teamId, teamId)).orderBy(desc(libraryFile.createdAt));
-      const fileSum = new Map<string, { n: number; size: number; version: string }>();
+      const fileSum = new Map<string, { n: number; size: number; version: string; origin: string }>();
       for (const f of fileRows) {
-        const s = fileSum.get(f.itemId) ?? { n: 0, size: 0, version: f.version };
-        fileSum.set(f.itemId, { n: s.n + 1, size: s.size + f.size, version: s.version });
+        const s = fileSum.get(f.itemId) ?? { n: 0, size: 0, version: f.version, origin: f.origin };
+        fileSum.set(f.itemId, { n: s.n + 1, size: s.size + f.size, version: s.version, origin: s.origin });
       }
       return {
         channel: (opt?.channel === "all" ? "all" : "release") as Channel, // 受け取る版のチームの既定
@@ -953,6 +953,7 @@ export function libraryService(deps: Deps) {
           // 一覧に出す版(保存したいちばん新しい版。無ければ、サーバーに入っている版)と、保存した版の大きさの合計(バイト)
           version: fileSum.get(i.id)?.version || installs.find((r) => r.source === i.source && r.projectId === i.projectId)?.versionNumber || "",
           size: fileSum.get(i.id)?.size ?? 0,
+          origin: fileSum.get(i.id)?.origin ?? "", // いちばん新しい版の出どころ(src/lib/origin.ts。空 = 古い行・保存した版が無い)
         })),
         // 使っている保存先(自分用の版だけ。name が "" ならパネルの中 = ローカル)
         storage: await storageOf(teamId),
@@ -1418,7 +1419,7 @@ export function libraryService(deps: Deps) {
       if (best && !shown.includes(best)) shown.push(best);
       return shown.map((r) => ({
         versionId: r.versionId, versionNumber: r.versionNumber, date: r.date, type: r.type, release: r.type === "release", mcVersions: r.mcVersions, filename: r.filename,
-        support: r.support, upstream: r.upstream, saved: !!r.stored || src === "upload", suggested: r === best,
+        support: r.support, upstream: r.upstream, saved: !!r.stored || src === "upload", suggested: r === best, origin: r.origin ?? r.stored?.origin ?? "",
       }));
     },
 

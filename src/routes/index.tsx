@@ -9,6 +9,7 @@ import { AddonIcon } from "~/lib/type-icon";
 import { sharedLocalEnabled } from "~/lib/servers-api";
 import { listBackups } from "~/lib/backup-api";
 import { notifySettings } from "~/lib/events-api";
+import { originLabel } from "~/lib/origin";
 import { CHANNELS, type Channel, type ItemSource, isItemSource, pageUrl, sourceLabel } from "~/lib/sources";
 import { removeUploadedFile, uploadedFiles } from "~/lib/uploads-api";
 import { ShareMaker } from "~/lib/share-maker";
@@ -591,7 +592,7 @@ function SourceBox({ item, url }: { item: CatItem; url: string | null }) {
       <section className="group">
         <div className="row">
           <span className="ic"><span className="icon-ph t-link"><Icon name="link" /></span></span>
-          <span className="mid"><span className="ttl">配布元が未設定です</span><span className="sub">アップロードしたもの</span></span>
+          <span className="mid"><span className="ttl">配布元が未設定です</span><span className="sub">{item.origin ? sourceLabel(item.source, item.origin) : "アップロードしたもの"}</span></span>
           <Info>アップロードしたものは、ファイルのまま扱います(配布元からは更新しません)。配布元のものを使うときは、「＋ 追加」で配布元から足してください。</Info>
         </div>
       </section>
@@ -936,7 +937,7 @@ function Files({ item, keep, edit, local, onChange }: { item: CatItem; keep: Cat
         <div key={f.id} className="row ver">
           <span className="mid">
             <span className="ttl"><span className="vnum" translate="no">{f.version || f.filename}</span>{n === 0 && <span className="badge ok">最新</span>}</span>
-            <span className="sub"><span translate="no">{f.filename}</span> · {fmtSize(f.size)} · {new Date(f.createdAt).toLocaleString("ja-JP", { dateStyle: "medium", timeStyle: "short" })}{f.loaders.length ? ` · ${f.loaders.join(" / ")}` : ""}</span>
+            <span className="sub"><span translate="no">{f.filename}</span> · {fmtSize(f.size)} · {new Date(f.createdAt).toLocaleString("ja-JP", { dateStyle: "medium", timeStyle: "short" })}{f.loaders.length ? ` · ${f.loaders.join(" / ")}` : ""}{f.origin && !(upstream && f.origin === "upstream") ? ` · ${originLabel(f.origin)}` : ""}</span>
           </span>
           <a className="rbtn sm" href={`/api/library/files/${f.id}`} download aria-label="ダウンロード" title="ダウンロード"><Icon name="download" /></a>
           {edit && <button type="button" className="rbtn sm red" aria-label="削除" title="削除"

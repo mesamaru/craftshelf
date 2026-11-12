@@ -378,6 +378,8 @@ export const libraryFile = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
     // 03.61.00 から。配布元のものを保存した版は、配布元の版の ID("" = アップロードしたもの)
     upstreamVersionId: text("upstream_version_id").notNull().default(""),
+    // 03.76.00 から。出どころ(src/lib/origin.ts): upload = 画面・API のアップロード / server = サーバーにあった jar を取り込んだ / upstream = 配布元から保存した / v02 = v02 から取り込んだ("" = 古い行)
+    origin: text("origin").notNull().default(""),
   },
   (t) => [index("library_file_item_idx").on(t.itemId), index("library_file_sha_idx").on(t.sha256)],
 );

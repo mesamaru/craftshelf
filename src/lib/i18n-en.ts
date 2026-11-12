@@ -505,8 +505,8 @@ export const EN: Record<string, string> = {
   "そろえる元のサーバーに、このアプリで入れたもの(無効にしたものは除く)と同じ版を入れます。「まったく同じにする」は、そろえる元に無いもの(このアプリで入れたもの)を外します。「更新を止める」にしたもの・無効にしたものは変えません。外したもの・入れ替えたものは「変更の履歴」から元に戻せます。":
     "Installs the same versions as the add-ons installed by this app on the source server (except disabled ones). “Make identical” also removes items (installed by this app) that the source does not have. Paused and disabled items are not changed. Removed and replaced items can be undone from the change history.",
   "ライブラリに無いもの(配布元はわかっています)": "Not in the library (source known)",
-  "入っているもの・ライブラリに無いものを押すと、無効にする(消さずに止める)・有効にする・ライブラリに取り込むもできます。配布元のわからないものは、ファイルの中身から探し、見つからなければアップロードしたものとして取り込みます(自分用の版)。":
-    "Click an installed item or one not in the library to disable it (stop without deleting), enable it, or import it to the library. For unknown items, the source is looked up from the file contents; if none is found, it is imported as an upload (self-hosted edition).",
+  "入っているもの・ライブラリに無いものを押すと、無効にする(消さずに止める)・有効にする・ライブラリに取り込むもできます。配布元のわからないものは、ファイルの中身から探し、見つからなければ、サーバーから取り込んだものとしてライブラリに載せます(自分用の版)。":
+    "Click an installed item or one not in the library to disable it (stop without deleting), enable it, or import it to the library. For unknown items, the source is looked up from the file contents; if none is found, it is added to the library as imported from the server (self-hosted edition).",
   "版を変える・無効にする・外す": "Change version, disable or remove",
   "ライブラリに取り込む・無効にする・外す": "Import to library, disable or remove",
   "すでに有効です": "Already enabled",
@@ -977,6 +977,8 @@ export const EN: Record<string, string> = {
   "アカウントの設定": "Account settings",
   "アカウントを作る": "Create an account",
   "アップロード": "Upload",
+  "サーバーから取り込み": "Imported from server",
+  "v02 から": "From v02",
   "アップロードしたものは、「ファイルをアップロード」から足してください": "Add uploaded items with “Upload files”",
   "アップロードしたアドオンの保存先": "Storage for uploaded add-ons",
   "アップロードしたアドオンは、自分用の版だけで使えます": "Uploaded add-ons are available only in the self-hosted edition",

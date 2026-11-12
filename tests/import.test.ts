@@ -227,6 +227,7 @@ describe("v02 のライブラリ・セットの取り込み", () => {
       { key: "library/plugin/自作/Jisaku-1.0.jar", loaders: JSON.stringify(["bukkit", "spigot", "paper", "purpur"]), kind: "local", target: `${v03Dir}(v02 のパネルの中)` },
       { key: "library/resourcepack/テクスチャ/Tex-1.0.zip", loaders: "[]", kind: "local", target: `${v03Dir}(v02 のパネルの中)` },
     ]);
+    expect((await t.db.select({ o: libraryFile.origin }).from(libraryFile)).map((f) => f.o)).toEqual(["v02", "v02", "v02"]); // 出どころ: v02 から
     expect(Object.keys(skipped).filter((k) => k.startsWith("種類のわからないもの"))).toEqual([]);
     // 取り込んだ保存先は、v02 と同じ場所を指す印が付く(v03 でファイルを消しても、保存先のものは消さない)
     const targets = await t.db.select({ name: storageTarget.name, v02: storageTarget.v02 }).from(storageTarget).where(eq(storageTarget.kind, "smb"));
@@ -408,6 +409,7 @@ describe("v02 の配布元のファイルの取り込み", () => {
       ["LuckPerms", "library/plugin/LuckPerms/LuckPerms-5.3.jar", "LP053xxx"],
       ["LuckPerms", "library/plugin/LuckPerms/LuckPerms-5.4.jar", "v02:1"],
     ]);
+    expect((await t.db.select({ o: schema.libraryFile.origin }).from(schema.libraryFile).innerJoin(libraryItem, eq(libraryItem.id, schema.libraryFile.itemId)).where(eq(libraryItem.source, "modrinth"))).map((f) => f.o)).toEqual(["v02", "v02", "v02"]);
     expect(await maybeImportV02Saved(t.db, { v02Dir, v03Dir, secret: TEST_SECRET, fetch: fake })).toBeNull();
     expect(fileHash(join(v02Dir, "index.db"))).toBe(v02Hash);
   });

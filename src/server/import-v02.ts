@@ -462,7 +462,7 @@ export async function importUploads(db: Db, v02: DatabaseSync, teamId: string, o
       await db.insert(schema.libraryFile).values({
         id: randomUUID(), itemId: item.id, targetId: targets.get(Number(v.target_id ?? 1))!, storageKey: `library/${str(v.relpath).replace(/^\/+/, "")}`,
         filename: str(v.filename), size: Number(v.size) || 0, sha256: sha, version: str(v.version), loaders: JSON.stringify(loadersOf(str(meta.loader))), mcVersions: "[]",
-        createdAt: new Date(str(v.added_at) || Date.now()),
+        createdAt: new Date(str(v.added_at) || Date.now()), origin: "v02",
       });
     }
     uploaded.set(Number(it.id), item.id);
@@ -961,7 +961,7 @@ export async function maybeImportV02Saved(db: Db, opts: { v02Dir: string; v03Dir
           await db.insert(schema.libraryFile).values({
             id: randomUUID(), itemId: it.id, targetId: targets.get(Number(v.target_id ?? 1))!, storageKey: `library/${str(v.relpath).replace(/^\/+/, "")}`,
             filename: str(v.filename), size: Number(v.size) || 0, sha256: sha, version: str(v.version), loaders: JSON.stringify(loadersOf(str(meta.loader))), mcVersions: "[]",
-            createdAt: new Date(str(v.added_at) || Date.now()), upstreamVersionId: hit && hit.projectId === str(r.project_id) ? hit.versionId : `v02:${str(v.id)}`,
+            createdAt: new Date(str(v.added_at) || Date.now()), upstreamVersionId: hit && hit.projectId === str(r.project_id) ? hit.versionId : `v02:${str(v.id)}`, origin: "v02",
           });
           report.files++;
         }

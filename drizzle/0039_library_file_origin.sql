@@ -1,0 +1,1 @@
+ALTER TABLE "library_file" ADD COLUMN "origin" text DEFAULT '' NOT NULL;

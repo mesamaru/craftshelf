@@ -9,6 +9,7 @@ import { fileProfile, forgetLatest, isDisabled, modTools, profileFor } from "./l
 import { type EventKind, eventService } from "./events";
 import { type Deps, serverOf, needServerAccess, serverScope } from "./servers";
 import { softwareService } from "./software";
+import { fileStore } from "./uploads";
 import { jobService } from "./jobs";
 
 // 無料で使える範囲
@@ -224,6 +225,12 @@ export function setService(deps: Deps) {
     .from(addonSetItem).innerJoin(libraryItem, eq(addonSetItem.itemId, libraryItem.id))
     .where(eq(addonSetItem.setId, setId)).orderBy(asc(libraryItem.title));
 
+  // 中身の出どころ(いちばん新しい保存した版のもの。src/lib/origin.ts)
+  const withOrigin = async <T extends { id: string }>(items: T[]) => {
+    const o = await fileStore(deps).originsOf(items.map((i) => i.id));
+    return items.map((i) => ({ ...i, origin: o.get(i.id) ?? "" }));
+  };
+
   return {
     /** チームのセットと、それぞれに入っているもの */
     async list(headers: Headers) {
@@ -234,7 +241,7 @@ export function setService(deps: Deps) {
       const bound = await db.select({ setId: serverSet.setId, id: server.id, name: server.name }).from(serverSet)
         .innerJoin(server, eq(serverSet.serverId, server.id)).where(eq(server.teamId, teamId)).orderBy(asc(server.name));
       return Promise.all(sets.map(async (s) => ({
-        id: s.id, name: s.name, items: await itemsOf(s.id),
+        id: s.id, name: s.name, items: await withOrigin(await itemsOf(s.id)),
         servers: bound.filter((b) => b.setId === s.id && (!scope || scope.has(b.id))).map(({ id, name }) => ({ id, name })),
       })));
     },

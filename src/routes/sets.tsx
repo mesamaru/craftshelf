@@ -189,7 +189,7 @@ function SetSheet({ set, catalog, edit, local, onChange, onClose }: { set: SetRo
             <AddonIcon type={i.projectType} url={i.iconUrl} />
             <span className="mid">
               <span className="ttl" translate="no">{i.title}</span>
-              <span className="sub">{TYPE_LABEL[i.projectType] ?? i.projectType} · {sourceLabel(i.source)}{i.versionId && <> · <b translate="no">{i.versionNumber}</b></>}</span>
+              <span className="sub">{TYPE_LABEL[i.projectType] ?? i.projectType} · {sourceLabel(i.source, i.origin)}{i.versionId && <> · <b translate="no">{i.versionNumber}</b></>}</span>
             </span>
             {edit && i.source !== "spigot" && <Pin setId={set.id} item={i} disabled={!!busy} onDone={onChange} />}
             {edit && <Btn kind="red" sm disabled={!!busy} onClick={() => run(i.id, () => toggle({ data: { id: set.id, itemId: i.id, add: false } }))}>外す</Btn>}

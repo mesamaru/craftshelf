@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebStream } from "node:stream/web";
-import { and, desc, eq, isNotNull, isNull, ne } from "drizzle-orm";
+import { and, desc, eq, inArray, isNotNull, isNull, ne } from "drizzle-orm";
 import { PLATFORMS, type Platform, isPlatform } from "~/lib/platforms";
 import { addonSetItem, backupSchedule, libraryFile, libraryItem, storageTarget, installedMod, server, serverProfile, teamOption, worldBackup } from "./db/schema";
 import { CF_HOSTS } from "./curseforge";
@@ -168,7 +168,7 @@ export function fileStore(deps: Deps) {
     await fromStorage(async () => (await storeOf(teamId, targetId)).putFile(key, tmp));
     const [row] = await db.insert(libraryFile).values({
       id: fileId, itemId: item.id, targetId, storageKey: key, filename, size: statSync(tmp).size, sha256, version: file.versionNumber || info.version,
-      loaders: JSON.stringify(info.loaders), mcVersions: JSON.stringify(info.mcVersions), uploadedBy: userId, upstreamVersionId: file.versionId,
+      loaders: JSON.stringify(info.loaders), mcVersions: JSON.stringify(info.mcVersions), uploadedBy: userId, upstreamVersionId: file.versionId, origin: "upstream",
     }).returning();
     await record({ teamId, userId, kind: "changes", action: "配布元の版を保存", target: item.title, detail: file.versionNumber || file.filename });
     await prune(teamId, item.id, userId);
@@ -224,7 +224,16 @@ export function fileStore(deps: Deps) {
     return removed;
   }
 
-  return { storeOf, pick, choices, read, stream, withTemp, tempPath, configOf, defaultConfig, activeOf, optionOf, keepOf, savedOf, savedAll, saveUpstream, keepSaved, prune, keptVersions, dropFile, removeStored };
+  /** アイテムごとの、いちばん新しいファイルの出どころ(空 = 古い行・ファイルが無い) */
+  async function originsOf(itemIds: string[]) {
+    const out = new Map<string, string>();
+    if (!itemIds.length) return out;
+    const rows = await db.select({ itemId: libraryFile.itemId, origin: libraryFile.origin }).from(libraryFile).where(inArray(libraryFile.itemId, itemIds)).orderBy(desc(libraryFile.createdAt));
+    for (const f of rows) if (!out.has(f.itemId)) out.set(f.itemId, f.origin);
+    return out;
+  }
+
+  return { originsOf, storeOf, pick, choices, read, stream, withTemp, tempPath, configOf, defaultConfig, activeOf, optionOf, keepOf, savedOf, savedAll, saveUpstream, keepSaved, prune, keptVersions, dropFile, removeStored };
 }
 
 export async function sha256Of(path: string) {
@@ -434,9 +443,10 @@ export function uploadService(deps: Deps) {
 
     /**
      * アップロードを受け取る(data は中身か、一時フォルダのファイルの場所)。jar を調べ、同じ種類・同じ名前のものがライブラリにあればその新しい版として、無ければ新しく載せる。
-     * 同じ中身のファイルは 2 度入れない。targetId を渡すと、その保存先に置く(保存先から取り込むとき)
+     * 同じ中身のファイルは 2 度入れない。targetId を渡すと、その保存先に置く(保存先から取り込むとき)。
+     * fromServer(サーバーの名前)を渡すと、そのサーバーから取り込んだもの(出どころ = server。操作の記録も「サーバーから取り込み」とサーバーの名前)
      */
-    async ingest(headers: Headers, filename: string, data: Uint8Array | string, opts: { targetId?: string | null } = {}) {
+    async ingest(headers: Headers, filename: string, data: Uint8Array | string, opts: { targetId?: string | null; fromServer?: string } = {}) {
       const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
       needLocal();
       const size = typeof data === "string" ? statSync(data).size : data.byteLength;
@@ -481,15 +491,17 @@ export function uploadService(deps: Deps) {
       });
       await db.insert(libraryFile).values({
         id: fileId, itemId: item.id, targetId, storageKey: key, filename: safeFilename(filename), size, sha256,
-        version: info.version, loaders: JSON.stringify(info.loaders), mcVersions: JSON.stringify(info.mcVersions), uploadedBy: user.id,
+        version: info.version, loaders: JSON.stringify(info.loaders), mcVersions: JSON.stringify(info.mcVersions), uploadedBy: user.id, origin: opts.fromServer === undefined ? "upload" : "server",
       });
-      await record({ teamId, userId: user.id, kind: "changes", action: "アップロード", target: info.name, detail: `${info.version || filename}(${info.loaders.join("・") || "種類不明"})` });
+      const what = `${info.version || filename}(${info.loaders.join("・") || "種類不明"})`;
+      await record({ teamId, userId: user.id, kind: "changes", action: opts.fromServer === undefined ? "アップロード" : "サーバーから取り込み", target: info.name,
+        detail: opts.fromServer === undefined ? what : `${opts.fromServer}・${what}` });
       await prune(teamId, item.id, user.id);
       return { itemId: item.id, projectId: item.projectId, fileId, title: info.name, version: info.version, projectType: info.projectType, loaders: info.loaders };
     },
 
     /**
-     * サーバーにある jar(配布元のわからないもの)を、アップロードしたものとしてライブラリに取り込み、
+     * サーバーにある jar(配布元のわからないもの)を、ライブラリに取り込み(出どころ = サーバーから取り込み)、
      * このアプリで入れたものとして記録する(編集者以上・自分用の版だけ)
      */
     async fromServer(headers: Headers, serverId: string, filename: string) {
@@ -506,7 +518,7 @@ export function uploadService(deps: Deps) {
       let r;
       try {
         await remote(() => client.readToFile(remoteId, `${dir}/${filename}`, UPLOAD_LIMITS.serverFileBytes, tmp));
-        r = await this.ingest(headers, filename.replace(/\.disabled$/i, ""), tmp); // 無効にしたものも取り込む
+        r = await this.ingest(headers, filename.replace(/\.disabled$/i, ""), tmp, { fromServer: row.name }); // 無効にしたものも取り込む
       } finally {
         rmSync(tmp, { force: true });
       }
@@ -522,7 +534,7 @@ export function uploadService(deps: Deps) {
       if (!item) throw new HttpError(404, "見つかりません");
       const rows = await db.select().from(libraryFile).where(eq(libraryFile.itemId, itemId)).orderBy(desc(libraryFile.createdAt));
       return rows.map((f) => ({ id: f.id, filename: f.filename, version: f.version, size: f.size, loaders: JSON.parse(f.loaders) as string[], createdAt: f.createdAt.toISOString(),
-        saved: !!f.upstreamVersionId })); // saved = 配布元の版を保存したもの
+        saved: !!f.upstreamVersionId, origin: f.origin })); // saved = 配布元の版を保存したもの。origin = 出どころ(src/lib/origin.ts。空 = 古い行)
     },
 
     /** 版を消す(保存先のファイルも消す。サーバーに入っているものはそのまま) */

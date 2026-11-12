@@ -6,6 +6,7 @@ import { SettingsFrame } from "~/lib/settings-frame";
 import { activateStorageTarget, addStorageTarget, moveStorageFiles, removeStorageTarget, storageTargets } from "~/lib/uploads-api";
 import { savedOptions, scanStorage, setSavedOptions, storageContents, storageStatus } from "~/lib/saved-api";
 import { settingsTitle } from "~/lib/titles";
+import { confirmDialog } from "~/lib/dialog-queue";
 
 export const Route = createFileRoute("/storage")({
   beforeLoad: ({ context }) => {
@@ -68,7 +69,7 @@ function Storage() {
               : <button className="trail link" type="button" disabled={!!busy} onClick={() => run(t.id, () => activate({ data: { id: t.id } }))}>これを使う</button>}
             <button className="link" type="button" aria-expanded={open === t.id} onClick={() => setOpen(open === t.id ? null : t.id)}>{open === t.id ? "閉じる" : "状況と中身"}</button>
             <button className="link danger" type="button" disabled={!!busy}
-              onClick={() => confirm(`保存先「${t.name}」を消しますか?(ファイルが残っていると消せません)`) && run(`rm:${t.id}`, () => remove({ data: { id: t.id } }))}>消す</button>
+              onClick={async () => (await confirmDialog({ message: `保存先「${t.name}」を消しますか?(ファイルが残っていると消せません)`, ok: "消す", danger: true })) && run(`rm:${t.id}`, () => remove({ data: { id: t.id } }))}>消す</button>
           </div>
         ))}
         {data && open && <div className="row column"><TargetDetail id={open} /></div>}
@@ -150,7 +151,7 @@ function MoveFiles({ targets, onDone }: { targets: { id: string; name: string }[
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const submit = async () => {
-    if (!confirm("ファイルを移しますか?(数が多いと時間がかかります)")) return;
+    if (!(await confirmDialog({ message: "ファイルを移しますか?(数が多いと時間がかかります)", ok: "移す" }))) return;
     setBusy(true);
     setError("");
     setNote("");

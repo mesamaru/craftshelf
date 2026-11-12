@@ -16,6 +16,7 @@ import { zipPlan } from "~/lib/saved-api";
 import { MobileSearch, StoragePill } from "~/lib/shell";
 import { downloadZip } from "~/lib/zip-download";
 import { pageTitle } from "~/lib/titles";
+import { confirmDialog, promptDialog } from "~/lib/dialog-queue";
 
 export const Route = createFileRoute("/sets")({
   beforeLoad: ({ context }) => {
@@ -119,7 +120,7 @@ function SetCard({ set, edit, local, onOpen, onChange }: { set: SetRow; edit: bo
           {edit && <Btn sm onClick={onOpen}>サーバーに入れる</Btn>}
           <Btn sm onClick={onOpen}>{edit ? "編集" : "開く"}</Btn>
           {edit && <Btn kind="red" sm onClick={async () => {
-            if (!confirm(`セット「${set.name}」を消しますか?(ライブラリとサーバーはそのままです)`)) return;
+            if (!(await confirmDialog({ message: `セット「${set.name}」を消しますか?(ライブラリとサーバーはそのままです)`, ok: "消す", danger: true }))) return;
             try {
               await remove({ data: { id: set.id } });
               onChange();
@@ -169,9 +170,9 @@ function SetSheet({ set, catalog, edit, local, onChange, onClose }: { set: SetRo
   return (
     <Sheet title={<span translate="no">{set.name}</span>} label={set.name} onClose={onClose} actions={edit || local ? (
       <Menu disabled={!!busy} items={[
-        edit && { label: "名前を変える", onClick: () => { const n = prompt("セットの新しい名前", set.name); if (n && n !== set.name) run("rename", () => rename({ data: { id: set.id, name: n } })); } },
+        edit && { label: "名前を変える", onClick: async () => { const n = await promptDialog({ title: "名前を変える", placeholder: "セットの新しい名前", value: set.name, max: 60 }); if (n && n !== set.name) run("rename", () => rename({ data: { id: set.id, name: n } })); } },
         local && set.items.length > 0 && { label: "zip でダウンロード(保存した版から)", onClick: () => { downloadZip(plan, { setId: set.id }).catch((e) => setError(message(e))); } },
-        edit && { label: "セットを消す", danger: true, onClick: () => { if (confirm(`セット「${set.name}」を消しますか?(ライブラリとサーバーはそのままです)`)) run("remove", async () => { await remove({ data: { id: set.id } }); onClose(); }); } },
+        edit && { label: "セットを消す", danger: true, onClick: async () => { if ((await confirmDialog({ message: `セット「${set.name}」を消しますか?(ライブラリとサーバーはそのままです)`, ok: "消す", danger: true }))) run("remove", async () => { await remove({ data: { id: set.id } }); onClose(); }); } },
       ]} />
     ) : undefined}>
       <div className="gtitle">{`中身(${set.items.length} 件)`}</div>
@@ -215,8 +216,8 @@ function SetSheet({ set, catalog, edit, local, onChange, onClose }: { set: SetRo
           {set.servers.map((s) => (
             <div className="row" key={s.id}>
               <span className="mid"><span className="ttl" translate="no">{s.name}</span><span className="sub">結び付けています</span></span>
-              <Btn kind="tint" sm disabled={!!busy} onClick={() => {
-                if (confirm(`「${s.name}」を「${set.name}」にそろえますか?(足りないものも入れる)`)) run("sync", async () => setResults({ server: s.name, verb: "そろえた", list: await sync({ data: { serverId: s.id, mode: "add" } }) }));
+              <Btn kind="tint" sm disabled={!!busy} onClick={async () => {
+                if ((await confirmDialog({ message: `「${s.name}」を「${set.name}」にそろえますか?(足りないものも入れる)`, ok: "そろえる" }))) run("sync", async () => setResults({ server: s.name, verb: "そろえた", list: await sync({ data: { serverId: s.id, mode: "add" } }) }));
               }}>そろえる</Btn>
             </div>
           ))}

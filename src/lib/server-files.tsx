@@ -5,6 +5,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { fileHistory, listFiles, readServerFile, saveServerFile, sendCommand, serverLogs } from "./files-api";
 import { confirmSyntax, syntaxError } from "./syntax";
 import { Btn, Info, Sheet } from "./ui";
+import { confirmDialog } from "~/lib/dialog-queue";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
 
@@ -116,7 +117,7 @@ export function Files({ id }: { id: string }) {
     return (
       <>
         <div className="cmd">
-          <Btn sm onClick={() => (!changed || confirm("保存していない変更を捨てますか?")) && setOpened(null)}>‹ 戻る</Btn>
+          <Btn sm onClick={async () => (!changed || (await confirmDialog({ message: "保存していない変更を捨てますか?", ok: "捨てる", danger: true }))) && setOpened(null)}>‹ 戻る</Btn>
           <span className="path grow" translate="no">{opened.path}</span>
         </div>
         <textarea className="codes editor wide" value={text} onChange={(e) => setText(e.target.value)} spellCheck={false} aria-label={`${opened.path} の中身`} />

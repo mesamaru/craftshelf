@@ -13,6 +13,7 @@ import { getServerSchedule, setServerSchedule } from "./schedule-api";
 import { ApplyResults } from "./apply-results";
 import { roleLabel } from "./permissions";
 import { Btn, Info, Row, Sheet } from "./ui";
+import { confirmDialog } from "~/lib/dialog-queue";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
 
@@ -92,8 +93,8 @@ export function SettingsRows({ server, perms, soft, version, onOpen }: { server:
       {perms.remove && <>
         <div className="gtitle">危ない操作</div>
         <section className="group">
-          <Row onClick={() => {
-            if (!confirm(`${server.name} を一覧から外しますか?(Pterodactyl のサーバー・フォルダのファイルは消えません)`)) return;
+          <Row onClick={async () => {
+            if (!(await confirmDialog({ message: `${server.name} を一覧から外しますか?(Pterodactyl のサーバー・フォルダのファイルは消えません)`, ok: "外す", danger: true }))) return;
             run(async () => { await remove({ data: { id: server.id } }); await navigate({ to: "/servers" }); });
           }}><span className="mid"><span className="ttl danger">一覧から外す</span></span></Row>
         </section>
@@ -265,7 +266,7 @@ function CopyServers({ id, name, onDone }: { id: string; name: string; onDone: (
   if (!others) return error ? <p className="error" role="alert">{error}</p> : null;
 
   const run = async () => {
-    if (!confirm(`「${name}」の構成を、選んだ ${to.size} 台へ反映しますか?`)) return;
+    if (!(await confirmDialog({ message: `「${name}」の構成を、選んだ ${to.size} 台へ反映しますか?`, ok: "反映" }))) return;
     setBusy(true);
     setError("");
     setResults(null);
@@ -467,7 +468,7 @@ function Software({ id, admin, info: loaded, reload: reloadInfo }: { id: string;
   const [error, setError] = useState("");
   const info = typeof loaded === "object" ? loaded : null;
   const run = async (ask: string | null, fn: () => Promise<string>) => {
-    if (ask && !confirm(ask)) return;
+    if (ask && !(await confirmDialog({ message: ask, ok: "入れ替える" }))) return;
     setBusy(true);
     setError("");
     setNote("");

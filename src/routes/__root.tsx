@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect } from "react";
 import { getLang, startEnglish } from "~/lib/i18n";
+import { DialogHost } from "~/lib/dialogs";
 import { Palette } from "~/lib/palette";
 import { DEFAULT_THEME, type SavedTheme, applyTheme, localTheme, saveTheme } from "~/lib/theme";
 import { saveMyBackground, saveMyTheme } from "~/lib/prefs-api";
@@ -74,6 +75,7 @@ function RootDocument({ children }: { children: ReactNode }) {
       <body>
         {ctx.user && showShell(path) ? <Shell user={ctx.user}>{children}</Shell> : children}
         {ctx.user ? <Palette /> : null}
+        <DialogHost />
         <Scripts />
       </body>
     </html>

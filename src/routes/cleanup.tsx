@@ -7,6 +7,7 @@ import { cleanupFind, cleanupRemove } from "~/lib/saved-api";
 import { useCan } from "~/lib/use-can";
 import { AddonIcon } from "~/lib/type-icon";
 import { settingsTitle } from "~/lib/titles";
+import { confirmDialog } from "~/lib/dialog-queue";
 
 export const Route = createFileRoute("/cleanup")({
   beforeLoad: ({ context }) => {
@@ -61,7 +62,7 @@ function Cleanup() {
     const list = (rows ?? []).filter((_, i) => picked.has(i));
     if (!list.length) return setError("消すものを選んでください");
     const items = list.filter((r) => r.kind === "item").length;
-    if (!confirm(`${list.length} 件を消しますか?(版は保存先からも消えます。アドオンごとのものは、ライブラリから外します。サーバーに入っているファイルはそのままです)${items ? `\nアドオンごと: ${items} 件` : ""}`)) return;
+    if (!(await confirmDialog({ message: `${list.length} 件を消しますか?(版は保存先からも消えます。アドオンごとのものは、ライブラリから外します。サーバーに入っているファイルはそのままです)${items ? `\nアドオンごと: ${items} 件` : ""}`, ok: "消す", danger: true }))) return;
     setBusy(true);
     setError("");
     try {

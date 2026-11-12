@@ -20,7 +20,7 @@ const step = async (name, fn) => {
     console.log("ok  ", name);
   } catch (e) {
     fails++;
-    console.log("FAIL", name, "-", e.message.split("\n")[0]);
+    console.log("FAIL", name, "-", e.message.split("\n")[0], (e.stack?.match(/e2e\.mjs:\d+/) ?? [""])[0]); // 落ちた行も出す
     await page.screenshot({ path: `.e2e/fail-${fails}.png`, fullPage: true });
   }
 };
@@ -131,7 +131,27 @@ await step("セットを作ると一覧に出る", async () => {
   await page.locator(".set-card", { hasText: "ロビー用" }).getByRole("button", { name: "サーバーに入れる" }).waitFor(); // カードの操作
   await page.locator(".set-card", { hasText: "ロビー用" }).getByRole("button", { name: "編集" }).click(); // 編集はシートで中身
   await page.getByRole("dialog").getByText(/まだ何も入っていません。先にライブラリ/).waitFor();
+  // 名前を変える(標準の prompt ではなく、アプリの入力のダイアログ)。やめる・空は閉じない・決定で変わる
+  await page.getByRole("dialog").getByRole("button", { name: "その他の操作" }).click();
+  await page.getByRole("menuitem", { name: "名前を変える" }).click();
+  const ask = page.getByRole("alertdialog");
+  await ask.getByRole("textbox").waitFor();
+  if ((await ask.getByRole("textbox").inputValue()) !== "ロビー用") throw new Error("入力欄に今の名前が入っていません");
+  await page.screenshot({ path: ".e2e/prompt.png" });
+  await ask.getByRole("textbox").fill("");
+  await ask.getByRole("button", { name: "決定" }).click();
+  await ask.getByRole("alert").waitFor(); // 空は閉じずにエラー
+  await ask.getByRole("button", { name: "キャンセル" }).click();
+  await ask.waitFor({ state: "detached" });
+  await page.getByRole("dialog").getByText(/まだ何も入っていません。先にライブラリ/).waitFor(); // 下のシートは閉じていない
+  await page.getByRole("dialog").getByRole("button", { name: "その他の操作" }).click();
+  await page.getByRole("menuitem", { name: "名前を変える" }).click();
+  await ask.getByRole("textbox").fill("ロビー用2");
+  await page.keyboard.press("Enter");
+  await ask.waitFor({ state: "detached" });
+  await page.getByRole("dialog").getByRole("heading", { name: "ロビー用2" }).waitFor();
   await page.keyboard.press("Escape");
+  await page.locator(".set-card", { hasText: "ロビー用2" }).waitFor();
   await page.getByRole("button", { name: "予約", exact: true }).click(); // 予約もシート
   await page.getByRole("dialog").getByText("予約を使う").waitFor();
   await page.keyboard.press("Escape");
@@ -336,6 +356,26 @@ await step("ドラッグ&ドロップの欄から jar を足すと、一覧と�
   await page.screenshot({ path: ".e2e/library-sheet.png" });
   await page.keyboard.press("Escape"); // 重ねたシートは上のものだけ閉じる
   await page.getByRole("dialog", { name: "サーバーに入れる" }).waitFor({ state: "detached" });
+  await sheet.getByText("保存しているバージョン(1)").waitFor();
+  // タグを付ける(入力のダイアログ): フォーカスは中に入り、Tab は中を回る。Enter で決定
+  await sheet.getByRole("button", { name: "その他の操作" }).click();
+  await page.getByRole("menuitem", { name: "タグを付ける" }).click();
+  const ask = page.getByRole("alertdialog");
+  await ask.getByRole("textbox").waitFor();
+  const inside = () => ask.evaluate((el) => el.contains(document.activeElement));
+  if (!(await inside())) throw new Error("ダイアログにフォーカスが入っていません");
+  for (let i = 0; i < 4; i++) { await page.keyboard.press("Tab"); if (!(await inside())) throw new Error("Tab でダイアログの外に出ました"); }
+  await ask.getByRole("textbox").fill("e2e-tag");
+  await page.keyboard.press("Enter");
+  await ask.waitFor({ state: "detached" });
+  await sheet.getByText("e2e-tag", { exact: true }).waitFor();
+  // 外す(確認): Esc でやめると何も起きず、下のシートも閉じない
+  await sheet.getByRole("button", { name: "その他の操作" }).click();
+  await page.getByRole("menuitem", { name: "ライブラリから外す" }).click();
+  await ask.getByText(/ライブラリから外しますか/).waitFor();
+  await page.screenshot({ path: ".e2e/confirm.png" });
+  await page.keyboard.press("Escape");
+  await ask.waitFor({ state: "detached" });
   await sheet.getByText("保存しているバージョン(1)").waitFor();
   await page.goBack(); // 戻るボタンで詳しくを閉じる
   await page.getByRole("dialog").waitFor({ state: "detached" });

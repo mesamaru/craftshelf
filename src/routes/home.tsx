@@ -13,6 +13,7 @@ import { AddonIcon } from "~/lib/type-icon";
 import { Btn, Chip, Icon, type IconName, fmtSize } from "~/lib/ui";
 import { useCan, useTeamKey } from "~/lib/use-can";
 import { pageTitle } from "~/lib/titles";
+import { confirmDialog } from "~/lib/dialog-queue";
 
 export const Route = createFileRoute("/home")({
   beforeLoad: ({ context }) => {
@@ -201,8 +202,8 @@ function Home() {
     put({ ...layout, order });
   };
   const toggle = (list: "hidden" | "full", k: string) => put({ ...layout, [list]: layout[list].includes(k) ? layout[list].filter((x) => x !== k) : [...layout[list], k] });
-  const remove = (k: string) => {
-    if (!confirm(`「${nameOf(k)}」を消しますか?`)) return;
+  const remove = async (k: string) => {
+    if (!(await confirmDialog({ message: `「${nameOf(k)}」を消しますか?`, ok: "消す", danger: true }))) return;
     put({ ...layout, custom: layout.custom.filter((c) => c.id !== k), order: layout.order.filter((x) => x !== k) });
   };
   const add = (type: CustomType) => {

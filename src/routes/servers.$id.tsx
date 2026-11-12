@@ -20,6 +20,7 @@ import { Console, Files } from "~/lib/server-files";
 import { COPY_LABEL, CopyModeRow, type CopyMode, DAY_NAMES, type SettingKey, SettingSheet, SettingsRows, type SoftInfo } from "~/lib/server-settings";
 import { pageTitle } from "~/lib/titles";
 import { Btn, Chip, ChipBar, Icon, Info, Menu, Row, Seg, Sheet, Tabs, fmtSize } from "~/lib/ui";
+import { confirmDialog } from "~/lib/dialog-queue";
 
 // タブは v02 の並びと名前(「保存」= ワールドのバックアップとアドオンの変更の履歴)
 const TABS = [["overview", "概要"], ["console", "コンソール"], ["addons", "アドオン"], ["files", "ファイル"], ["backup", "保存"], ["settings", "設定"]] as const;
@@ -133,7 +134,7 @@ function Power({ server, state, onPower, onSetup }: { server: { id: string; name
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const send = async (signal: "start" | "stop" | "restart") => {
-    if (signal === "stop" && !confirm(`${server.name} を停止しますか?`)) return;
+    if (signal === "stop" && !(await confirmDialog({ message: `${server.name} を停止しますか?`, ok: "停止", danger: true }))) return;
     setBusy(true);
     setError("");
     try {
@@ -381,11 +382,11 @@ function Addons(a: AddonProps) {
               {edit && (
                 <Menu label={`${m.title ?? m.filename} の操作`} disabled={!!busy} items={[
                   m.projectId && m.source && !m.disabled && { label: "版を変える", onClick: () => setVersionsOf(m) },
-                  m.canRollback && m.projectId && m.source && !m.disabled && { label: "前の版に戻す", onClick: () => confirm(`${m.title} を前の版に戻しますか?(戻したあとは「更新を止める」になります)`) && run(`rb:${m.filename}`, () => rollback({ data: { id, projectId: m.projectId!, source: m.source as Source } })) },
+                  m.canRollback && m.projectId && m.source && !m.disabled && { label: "前の版に戻す", onClick: async () => (await confirmDialog({ message: `${m.title} を前の版に戻しますか?(戻したあとは「更新を止める」になります)`, ok: "戻す", danger: true })) && run(`rb:${m.filename}`, () => rollback({ data: { id, projectId: m.projectId!, source: m.source as Source } })) },
                   m.projectId && m.source && { label: m.held ? "止めるのをやめる" : "更新を止める", onClick: () => run(`hold:${m.filename}`, () => hold({ data: { id, projectId: m.projectId!, source: m.source as Source, hold: !m.held } })) },
                   a.local && !m.projectId && { label: "ライブラリに取り込む", onClick: () => run(`imp:${m.filename}`, () => importFile({ data: { id, filename: m.filename } })) },
                   { label: m.disabled ? "有効にする" : "無効にする", onClick: () => run(`tg:${m.filename}`, () => toggle({ data: { id, filename: m.filename, enable: m.disabled } })) },
-                  { label: "外す", danger: true, onClick: () => confirm(`${m.title ?? m.filename} を外しますか?(「変更の履歴」から元に戻せます)`) && run(m.filename, () => remove({ data: { id, filename: m.filename } })) },
+                  { label: "外す", danger: true, onClick: async () => (await confirmDialog({ message: `${m.title ?? m.filename} を外しますか?(「変更の履歴」から元に戻せます)`, ok: "外す", danger: true })) && run(m.filename, () => remove({ data: { id, filename: m.filename } })) },
                 ]} />
               )}
             </div>
@@ -645,11 +646,11 @@ function SetBinding({ id, edit, onSynced }: { id: string; edit: boolean; onSynce
       setBusy("");
     }
   };
-  const doSync = () => {
+  const doSync = async () => {
     const what = source === "set" ? `セット「${current?.name}」` : `「${others.find((o) => o.id === source)?.name}」`;
-    if (!confirm(mode === "mirror"
+    if (!(await confirmDialog({ message: mode === "mirror"
       ? `「${name}」を${what}にそろえ、そろえる元に無いもの(このアプリで入れたもの)を外します。よろしいですか?`
-      : `「${name}」を${what}にそろえますか?(${COPY_LABEL[mode]})`)) return;
+      : `「${name}」を${what}にそろえますか?(${COPY_LABEL[mode]})`, ok: "そろえる", danger: mode === "mirror" }))) return;
     run("sync", async () => {
       if (source === "set") setResults({ server: name, list: await sync({ data: { serverId: id, mode } }) });
       else {
@@ -726,9 +727,9 @@ function Changes({ id, edit, items, onChange, limit, onMore }: { id: string; edi
           </span>
           {edit && c.undoable && (
             <Btn sm disabled={!!busy} onClick={async () => {
-              if (!confirm(c.action === "外す" ? `${c.title} を元に戻しますか?(外したファイルを戻します)` : c.action === "入れる" ? `${c.title} を外しますか?(入れる前に戻します)`
+              if (!(await confirmDialog({ message: c.action === "外す" ? `${c.title} を元に戻しますか?(外したファイルを戻します)` : c.action === "入れる" ? `${c.title} を外しますか?(入れる前に戻します)`
                 : c.action === "無効にする" ? `${c.title} を有効に戻しますか?` : c.action === "有効にする" ? `${c.title} を無効に戻しますか?`
-                : `${c.title} を前の版(${c.version})に戻しますか?(戻したあとは「更新を止める」になります)`)) return;
+                : `${c.title} を前の版(${c.version})に戻しますか?(戻したあとは「更新を止める」になります)`, ok: "元に戻す", danger: true }))) return;
               setBusy(c.id);
               setError("");
               try {
@@ -847,12 +848,14 @@ function Worlds({ id, admin, chips }: { id: string; admin: boolean; chips: React
             {b.locked && <span className="tag">鍵つき</span>}
             {b.done && b.ok && <a className="btn sm" href={`/api/worlds/${id}/${b.name}`} download>ダウンロード</a>}
             {admin && b.done && b.ok && (
-              <Btn kind="red" sm disabled={busy || d.running} onClick={() => {
+              <Btn kind="red" sm disabled={busy || d.running} onClick={async () => {
                 const what = new Date(b.at).toLocaleString("ja-JP");
-                if (!confirm(ptero
+                if (!(await confirmDialog({ message: ptero
                   ? `${what} のバックアップから戻しますか?サーバーは止まり、サーバー全体がこのときの状態に戻ります${opt.truncate ? "(今のファイルはすべて消えます)" : ""}。`
-                  : `${what} のバックアップからワールドを戻しますか?今のワールドは名前を変えて残します。`)) return;
-                if (!confirm(ptero ? "もう一度確かめます。本当に戻しますか?" : `もう一度確かめます。サーバーが止まっていることを確かめましたか?${opt.stop ? "(動いていたら止めます)" : "(動いていれば戻しません)"}`)) return;
+                  : `${what} のバックアップからワールドを戻しますか?今のワールドは名前を変えて残します。`,
+                  // 2 段(以前は確認が 2 回続いた)。2 段目で「戻す」と入力するまで実行できない
+                  ok: "戻す", danger: true, word: "戻す",
+                  second: ptero ? "もう一度確かめます。本当に戻しますか?" : `もう一度確かめます。サーバーが止まっていることを確かめましたか?${opt.stop ? "(動いていたら止めます)" : "(動いていれば戻しません)"}` }))) return;
                 act(async () => {
                   const r = await restore({ data: { id, name: b.name, ...opt } });
                   return (ptero ? "パネルが戻しています(終わるとサーバーを起動できます)" : `戻しました(${r.files} ファイル)${r.aside.length ? `。前のワールドは ${r.aside.join("・")} に残しています` : ""}`);
@@ -861,7 +864,7 @@ function Worlds({ id, admin, chips }: { id: string; admin: boolean; chips: React
             )}
             {!b.locked && b.done && (
               <Menu label={`${b.label} の操作`} disabled={busy} items={[
-                { label: "消す", danger: true, onClick: () => { if (confirm(`${b.label} を消しますか?`)) act(() => remove({ data: { id, name: b.name } }), "消しました"); } },
+                { label: "消す", danger: true, onClick: async () => { if ((await confirmDialog({ message: `${b.label} を消しますか?`, ok: "消す", danger: true }))) act(() => remove({ data: { id, name: b.name } }), "消しました"); } },
               ]} />
             )}
           </div>

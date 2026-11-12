@@ -21,6 +21,7 @@ import { ActionBar, Btn, Chip, Icon, Info, Menu, Sheet, fmtSize } from "~/lib/ui
 import { SupportBadge, VersionChooser, type VRow, confirmUnsupported } from "~/lib/version-picker";
 import { pageTitle } from "~/lib/titles";
 import { itemSub } from "~/lib/item-sub";
+import { confirmDialog, promptDialog } from "~/lib/dialog-queue";
 
 // ?item= で開いているアイテム(戻るボタンで閉じる)。?type= ?f= はホームから来たときの絞り込み
 type Search = { item?: string; type?: string; f?: "upd" | "deps" | "nomc" };
@@ -388,8 +389,8 @@ function Bulk({ ids, cat, share, allShown, onAll, onClear, onDone }:
       setBusy(false);
     }
   };
-  const addTag = () => {
-    const t = prompt("付けるタグ(30 文字まで)")?.trim();
+  const addTag = async () => {
+    const t = await promptDialog({ title: "タグを付ける", placeholder: "付けるタグ(30 文字まで)", max: 30 });
     if (t) run(async () => { await tag({ data: { itemIds: ids, tag: t, on: true } }); return `タグ「${t}」を付けました`; }, false);
   };
   const addToSet = (s: { id: string; name: string }) =>
@@ -417,8 +418,8 @@ function Bulk({ ids, cat, share, allShown, onAll, onClear, onDone }:
     setBusy(false);
     onDone(false);
   };
-  const removeAll = () => {
-    if (confirm(`${ids.length} 件をライブラリから外しますか?(サーバーに入っているファイルはそのままです)`)) {
+  const removeAll = async () => {
+    if ((await confirmDialog({ message: `${ids.length} 件をライブラリから外しますか?(サーバーに入っているファイルはそのままです)`, ok: "外す", danger: true }))) {
       run(async () => { for (const itemId of ids) await remove({ data: { itemId } }); return `${ids.length} 件を外しました`; }, true);
     }
   };
@@ -524,7 +525,7 @@ function ItemSheet({ item, cat, edit, admin, local, old, depInfo, onChange, onDe
     for (const id of old ?? []) await install({ data: { id, projectId: item.projectId, source: item.source as ItemSource } });
     setNote(`${old?.size ?? 0} 台を更新しました`);
   }, () => { onChange(); onDeps(); });
-  const addTag = () => { const t = prompt("付けるタグ(30 文字まで)")?.trim(); if (t) run("tag", () => tag({ data: { itemIds: [item.id], tag: t, on: true } })); };
+  const addTag = async () => { const t = await promptDialog({ title: "タグを付ける", placeholder: "付けるタグ(30 文字まで)", max: 30 }); if (t) run("tag", () => tag({ data: { itemIds: [item.id], tag: t, on: true } })); };
   return (
     <Sheet title={<span className="badge cat">{TYPE_LABEL[item.projectType] ?? item.projectType}</span>} label={item.title} onClose={onClose}
       actions={<>
@@ -535,7 +536,7 @@ function ItemSheet({ item, cat, edit, admin, local, old, depInfo, onChange, onDe
           edit && !pack && !!old?.size && { label: "すべて更新", onClick: updateAll },
           edit && pack && { label: newer ? "新しい版でセットを作る" : "セットを作る", onClick: () => packRun() },
           edit && { label: "タグを付ける", onClick: addTag },
-          edit && { label: "ライブラリから外す", danger: true, onClick: () => { if (confirm(`${item.title} をライブラリから外しますか?(サーバーに入っているファイルはそのままです)`)) run("remove", () => remove({ data: { itemId: item.id } }), onRemoved); } },
+          edit && { label: "ライブラリから外す", danger: true, onClick: async () => { if ((await confirmDialog({ message: `${item.title} をライブラリから外しますか?(サーバーに入っているファイルはそのままです)`, ok: "外す", danger: true }))) run("remove", () => remove({ data: { itemId: item.id } }), onRemoved); } },
         ]} />
       </>}>
       <div className="item-head">
@@ -639,10 +640,10 @@ function PutRow({ s, item, pack, onPack, onInstalled }: { s: Catalog["servers"][
   const v = chosen?.v ?? rows?.find((r) => r.suggested);
   const put = async () => {
     if (pack) {
-      if (confirm("Modパックの中の Mod と設定ファイル(overrides)を、このサーバーに入れますか?(同じ名前のセットも作ります。上書きした設定ファイルは履歴から戻せます)")) onPack(s.id);
+      if ((await confirmDialog({ message: "Modパックの中の Mod と設定ファイル(overrides)を、このサーバーに入れますか?(同じ名前のセットも作ります。上書きした設定ファイルは履歴から戻せます)", ok: "入れる" }))) onPack(s.id);
       return;
     }
-    if (v && !confirmUnsupported(v, s.mc)) return;
+    if (v && !(await confirmUnsupported(v, s.mc))) return;
     setBusy(true);
     setError("");
     try {
@@ -847,8 +848,8 @@ function EditInfo({ item, teamChannel, onDone, onClose }: { item: CatItem; teamC
       setBusy(false);
     }
   };
-  const doRelink = () => {
-    if (!url.trim() || !confirm("配布元を付け替えますか?(サーバーに入っているものは、次の更新で新しいプロジェクトの版に入れ替わります)")) return;
+  const doRelink = async () => {
+    if (!url.trim() || !(await confirmDialog({ message: "配布元を付け替えますか?(サーバーに入っているものは、次の更新で新しいプロジェクトの版に入れ替わります)", ok: "付け替える" }))) return;
     run(async () => { const r = await relink({ data: { itemId: item.id, url } }); setUrl(""); return `${r.title} に付け替えました`; });
   };
   return (
@@ -939,7 +940,7 @@ function Files({ item, keep, edit, local, onChange }: { item: CatItem; keep: Cat
           </span>
           <a className="rbtn sm" href={`/api/library/files/${f.id}`} download aria-label="ダウンロード" title="ダウンロード"><Icon name="download" /></a>
           {edit && <button type="button" className="rbtn sm red" aria-label="削除" title="削除"
-            onClick={() => confirm(`${f.filename} を消しますか?(保存先からも消えます。サーバーに入っているものはそのままです)`) && remove({ data: { fileId: f.id } }).then(() => { reload(); onChange(); }, (e) => setError(message(e)))}><Icon name="trash" /></button>}
+            onClick={async () => (await confirmDialog({ message: `${f.filename} を消しますか?(保存先からも消えます。サーバーに入っているものはそのままです)`, ok: "消す", danger: true })) && remove({ data: { fileId: f.id } }).then(() => { reload(); onChange(); }, (e) => setError(message(e)))}><Icon name="trash" /></button>}
         </div>
       ))}
       {edit && local && upstream && <button className="row link" type="button" disabled={busy} onClick={() => run(async () => {

@@ -4,6 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { SettingsFrame } from "~/lib/settings-frame";
 import { listShares, removeShare, stopShare } from "~/lib/shares-api";
 import { settingsTitle } from "~/lib/titles";
+import { confirmDialog } from "~/lib/dialog-queue";
 
 export const Route = createFileRoute("/shares")({
   beforeLoad: ({ context }) => {
@@ -42,10 +43,10 @@ function Shares() {
             </span>
             {!s.expired && !s.used && (
               <button className="trail link" type="button"
-                onClick={() => confirm(`共有リンク「${s.name}」を止めますか?(リンクは使えなくなります。一覧には残ります)`) && stop({ data: { id: s.id } }).then(reload, (e) => setError(message(e)))}>止める</button>
+                onClick={async () => (await confirmDialog({ message: `共有リンク「${s.name}」を止めますか?(リンクは使えなくなります。一覧には残ります)`, ok: "止める", danger: true })) && stop({ data: { id: s.id } }).then(reload, (e) => setError(message(e)))}>止める</button>
             )}
             <button className={`${s.expired || s.used ? "trail " : ""}link danger`} type="button"
-              onClick={() => confirm(`共有リンク「${s.name}」を消しますか?(リンクは使えなくなります)`) && remove({ data: { id: s.id } }).then(reload, (e) => setError(message(e)))}>消す</button>
+              onClick={async () => (await confirmDialog({ message: `共有リンク「${s.name}」を消しますか?(リンクは使えなくなります)`, ok: "消す", danger: true })) && remove({ data: { id: s.id } }).then(reload, (e) => setError(message(e)))}>消す</button>
           </div>
         ))}
         {error && <p className="row error" role="alert">{error}</p>}

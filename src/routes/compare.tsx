@@ -7,6 +7,7 @@ import { VersionChooser } from "~/lib/version-picker";
 import { useCan } from "~/lib/use-can";
 import { AddonIcon } from "~/lib/type-icon";
 import { pageTitle } from "~/lib/titles";
+import { confirmDialog } from "~/lib/dialog-queue";
 
 export const Route = createFileRoute("/compare")({
   beforeLoad: ({ context }) => {
@@ -266,14 +267,14 @@ function Installed({ serverId, mc, item, version, filename, onDone }: { serverId
         <>
           <button type="button" className="link small" onClick={() => setVersions(true)}>版を変える</button>
           <button type="button" className="link small" onClick={() => act(() => toggle({ data: { id: serverId, filename, enable: off } }))}>{off ? "有効にする" : "無効にする"}</button>
-          <button type="button" className="link small danger" onClick={() => {
-            if (confirm(`${item.title} を外しますか?(「変更の履歴」から元に戻せます)`)) act(() => remove({ data: { id: serverId, filename } }));
+          <button type="button" className="link small danger" onClick={async () => {
+            if ((await confirmDialog({ message: `${item.title} を外しますか?(「変更の履歴」から元に戻せます)`, ok: "外す", danger: true }))) act(() => remove({ data: { id: serverId, filename } }));
           }}>外す</button>
         </>
       )}
-      {versions && <VersionSheet serverId={serverId} mc={mc} item={item} onClose={() => setVersions(false)} onPick={(p) => {
+      {versions && <VersionSheet serverId={serverId} mc={mc} item={item} onClose={() => setVersions(false)} onPick={async (p) => {
         setVersions(false);
-        if (confirm(`${item.title} を ${p.versionNumber} にしますか?(反映にはサーバーの再起動が要ります)`)) {
+        if ((await confirmDialog({ message: `${item.title} を ${p.versionNumber} にしますか?(反映にはサーバーの再起動が要ります)`, ok: "変える" }))) {
           const key = { id: serverId, projectId: item.projectId, source: item.source as never };
           act(async () => {
             await install({ data: { ...key, versionId: p.versionId ?? undefined, unsupported: p.unsupported } });
@@ -317,8 +318,8 @@ function FileCell({ serverId, filename, label, onDone }: { serverId: string; fil
         <>
           <button type="button" className="link small" onClick={() => act(() => adopt({ data: { id: serverId, filename } }))}>ライブラリに取り込む</button>
           <button type="button" className="link small" onClick={() => act(() => toggle({ data: { id: serverId, filename, enable: off } }))}>{off ? "有効にする" : "無効にする"}</button>
-          <button type="button" className="link small danger" onClick={() => {
-            if (confirm(`${filename} を外しますか?(「変更の履歴」から元に戻せます)`)) act(() => remove({ data: { id: serverId, filename } }));
+          <button type="button" className="link small danger" onClick={async () => {
+            if ((await confirmDialog({ message: `${filename} を外しますか?(「変更の履歴」から元に戻せます)`, ok: "外す", danger: true }))) act(() => remove({ data: { id: serverId, filename } }));
           }}>外す</button>
         </>
       )}

@@ -17,6 +17,7 @@ import { Btn, Chip, ChipBar, Icon, type IconName, Info, Seg, Sheet } from "~/lib
 import { SERVER_FILTERS, SERVER_SORTS, type ServerFilter, type ServerItem, type ServerSort, arrange, isServerSort } from "~/lib/server-list";
 import { MobileSearch, StoragePill } from "~/lib/shell";
 import { pageTitle } from "~/lib/titles";
+import { confirmDialog } from "~/lib/dialog-queue";
 
 export const Route = createFileRoute("/servers")({
   beforeLoad: ({ context }) => {
@@ -219,7 +220,7 @@ function UpdateAll({ servers, onClose }: { servers: Server[]; onClose: () => voi
   const [error, setError] = useState("");
   const all = picked.size === servers.length;
   const go = async () => {
-    if (!confirm(all ? `すべてのサーバー(${servers.length} 台)の Mod・プラグインを最新にしますか?` : `選んだ ${picked.size} 台の Mod・プラグインを最新にしますか?`)) return;
+    if (!(await confirmDialog({ message: all ? `すべてのサーバー(${servers.length} 台)の Mod・プラグインを最新にしますか?` : `選んだ ${picked.size} 台の Mod・プラグインを最新にしますか?`, ok: "更新" }))) return;
     setBusy(true);
     setError("");
     setResults(null);
@@ -285,7 +286,7 @@ function Connection({ id, name, url, apiKeyHint, removable, onDone }:
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
   const drop = async () => {
-    if (!confirm(`${name} の登録を消しますか?このパネルから追加したサーバーも一覧から外れます。`)) return;
+    if (!(await confirmDialog({ message: `${name} の登録を消しますか?このパネルから追加したサーバーも一覧から外れます。`, ok: "消す", danger: true }))) return;
     try {
       await remove({ data: { id } });
       onDone();
@@ -507,7 +508,7 @@ function Agents({ onDone }: { onDone: () => void }) {
               <span className="sub">{a.online ? "つながっています" : a.lastSeenAt ? `最後につながった日時 ${new Date(a.lastSeenAt).toLocaleString("ja-JP")}` : "まだつながっていません"}{a.version ? ` · v${a.version}` : ""} · トークン …{a.tokenHint}</span>
             </span>
             <Btn kind="red" sm disabled={busy}
-              onClick={() => confirm(`エージェント「${a.name}」を消しますか?(このエージェントのサーバーも一覧から外れます。家のサーバーのファイルは消えません)`) && run(() => remove({ data: { id: a.id } }))}>消す</Btn>
+              onClick={async () => (await confirmDialog({ message: `エージェント「${a.name}」を消しますか?(このエージェントのサーバーも一覧から外れます。家のサーバーのファイルは消えません)`, ok: "消す", danger: true })) && run(() => remove({ data: { id: a.id } }))}>消す</Btn>
           </div>
           {a.servers.map((s) => (
             <div className="row" key={s.key}>

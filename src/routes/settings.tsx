@@ -17,6 +17,7 @@ import { saveMyBackground, saveMyTheme } from "~/lib/prefs-api";
 import { sendFeedback, setTelemetry, telemetryInfo } from "~/lib/telemetry-api";
 import { deleteAccount } from "~/lib/teams-api";
 import { settingsTitle } from "~/lib/titles";
+import { confirmDialog, promptDialog } from "~/lib/dialog-queue";
 
 export const Route = createFileRoute("/settings")({
   validateSearch: (s: Record<string, unknown>): { s?: string } => (typeof s.s === "string" ? { s: s.s } : {}),
@@ -213,7 +214,7 @@ function Passkeys() {
     refetch();
   };
   const rename = async (id: string, now: string) => {
-    const name = prompt("パスキーの名前(どの端末のものか分かるように)", now)?.trim().slice(0, 60);
+    const name = await promptDialog({ title: "名前を変える", placeholder: "パスキーの名前(どの端末のものか分かるように)", value: now, max: 60 });
     if (!name || name === now) return;
     setError("");
     const { error } = await authClient.passkey.updatePasskey({ id, name });
@@ -320,7 +321,7 @@ function Versions({ userId }: { userId: string }) {
     }
   };
   const run = async (label: string, fn: () => Promise<unknown>) => {
-    if (!confirm(label)) return;
+    if (!(await confirmDialog({ message: label, ok: label.includes("戻しますか") ? "戻す" : "切り替える", danger: label.includes("戻しますか") }))) return;
     setBusy("切り替えています…");
     setError("");
     try {
@@ -453,7 +454,7 @@ function ApiTokens({ userId }: { userId: string }) {
               <span className="muted"><span className="codes">{k.start}…</span> · {k.scopes.map((x) => SCOPE_SHORT[x]).join("・")} · {k.expiresAt ? `${new Date(k.expiresAt).toLocaleDateString("ja-JP")} まで` : "期限なし"}{k.lastUsed ? ` · 最後に使った日 ${new Date(k.lastUsed).toLocaleDateString("ja-JP")}` : ""}</span>
             </span>
             <button className="trail link danger" type="button"
-              onClick={() => confirm(`トークン「${k.name}」を消しますか?(使っているスクリプトは動かなくなります)`) && remove({ data: { id: k.id } }).then(reload, (e) => setError(tokenMessage(e)))}>消す</button>
+              onClick={async () => (await confirmDialog({ message: `トークン「${k.name}」を消しますか?(使っているスクリプトは動かなくなります)`, ok: "消す", danger: true })) && remove({ data: { id: k.id } }).then(reload, (e) => setError(tokenMessage(e)))}>消す</button>
           </div>
         ))}
       </section>
@@ -693,7 +694,7 @@ function DeleteAccount() {
           <p className="row muted">アカウントを消すと、元に戻せません。自分だけのチームは一緒に消えます。ほかのメンバーがいるチームのオーナーは、先にオーナーを譲るか、チームを消してください。</p>
           <input className="row" type="password" autoComplete="current-password" placeholder="確かめのためのパスワード" value={password} onChange={(e) => setPassword(e.target.value)} />
           <button className="row danger" type="button" disabled={busy || !password} onClick={async () => {
-            if (!confirm("アカウントを消しますか?元に戻せません")) return;
+            if (!(await confirmDialog({ message: "アカウントを消しますか?元に戻せません", ok: "消す", danger: true }))) return;
             setBusy(true);
             setError("");
             try {

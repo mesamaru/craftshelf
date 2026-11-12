@@ -1754,6 +1754,15 @@ export const EN: Record<string, string> = {
 };
 /** 1 文字だけのもの(曜日など)。文全体が一致したときだけ置き換える */
 export const EN_WHOLE: Record<string, string> = {
+  // 03.74.00(確認・入力のダイアログ)
+  "実行": "Run",
+  "決定": "OK",
+  "入力してください": "Enter a value",
+  "書き方に問題があります": "There is a problem with the syntax",
+  "捨てる": "Discard",
+  "反映": "Apply",
+  "取り込み直す": "Re-import",
+  "抜ける": "Leave",
   // 03.73.00
   "対応": "Compatible",
   "対応不明": "Unknown",
@@ -1893,6 +1902,9 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  // 03.74.00
+  [/^(\d+) 文字までです$/, "Up to $1 characters"],
+  [/^確認のため「(.+)」と入力$/, "Type “$1” to confirm"],
   // 03.73.02
   [/^重複・番号の誤りが (\d+) 件あるため保存できません$/, "Cannot save: $1 duplicate or invalid port numbers"],
   [/^「(.+?)」(?:の (.+?))?が使っています$/, (_, n, l) => `“${n}”${l ? `'s ${l}` : ""} is using it`],

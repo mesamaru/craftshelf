@@ -96,10 +96,6 @@ export async function startEnglish() {
   const title = () => { const t = translate(document.title); if (t !== document.title) document.title = t; };
   new MutationObserver(title).observe(document.head, { childList: true, subtree: true, characterData: true });
   title();
-  for (const name of ["confirm", "alert", "prompt"] as const) {
-    const orig = window[name].bind(window) as (m?: string, d?: string) => never;
-    (window as unknown as Record<string, unknown>)[name] = (m?: string, d?: string) => orig(m && translate(String(m)), d);
-  }
   new MutationObserver((muts) => {
     for (const m of muts) {
       if (m.type === "characterData") textNode(m.target);

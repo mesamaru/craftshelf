@@ -614,6 +614,17 @@ a.pill:hover { background: var(--glass2); }
 /* ===== 設定の 2 段(src/lib/settings-frame.tsx): 左にまとまり、右に中身。スマホは一覧から押して入る ===== */
 .split { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 18px; align-items: start; }
 .set-nav { position: sticky; top: 12px; }
+/* パソコンの幅では、設定の画面を画面の高さに収め、左の一覧と右の中身をそれぞれ別にスクロールさせる(スマホは今までどおりページ全体) */
+@media (min-width: 721px) {
+  .shell .page.settings { height: calc(100dvh - var(--set-top, 92px)); min-height: 380px; padding-bottom: 14px; }
+  .settings .split { flex: 1; min-height: 0; align-items: stretch; }
+  .settings .set-nav, .settings .set-body { position: static; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-gutter: stable; }
+  /* カードの影がスクロールの領域の端で切れないよう、左右に余白を足し、負の余白で位置は変えない */
+  .settings .set-nav { margin: 0 -14px; padding: 4px 14px 14px; }
+  .settings .set-body { margin: 0 -14px; padding: 4px 14px 24px; }
+  /* 縦に並べた中身が、高さに収まるよう押し縮められて切れないよう、縮めずに、はみ出した分をスクロールさせる */
+  .settings .set-body > * { flex-shrink: 0; }
+}
 .set-nav .gtitle { margin-top: 12px; }
 .set-nav > div:first-child .gtitle { margin-top: 0; }
 .set-nav .row { min-height: 42px; padding: 9px 14px; }

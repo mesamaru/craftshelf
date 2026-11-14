@@ -4,6 +4,7 @@ import { getRequest } from "@tanstack/react-start/server";
 import { z } from "zod";
 
 const svc = async () => (await import("~/server/instance")).files;
+const ext = async () => (await import("~/server/instance")).extract;
 const headers = () => getRequest().headers;
 const sid = z.string().min(1).max(64);
 const path = z.string().max(300);
@@ -41,3 +42,25 @@ export const filesAccess = createServerFn({ method: "GET" }).handler(async () =>
 export const setEditorFiles = createServerFn({ method: "POST" })
   .validator(z.object({ on: z.boolean() }))
   .handler(async ({ data }) => (await svc()).setEditorFiles(headers(), data.on));
+
+// 圧縮ファイルの展開(src/server/extract.ts。確かめ → 始める → 進み。権限はファイルを書く権限)
+const mode = z.enum(["folder", "here"]);
+export const extractPlan = createServerFn({ method: "GET" })
+  .validator(z.object({ id: sid, path, mode }))
+  .handler(async ({ data }) => (await ext()).plan(headers(), data.id, data.path, data.mode));
+
+export const extractStart = createServerFn({ method: "POST" })
+  .validator(z.object({ id: sid, path, mode }))
+  .handler(async ({ data }) => (await ext()).start(headers(), data.id, data.path, data.mode));
+
+export const extractState = createServerFn({ method: "GET" })
+  .validator(z.object({ id: sid, job: sid }))
+  .handler(async ({ data }) => (await ext()).state(headers(), data.id, data.job));
+
+export const extractCancel = createServerFn({ method: "POST" })
+  .validator(z.object({ id: sid, job: sid }))
+  .handler(async ({ data }) => (await ext()).cancel(headers(), data.id, data.job));
+
+export const undoExtract = createServerFn({ method: "POST" })
+  .validator(z.object({ id: sid, changeId: sid }))
+  .handler(async ({ data }) => (await ext()).undo(headers(), data.id, data.changeId));

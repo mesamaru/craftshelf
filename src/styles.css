@@ -373,6 +373,7 @@ pre.curl { margin: 4px 0 0; padding: 6px 8px; border-radius: 8px; background: va
 /* 行の中身: 見出し(ttl)と小さな説明(sub)。長いものは … で切る */
 .mid { flex: 1; min-width: 0; display: flex; flex-direction: column; text-align: left; border: 0; background: none; padding: 0; color: inherit; font: inherit; cursor: inherit; }
 .mid .ttl, .mid .sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mid .sub.wrap, .mid .ttl.wrap { white-space: normal; }
 .ttl { font-weight: 600; }
 .sub { color: var(--muted); font-size: 12.5px; }
 .row.click { cursor: pointer; }

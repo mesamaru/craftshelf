@@ -22,7 +22,7 @@ export const SERVER_LIMITS = { connectionsPerTeam: 5 };
 
 // allowPrivate: 自分用の版では、家の中のアドレス・http のパネルも登録できる
 // local: 自分用の版だけ。フォルダでつなぐサーバーを使えるようにする(dataDir はパネルのデータの場所。サーバーにはできない)
-export type Deps = { db: Db; auth: Auth; secret: string; fetch: FetchLike; allowPrivate?: boolean; local?: { dataDir: string }; agents?: AgentHub };
+export type Deps = { db: Db; auth: Auth; secret: string; fetch: FetchLike; allowPrivate?: boolean; local?: { dataDir: string; extract?: import("./local").ExtractOpts }; agents?: AgentHub };
 
 // Pterodactyl からのエラーは、画面に出せる言葉にして返す
 export async function remote<T>(fn: () => Promise<T>): Promise<T> {
@@ -102,7 +102,7 @@ export async function serverOf(deps: Deps, who: Who | string, id: string) {
       throw new HttpError(502, (e as Error).message);
     }
     const rconPassword = l.rconPasswordSealed ? open(deps.secret, l.rconPasswordSealed, rconContext(s.id)) : "";
-    const client = localClient(root, deps.fetch, { control: l.control, startCmd: l.startCmd, stopCmd: l.stopCmd, container: l.container, rconPort: l.rconPort, rconPassword });
+    const client = localClient(root, deps.fetch, { control: l.control, startCmd: l.startCmd, stopCmd: l.stopCmd, container: l.container, rconPort: l.rconPort, rconPassword }, deps.local.extract);
     return { row: s, client, remoteId: s.id };
   }
   if (s.kind === "agent") {

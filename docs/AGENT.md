@@ -5,6 +5,7 @@
 ## できること・できないこと
 
 - CraftShelf から頼めるのは、決まった操作だけです: ファイルの一覧・設定ファイルの読み書き・Mod・プラグインの取り込みと削除・起動と停止・コンソールのコマンド(RCON)・状態・人数と応答の速さ(そのサーバーの server.properties のポートに、このサーバー機の上で問い合わせる。1.1.0 から)
+- 圧縮ファイル(.zip・.tar・.tar.gz・.tgz)の展開も、エージェントの上で行います(1.2.0 から)。**確かめ(名前・リンク・上限・空き容量・予約領域・衝突)・一時フォルダへの展開・失敗のときの後片付けは、エージェント自身が必ずやります**(CraftShelf からの指示を信用しません)。展開は一時フォルダ(`.craftshelf-extract-…`)に行って最後に置くので、途中で止まっても何も残りません。起動のときに、1 時間より古い一時フォルダを掃除します。環境変数 `CRAFTSHELF_EXTRACT_RESERVE_BYTES` で、空き容量の予約領域を増やせます(詳しくは docs/DESIGN.md の「圧縮ファイルの展開」)
 - 扱うのは、**設定ファイルに書いたサーバーのフォルダの中だけ**です(フォルダの外・シンボリックリンクで外を指すものは扱いません)
 - 起動・停止は、**設定ファイルに書いたコマンド・Docker のコンテナだけ**を使います。CraftShelf から任意のコマンドを実行させることはできません
 - Mod・プラグイン・サーバー本体を取り込むのは、配布元の公式の取得先(Modrinth・SpigotMC・CurseForge・PaperMC・Purpur・Fabric・Leaf・Pufferfish・BungeeCord・Mojang・Mohist・SpongePowered)からだけです
@@ -50,10 +51,11 @@
 
 - トークンは、エージェントのパスワードです。漏れたときは、CraftShelf でエージェントを消して登録し直し、設定ファイルのトークンを替えてください
 - 設定ファイルには RCON のパスワードなども入るので、ほかの人が読めない場所に置いてください(例 `chmod 600 craftshelf-agent.json`)
+- 圧縮ファイルの展開は 1.2.0 以上のエージェントが要ります(古いエージェントは断られます。パネルの `/agent/craftshelf-agent.mjs` から取ってきて入れ替えてください)
 - エージェントは、CraftShelf のパネルと同じ版のものを使ってください(パネルの `/agent/craftshelf-agent.mjs` から取ってきたもの)
 
 ## 作り(開発者向け)
 
-- やりとり: エージェントが `POST /api/agent/poll`(`Authorization: Bearer ca_…`)で取りに来て、頼みごとがあればすぐ、無ければ 25 秒待って返します。エージェントは結果を `POST /api/agent/result` で返します(`src/server/agent-hub.ts`)。頼みごとはサービスのプロセスの中の列に持ちます
+- やりとり: エージェントが `POST /api/agent/poll`(`Authorization: Bearer ca_…`)で取りに来て、頼みごとがあればすぐ、無ければ 25 秒待って返します。エージェントは結果を `POST /api/agent/result` で返します(`src/server/agent-hub.ts`)。頼みごとはサービスのプロセスの中の列に持ちます。展開(`extract`)は始めたらすぐ jobId を返し、エージェントの上で動いて、サービスは `extractState` で進みを見ます(エージェントの中に、展開の状態を覚えておきます)
 - サービス側: エージェントのサーバーは `server.kind = "agent"`(表 `agent`・`agent_server`)。`serverOf` が Pterodactyl と同じ形のクライアント(`agentClient`)を返すので、ライブラリ・セット・ファイル・サーバー本体などの処理はそのまま動きます
 - エージェント: `src/agent/main.ts`。フォルダの操作は自分用の版の「フォルダのサーバー」(`src/server/local.ts`)と同じものを使い、`npm run build` で `public/agent/craftshelf-agent.mjs` に 1 つのファイルとしてまとめ、パネルの `/agent/craftshelf-agent.mjs` から配ります

@@ -10,11 +10,12 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve } from "node:path";
 import { AGENT_METHODS } from "../server/agent-hub";
-import { checkRoot, detectFromJar, localClient } from "../server/local";
+import { type ExtractOpts, checkRoot, detectFromJar, localClient } from "../server/local";
+import { cleanStale } from "../server/extract-safe";
 import { BUILD_HOSTS } from "../lib/software";
 import { gamePort, ping } from "../server/mcping";
 
-export const AGENT_VERSION = "1.1.0";
+export const AGENT_VERSION = "1.2.0";
 // 取り込んでよい取得先(Mod・プラグインの配布元と、サーバー本体の公式の取得先)
 export const AGENT_PULL_HOSTS = new Set(["cdn.modrinth.com", "api.spiget.org", "cdn.spiget.org", "edge.forgecdn.net", "mediafilez.forgecdn.net", ...BUILD_HOSTS]);
 
@@ -39,7 +40,7 @@ export function loadConf(text: string): AgentConf {
 }
 
 /** サーバーごとのクライアント(フォルダの外は扱えない。起動・停止は設定ファイルのものだけ) */
-export function makeClients(conf: AgentConf, fetchFn: typeof fetch = fetch) {
+export function makeClients(conf: AgentConf, fetchFn: typeof fetch = fetch, extract: ExtractOpts = {}) {
   const clients = new Map<string, { conf: ServerConf; client: Client; root: string }>();
   for (const s of conf.servers) {
     const root = checkRoot(s.root, resolve("/nonexistent-craftshelf-agent-data"));
@@ -48,7 +49,7 @@ export function makeClients(conf: AgentConf, fetchFn: typeof fetch = fetch) {
       client: localClient(root, fetchFn as never, {
         control: s.control ?? "none", startCmd: s.startCmd ?? "", stopCmd: s.stopCmd ?? "", container: s.container ?? "",
         rconPort: s.rconPort ?? null, rconPassword: s.rconPassword ?? "",
-      }),
+      }, extract),
     });
   }
   return clients;
@@ -86,6 +87,11 @@ export async function handle(clients: ReturnType<typeof makeClients>, method: st
     case "readBytes": return Buffer.from(await c.readBytes("", str(args.file), Math.min(Number(args.maxBytes) || 0, 100 * 1024 * 1024))).toString("base64");
     case "deleteFiles": return c.deleteFiles("", str(args.root), (Array.isArray(args.files) ? args.files : []).map(String));
     case "rename": return c.rename("", str(args.root), str(args.from), str(args.to));
+    // 圧縮ファイルの展開(確かめ・上限・容量・後片付けは、こちら(エージェント)でも必ず働く。守る場所は、このサーバーの server.properties から決める)
+    case "extractPlan": return c.extractPlan("", str(args.archive), args.mode === "here" ? "here" : "folder");
+    case "extract": return c.extractStart("", str(args.archive), args.mode === "here" ? "here" : "folder");
+    case "extractState": return c.extractState("", str(args.job));
+    case "extractCancel": return c.extractCancel("", str(args.job));
     // つなぐ先は、このサーバー機の上の、そのサーバーのポートだけ
     case "ping": return ping("127.0.0.1", gamePort(await c.readFile("", "server.properties")));
   }
@@ -96,6 +102,7 @@ async function main() {
   const file = resolve(process.argv[2] ?? "craftshelf-agent.json");
   const conf = loadConf(readFileSync(file, "utf8"));
   const clients = makeClients(conf);
+  for (const { root } of clients.values()) cleanStale(root).catch(() => {}); // 前に止まった展開の一時フォルダを掃除する
   const headers = { Authorization: `Bearer ${conf.token}`, "Content-Type": "application/json", "User-Agent": `CraftShelf-Agent/${AGENT_VERSION}` };
   const post = (path: string, body: unknown) => fetch(conf.url + path, { method: "POST", headers, body: JSON.stringify(body), signal: AbortSignal.timeout(90_000) });
   console.log(`[エージェント] ${conf.url} につなぎます(サーバー ${clients.size} 台: ${[...clients.keys()].join(", ")})`);

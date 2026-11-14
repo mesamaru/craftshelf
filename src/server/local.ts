@@ -10,6 +10,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { MC_VERSION, type Platform } from "~/lib/platforms";
 import { BUILD_HOSTS } from "~/lib/software";
+import { type Ctx, ExtractError, type JobState, type Limits, type Mode, type Plan, type Statfs, cancelJob, cleanStale, isExtractError, jobState, mergeLimits, planLocal, protectedOf, realStatfs, startLocal } from "./extract-safe";
 import type { FetchLike } from "./net";
 import { type Allocation, POWER_SIGNALS, type PowerSignal, type PteroClient, PteroError, type RemoteFile, type Resources } from "./ptero";
 
@@ -124,8 +125,21 @@ function runCommand(cmd: string, cwd: string, wait: boolean) {
 
 const propsOf = (text: string) => Object.fromEntries(text.split(/\r?\n/).map((l) => l.match(/^\s*([^#!=\s][^=]*?)\s*=\s*(.*)$/)).filter((m) => !!m).map((m) => [m![1], m![2].trim()]));
 
-export function localClient(root: string, fetch: FetchLike, control: Control): PteroClient {
+// opts は確かめ用: 空き容量の測り方・上限を差し替える(本番では使わない)
+export type ExtractOpts = { statfs?: Statfs; limits?: Partial<Limits> };
+
+export function localClient(root: string, fetch: FetchLike, control: Control, opts: ExtractOpts = {}): PteroClient {
   const props = async () => propsOf(await readFile(join(root, "server.properties"), "utf8").catch(() => ""));
+  // 圧縮ファイルの展開(extract-safe.ts。エージェントも同じ処理を使う)。守る場所(ワールド)は、このフォルダの server.properties から決める
+  const extractCtx = async (): Promise<Ctx> => ({ root, abs: (r) => inside(root, r), protect: protectedOf((await props())["level-name"] ?? "world"), statfs: opts.statfs ?? realStatfs, limits: mergeLimits(opts.limits) });
+  const asPtero = async <T>(fn: () => Promise<T> | T): Promise<T> => {
+    try {
+      return await fn();
+    } catch (e) {
+      if (isExtractError(e)) throw new PteroError((e as ExtractError).message);
+      throw e;
+    }
+  };
   const rconOf = async () => {
     const p = await props();
     const port = control.rconPort ?? (Number(p["rcon.port"]) || null);
@@ -292,6 +306,15 @@ export function localClient(root: string, fetch: FetchLike, control: Control): P
       for (const f of [from, to]) if (/[\\/]/.test(f) || f === "." || f === "..") throw new PteroError("ファイルの名前が正しくありません");
       await rename(join(dir, from), join(dir, to)).catch(() => { throw new PteroError(`${from} の名前を変えられませんでした`); });
     },
+
+    // 圧縮ファイルの展開: 確かめる(読むだけ)→ 始める(バックグラウンド)→ 進みを見る・やめる
+    extractPlan: (_ident: string, archive: string, mode: Mode): Promise<Plan> => asPtero(async () => planLocal(await extractCtx(), archive, mode === "here" ? "here" : "folder")),
+    extractStart: (_ident: string, archive: string, mode: Mode): Promise<{ jobId: string }> => asPtero(async () => {
+      await cleanStale(root).catch(() => 0); // 古い一時フォルダを先に掃除する
+      return { jobId: startLocal(await extractCtx(), archive, mode === "here" ? "here" : "folder") };
+    }),
+    extractState: (_ident: string, jobId: string): Promise<JobState> => asPtero(() => jobState(jobId, root)),
+    extractCancel: async (_ident: string, jobId: string) => { await asPtero(() => cancelJob(jobId, root)); },
 
     async deleteFiles(_ident: string, dirRel: string, files: string[]) {
       const dir = inside(root, dirRel);

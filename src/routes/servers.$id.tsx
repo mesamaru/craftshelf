@@ -8,7 +8,7 @@ import { ITEM_TYPES, PLATFORMS, STATE_LABELS, kindLabel, kindsOf, supportOf } fr
 import { SupportBadge, type VArgs, VersionChooser, type VRow } from "~/lib/version-picker";
 import { AddonIcon } from "~/lib/type-icon";
 import { listServers, powerServer } from "~/lib/servers-api";
-import { filesAccess } from "~/lib/files-api";
+import { filesAccess, undoExtract } from "~/lib/files-api";
 import { bindServerSet, copyServer, listSets, syncServerSet, updateServers } from "~/lib/sets-api";
 import { SOURCE_LABEL, type Source, pageUrl, sourceLabel } from "~/lib/sources";
 import { type Status, useServerStatus } from "~/lib/server-status";
@@ -712,6 +712,10 @@ function SetBinding({ id, edit, onSynced }: { id: string; edit: boolean; onSynce
 function Changes({ id, edit, items, onChange, limit, onMore }: { id: string; edit: boolean; items: Installed[] | null; onChange: () => void; limit?: number; onMore?: () => void }) {
   const load = useServerFn(serverChanges);
   const undo = useServerFn(undoChange);
+  const undoZip = useServerFn(undoExtract);
+  const access = useServerFn(filesAccess);
+  const [fileEdit, setFileEdit] = useState(false); // 圧縮ファイルの展開を元に戻すのは、ファイルを書く権限(設定ファイルの編集と同じ)
+  useEffect(() => { shared("files-access", () => access(), 5000).then((a) => setFileEdit(a.allowed), () => {}); }, []);
   const [list, setList] = useState<Awaited<ReturnType<typeof serverChanges>> | null>(null);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState("");
@@ -726,11 +730,26 @@ function Changes({ id, edit, items, onChange, limit, onMore }: { id: string; edi
       {list?.length === 0 && <div className="row muted">まだありません。</div>}
       {shown.map((c) => (
         <div className={`row${c.undone ? " faded" : ""}`} key={c.id}>
-          <AddonIcon type={c.type} url={c.iconUrl} />
+          {c.type === "extract" ? <span className="ic" aria-hidden="true">📦</span> : <AddonIcon type={c.type} url={c.iconUrl} />}
           <span className="mid">
-            <span className="ttl"><span translate="no">{c.title}</span>{` を${({ 外す: "外した", 更新: "更新した", 無効にする: "無効にした", 有効にする: "有効にした" } as Record<string, string>)[c.action] ?? "入れた"}`}{c.config && <span className="tag">設定も退避</span>}</span>
-            <span className="sub" translate="no">{new Date(c.at).toLocaleString("ja-JP")}{c.by ? ` · ${c.by}` : ""}{c.action === "更新" && c.version ? ` · 前の版 ${c.version}` : ""}{c.undone ? " · 元に戻しました" : ""}</span>
+            <span className="ttl"><span translate="no">{c.title}</span>{` を${({ 外す: "外した", 更新: "更新した", 無効にする: "無効にした", 有効にする: "有効にした", 展開: "展開した" } as Record<string, string>)[c.action] ?? "入れた"}`}{c.config && <span className="tag">設定も退避</span>}</span>
+            <span className="sub" translate="no">{new Date(c.at).toLocaleString("ja-JP")}{c.by ? ` · ${c.by}` : ""}{c.action === "更新" && c.version ? ` · 前の版 ${c.version}` : ""}{c.action === "展開" ? ` · ${c.added}` : ""}{c.undone ? " · 元に戻しました" : ""}</span>
           </span>
+          {fileEdit && c.extract && (
+            <Btn sm disabled={!!busy} onClick={async () => {
+              if (!(await confirmDialog({ message: `${c.title} の展開を元に戻しますか?(展開で作ったファイルだけを消します。展開のあとに足した・変えたファイルは残します)`, ok: "元に戻す", danger: true }))) return;
+              setBusy(c.id);
+              setError("");
+              try {
+                await undoZip({ data: { id, changeId: c.id } });
+                onChange();
+              } catch (e) {
+                setError(message(e));
+              } finally {
+                setBusy("");
+              }
+            }}>{busy === c.id ? "戻しています…" : "元に戻す"}</Btn>
+          )}
           {edit && c.undoable && (
             <Btn sm disabled={!!busy} onClick={async () => {
               if (!(await confirmDialog({ message: c.action === "外す" ? `${c.title} を元に戻しますか?(外したファイルを戻します)` : c.action === "入れる" ? `${c.title} を外しますか?(入れる前に戻します)`

@@ -2,9 +2,11 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { fileHistory, listFiles, readServerFile, saveServerFile, sendCommand, serverLogs } from "./files-api";
+import { extractCancel, extractPlan, extractStart, extractState, fileHistory, listFiles, readServerFile, saveServerFile, sendCommand, serverLogs } from "./files-api";
+import { looksLikeArchive } from "./archive";
+import { fmtSize } from "./format";
 import { confirmSyntax, syntaxError } from "./syntax";
-import { Btn, Info, Sheet } from "./ui";
+import { Btn, Info, Seg, Sheet } from "./ui";
 import { confirmDialog } from "~/lib/dialog-queue";
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
@@ -92,6 +94,7 @@ export function Files({ id }: { id: string }) {
   const [opened, setOpened] = useState<Opened | null>(null);
   const [text, setText] = useState("");
   const [hist, setHist] = useState(false);
+  const [unzip, setUnzip] = useState(""); // 展開の確認を開いている圧縮ファイル(サーバーのフォルダからのパス)
   const [busy, setBusy] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
@@ -170,7 +173,7 @@ export function Files({ id }: { id: string }) {
       <div className="chips">
         <button className="chip" type="button" translate="no" onClick={() => go("")}>/</button>
         {parts.map((p, i) => <button key={i} className="chip" type="button" translate="no" onClick={() => go(parts.slice(0, i + 1).join("/"))}>{p}/</button>)}
-        <Info>テキストの設定ファイル(.properties・.yml・.json・.toml など、512 KB まで)を開いて直せます。保存する前の中身は履歴に残り、そこから戻せます。</Info>
+        <Info>テキストの設定ファイル(.properties・.yml・.json・.toml など、512 KB まで)を開いて直せます。保存する前の中身は履歴に残り、そこから戻せます。圧縮ファイル(.zip・.tar・.tar.gz・.tgz)は「展開」で、安全を確かめてから展開できます。</Info>
       </div>
       <section className="group">
         {!listing && !error && <div className="row muted">読み込んでいます…</div>}
@@ -191,11 +194,128 @@ export function Files({ id }: { id: string }) {
               <span className="mid"><span className={`${e.editable ? "ttl" : "ttl muted"}${aside ? " wrapname" : ""}`} translate="no">{e.name}</span></span>
               {aside && <Aside />}
               {e.editable && <Btn sm disabled={!!busy} onClick={(ev) => { ev.stopPropagation(); open(path); }}>開く</Btn>}
+              {looksLikeArchive(e.name) && <Btn sm kind="tint" disabled={!!busy} onClick={(ev) => { ev.stopPropagation(); setUnzip(path); }}>展開</Btn>}
             </div>
           );
         })}
       </section>
       {error && <p className="error" role="alert">{error}</p>}
+      {unzip && <ExtractSheet id={id} path={unzip} onClose={() => setUnzip("")} onOpen={(dir) => { setUnzip(""); go(dir); }} onDone={() => go(listing?.dir ?? "")} />}
     </>
+  );
+}
+
+type Plan = Awaited<ReturnType<typeof extractPlan>>;
+type JobS = Awaited<ReturnType<typeof extractState>>;
+const ENDED = ["done", "failed", "cancelled"];
+
+/**
+ * 圧縮ファイルの展開(src/server/extract.ts): 中身を確かめて(読むだけ。ディスクには書かない)、OK のときだけ「展開する」。
+ * 展開中は進みと「キャンセル」。失敗・キャンセルのときは何も残らない。展開したものは、変更の履歴(「保存」タブ)から元に戻せる
+ */
+function ExtractSheet({ id, path, onClose, onOpen, onDone }: { id: string; path: string; onClose: () => void; onOpen: (dir: string) => void; onDone: () => void }) {
+  const plan = useServerFn(extractPlan);
+  const start = useServerFn(extractStart);
+  const state = useServerFn(extractState);
+  const cancel = useServerFn(extractCancel);
+  const [mode, setMode] = useState<"folder" | "here">("folder");
+  const [p, setP] = useState<Plan | null>(null);
+  const [error, setError] = useState("");
+  const [job, setJob] = useState<{ id: string; s: JobS | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const name = path.slice(path.lastIndexOf("/") + 1);
+  // 展開を始めるまでは、選び方を変えるたびに確かめ直す
+  useEffect(() => {
+    if (job) return;
+    let live = true;
+    setP(null);
+    setError("");
+    plan({ data: { id, path, mode } }).then((r) => live && setP(r), (e) => live && setError(message(e)));
+    return () => { live = false; };
+  }, [mode, !!job]);
+  // 進み
+  const phase = job?.s?.phase ?? "";
+  useEffect(() => {
+    if (!job || ENDED.includes(phase)) return;
+    const t = setInterval(() => { state({ data: { id, job: job.id } }).then((s) => setJob((j) => j && { ...j, s }), (e) => setError(message(e))); }, 700);
+    return () => clearInterval(t);
+  }, [job?.id, phase]);
+  useEffect(() => { if (phase === "done") onDone(); }, [phase]);
+
+  const go = async () => {
+    if (!p?.ok) return;
+    const where = p.dest ? `${p.dest}/` : "/";
+    if (!(await confirmDialog({ message: `${name} を ${where} に展開しますか?(${p.files} 個のファイル・${fmtSize(p.bytes)}。展開したものは、「保存」タブの変更の履歴から元に戻せます)`, ok: "展開する" }))) return;
+    setBusy(true);
+    setError("");
+    try {
+      const r = await start({ data: { id, path, mode } });
+      setJob({ id: r.jobId, s: null });
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const s = job?.s;
+  const running = !!job && !ENDED.includes(phase);
+  const sp = p?.space;
+  const ratio = sp?.usable ? Math.min(1, sp.need / sp.usable) : sp?.unknown ? 1 : 0;
+  return (
+    <Sheet title="圧縮ファイルを展開" onClose={onClose}>
+      <section className="group">
+        <div className="row"><span className="mid"><span className="ttl" translate="no">{name}</span><span className="sub" translate="no">{p ? `${p.format ?? "?"} · ${fmtSize(p.archiveBytes)}` : path}</span></span></div>
+        {!job && <div className="row"><div style={{ flex: 1 }}><Seg label="展開先" value={mode} options={[["folder", "新しいフォルダ(既定)"], ["here", "ここに展開"]] as const} onChange={setMode} /></div></div>}
+      </section>
+      {!job && !p && !error && <p className="muted" role="status">中身を確かめています…</p>}
+      {!job && p && (
+        <>
+          <section className="group">
+            {p.files + p.dirs > 0 && (
+              <div className="row"><span className="mid">
+                <span className="ttl">{`${p.files} 個のファイル · 合計 ${fmtSize(p.bytes)}`}</span>
+                <span className="sub">{`最大 ${fmtSize(p.maxFile)} · 深さ ${p.depth} · 圧縮率 ${p.ratio >= 1 ? `${p.ratio.toFixed(1)} 倍` : "—"}`}</span>
+              </span></div>
+            )}
+            <div className="row"><span className="mid"><span className="ttl">展開先</span><span className="sub" translate="no">{p.dest ? `${p.dest}/` : "/"}</span></span></div>
+            {sp && (
+              <div className="row"><span className="mid">
+                <span className="ttl">展開後の空き容量</span>
+                <span className="sub wrap">{sp.unknown ? "空き容量が分からないので展開しません" : sp.unlimited ? `ディスクの上限なし(展開は合計 ${fmtSize(sp.usable ?? 0)} まで)` : `${fmtSize(Math.max(0, sp.after ?? 0))}(予約領域 ${fmtSize(sp.reserve)} を残します。展開に使えるのは ${fmtSize(sp.usable ?? 0)} まで)`}</span>
+                <div className="meter" role="img" aria-label="展開に使う量"><i style={{ width: `${Math.round(ratio * 100)}%`, background: ratio >= 1 ? "var(--danger)" : ratio > 0.7 ? "var(--warn)" : undefined }} /></div>
+              </span></div>
+            )}
+            {p.conflictCount > 0 && (
+              <div className="row"><span className="mid"><span className="ttl error wrap">同じ名前があります(上書きはしません)</span><span className="sub wrap" translate="no">{p.conflicts.join("、")}{p.conflictCount > p.conflicts.length ? " …" : ""}</span></span></div>
+            )}
+          </section>
+          {p.how === "panel" && <p className="muted">Pterodactyl は、パネル側で展開します。事前の確かめだけが働きます(途中の見張り・キャンセルはできません)。</p>}
+          {p.busy && <p className="error" role="alert">このサーバーでは、すでに展開しています。終わるまでお待ちください</p>}
+          {p.reasons.map((r, i) => <p key={i} className="error" role="alert">{r}</p>)}
+          {p.ok && !p.busy && <p className="muted">{p.how === "panel" ? "確かめは通りました。" : "確かめは通りました。一時フォルダに展開してから置くので、途中で止めても何も残りません。"}</p>}
+        </>
+      )}
+      {job && (
+        <section className="group">
+          <div className="row"><span className="mid">
+            <span className="ttl">{!s || s.phase === "checking" ? "中身を確かめています…" : s.phase === "placing" ? "展開先に置いています…" : s.phase === "extracting" ? (p?.how === "panel" ? "パネルが展開しています…" : "展開しています…") : s.phase === "done" ? `${s.result?.files ?? 0} 個のファイルを展開しました` : s.phase === "cancelled" ? "キャンセルしました" : "展開できませんでした"}</span>
+            {s && s.phase !== "failed" && s.phase !== "cancelled" && <span className="sub">{`${fmtSize(s.written)} / ${fmtSize(s.total)} · ${s.files} / ${s.filesTotal}`}</span>}
+            {s && !ENDED.includes(s.phase) && <div className="meter"><i style={{ width: `${s.total ? Math.min(100, Math.round((s.written / s.total) * 100)) : 0}%` }} /></div>}
+          </span></div>
+        </section>
+      )}
+      {s?.phase === "done" && <p className="muted">展開したものは、「保存」タブの変更の履歴から元に戻せます。元の圧縮ファイルは残してあります。</p>}
+      {(s?.phase === "failed" || s?.phase === "cancelled") && <p className="muted">{s.phase === "failed" && p?.how === "panel" ? "作ったものは消しました。パネルで確かめてください。" : "展開先には何も残していません。"}</p>}
+      {s?.phase === "failed" && <p className="error" role="alert">{s.error}</p>}
+      {error && <p className="error" role="alert">{error}</p>}
+      <div className="sheet-foot">
+        <span className="grow" />
+        {running && !(p?.how === "panel" && phase === "extracting") && <Btn kind="red" onClick={() => cancel({ data: { id, job: job!.id } }).catch((e) => setError(message(e)))}>キャンセル</Btn>}
+        {s?.phase === "done" && s.result && <Btn kind="pri" onClick={() => onOpen(s.result!.base)}>展開先を開く</Btn>}
+        {!job && <Btn kind="pri" disabled={!p?.ok || !!p?.busy || busy} onClick={go}>{busy ? "始めています…" : "展開する"}</Btn>}
+        {job && ENDED.includes(phase) && phase !== "done" && <Btn onClick={onClose}>閉じる</Btn>}
+      </div>
+    </Sheet>
   );
 }

@@ -1,6 +1,7 @@
 // API トークンと、外から呼べる API(/api/v1)。Pterodactyl は偽物の応答で代わりをする
 import { beforeAll, describe, expect, it } from "vitest";
 import { eventService } from "~/server/events";
+import { extractService } from "~/server/extract";
 import { fileService } from "~/server/files";
 import { HttpError } from "~/server/guard";
 import { libraryService } from "~/server/library";
@@ -48,7 +49,7 @@ beforeAll(async () => {
   const servers = serverService(deps);
   tokens = tokenService(deps);
   const sets = setService(deps);
-  services = { servers, library: libraryService(deps), sets, files: fileService(deps), events: eventService(deps), software: softwareService(deps), worlds: worldService(deps),
+  services = { servers, library: libraryService(deps), sets, files: fileService(deps), extract: extractService(deps), events: eventService(deps), software: softwareService(deps), worlds: worldService(deps),
     backups: backupService(deps), schedules: scheduleService(deps, sets), jobs: jobService(deps), modpacks: modpackService(deps), saved: savedService(deps) } as never;
   owner = t.headers(await t.signUp("オーナー", "owner@example.com"));
   const c = await servers.addConnection(owner, { name: "", url: "panel.example.com", apiKey: KEY });

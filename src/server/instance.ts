@@ -10,6 +10,7 @@ import { setService } from "./sets";
 import { eventService } from "./events";
 import { scheduleService } from "./schedule";
 import { fileService } from "./files";
+import { extractService } from "./extract";
 import { uploadService } from "./uploads";
 import { shareService } from "./shares";
 import { tokenService } from "./tokens";
@@ -184,6 +185,7 @@ async function build() {
   const events = eventService(deps);
   const schedules = scheduleService(deps, sets);
   const files = fileService(deps);
+  const extract = extractService(deps);
   const software = softwareService(deps);
   const backups = backupService(deps);
   const worlds = worldService(deps);
@@ -208,8 +210,8 @@ async function build() {
   versions?.confirmStarted();
   // 自動アップデートと「この更新の前に戻す」(自分用の版だけ)
   const updates = versions ? updateService(deps, versions, backups) : null;
-  return { env, db, mailer, auth, hub, servers, library, sets, events, schedules, files, software, backups, worlds, modpacks, teams, agents, telemetry, uploads, shares, tokens, ports, versions, updates, jobs, prefs, saved };
+  return { env, db, mailer, auth, hub, servers, library, sets, events, schedules, files, extract, software, backups, worlds, modpacks, teams, agents, telemetry, uploads, shares, tokens, ports, versions, updates, jobs, prefs, saved };
 }
 type Instance = Awaited<ReturnType<typeof build>>;
 const once = globalThis as { __craftshelf?: Promise<Instance> };
-export const { env, db, mailer, auth, hub, servers, library, sets, events, schedules, files, software, backups, worlds, modpacks, teams, agents, telemetry, uploads, shares, tokens, ports, versions, updates, jobs, prefs, saved } = await (once.__craftshelf ??= build());
+export const { env, db, mailer, auth, hub, servers, library, sets, events, schedules, files, extract, software, backups, worlds, modpacks, teams, agents, telemetry, uploads, shares, tokens, ports, versions, updates, jobs, prefs, saved } = await (once.__craftshelf ??= build());

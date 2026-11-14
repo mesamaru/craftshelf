@@ -7,6 +7,10 @@ import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebStream } from "node:stream/web";
 import type { FetchLike } from "./net";
 import { FormData as UFormData } from "undici";
+import { randomBytes } from "node:crypto";
+import { type Created, EXTRACT_LIMITS, ExtractError, type JobState, type Mode, type Plan, type Scan, type Space, STAGING, assemblePlan, cancelJob, entriesManifest, findConflicts, freeFolderName, isExtractError, jobState, memorySource, memoryTar, protectedOf, relOf, removeCreated, scanTar, scanZip, startJob } from "./extract-safe";
+import { fmtSize } from "../lib/format";
+import { formatOf, unsupportedReason } from "../lib/archive";
 
 export class PteroError extends Error {}
 
@@ -45,7 +49,7 @@ export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 
 export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
   // body が文字列なら、そのまま送る(ファイルの書き込み)。それ以外は JSON
-  async function req(method: string, path: string, body?: unknown, ok = [200, 201, 204]) {
+  async function req(method: string, path: string, body?: unknown, ok = [200, 201, 204], timeoutMs = 20_000) {
     let res: Response;
     try {
       res = await fetch(baseUrl + path, {
@@ -57,7 +61,7 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
           ...(body ? { "Content-Type": typeof body === "string" ? "text/plain" : "application/json" } : {}),
         },
         body: body === undefined ? undefined : typeof body === "string" ? body : JSON.stringify(body),
-        signal: AbortSignal.timeout(20_000),
+        signal: AbortSignal.timeout(timeoutMs),
       });
     } catch (e) {
       const msg = e instanceof Error && /公開|EUNSAFEADDR/.test(String((e as { cause?: unknown }).cause ?? e.message))
@@ -79,7 +83,7 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
     return `/api/client/servers/${ident}`;
   };
 
-  return {
+  const base = {
     // 操作できるサーバーの一覧(このキーの持ち主が所有者かサブユーザーのもの)
     async servers(): Promise<RemoteServer[]> {
       const out: RemoteServer[] = [];
@@ -251,6 +255,122 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
       },
     },
   };
+
+  // 圧縮ファイルの展開(Pterodactyl は、パネル側(Wings)で展開する)。事前の確かめはこちらで必ず行い、全部通ったときだけ decompress を呼ぶ。
+  // Wings は中のパスの確かめとディスクの上限を持つが、こちらの予約領域・展開中の見張り・途中のキャンセルは効かない(docs/DESIGN.md)
+  const jobKey = (ident: string) => `ptero:${baseUrl}:${ident}`;
+  const slash = (dir: string) => dir || "/";
+  const rootOf = (dir: string) => (`/${dir}`.replace(/\/+$/, "") || "/");
+  async function prepare(ident: string, archive: string, mode: Mode) {
+    const L = EXTRACT_LIMITS;
+    const rel = relOf(archive);
+    const name = rel.slice(rel.lastIndexOf("/") + 1);
+    const parentRel = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : "";
+    const list = await base.listFiles(ident, slash(parentRel));
+    const entry = list.find((f) => f.isFile && f.name === name);
+    if (!entry) throw new ExtractError("圧縮ファイルが見つかりません");
+    const format = formatOf(name);
+    const pre: string[] = [];
+    if (!format) pre.push(unsupportedReason(name) ?? "この形式は展開できません(対応しているのは .zip・.tar・.tar.gz・.tgz です)");
+    else if (entry.size > L.pteroArchiveBytes) pre.push(`Pterodactyl では ${fmtSize(L.pteroArchiveBytes)} までの圧縮ファイルしか確かめられません。パネルのファイルマネージャで展開してください(この圧縮ファイルは ${fmtSize(entry.size)})`);
+    let scan: Scan | null = null;
+    if (format && !pre.length) {
+      const bytes = await base.readBytes(ident, rel, L.pteroArchiveBytes);
+      scan = format === "zip" ? scanZip(memorySource(bytes), L) : await scanTar(memoryTar(bytes, format === "tar.gz"), format, L);
+    }
+    const level = (await base.readFile(ident, "server.properties").catch(() => null))?.match(/^\s*level-name\s*=\s*(.*?)\s*$/m)?.[1] ?? "world";
+    const protect = protectedOf(level);
+    let destRel = parentRel;
+    let conflicts: string[] = [];
+    let existing = new Set<string>();
+    if (mode === "folder") {
+      const f = freeFolderName(name, parentRel, list.map((x) => x.name), protect);
+      if (!f) pre.push("展開先のフォルダの名前を決められません");
+      destRel = parentRel ? `${parentRel}/${f ?? "extracted"}` : (f ?? "extracted");
+    } else if (scan && !scan.fatal.length && !scan.guard.problems.size && !scan.guard.stopped) {
+      try {
+        const r = await findConflicts(parentRel, scan.entries, async (d) => { const l = await base.listFiles(ident, slash(d)); return l.length ? l : null; }, 150);
+        conflicts = r.bad;
+        existing = r.existing;
+      } catch (e) {
+        pre.push(isExtractError(e) ? (e as ExtractError).message : "展開先を確かめられませんでした");
+      }
+    }
+    // 容量: そのサーバーのディスクの上限(MB。0 は無制限)と使用中
+    const a = (await (await req("GET", srv(ident))).json())?.attributes ?? {};
+    const limitMb = Number(a.limits?.disk);
+    const used = (await base.resources(ident)).disk;
+    const space: Space = limitMb === 0 ? { kind: "unlimited", block: 4096 }
+      : Number.isFinite(limitMb) && limitMb > 0 ? { kind: "limit", limit: limitMb * 1024 * 1024, free: used === null ? null : Math.max(0, limitMb * 1024 * 1024 - used), block: 4096 }
+      : { kind: "volume", free: null, total: null, block: 4096 };
+    const plan = assemblePlan({ archive: rel, format, archiveBytes: entry.size, scan, mode, destRel, how: "panel", conflicts, conflictCount: conflicts.length, space, protect, pre, L });
+    return { plan, scan, name, parentRel, destRel, existing };
+  }
+
+  const wrap = <T>(fn: () => Promise<T> | T) => Promise.resolve().then(fn).catch((e) => { throw isExtractError(e) ? new PteroError((e as ExtractError).message) : e; });
+  const extract = {
+    extractPlan: (ident: string, archive: string, mode: Mode): Promise<Plan> => wrap(async () => (await prepare(ident, archive, mode === "here" ? "here" : "folder")).plan),
+    extractStart: (ident: string, archive: string, mode: Mode): Promise<{ jobId: string }> => wrap(() => {
+      const m: Mode = mode === "here" ? "here" : "folder";
+      const jobId = startJob(jobKey(ident), async (job, signal) => {
+        const p = await prepare(ident, archive, m);
+        job.plan = p.plan;
+        if (!p.plan.ok || !p.scan) throw new ExtractError(`展開できません。${p.plan.reasons.join(" / ")}`);
+        if (signal.aborted) throw new ExtractError("キャンセルしました。何も展開していません", true);
+        job.total = p.plan.bytes;
+        job.filesTotal = p.plan.files;
+        job.phase = "extracting"; // ここから先は、パネル(Wings)が展開する。途中では止められない
+        const decompress = (dir: string, file: string) => req("POST", srv(ident) + "/files/decompress", { root: rootOf(dir), file }, [200, 204], 30 * 60_000);
+        const manifest = entriesManifest(m === "folder" ? p.destRel : p.parentRel, m, p.scan.entries, p.existing);
+        try {
+          if (m === "folder") {
+            // Wings は、圧縮ファイルのあるフォルダに展開する。新しいフォルダを作り、圧縮ファイルを一時的にそこへ移し(同じボリュームなので容量は使わない)、展開して、元の場所に戻す
+            const folder = p.destRel.slice(p.destRel.lastIndexOf("/") + 1);
+            const ext = p.name.match(/\.(tar\.gz|tgz|tar|zip)$/i)![0];
+            const temp = `${STAGING}${randomBytes(6).toString("hex")}${ext}`;
+            await req("POST", srv(ident) + "/files/create-folder", { root: rootOf(p.parentRel), name: folder });
+            let moved = false;
+            let failure: unknown = null;
+            try {
+              await base.rename(ident, slash(p.parentRel), p.name, `${folder}/${temp}`);
+              moved = true;
+              await decompress(p.destRel, temp);
+            } catch (e) {
+              failure = e;
+            }
+            if (moved) await base.rename(ident, slash(p.parentRel), `${folder}/${temp}`, p.name).then(() => { moved = false; }, () => {});
+            if (failure) {
+              if (!moved) await base.deleteFiles(ident, slash(p.parentRel), [folder]).catch(() => {}); // 作ったフォルダを消す(圧縮ファイルが元に戻っているときだけ)
+              throw failure;
+            }
+            if (moved) throw new ExtractError(`展開はできましたが、圧縮ファイルを元の場所に戻せませんでした。「${folder}」フォルダの中の ${temp} です`);
+            if (p.plan.files && !(await base.listFiles(ident, p.destRel)).length) throw new ExtractError("展開されませんでした");
+          } else {
+            try {
+              await decompress(p.parentRel, p.name);
+            } catch (e) {
+              await removeCreated(base, ident, manifest).catch(() => {}); // 展開が途中で止まったら、作ったものだけを消す
+              throw e;
+            }
+          }
+        } catch (e) {
+          if (isExtractError(e)) throw e;
+          throw new ExtractError(e instanceof PteroError ? `パネルが展開できませんでした: ${e.message}` : "パネルが展開できませんでした");
+        }
+        const created: Created = { dirs: manifest.dirs, files: manifest.files };
+        return { base: manifest.base, mode: m, files: p.plan.files, dirs: p.plan.dirs, bytes: p.plan.bytes, created };
+      });
+      return { jobId };
+    }),
+    extractState: (ident: string, jobId: string): Promise<JobState> => wrap(() => jobState(jobId, jobKey(ident))),
+    extractCancel: (ident: string, jobId: string) => wrap(() => {
+      const s = jobState(jobId, jobKey(ident));
+      if (s.finishedAt) return;
+      if (s.phase !== "checking") throw new PteroError("Pterodactyl はパネル側で展開しているので、途中では止められません");
+      cancelJob(jobId, jobKey(ident));
+    }),
+  };
+  return { ...base, ...extract };
 }
 
 // ファイル・コマンドなど、フォルダのサーバー・エージェントも同じ形で持つ操作(バックアップは Pterodactyl だけ)

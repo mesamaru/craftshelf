@@ -1,7 +1,7 @@
 // ブラウザで画面を通しで操作して確かめる(npm run e2e)。
 // ビルドしたサーバーを E2E_URL(既定 http://localhost:3123)で動かしておく。
 // ブラウザは E2E_BROWSER(既定 msedge。chrome・chromium も可)。画面の写しは .e2e/ に保存する
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
@@ -25,6 +25,7 @@ const step = async (name, fn) => {
   }
 };
 const email = `e2e-${Date.now()}@example.com`;
+let e2eDir = ""; // フォルダのサーバーの場所(展開の確かめでも使う)
 
 await step("登録するとライブラリが開く", async () => {
   await page.goto(base + "/signup");
@@ -218,7 +219,7 @@ await step("ポートの画面で、種類とグループを足して並べ替�
 
 // フォルダのサーバー(自分用の版だけ): jar の名前から種類が決まり、詳細のタブを URL で移れる
 await step("フォルダのサーバーを足すと、一覧と詳細のタブで見られる", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "cs-e2e-"));
+  const dir = (e2eDir = mkdtempSync(join(tmpdir(), "cs-e2e-")));
   writeFileSync(join(dir, "paper-1.21.4.jar"), "");
   writeFileSync(join(dir, "server.properties"), "motd=e2e");
   await page.goto(base + "/servers");
@@ -271,6 +272,52 @@ await step("フォルダのサーバーを足すと、一覧と詳細のタブ�
   await page.screenshot({ path: ".e2e/server-phone.png" });
   await page.locator(".srv-page .srv-back").click();
   await page.locator(".srv-side").waitFor();
+  await page.setViewportSize({ width: 1280, height: 720 });
+});
+
+// 圧縮ファイルの展開(03.78.00): 普通の zip は展開できる・悪意のある zip(../ を含む)は断られて何も残らない
+await step("ファイルのタブで圧縮ファイルを展開できる。悪意のある zip は断られ、何も残らない", async () => {
+  if (!e2eDir) return console.log("     (フォルダのサーバーは自分用の版だけ)");
+  writeFileSync(join(e2eDir, "Good.zip"), makeZip({ "a.txt": "hello", "d/b.txt": "world", "日本語.txt": "ok" }));
+  writeFileSync(join(e2eDir, "Evil.zip"), makeZip({ "ok.txt": "ok", "../evil.txt": "evil" }));
+  await page.setViewportSize({ width: 1400, height: 900 });
+  await page.goto(base + "/servers");
+  await page.locator(".srv-side a.row", { hasText: "E2E" }).first().click();
+  await page.getByRole("tab", { name: "ファイル" }).click();
+  await page.locator("a, div.row", { hasText: "Good.zip" }).first().waitFor();
+  // (b) 悪意のある zip
+  await page.locator("div.row", { hasText: "Evil.zip" }).getByRole("button", { name: "展開", exact: true }).click();
+  const sheet = page.getByRole("dialog").first();
+  await sheet.getByText(/\.\.\/evil\.txt/).waitFor();
+  await sheet.getByRole("button", { name: "展開する" }).waitFor();
+  if (await sheet.getByRole("button", { name: "展開する" }).isEnabled()) throw new Error("断られるはずの zip が展開できます");
+  await page.screenshot({ path: ".e2e/extract-evil.png" });
+  await page.keyboard.press("Escape");
+  await sheet.waitFor({ state: "detached" });
+  if (existsSync(join(e2eDir, "..", "evil.txt")) || existsSync(join(e2eDir, "Evil")) || readdirSync(e2eDir).some((n) => n.startsWith(".craftshelf-extract"))) throw new Error("断った展開で何かが残っています");
+  // (a) 普通の zip
+  await page.locator("div.row", { hasText: "Good.zip" }).getByRole("button", { name: "展開", exact: true }).click();
+  await sheet.getByText("3 個のファイル").waitFor();
+  await sheet.getByText("展開後の空き容量").waitFor();
+  await page.screenshot({ path: ".e2e/extract-plan.png" });
+  await sheet.getByRole("button", { name: "展開する" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "展開する" }).click();
+  await sheet.getByText("3 個のファイルを展開しました").waitFor();
+  await page.screenshot({ path: ".e2e/extract-done.png" });
+  if (readFileSync(join(e2eDir, "Good", "d", "b.txt"), "utf8") !== "world" || !existsSync(join(e2eDir, "Good.zip"))) throw new Error("展開の結果が違います");
+  if (readdirSync(e2eDir).some((n) => n.startsWith(".craftshelf-extract"))) throw new Error("一時フォルダが残っています");
+  await sheet.getByRole("button", { name: "展開先を開く" }).click();
+  await page.getByText("a.txt").first().waitFor();
+  // 変更の履歴に載り、元に戻せる
+  await page.getByRole("tab", { name: "保存" }).click();
+  await page.getByRole("button", { name: "変更の履歴" }).click(); // ワールドのバックアップの隣
+  await page.getByText("Good.zip", { exact: true }).waitFor();
+  await page.getByText("を展開した").waitFor();
+  await page.screenshot({ path: ".e2e/extract-history.png" });
+  await page.locator("div.row", { hasText: "Good.zip" }).getByRole("button", { name: "元に戻す" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "元に戻す" }).click();
+  await page.locator("div.row", { hasText: "Good.zip" }).getByText("元に戻しました").waitFor();
+  if (existsSync(join(e2eDir, "Good"))) throw new Error("元に戻したのにフォルダが残っています");
   await page.setViewportSize({ width: 1280, height: 720 });
 });
 

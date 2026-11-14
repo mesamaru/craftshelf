@@ -1,6 +1,16 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "(自動)": " (auto)",
+  "「この更新の前に戻す」は、版と、更新の前のバックアップのデータに戻します。更新の前のバックアップは、定期バックアップの「残す数」を超えると古いものから消えます。": "\"Undo this update\" restores the version and the data from the backup taken before the update. Pre-update backups are deleted oldest first once the scheduled backup's \"keep\" count is exceeded.",
+  "切り替える": "Switch",
+  "最新です": "Up to date",
+  "新しい版を確かめられませんでした": "Couldn't check for new versions",
+  "「取り込み直す」は、v03 を試したあと v02 に戻って使い続け、もう一度 v03 に移るときに使います。取り込み直したあとは、ログインし直してください(v02 のユーザー名とパスワード)。": "\"Re-import\" is for when you tried v03, went back to v02, and are moving to v03 again. After re-importing, sign in again (with your v02 username and password).",
+  "取り込んだ内容": "Import results",
+  "取り込んだ内容を見る": "View import results",
+  "取り込んだもの・引き継げなかったものを確かめてください。あとからは「バックアップ」の画面で見られます。": "Check what was imported and what couldn't be carried over. You can see this later on the Backup screen.",
+  "v02 から取り込みました": "Imported from v02",
   // 03.73.02: 画面の使いにくさ・見た目・文言の直し
   "変更を元に戻す": "Undo change",
   "起動・停止の設定を開く": "Open start/stop settings",
@@ -1715,7 +1725,7 @@ export const EN: Record<string, string> = {
   "保存先の中身(フォルダとファイル。登録しているものはアイテムの名前つき。id = default でパネルの中)": "Storage contents (folders and files; registered files carry the item name; id = default for inside the panel)",
   "保存先の inbox/ に置いたファイルをライブラリに取り込む(中身から配布元を探す。id = default でパネルの中)": "Import files placed in the storage's inbox/ into the library (looks up the source from contents; id = default for inside the panel)",
   // 03.62.00: パネルの自動アップデート・更新の前に戻す・ログインを戻す
-  "切り替える前に、パネルのバックアップを作ります(置き場所・残す数は定期バックアップの設定のもの)。データベースは「足すだけ」で変えていくので、前の版に戻してもデータは読めます。ただし、メンバーごとの権限などを知らない古い版には戻せません(一覧に「戻せません」と出ます)。選んだ版が起動できなかったときは、イメージの版に自動で戻ります。": "Before switching, a panel backup is made (location and count follow the scheduled backup settings). The database only ever gains tables and columns, so older versions can still read the data. Versions too old to know things like per-member permissions cannot be restored (the list says “Can't restore”). If the chosen version fails to start, the panel falls back to the image's version automatically.",
+  "切り替える前に、パネルのバックアップを作ります(置き場所・残す数は定期バックアップの設定のもの)。データベースは「足すだけ」で変えていくので、前の版に戻してもデータは読めます。ただし、メンバーごとの権限などを知らない古い版には戻せません(選べる版に出しません)。選んだ版が起動できなかったときは、イメージの版に自動で戻ります。": "Before switching, a panel backup is made (location and count follow the scheduled backup settings). The database only ever gains tables and columns, so older versions can still read the data. Versions too old to know things like per-member permissions cannot be restored (they are not offered). If the chosen version fails to start, the panel falls back to the image's version automatically.",
   "自動アップデート": "Auto update",
   "新しい版を自動で入れる(6 時間ごとに確かめる)": "Install new versions automatically (checks every 6 hours)",
   "安定版だけ": "Stable only",
@@ -2329,6 +2339,13 @@ export const EN_RULES: [RegExp, To][] = [
   [/^ファイルを送れませんでした\(HTTP (\d+)\)$/, "Could not send the file (HTTP $1)"],
   [/^v([\d.]+) に切り替えますか[?？] パネルが再起動します\(データはそのままです\)$/, "Switch to v$1? The panel restarts (data is kept)"],
   [/^イメージの版\(v([\d.]+)\)$/, "Image version (v$1)"],
+  [/^v([\d.]+) に更新しますか[?？] パネルが再起動します\(データはそのままです\)$/, "Update to v$1? The panel restarts (data is kept)"],
+  [/^v([\d.]+) に戻しますか[?？] パネルが再起動します\(データはそのままです\)$/, "Go back to v$1? The panel restarts (data is kept)"],
+  [/^v([\d.]+)\(イメージの版\)$/, "v$1 (image version)"],
+  [/^新しい版 v([\d.]+) があります$/, "Version v$1 is available"],
+  [/^ · (.+) に確かめました$/, " · checked $1"],
+  [/^v([\d.]+) より前の版は、いまのデータを読めないので選べません$/, "Versions before v$1 can't read the current data, so they can't be chosen"],
+  [/^ほかに (\d+) 個の版があります$/, "$1 more versions"],
   [/^v([\d.]+) は、いまのデータを読めないので切り替えられません\(v([\d.]+) より古い版は、メンバーごとの権限・共有リンクの回数などを知らないため、データが壊れます\)$/, "Can't switch to v$1 because it cannot read the current data (versions older than v$2 don't know per-member permissions or share link limits, so the data would be damaged)"],
   [/^イメージの版\(v([\d.]+)\)に戻しますか[?？] パネルが再起動します$/, "Go back to the image version (v$1)? The panel restarts"],
   [/^v02 の保存先\((\d+) 個\)$/, "v02 storage locations ($1)"],

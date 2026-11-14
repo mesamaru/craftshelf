@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { Info, fmtSize } from "~/lib/ui";
 import { SettingsFrame } from "~/lib/settings-frame";
@@ -159,8 +159,9 @@ function Backup() {
       </section>
       {data?.v02 && (
         <>
-          <div className="gtitle">v02 から取り込み直す<Info>v03 を試したあと v02 に戻って使い続け、もう一度 v03 に移るときに使います。取り込み直したあとは、ログインし直してください(v02 のユーザー名とパスワード)。</Info></div>
+          <div className="gtitle">v02 から<Info>「取り込み直す」は、v03 を試したあと v02 に戻って使い続け、もう一度 v03 に移るときに使います。取り込み直したあとは、ログインし直してください(v02 のユーザー名とパスワード)。</Info></div>
           <section className="group">
+            <Link to="/settings" search={{ s: "import" }} className="row click"><span className="mid"><span className="ttl">取り込んだ内容</span></span><span className="chev" aria-hidden="true">›</span></Link>
             <button className="row link danger" type="button" disabled={!!busy} onClick={async () => {
               if (!(await confirmDialog({ message: "v02 のデータを取り込み直しますか?パネルが再起動し、v03 の今のデータ(v03 で変えたこと)を before-reimport-… のフォルダに移して、v02 のデータを取り込み直します。", ok: "取り込み直す", danger: true }))) return;
               setBusy("切り替えています…");

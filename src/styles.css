@@ -814,7 +814,7 @@ a.kv.linkish span:last-child { color: var(--accent); font-weight: 600; }
   .ls-tile .v { font-size: 19px; }
   .tile { padding: 12px; }
   .tile .v { font-size: 24px; }
-  .sg-acts { width: 100%; padding-left: 36px; justify-content: flex-start; }
+  .sg-steps .sg-acts { width: 100%; padding-left: 36px; justify-content: flex-start; }
 }
 /* 一覧の区切り線は名前の下から(v02 と同じ) */
 .items .row { border-bottom: 0; position: relative; }
@@ -944,3 +944,19 @@ textarea.row { display: block; width: 100%; outline: none; resize: vertical; lin
 
 /* 説明の中などの、クラスの無いリンク: ブラウザ標準の青い下線ではなく、アクセントの色に */
 a:not([class]) { color: var(--accent); text-underline-offset: 2px; text-decoration-thickness: 1px; }
+
+/* パネルのアップデート: いまの版・新しい版の変更内容・前の版に戻す */
+.upd-head { gap: 12px; }
+.upd-ver { font-size: 19px; font-weight: 700; }
+.upd-notes { font-size: 14px; }
+.upd-notes ul { margin: 0; padding-left: 18px; color: var(--muted); }
+.upd-notes li { margin: 2px 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.upd-notes summary { cursor: pointer; }
+.upd-notes ul { margin-top: 4px; }
+.upd-more summary { cursor: pointer; }
+.upd-pick { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.upd-pick select { flex: 1; min-width: 0; max-width: 360px; }
+.upd-sub { font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 8px; }
+.upd-hist { display: flex; gap: 10px; align-items: center; padding: 4px 0; border-top: 1px solid var(--line); font-size: 14px; }
+.upd-hist .main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.upd-hist .muted { font-size: 12.5px; }

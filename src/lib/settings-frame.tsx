@@ -54,7 +54,6 @@ function useGroups(ctx: Ctx): [string, Entry[]][] {
     ]],
     ["CraftShelf", [
       e("versions", SETTING_LABEL.versions, "sparkle", "c-mod", "/settings", panel, "versions"),
-      e("import", SETTING_LABEL.import, "download", "c-datapack", "/settings", self && admin, "import"),
     ]],
   ];
   return groups.map(([g, list]) => [g, list.filter((x) => x.show)]);

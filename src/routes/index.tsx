@@ -8,6 +8,7 @@ import { ITEM_TYPES, ITEM_TYPE_IDS, type ItemType, mcCompare, mcCovers, mcRange 
 import { AddonIcon } from "~/lib/type-icon";
 import { sharedLocalEnabled } from "~/lib/servers-api";
 import { listBackups } from "~/lib/backup-api";
+import { getImportReport } from "~/lib/session";
 import { notifySettings } from "~/lib/events-api";
 import { originLabel } from "~/lib/origin";
 import { CHANNELS, type Channel, type ItemSource, isItemSource, pageUrl, sourceLabel } from "~/lib/sources";
@@ -150,6 +151,7 @@ function Library() {
       </header>
       <MobileSearch />
 
+      {admin && <ImportNotice />}
       {admin && cat && <SetupCard cat={cat} local={local} />}
       {edit && local && <DropCard />}
 
@@ -195,6 +197,32 @@ function Library() {
           onRemoved={() => { setOpen(null); reload(); libraryChanged(); }} />
       )}
     </main>
+  );
+}
+
+// v02 から取り込んだあとの知らせ(管理者だけ)。閉じるか 14 日たつと出さない。取り込んだ内容は、バックアップの画面からも開ける
+const IMPORT_SEEN = "craftshelf.v02-import-seen";
+function ImportNotice() {
+  const [at, setAt] = useState("");
+  useEffect(() => {
+    getImportReport().then((r) => {
+      if (!r || Date.now() - Date.parse(r.at) > 14 * 86_400_000) return;
+      try { if (localStorage.getItem(IMPORT_SEEN) === r.at) return; } catch {}
+      setAt(r.at);
+    }, () => {});
+  }, []);
+  if (!at) return null;
+  const close = () => { try { localStorage.setItem(IMPORT_SEEN, at); } catch {} setAt(""); };
+  return (
+    <section className="setup glass">
+      <div className="sg-head">
+        <div><h3>v02 から取り込みました</h3><small>取り込んだもの・引き継げなかったものを確かめてください。あとからは「バックアップ」の画面で見られます。</small></div>
+        <span className="sg-acts">
+          <Link to="/settings" search={{ s: "import" }} className="btn sm tint" onClick={close}>取り込んだ内容を見る</Link>
+          <button type="button" className="rbtn sm" aria-label="閉じる" title="閉じる" onClick={close}><Icon name="close" /></button>
+        </span>
+      </div>
+    </section>
   );
 }
 

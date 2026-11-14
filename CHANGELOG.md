@@ -2,6 +2,12 @@
 
 バージョンは `00.00.00`(メジャー.マイナー.修正)の形式です。
 
+## 03.77.01 - 2026-11-14 「サーバーを追加」に「＋ 別のパネルをつなぐ」を足す
+
+- 「サーバーを追加」の Pterodactyl のタブで、パネルをまだ 1 つもつないでいないときは、見出しなしで入力欄を出します(ボタンは「つなぐ」)
+- すでにパネルをつないだあとは、入力欄を折りたたんで「＋ 別のパネルをつなぐ」の 1 行にしました。押すと入力欄が開き、「キャンセル」で閉じます
+- ⓘ は「キーの作り方」の横に移しました
+
 ## 03.77.00 - 2026-11-13 Mod の前提の確かめ
 
 - 手で置いた jar の「前提不足」を、プラグインだけでなく Mod(Fabric・Quilt・Forge・NeoForge)にも出すようにしました。見るのは必須の前提だけです: fabric.mod.json / quilt.mod.json の `depends`(Quilt の optional・クライアントだけの Mod は除く)、mods.toml / neoforge.mods.toml の `[[dependencies.<modid>]]` の `mandatory = true` / `type = "required"`(`side = "CLIENT"` は除く)。recommends・suggests・breaks・conflicts は数えません

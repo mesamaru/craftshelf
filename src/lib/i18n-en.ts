@@ -1101,6 +1101,9 @@ export const EN: Record<string, string> = {
   "パネルの中": "Inside the panel",
   "パネルの中(既定)": "Inside the panel (default)",
   "パネルをつなぐ": "Connect a panel",
+  "キーの作り方": "How to get the key",
+  "別のパネルをつなぐ": "Connect another panel",
+  "＋ 別のパネルをつなぐ": "+ Connect another panel",
   "ファイル": "Files",
   "ファイルが大きすぎます": "File too large",
   "ファイルが見つかりません": "File not found",
@@ -1757,6 +1760,7 @@ export const EN: Record<string, string> = {
 };
 /** 1 文字だけのもの(曜日など)。文全体が一致したときだけ置き換える */
 export const EN_WHOLE: Record<string, string> = {
+  "つなぐ": "Connect",
   // 03.74.00(確認・入力のダイアログ)
   "実行": "Run",
   "決定": "OK",

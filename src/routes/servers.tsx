@@ -264,7 +264,7 @@ function AddServer({ connections, local, admin, onDone, onClose }:
       <Seg label="つなぎ方" value={mode} options={modes} onChange={setMode} />
       {mode === "ptero" && <>
         {connections.map((c) => <Connection key={c.id} {...c} removable={admin} onDone={onDone} />)}
-        <NewConnection onDone={onDone} />
+        <NewConnection first={connections.length === 0} onDone={onDone} />
       </>}
       {mode === "local" && <NewLocal onDone={() => { onDone(); onClose(); }} />}
       {mode === "agent" && <Agents onDone={onDone} />}
@@ -353,8 +353,10 @@ function PickServers({ connectionId, onDone }: { connectionId: string; onDone: (
   );
 }
 
-function NewConnection({ onDone }: { onDone: () => void }) {
+// first: つないだパネルがまだ無い(入力欄をそのまま出す)。あるときは「＋ 別のパネルをつなぐ」の 1 行に折りたたむ
+function NewConnection({ first, onDone }: { first: boolean; onDone: () => void }) {
   const save = useServerFn(addConnection);
+  const [open, setOpen] = useState(false);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -369,6 +371,7 @@ function NewConnection({ onDone }: { onDone: () => void }) {
       setName("");
       setUrl("");
       setApiKey("");
+      setOpen(false);
       onDone();
     } catch (e) {
       setError(message(e));
@@ -377,16 +380,22 @@ function NewConnection({ onDone }: { onDone: () => void }) {
     }
   };
 
+  if (!first && !open) {
+    return <section className="group"><button className="row link" type="button" onClick={() => setOpen(true)}>＋ 別のパネルをつなぐ</button></section>;
+  }
   return (
     <form className="add-form" onSubmit={(e) => (e.preventDefault(), submit())}>
-      <div className="gtitle">パネルをつなぐ
-        <Info>パネルの「アカウント → API 認証情報」で作った Client API キー(ptlc_…)を使います。キーは暗号化して保存し、画面には最後の 4 文字だけを出します。</Info>
-      </div>
+      {!first && <div className="gtitle">別のパネルをつなぐ</div>}
       <input className="input" placeholder="名前(例 いつものホスティング)" value={name} onChange={(e) => setName(e.target.value)} />
       <input className="input" placeholder="パネルの URL(https://…)" inputMode="url" value={url} onChange={(e) => setUrl(e.target.value)} required />
       <input className="input" type="password" autoComplete="off" placeholder="Client API キー(ptlc_…)" value={apiKey} onChange={(e) => setApiKey(e.target.value)} required />
+      <p className="foot">キーの作り方<Info>パネルの「アカウント → API 認証情報」で作った Client API キー(ptlc_…)を使います。キーは暗号化して保存し、画面には最後の 4 文字だけを出します。</Info></p>
       {error && <p className="error" role="alert">{error}</p>}
-      <div className="sheet-foot"><span className="grow" /><button className="btn pri" disabled={busy || !url || !apiKey}>{busy ? "確かめています…" : "パネルをつなぐ"}</button></div>
+      <div className="sheet-foot">
+        <span className="grow" />
+        {!first && <button className="btn" type="button" onClick={() => { setOpen(false); setError(""); }}>キャンセル</button>}
+        <button className="btn pri" disabled={busy || !url || !apiKey}>{busy ? "確かめています…" : "つなぐ"}</button>
+      </div>
     </form>
   );
 }

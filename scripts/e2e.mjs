@@ -185,7 +185,7 @@ await step("おかしな URL のパネルは登録できず、理由が出る", 
   await page.getByRole("dialog").getByRole("tab", { name: "Pterodactyl" }).waitFor();
   await page.getByPlaceholder("パネルの URL(https://…)").fill("ftp://panel.example.com");
   await page.getByPlaceholder("Client API キー(ptlc_…)").fill("ptlc_0123456789abcdef");
-  await page.getByRole("button", { name: "パネルをつなぐ" }).click();
+  await page.getByRole("dialog").getByRole("button", { name: "つなぐ", exact: true }).click();
   await page.getByText(/の URL を入力してください/).waitFor();
   await page.screenshot({ path: ".e2e/servers.png", fullPage: true });
   await page.keyboard.press("Escape");

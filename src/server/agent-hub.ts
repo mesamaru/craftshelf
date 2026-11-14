@@ -9,7 +9,7 @@ export type AgentRequest = { id: string; method: string; args: Record<string, un
 type Waiting = { req: AgentRequest; resolve: (v: unknown) => void; reject: (e: Error) => void; timer: ReturnType<typeof setTimeout> };
 
 // エージェントにさせてよいこと(ここに無いものは、エージェントも断る)
-export const AGENT_METHODS = ["resources", "command", "power", "listFiles", "pull", "upload", "readFile", "writeFile", "readBytes", "deleteFiles", "rename", "ping", "extractPlan", "extract", "extractState", "extractCancel"] as const;
+export const AGENT_METHODS = ["resources", "command", "power", "listFiles", "pull", "upload", "readFile", "writeFile", "readBytes", "deleteFiles", "rename", "ping", "extractPlan", "extract", "extractState", "extractCancel", "hashFiles"] as const;
 // fileBytes = やりとりする 1 つのファイルの上限(やりとりは JSON に base64 で入れるので、大きいものは分けずに断る。エージェントの readBytes も同じ上限)
 export const AGENT_LIMITS = { pendingPerAgent: 100, pollWaitMs: 25_000, callTimeoutMs: 120_000, onlineMs: 60_000, fileBytes: 100 * 1024 * 1024 };
 const MB = (n: number) => `${Math.ceil(n / 1024 / 1024)} MB`;
@@ -115,6 +115,8 @@ export function agentClient(hub: AgentHub, agentId: string, key: string) {
     extractStart: (_ident: string, archive: string, mode: Mode) => call<{ jobId: string }>("extract", { archive, mode }, 60_000),
     extractState: (_ident: string, jobId: string) => call<JobState>("extractState", { job: jobId }, 30_000),
     extractCancel: async (_ident: string, jobId: string) => { await call("extractCancel", { job: jobId }, 30_000); },
+    // 展開の取り消しで、展開したままか(中身の sha256)を、エージェントの上で数える
+    hashFiles: (_ident: string, dir: string, files: { name: string; size: number }[]) => call<Record<string, string | null>>("hashFiles", { dir, files }, 300_000),
     // エージェントが、自分のサーバー(server.properties のポート)に問い合わせる
     ping: () => call<Ping>("ping", {}, 10_000),
   };

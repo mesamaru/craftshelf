@@ -732,7 +732,7 @@ function Changes({ id, edit, items, onChange, limit, onMore }: { id: string; edi
         <div className={`row${c.undone ? " faded" : ""}`} key={c.id}>
           {c.type === "extract" ? <span className="ic" aria-hidden="true">📦</span> : <AddonIcon type={c.type} url={c.iconUrl} />}
           <span className="mid">
-            <span className="ttl"><span translate="no">{c.title}</span>{` を${({ 外す: "外した", 更新: "更新した", 無効にする: "無効にした", 有効にする: "有効にした", 展開: "展開した" } as Record<string, string>)[c.action] ?? "入れた"}`}{c.config && <span className="tag">設定も退避</span>}</span>
+            <span className="ttl"><span translate="no">{c.title}</span>{c.action === "展開中断" ? " の展開は中断されました(結果不明)" : ` を${({ 外す: "外した", 更新: "更新した", 無効にする: "無効にした", 有効にする: "有効にした", 展開: "展開した", 展開中: "展開しています…" } as Record<string, string>)[c.action] ?? "入れた"}`}{c.config && <span className="tag">設定も退避</span>}</span>
             <span className="sub" translate="no">{new Date(c.at).toLocaleString("ja-JP")}{c.by ? ` · ${c.by}` : ""}{c.action === "更新" && c.version ? ` · 前の版 ${c.version}` : ""}{c.action === "展開" ? ` · ${c.added}` : ""}{c.undone ? " · 元に戻しました" : ""}</span>
           </span>
           {fileEdit && c.extract && (

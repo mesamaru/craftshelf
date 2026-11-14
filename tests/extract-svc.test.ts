@@ -1,6 +1,7 @@
 // 圧縮ファイルの展開(サービス): 権限・同時・変更の履歴と元に戻す・REST・Pterodactyl(偽の応答)・エージェント
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { inflateRawSync } from "node:zlib";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { handle, loadConf, makeClients } from "~/agent/main";
@@ -51,13 +52,16 @@ describe("フォルダのサーバー(サービス)", () => {
   let id: string;
   let id2: string;
   let editorId: string;
+  let gate: Statfs = plenty; // 展開の途中で止めたいとき、差し替える
+  let deps0: ConstructorParameters<never> | Record<string, unknown> = {};
   const root = mkroot();
   const root2 = mkroot();
   const put = (rel: string, data: string | Uint8Array, base = root) => { const p = join(base, ...rel.split("/")); mkdirSync(join(p, ".."), { recursive: true }); writeFileSync(p, data); };
 
   beforeAll(async () => {
     t = await setup();
-    const deps = { db: t.db, auth: t.auth, secret: SECRET, fetch: noFetch, local: { dataDir, extract: { statfs: plenty } } };
+    const deps = { db: t.db, auth: t.auth, secret: SECRET, fetch: noFetch, local: { dataDir, extract: { statfs: (p: string) => gate(p) } } };
+    deps0 = deps;
     servers = serverService(deps);
     ex = extractService(deps);
     lib = libraryService(deps);
@@ -191,6 +195,63 @@ describe("フォルダのサーバー(サービス)", () => {
     await ex.settled(id);
   });
 
+
+  it("展開を始めると、変更の履歴に「展開中」の行が先に載り、終わると「展開」になる(再起動で結果が失われない根拠)", async () => {
+    put("Run.zip", makeZip({ "a.txt": "a" }));
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    let calls = 0;
+    gate = async () => { if (++calls === 2) await held; return { free: 500 * GiB, total: 1000 * GiB, block: 4096 }; };
+    try {
+      const { jobId } = await ex.start(owner, id, "Run.zip", "folder");
+      const running = (await lib.changes(owner, id)).find((c) => c.title === "Run.zip")!;
+      expect(running).toMatchObject({ action: "展開中", status: "running", undoable: false, extract: false });
+      expect(await code(ex.start(owner, id, "Run.zip", "folder"))).toBe(409);
+      release();
+      await wait(() => ex.state(owner, id, jobId) as never);
+      await ex.settled(id);
+      const done = (await lib.changes(owner, id)).filter((c) => c.title === "Run.zip");
+      expect(done).toHaveLength(1);
+      expect(done[0]).toMatchObject({ action: "展開", status: "done", extract: true });
+    } finally {
+      gate = plenty;
+    }
+  });
+
+  it("別のプロセス(別のサービスのインスタンス)からも、同じサーバーの同時の展開は DB で 1 つだけ通る", async () => {
+    put("Two.zip", makeZip({ "a.txt": "a" }));
+    const other = extractService(deps0 as never);
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    let calls = 0;
+    gate = async () => { if (++calls === 2) await held; return { free: 500 * GiB, total: 1000 * GiB, block: 4096 }; };
+    try {
+      const first = await ex.start(owner, id, "Two.zip", "folder");
+      expect(await code(other.start(owner, id, "Two.zip", "folder"))).toBe(409); // other は自分のメモリでは知らないが、DB の「展開中」を見る
+      release();
+      await wait(() => ex.state(owner, id, first.jobId) as never);
+      await ex.settled(id);
+      const again = await other.start(owner, id, "Two.zip", "folder"); // 終われば、また始められる
+      await wait(() => other.state(owner, id, again.jobId) as never);
+      await other.settled(id);
+    } finally {
+      gate = plenty;
+    }
+  });
+
+  it("起動のとき「展開中」のまま残った行は「中断(結果不明)」に直る。取り消しの対象にはならない", async () => {
+    const { randomUUID } = await import("node:crypto");
+    const { serverChange } = await import("~/server/db/schema");
+    const rid = randomUUID();
+    await t.db.insert(serverChange).values({ id: rid, serverId: id, userId: null, action: "展開中", title: "Lost.zip", added: "", removed: JSON.stringify({ jobId: "gone", path: "Lost.zip", mode: "folder" }) });
+    const fresh = extractService(deps0 as never);
+    await fresh.recover();
+    const row = (await lib.changes(owner, id)).find((c) => c.id === rid)!;
+    expect(row).toMatchObject({ action: "展開中断", status: "aborted", undoable: false, extract: false });
+    expect(await code(fresh.undo(owner, id, rid))).toBe(404);
+    expect((await ev.list(owner))[0]).toMatchObject({ action: "圧縮ファイルの展開が中断された" });
+  });
+
   it("REST: 範囲は管理が要る。読み取り・操作だけのトークンは 403。説明がある", async () => {
     const tok = tokenService({ db: t.db, auth: t.auth, secret: SECRET, fetch: noFetch });
     const services = { extract: ex, servers, library: lib, files, events: ev } as never;
@@ -221,9 +282,13 @@ describe("フォルダのサーバー(サービス)", () => {
     const old = new Date(Date.now() - 2 * 3600_000);
     mkdirSync(join(root, ".craftshelf-extract-old1"));
     const { utimesSync } = await import("node:fs");
-    utimesSync(join(root, ".craftshelf-extract-old1"), old, old);
-    mkdirSync(join(root, ".craftshelf-extract-new1"));
+    // こちらの印のある(持ち主がいない)一時フォルダ
+    writeFileSync(join(root, ".craftshelf-extract-old1", ".craftshelf-extract.mark"), JSON.stringify({ v: 1, id: "old1", boot: "old-boot", pid: 2_147_483_000, at: 1, root: realpathSync(root) }));
+    writeFileSync(join(root, ".craftshelf-extract-old1.job"), JSON.stringify({ id: "old1", tmp: ".craftshelf-extract-old1" }));
+    utimesSync(join(root, ".craftshelf-extract-old1.job"), old, old);
+    mkdirSync(join(root, ".craftshelf-extract-new1")); // 印の無い(利用者の)フォルダは消さない
     expect(await ex.cleanStale()).toBe(1);
+    expect(existsSync(join(root, ".craftshelf-extract-old1"))).toBe(false);
     expect(existsSync(join(root, ".craftshelf-extract-new1"))).toBe(true);
   });
 });
@@ -242,6 +307,7 @@ describe("Pterodactyl(事前の確かめだけがこちらで働く)", () => {
   let diskMb = 1000;
   let used = 1000;
   let decompressFails = false;
+  let downloadGate: Promise<void> | null = null; // 圧縮ファイルの読み込みを止めておく
   const sizeOf = (p: string) => disk.get(p)?.length ?? 0;
   const norm = (p: string) => p.replace(/^\/+|\/+$/g, "");
 
@@ -249,7 +315,7 @@ describe("Pterodactyl(事前の確かめだけがこちらで働く)", () => {
     const u = new URL(url);
     const json = (b: unknown, status = 200) => Response.json(b, { status });
     const body = init?.body ? (() => { try { return JSON.parse(String(init.body)); } catch { return {}; } })() : {};
-    if (u.host === "wings.example.com") { downloads.push(u.searchParams.get("file")!); return new Response(new Uint8Array(disk.get(u.searchParams.get("file")!)!)); }
+    if (u.host === "wings.example.com") { downloads.push(u.searchParams.get("file")!); if (downloadGate) await downloadGate; return new Response(new Uint8Array(disk.get(u.searchParams.get("file")!)!)); }
     if (u.host !== "panel.example.com") throw new Error("想定外の接続先: " + url);
     if (u.pathname === "/api/client") return json({ data: [{ attributes: { identifier: "abcd1234", name: "ロビー" } }], meta: { pagination: { total_pages: 1 } } });
     const m = u.pathname.match(/^\/api\/client\/servers\/abcd1234(\/.*)?$/);
@@ -288,7 +354,12 @@ describe("Pterodactyl(事前の確かめだけがこちらで働く)", () => {
     if (sub === "/files/decompress") {
       if (decompressFails) return json({}, 500);
       const arc = disk.get(norm(`${norm(body.root)}/${body.file}`))!;
-      for (const e of scanZip(memorySource(arc), EXTRACT_LIMITS).entries) disk.set(norm(`${norm(body.root)}/${e.name}`), e.dir ? null : Buffer.alloc(e.size, "x"));
+      const src = memorySource(arc);
+      for (const e of scanZip(src, EXTRACT_LIMITS).entries) {
+        const head = src.read(e.local, 30);
+        const data = src.read(e.local + 30 + head.readUInt16LE(26) + head.readUInt16LE(28), e.csize);
+        disk.set(norm(`${norm(body.root)}/${e.name}`), e.dir ? null : Buffer.from(e.method === 8 ? inflateRawSync(data) : data));
+      }
       return new Response(null, { status: 204 });
     }
     return json({}, 404);
@@ -422,6 +493,24 @@ describe("Pterodactyl(事前の確かめだけがこちらで働く)", () => {
     expect(keep).toBe(GiB);
   });
 
+  it("確かめの同時の読み込み(メモリに読む)は 2 つまで。3 つ目は「しばらくしてから」と断る", async () => {
+    reset();
+    for (const n of ["a", "b", "c"]) disk.set(`${n}.zip`, Buffer.from(makeZip({ "x.txt": "x" })));
+    let release!: () => void;
+    downloadGate = new Promise<void>((r) => { release = r; });
+    try {
+      const ps = ["a", "b", "c"].map((n) => ex.plan(owner, id, `${n}.zip`, "folder").then(() => 200, (e) => (e instanceof HttpError ? e.status : 500)));
+      await new Promise((r) => setTimeout(r, 400));
+      release();
+      expect((await Promise.all(ps)).sort()).toEqual([200, 200, 502]);
+    } finally {
+      downloadGate = null;
+      release();
+    }
+    // 終われば、また読める
+    expect((await ex.plan(owner, id, "a.zip", "folder")).ok).toBe(true);
+  });
+
   it("ワールドのフォルダへは展開しない(server.properties の level-name)", async () => {
     reset();
     disk.set("world/a.zip", Buffer.from(makeZip({ "x.txt": "x" })));
@@ -485,6 +574,24 @@ describe("エージェント(展開はエージェントの上で行う)", () =>
     expect(poor.reasons.join()).toContain("空き容量が足りません");
     await expect(handle(clients, "extractState", { key: "other", job: jobId })).rejects.toThrow("設定ファイルにありません");
     await expect(handle(clients, "exec", { key: "home" })).rejects.toThrow("この操作はできません");
+  });
+
+
+  it("サービスの再起動で見張りが途切れても、エージェントに状態を問い合わせて、終わっていれば履歴に反映する", async () => {
+    const { randomUUID } = await import("node:crypto");
+    const { serverChange } = await import("~/server/db/schema");
+    writeFileSync(join(root, "Rec.zip"), makeZip({ "r.txt": "r", "d/s.txt": "s" }));
+    // サービスを通さずにエージェントに頼む(= サービスが落ちたあとも、エージェントの展開は続く)
+    const clients2 = makeClients(loadConf(JSON.stringify({ url: "https://x.example.com", token, servers: [{ key: "home", root }] })), fetch, { statfs: plenty });
+    const { jobId } = (await handle(clients2, "extract", { key: "home", archive: "Rec.zip", mode: "folder" })) as { jobId: string };
+    await wait(async () => (await handle(clients2, "extractState", { key: "home", job: jobId })) as JobState);
+    const rid = randomUUID();
+    await t.db.insert(serverChange).values({ id: rid, serverId: id, userId: null, action: "展開中", title: "Rec.zip", added: "", removed: JSON.stringify({ jobId, path: "Rec.zip", mode: "folder" }) });
+    await extractService({ db: t.db, auth: t.auth, secret: SECRET, fetch, agents: hub }).recover();
+    const row = (await lib.changes(owner, id)).find((c) => c.id === rid)!;
+    expect(row).toMatchObject({ action: "展開", status: "done", extract: true });
+    expect(await ex.undo(owner, id, rid)).toMatchObject({ removed: 2 });
+    expect(existsSync(join(root, "Rec"))).toBe(false);
   });
 
   it("サービスは頼んで進みを見るだけ。エージェントの上で展開され、変更の履歴・記録に載る", async () => {

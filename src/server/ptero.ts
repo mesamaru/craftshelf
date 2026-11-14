@@ -7,15 +7,15 @@ import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebStream } from "node:stream/web";
 import type { FetchLike } from "./net";
 import { FormData as UFormData } from "undici";
-import { randomBytes } from "node:crypto";
-import { type Created, EXTRACT_LIMITS, ExtractError, type JobState, type Mode, type Plan, type Scan, type Space, STAGING, assemblePlan, cancelJob, entriesManifest, findConflicts, freeFolderName, isExtractError, jobState, memorySource, memoryTar, protectedOf, relOf, removeCreated, scanTar, scanZip, startJob } from "./extract-safe";
+import { createHash, randomBytes } from "node:crypto";
+import { type Created, EXTRACT_LIMITS, ExtractError, type JobState, type Mode, type Plan, type Scan, type Space, STAGING, assemblePlan, cancelJob, entriesManifest, findConflicts, freeFolderName, hashEntries, isExtractError, jobState, levelOf, memorySource, memoryTar, protectedOf, relOf, removeCreated, reserveRead, scanTar, scanZip, startJob } from "./extract-safe";
 import { fmtSize } from "../lib/format";
 import { formatOf, unsupportedReason } from "../lib/archive";
 
 export class PteroError extends Error {}
 
 export type RemoteServer = { identifier: string; name: string; node: string; description: string };
-export type RemoteFile = { name: string; size: number; isFile: boolean; modifiedAt: string };
+export type RemoteFile = { name: string; size: number; isFile: boolean; modifiedAt: string; link?: boolean };
 export type Allocation = { ip: string; alias: string; port: number; notes: string; isDefault: boolean };
 // パネルのバックアップ(サーバー全体。Wings が作り、パネルの置き場所に残す)
 export type RemoteBackup = { uuid: string; name: string; bytes: number; createdAt: string; completedAt: string | null; successful: boolean; locked: boolean };
@@ -119,7 +119,7 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
       if (res.status === 404) return [];
       const d = await res.json();
       return (d?.data ?? []).map((x: { attributes?: Record<string, unknown> }) => x.attributes ?? {}).map((a: Record<string, unknown>) => ({
-        name: String(a.name ?? ""), size: Number(a.size ?? 0), isFile: !!a.is_file, modifiedAt: String(a.modified_at ?? ""),
+        name: String(a.name ?? ""), size: Number(a.size ?? 0), isFile: !!a.is_file, modifiedAt: String(a.modified_at ?? ""), link: !!a.is_symlink,
       }));
     },
     // URL のファイルを、Pterodactyl(Wings)に直接取り込ませる。このアプリはファイルを持たない
@@ -204,6 +204,19 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
       if (!res.ok) throw new PteroError(`ファイルを取ってこられませんでした(HTTP ${res.status})`);
       await bodyToFile(res, maxBytes, path);
     },
+    // 中身の sha256(展開の取り消しが、展開したままかを見る)。Wings から読むので、大きいファイル(hashBytes 超)は読まずに null(確かめられない)
+    async hashFiles(ident: string, dir: string, files: { name: string; size: number }[]): Promise<Record<string, string | null>> {
+      const out: Record<string, string | null> = {};
+      for (const f of files.slice(0, 500)) {
+        out[f.name] = null;
+        if (!Number.isSafeInteger(f.size) || f.size < 0 || f.size > EXTRACT_LIMITS.hashBytes || f.name.includes("/") || f.name.includes(String.fromCharCode(92))) continue;
+        try {
+          const b = await base.readBytes(ident, dir === "/" ? f.name : `${dir}/${f.name}`, f.size);
+          if (b.byteLength === f.size) out[f.name] = createHash("sha256").update(b).digest("hex");
+        } catch { /* 読めない = 確かめられない */ }
+      }
+      return out;
+    },
     async deleteFiles(ident: string, root: string, files: string[]) {
       if (files.length) await req("POST", srv(ident) + "/files/delete", { root, files });
     },
@@ -261,7 +274,7 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
   const jobKey = (ident: string) => `ptero:${baseUrl}:${ident}`;
   const slash = (dir: string) => dir || "/";
   const rootOf = (dir: string) => (`/${dir}`.replace(/\/+$/, "") || "/");
-  async function prepare(ident: string, archive: string, mode: Mode) {
+  async function prepare(ident: string, archive: string, mode: Mode, wantHash = false) {
     const L = EXTRACT_LIMITS;
     const rel = relOf(archive);
     const name = rel.slice(rel.lastIndexOf("/") + 1);
@@ -274,12 +287,19 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
     if (!format) pre.push(unsupportedReason(name) ?? "この形式は展開できません(対応しているのは .zip・.tar・.tar.gz・.tgz です)");
     else if (entry.size > L.pteroArchiveBytes) pre.push(`Pterodactyl では ${fmtSize(L.pteroArchiveBytes)} までの圧縮ファイルしか確かめられません。パネルのファイルマネージャで展開してください(この圧縮ファイルは ${fmtSize(entry.size)})`);
     let scan: Scan | null = null;
+    let hashes = new Map<string, string>();
     if (format && !pre.length) {
-      const bytes = await base.readBytes(ident, rel, L.pteroArchiveBytes);
-      scan = format === "zip" ? scanZip(memorySource(bytes), L) : await scanTar(memoryTar(bytes, format === "tar.gz"), format, L);
+      // 圧縮ファイルをメモリに読む: 同時の数と、読み込み中の合計に上限がある(超えたら「しばらくしてからやり直してください」)
+      const release = reserveRead(entry.size);
+      try {
+        const bytes = await base.readBytes(ident, rel, L.pteroArchiveBytes);
+        scan = format === "zip" ? scanZip(memorySource(bytes), L) : await scanTar(memoryTar(bytes, format === "tar.gz"), format, L);
+        if (wantHash && scan && !scan.fatal.length && !scan.guard.problems.size) hashes = await hashEntries(bytes, format, scan.entries, L);
+      } finally {
+        release();
+      }
     }
-    const level = (await base.readFile(ident, "server.properties").catch(() => null))?.match(/^\s*level-name\s*=\s*(.*?)\s*$/m)?.[1] ?? "world";
-    const protect = protectedOf(level);
+    const protect = protectedOf(levelOf(await base.readFile(ident, "server.properties").catch(() => null)));
     let destRel = parentRel;
     let conflicts: string[] = [];
     let existing = new Set<string>();
@@ -304,7 +324,7 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
       : Number.isFinite(limitMb) && limitMb > 0 ? { kind: "limit", limit: limitMb * 1024 * 1024, free: used === null ? null : Math.max(0, limitMb * 1024 * 1024 - used), block: 4096 }
       : { kind: "volume", free: null, total: null, block: 4096 };
     const plan = assemblePlan({ archive: rel, format, archiveBytes: entry.size, scan, mode, destRel, how: "panel", conflicts, conflictCount: conflicts.length, space, protect, pre, L });
-    return { plan, scan, name, parentRel, destRel, existing };
+    return { plan, scan, name, parentRel, destRel, existing, hashes };
   }
 
   const wrap = <T>(fn: () => Promise<T> | T) => Promise.resolve().then(fn).catch((e) => { throw isExtractError(e) ? new PteroError((e as ExtractError).message) : e; });
@@ -313,7 +333,7 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
     extractStart: (ident: string, archive: string, mode: Mode): Promise<{ jobId: string }> => wrap(() => {
       const m: Mode = mode === "here" ? "here" : "folder";
       const jobId = startJob(jobKey(ident), async (job, signal) => {
-        const p = await prepare(ident, archive, m);
+        const p = await prepare(ident, archive, m, true);
         job.plan = p.plan;
         if (!p.plan.ok || !p.scan) throw new ExtractError(`展開できません。${p.plan.reasons.join(" / ")}`);
         if (signal.aborted) throw new ExtractError("キャンセルしました。何も展開していません", true);
@@ -321,7 +341,7 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
         job.filesTotal = p.plan.files;
         job.phase = "extracting"; // ここから先は、パネル(Wings)が展開する。途中では止められない
         const decompress = (dir: string, file: string) => req("POST", srv(ident) + "/files/decompress", { root: rootOf(dir), file }, [200, 204], 30 * 60_000);
-        const manifest = entriesManifest(m === "folder" ? p.destRel : p.parentRel, m, p.scan.entries, p.existing);
+        const manifest = entriesManifest(m === "folder" ? p.destRel : p.parentRel, m, p.scan.entries, p.existing, p.hashes);
         try {
           if (m === "folder") {
             // Wings は、圧縮ファイルのあるフォルダに展開する。新しいフォルダを作り、圧縮ファイルを一時的にそこへ移し(同じボリュームなので容量は使わない)、展開して、元の場所に戻す

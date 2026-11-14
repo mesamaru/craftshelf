@@ -92,6 +92,7 @@ export async function handle(clients: ReturnType<typeof makeClients>, method: st
     case "extract": return c.extractStart("", str(args.archive), args.mode === "here" ? "here" : "folder");
     case "extractState": return c.extractState("", str(args.job));
     case "extractCancel": return c.extractCancel("", str(args.job));
+    case "hashFiles": return c.hashFiles("", str(args.dir), (Array.isArray(args.files) ? args.files : []).map((f: { name?: unknown; size?: unknown }) => ({ name: str(f?.name), size: Number(f?.size) })));
     // つなぐ先は、このサーバー機の上の、そのサーバーのポートだけ
     case "ping": return ping("127.0.0.1", gamePort(await c.readFile("", "server.properties")));
   }

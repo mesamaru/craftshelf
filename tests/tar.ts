@@ -60,3 +60,31 @@ export function makeTar(entries: TarEntry[], opts: { gz?: boolean; end?: boolean
   const tar = Buffer.concat(parts);
   return opts.gz ? gzipSync(tar) : tar;
 }
+
+// ---- 手組みの tar(攻撃の確かめ用。ヘッダーの値を自由に書ける) ----
+const oct = (n: number, w: number) => n.toString(8).padStart(w - 1, "0") + "\0";
+export function hdr(o: { name?: string; size?: number | string; type?: string; prefix?: string; magic?: string }) {
+  const h = Buffer.alloc(512);
+  h.write(o.name ?? "", 0, 100, "utf8");
+  h.write(oct(0o644, 8), 100);
+  h.write(oct(0, 8), 108);
+  h.write(oct(0, 8), 116);
+  h.write(typeof o.size === "string" ? o.size : oct(o.size ?? 0, 12), 124);
+  h.write(oct(0, 12), 136);
+  h.write("        ", 148);
+  h.write(o.type ?? "0", 156);
+  h.write(o.magic ?? "ustar\u000000", 257);
+  if (o.prefix) h.write(o.prefix, 345, 155, "utf8");
+  let sum = 0;
+  for (const b of h) sum += b;
+  h.write(oct(sum, 7) + " ", 148);
+  return h;
+}
+export const entry = (h: Buffer, data: Buffer | string = "") => { const d = Buffer.from(data); return Buffer.concat([h, d, pad(d.length)]); };
+/** PAX の拡張ヘッダー(kv の値はそのまま書く。size=abc のような嘘も書ける) */
+export const paxEntry = (kv: Record<string, string>, type: "x" | "g" = "x") => {
+  let body = "";
+  for (const [k, v] of Object.entries(kv)) body += paxRecord(k, v);
+  return entry(hdr({ name: "PaxHeader", type, size: Buffer.byteLength(body) }), body);
+};
+export const tarOf = (...parts: Buffer[]) => Buffer.concat([...parts, Buffer.alloc(1024)]);

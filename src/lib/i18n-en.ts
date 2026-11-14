@@ -1954,6 +1954,28 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  // 03.78.01(展開の穴ふさぎ)
+  [/制御文字\(NUL など\)・見えない文字を含む名前/g, "Name containing control characters (such as NUL) or invisible characters"],
+  [/Windows の短い名前\(8\.3\)の形\(PROGRA~1 など\)/g, "Windows short-name (8.3) form (such as PROGRA~1)"],
+  [/大きさが正しくありません\(数字でない・負・大きすぎる\)/g, "Invalid size (not a number, negative, or too large)"],
+  [/tar の拡張ヘッダーの大きさが正しくありません\(数字でない・負・小数・大きすぎる\)/g, "The size in the tar extended header is invalid (not a number, negative, fractional, or too large)"],
+  [/穴あきファイル\(sparse\)は展開できません/g, "Sparse files cannot be extracted"],
+  [/全体に効く拡張ヘッダー\(g\)の path・size・sparse は扱えません/g, "path, size and sparse in a global extended header (g) are not supported"],
+  [/フォルダ・リンクなどの中身が大きすぎます\(tar のデータ部\)/g, "The data of a folder or link entry is too large (tar data section)"],
+  [/tar のエントリーが多すぎます/g, "The tar has too many entries"],
+  [/tar の中身の合計が大きすぎます/g, "The total size of the tar contents is too large"],
+  [/zip として読めません\(末尾の目次の終わりが、ファイルの終わりと合いません。末尾に余分なデータがある・偽の目次を疑います\)/g, "Cannot read as a zip (the end record does not match the end of the file: extra data at the end or a fake end record)"],
+  [/展開先がサーバーのフォルダの外を指しています/g, "The destination points outside the server folder"],
+  [/サーバーのフォルダの外を指すリンクがあります/g, "A link points outside the server folder"],
+  [/展開先のフォルダが差し替えられたので、展開を止めました/g, "The destination folder was replaced, so extraction was stopped"],
+  [/守っている場所\((.+?)\)の中には展開しません。何も展開していません/g, "Not extracting into a protected location ($1). Nothing was extracted"],
+  [/いま、ほかの圧縮ファイルの確かめでメモリを使っています。しばらくしてからやり直してください/g, "Another archive check is using memory right now. Please try again later"],
+  [/圧縮ファイルの展開が中断された/g, "Archive extraction was interrupted"],
+  [/\(結果は分かりません。展開先を確かめてください\)/g, " (the result is unknown; please check the destination)"],
+  [/(\d+) 個は、中身を確かめられなかったので残しました/g, "$1 kept because their content could not be verified"],
+  [/^ を展開しています…$/, " is being extracted…"],
+  [/^ の展開は中断されました\(結果不明\)$/,"'s extraction was interrupted (result unknown)"],
+  [/^(.+) の展開を元に戻しますか[?？]\(展開で作ったファイルだけを消します。展開のあとに足した・変えたファイルは残します\)$/, "Undo the extraction of $1? (Only files created by the extraction and still unchanged are deleted; files added or changed afterwards are kept.)"],
   // 03.78.00(圧縮ファイルの展開。サーバーが返す理由・エラーは、つなげて返ることがあるので、^$ を付けない規則で部分ごとに訳す)
   [/^(\d+) 個のファイル · 合計 (.+)$/, "$1 files · $2 total"],
   [/^最大 (.+) · 深さ (\d+) · 圧縮率 (?:([\d.]+) 倍|—)$/, (_, a, d, r) => `Largest ${a} · depth ${d} · ratio ${r ? `×${r}` : "—"}`],

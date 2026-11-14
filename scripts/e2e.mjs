@@ -179,7 +179,7 @@ await step("設定の左の一覧から、操作の記録と Discord への通�
 await step("おかしな URL のパネルは登録できず、理由が出る", async () => {
   await page.goto(base + "/servers");
   await page.getByText("まだサーバーがありません。").waitFor();
-  await page.getByRole("link", { name: "比較" }).waitFor(); // 上の行: 比較・サーバー本体・ファイル比較・ポート・処理
+  await page.getByRole("link", { name: "比較", exact: true }).waitFor(); // 上の行: 比較・サーバー本体・ファイル比較・ポート・処理
   await page.getByRole("link", { name: "サーバー本体" }).waitFor();
   await page.getByRole("link", { name: "処理" }).waitFor();
   await page.locator("main").getByRole("button", { name: "＋ サーバーを追加" }).click(); // つなぎ方は「＋ サーバーを追加」のシート
@@ -601,6 +601,8 @@ await step("ページのタイトルが画面ごとに変わる(サーバーは�
 
 await step("Ctrl K に、いまのメニュー・設定の名前の行き先が出る(古い名前は出ない)", async () => {
   await page.goto(base + "/home");
+  await page.getByRole("heading", { name: "種類ごとの件数" }).waitFor();
+  await page.waitForLoadState("networkidle"); // 画面が動き出す(ショートカットが効く)のを待つ
   await page.keyboard.press("Control+k");
   await page.getByRole("dialog", { name: "検索" }).waitFor();
   await page.locator(".palette-input").fill("設定");

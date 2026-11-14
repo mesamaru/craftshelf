@@ -1524,11 +1524,11 @@ export function libraryService(deps: Deps) {
         .where(eq(serverChange.serverId, row.id)).orderBy(desc(serverChange.at));
       return rows.map(({ c, by }) => {
         // 圧縮ファイルの展開(src/server/extract.ts): 取り消しのための一覧(removed)は大きいので読まない。元に戻せるのは files:edit のある人(画面は専用の操作で戻す)
-        if (c.action === "展開") return { id: c.id, action: c.action, title: c.title, iconUrl: "", type: "extract" as string, at: c.at.toISOString(), by: by ?? "", added: c.added, removed: "", version: "", undone: c.undone, config: false, undoable: false, extract: !c.undone && !!c.removed };
+        if (c.action === "展開" || c.action === "展開中" || c.action === "展開中断") return { id: c.id, action: c.action, title: c.title, iconUrl: "", type: "extract" as string, at: c.at.toISOString(), by: by ?? "", added: c.added, removed: "", version: "", undone: c.undone, config: false, undoable: false, extract: c.action === "展開" && !c.undone && !!c.removed, status: c.action === "展開中" ? "running" : c.action === "展開中断" ? "aborted" : "done" };
         const removed = c.removed ? (JSON.parse(c.removed) as Removed) : null;
         return {
           id: c.id, action: c.action, title: c.title, iconUrl: icons.get(c.title) ?? "", type: isDatapackFile(c.added || removed?.filename || "") ? "datapack" : prof ? PLATFORMS[prof.platform].type : "plugin", at: c.at.toISOString(), by: by ?? "", added: c.added, removed: removed?.filename ?? "",
-          version: removed?.versionNumber ?? "", undone: c.undone, config: !!c.configBackup, extract: false,
+          version: removed?.versionNumber ?? "", undone: c.undone, config: !!c.configBackup, extract: false, status: "",
           // 外したもの・新しく入れたもの・無効と有効の切り替えは戻せる。更新は前の版を取ってこられるもの(SpigotMC 以外)だけ
           undoable: !c.undone && (c.action === "外す" || c.action === "無効にする" || c.action === "有効にする" || (c.action === "入れる" && !!c.added)
             || (c.action === "更新" && !!removed?.versionId && removed.source !== "spigot")),
@@ -1548,7 +1548,7 @@ export function libraryService(deps: Deps) {
       const [c] = await db.select().from(serverChange).where(and(eq(serverChange.id, changeId), eq(serverChange.serverId, row.id)));
       if (!c) throw new HttpError(404, "履歴が見つかりません");
       if (c.undone) throw new HttpError(400, "この変更は、もう元に戻しています");
-      if (c.action === "展開") throw new HttpError(400, "圧縮ファイルの展開は、ファイルの権限のある人が、展開の履歴から元に戻します");
+      if (c.action === "展開" || c.action === "展開中" || c.action === "展開中断") throw new HttpError(400, "圧縮ファイルの展開は、ファイルの権限のある人が、展開の履歴から元に戻します");
       const p = await needProfile(row.id);
       const removed = c.removed ? (JSON.parse(c.removed) as Removed) : null;
       const q = fileProfile(p, removed?.filename || c.added); // データパックはワールドの datapacks

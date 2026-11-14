@@ -6,7 +6,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { EXTRACT_LIMITS, type Limits } from "~/server/extract-safe";
 import { localClient } from "~/server/local";
 import { loadEnglish, translate } from "~/lib/i18n";
-import { makeTar } from "./tar";
+import { entry, hdr, makeTar, paxEntry, tarOf } from "./tar";
 import { makeZip, makeZipEx } from "./zip";
 
 beforeAll(() => loadEnglish());
@@ -45,6 +45,11 @@ describe("展開の理由・エラーの英訳", () => {
       ["d1.7z", "x", "folder"],
       ["d2.dat.rar", "x", "folder"],
       ["e1.zip", makeZip({ "a.txt": "1" }), "here"],
+      ["f1.tar", tarOf(paxEntry({ size: "abc" }), entry(hdr({ name: "x", size: 1 }), "x")), "folder"],
+      ["f2.tar", tarOf(paxEntry({ "GNU.sparse.major": "1" }), entry(hdr({ name: "x", size: 1 }), "x")), "folder"],
+      ["f3.tar", tarOf(paxEntry({ path: "../x" }, "g"), entry(hdr({ name: "x", size: 1 }), "x")), "folder"],
+      ["f4.tar", tarOf(entry(hdr({ name: "d/", type: "5", size: 100_000 }), Buffer.alloc(100_000))), "folder"],
+      ["f5.zip", makeZip({ "LONGFI~1.TXT": "1", "a\u202eb": "2", "COM\u00b9": "3" }), "folder"],
     ];
     write("a.txt", "exists");
     write("e1.zip", makeZip({ "a.txt": "1" }));

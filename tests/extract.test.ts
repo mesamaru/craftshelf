@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
 import { deflateRawSync } from "node:zlib";
 import { beforeEach, describe, expect, it } from "vitest";
-import { EXTRACT_LIMITS, type Limits, type Statfs, cleanEntryName, cleanStale, freeFolderName, protectedHit, protectedOf } from "~/server/extract-safe";
+import { EXTRACT_LIMITS, type Limits, MARK, type Statfs, cleanEntryName, cleanStale, freeFolderName, protectedHit, protectedOf } from "~/server/extract-safe";
 import { type ExtractOpts, localClient } from "~/server/local";
 import { makeTar } from "./tar";
 import { makeZip, makeZipEx } from "./zip";
@@ -504,19 +504,20 @@ describe("後片付け・同時・キャンセル", () => {
     expect(tree(root)).toEqual(before);
     await expect(c.extractState("", "nope")).rejects.toThrow("見つかりません");
   });
-  it("プロセスが途中で終わって残った一時フォルダ・印は、1 時間より古ければ掃除される(新しいものと、関係ないものは残す)", async () => {
+  it("プロセスが途中で終わって残った、こちらの印のある一時フォルダだけが掃除される(印の無いもの・関係ないものは残す。詳しくは extract-hard.test.ts)", async () => {
     const old = new Date(Date.now() - 2 * 3600_000);
     mkdirSync(join(root, "plugins"));
     mkdirSync(join(root, "plugins", ".craftshelf-extract-aaaa"));
     writeFileSync(join(root, "plugins", ".craftshelf-extract-aaaa", "half.bin"), "half");
-    writeFileSync(join(root, ".craftshelf-extract-aaaa.job"), JSON.stringify({ tmp: "plugins/.craftshelf-extract-aaaa", at: 1 }));
+    writeFileSync(join(root, ".craftshelf-extract-aaaa.job"), JSON.stringify({ id: "aaaa", tmp: "plugins/.craftshelf-extract-aaaa" }));
+    writeFileSync(join(root, "plugins", ".craftshelf-extract-aaaa", MARK), JSON.stringify({ v: 1, id: "aaaa", boot: "old-boot", pid: 2_147_483_000, at: 1, root: realpathSync(root) }));
     utimesSync(join(root, ".craftshelf-extract-aaaa.job"), old, old);
     mkdirSync(join(root, ".craftshelf-extract-bbbb"));
     mkdirSync(join(root, ".craftshelf-extract-cccc"));
     utimesSync(join(root, ".craftshelf-extract-cccc"), old, old);
     mkdirSync(join(root, "keep"));
-    expect(await cleanStale(root)).toBe(2);
-    expect(tree(root)).toEqual([".craftshelf-extract-bbbb/", "keep/", "plugins/", "server.properties"]);
+    expect(await cleanStale(root)).toBe(1);
+    expect(tree(root)).toEqual([".craftshelf-extract-bbbb/", ".craftshelf-extract-cccc/", "keep/", "plugins/", "server.properties"]);
     // 印が指す先が root の外・.craftshelf-extract- でない名前なら、消さない
     mkdirSync(join(outer, "victim"));
     writeFileSync(join(root, ".craftshelf-extract-dddd.job"), JSON.stringify({ tmp: "../victim", at: 1 }));

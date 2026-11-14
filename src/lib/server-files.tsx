@@ -209,6 +209,12 @@ type Plan = Awaited<ReturnType<typeof extractPlan>>;
 type JobS = Awaited<ReturnType<typeof extractState>>;
 const ENDED = ["done", "failed", "cancelled"];
 
+/** 断る理由・エラーの文。「: 「名前」「名前」」の名前(圧縮ファイルの中の名前。見えない文字は \uXXXX の形で来る)は、英語表示でも訳さない(translate="no") */
+function Reason({ text }: { text: string }) {
+  const parts = text.split(/(: (?:「[^」]*」)+)/);
+  return <>{parts.map((x, i) => (i % 2 ? <span key={i}>{": "}<span translate="no">{x.slice(2)}</span></span> : x))}</>;
+}
+
 /**
  * 圧縮ファイルの展開(src/server/extract.ts): 中身を確かめて(読むだけ。ディスクには書かない)、OK のときだけ「展開する」。
  * 展開中は進みと「キャンセル」。失敗・キャンセルのときは何も残らない。展開したものは、変更の履歴(「保存」タブ)から元に戻せる
@@ -292,7 +298,7 @@ function ExtractSheet({ id, path, onClose, onOpen, onDone }: { id: string; path:
           </section>
           {p.how === "panel" && <p className="muted">Pterodactyl は、パネル側で展開します。事前の確かめだけが働きます(途中の見張り・キャンセルはできません)。</p>}
           {p.busy && <p className="error" role="alert">このサーバーでは、すでに展開しています。終わるまでお待ちください</p>}
-          {p.reasons.map((r, i) => <p key={i} className="error" role="alert">{r}</p>)}
+          {p.reasons.map((r, i) => <p key={i} className="error" role="alert"><Reason text={r} /></p>)}
           {p.ok && !p.busy && <p className="muted">{p.how === "panel" ? "確かめは通りました。" : "確かめは通りました。一時フォルダに展開してから置くので、途中で止めても何も残りません。"}</p>}
         </>
       )}
@@ -307,7 +313,7 @@ function ExtractSheet({ id, path, onClose, onOpen, onDone }: { id: string; path:
       )}
       {s?.phase === "done" && <p className="muted">展開したものは、「保存」タブの変更の履歴から元に戻せます。元の圧縮ファイルは残してあります。</p>}
       {(s?.phase === "failed" || s?.phase === "cancelled") && <p className="muted">{s.phase === "failed" && p?.how === "panel" ? "作ったものは消しました。パネルで確かめてください。" : "展開先には何も残していません。"}</p>}
-      {s?.phase === "failed" && <p className="error" role="alert">{s.error}</p>}
+      {s?.phase === "failed" && <p className="error" role="alert"><Reason text={s.error} /></p>}
       {error && <p className="error" role="alert">{error}</p>}
       <div className="sheet-foot">
         <span className="grow" />

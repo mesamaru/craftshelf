@@ -1,8 +1,9 @@
 // フォルダでつなぐサーバー(自分用の版だけ)。パネルから見えるフォルダ(同じ PC・NAS・Docker でマウントしたもの)を直接読み書きする。
 // Pterodactyl のクライアント(ptero.ts)と同じ形にして、ライブラリ・セット・予約・ファイルとコマンド・ポートの処理をそのまま使う
 import { spawn } from "node:child_process";
-import { createWriteStream, existsSync, realpathSync, statSync } from "node:fs";
-import { copyFile, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { createReadStream, createWriteStream, existsSync, realpathSync, statSync } from "node:fs";
+import { copyFile, lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { request } from "node:http";
 import { Socket } from "node:net";
 import { isAbsolute, join, resolve, sep, dirname } from "node:path";
@@ -10,7 +11,7 @@ import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import { MC_VERSION, type Platform } from "~/lib/platforms";
 import { BUILD_HOSTS } from "~/lib/software";
-import { type Ctx, ExtractError, type JobState, type Limits, type Mode, type Plan, type Statfs, cancelJob, cleanStale, isExtractError, jobState, mergeLimits, planLocal, protectedOf, realStatfs, startLocal } from "./extract-safe";
+import { type Ctx, ExtractError, type JobState, type Limits, type Mode, type Plan, type Statfs, cancelJob, cleanStale, isExtractError, jobState, levelOf, mergeLimits, planLocal, protectedOf, realStatfs, startLocal } from "./extract-safe";
 import type { FetchLike } from "./net";
 import { type Allocation, POWER_SIGNALS, type PowerSignal, type PteroClient, PteroError, type RemoteFile, type Resources } from "./ptero";
 
@@ -131,7 +132,7 @@ export type ExtractOpts = { statfs?: Statfs; limits?: Partial<Limits> };
 export function localClient(root: string, fetch: FetchLike, control: Control, opts: ExtractOpts = {}): PteroClient {
   const props = async () => propsOf(await readFile(join(root, "server.properties"), "utf8").catch(() => ""));
   // 圧縮ファイルの展開(extract-safe.ts。エージェントも同じ処理を使う)。守る場所(ワールド)は、このフォルダの server.properties から決める
-  const extractCtx = async (): Promise<Ctx> => ({ root, abs: (r) => inside(root, r), protect: protectedOf((await props())["level-name"] ?? "world"), statfs: opts.statfs ?? realStatfs, limits: mergeLimits(opts.limits) });
+  const extractCtx = async (): Promise<Ctx> => ({ root, abs: (r) => inside(root, r), protect: protectedOf(levelOf(await readFile(join(root, "server.properties"), "utf8").catch(() => ""))), statfs: opts.statfs ?? realStatfs, limits: mergeLimits(opts.limits) });
   const asPtero = async <T>(fn: () => Promise<T> | T): Promise<T> => {
     try {
       return await fn();
@@ -212,7 +213,8 @@ export function localClient(root: string, fetch: FetchLike, control: Control, op
       if (!names) return [];
       return Promise.all(names.map(async (d) => {
         const s = await stat(join(dir, d.name)).catch(() => null);
-        return { name: d.name, size: s?.size ?? 0, isFile: !!s?.isFile(), modifiedAt: s?.mtime.toISOString() ?? "" };
+        // link = リンク(シンボリックリンク・junction)。展開の取り消しが、リンクを消さないために見る
+        return { name: d.name, size: s?.size ?? 0, isFile: !!s?.isFile(), modifiedAt: s?.mtime.toISOString() ?? "", link: d.isSymbolicLink() };
       }));
     },
 
@@ -315,6 +317,25 @@ export function localClient(root: string, fetch: FetchLike, control: Control, op
     }),
     extractState: (_ident: string, jobId: string): Promise<JobState> => asPtero(() => jobState(jobId, root)),
     extractCancel: async (_ident: string, jobId: string) => { await asPtero(() => cancelJob(jobId, root)); },
+
+    // 中身の sha256(展開の取り消しが、展開したままのものかを見る)。ファイルでない・リンク・大きさが違うものは null
+    async hashFiles(_ident: string, dirRel: string, files: { name: string; size: number }[]): Promise<Record<string, string | null>> {
+      const dir = inside(root, dirRel);
+      const out: Record<string, string | null> = {};
+      for (const f of files.slice(0, 500)) {
+        out[f.name] = null;
+        if (/[\\/]/.test(f.name) || f.name === "." || f.name === "..") continue;
+        const full = join(dir, f.name);
+        const st = await lstat(full).catch(() => null);
+        if (!st?.isFile() || st.size !== f.size) continue;
+        const h = createHash("sha256");
+        try {
+          for await (const c of createReadStream(full)) h.update(c as Buffer);
+          out[f.name] = h.digest("hex");
+        } catch { /* 読めない = 確かめられない */ }
+      }
+      return out;
+    },
 
     async deleteFiles(_ident: string, dirRel: string, files: string[]) {
       const dir = inside(root, dirRel);

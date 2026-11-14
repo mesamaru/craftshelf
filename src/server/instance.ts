@@ -204,6 +204,8 @@ async function build() {
   const saved = savedService(deps);
   // 前の起動で途中だった処理(処理の一覧)は「中断」にする(リクエストを受ける前に)
   await jobs.recover().catch((e) => console.error("[処理の一覧] 途中だったものを片付けられませんでした:", e));
+  // 展開中のまま残った行(変更の履歴)は、中断にする。エージェントの展開は、状態を問い合わせて反映する(つながるのを待つので、起動は待たせない)
+  void extract.recover().catch((e) => console.error("[展開] 途中だったものを片付けられませんでした:", e));
 
   // パネルからの版の切り替え(自分用の版だけ。サービス版は Docker のイメージで入れ替える)
   const versions = env.mode === "self" ? versionService({ fetch: safeFetch, dataDir: env.dataDir }) : null;

@@ -17,7 +17,9 @@ export function minuteTasks(tasks: [string, (now: Date) => Promise<unknown>][]) 
 export default function startup() {
   import("./instance").then(({ env, db, schedules, sets, library, telemetry, updates, events, backups, worlds, saved, extract }) => {
     // 前に止まった展開の一時フォルダ(.craftshelf-extract-…。1 時間より古いもの)を掃除する
-    setTimeout(() => { extract.cleanStale().then((n) => { if (n) console.log(`[展開] 古い一時フォルダを ${n} 個片付けました`); }, () => {}); }, 20_000).unref?.();
+    const sweep = () => { extract.cleanStale().then((n) => { if (n) console.log(`[展開] 古い一時フォルダを ${n} 個片付けました`); }, () => {}); };
+    setTimeout(sweep, 20_000).unref?.();
+    setInterval(sweep, 60 * 60_000).unref?.(); // 1 時間ごとにも
     // 利用状況の送信(同意したパネルだけ。1 時間ごとに確かめ、前に送ってから 1 日たっていれば送る)
     const tele = setInterval(() => { telemetry.sendIfDue().catch(() => {}); }, 60 * 60_000);
     tele.unref?.();

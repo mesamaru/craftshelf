@@ -36,6 +36,12 @@ export const useImageVersion = createServerFn({ method: "POST" }).handler(async 
   restartSoon();
 });
 
+/** v02 に戻す(v02 から切り替えて動いているときだけ。次の起動で v02 が動く) */
+export const backToV02 = createServerFn({ method: "POST" }).handler(async () => {
+  await (await svc()).updates.backToV02(headers());
+  restartSoon();
+});
+
 export const setAutoUpdate = createServerFn({ method: "POST" })
   .validator(z.object({ auto: z.boolean(), channel: z.enum(["stable", "dev"]) }))
   .handler(async ({ data }) => (await svc()).updates.setAuto(headers(), data));

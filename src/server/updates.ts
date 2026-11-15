@@ -104,8 +104,21 @@ export function updateService(deps: Deps, versions: Versions, backups: Backups) 
       s.auto = input.auto;
       s.channel = input.channel === "dev" ? "dev" : "stable";
       write(s);
-      await record({ teamId: who.teamId, userId: who.user.id, kind: "admin", action: input.auto ? "パネルの自動アップデートを使う" : "パネルの自動アップデートをやめる",
-        detail: input.auto ? (s.channel === "dev" ? "開発版も" : "安定版だけ") : "" });
+      await record({ teamId: who.teamId, userId: who.user.id, kind: "admin", action: input.auto ? "パネルの自動更新を使う" : "パネルの自動更新をやめる",
+        detail: s.channel === "dev" ? "開発版のチャンネル" : "安定版のチャンネル" });
+    },
+
+    /**
+     * v02 に戻す(v02 のパネルから切り替えて動いているときだけ)。v03 で選んだ版の印を消すと、次の起動で v02 が動く(再起動は呼ぶ側で)。
+     * v02 は v03 に移る前のデータで動く。v03 のデータは残す(v02 からもう一度切り替えると続きから使える)
+     */
+    async backToV02(headers: Headers) {
+      const who = await requireTeam(auth, headers, { panel: ["manage"] });
+      const st = versions.state();
+      if (!st.fromV02) throw new HttpError(400, "このパネルは v02 から切り替えて動いていないので、ここからは v02 に戻せません");
+      await needIdle();
+      await record({ teamId: who.teamId, userId: who.user.id, kind: "panel", action: "v02 に戻す", target: `v${st.current} → v${st.image || "02"}` });
+      versions.useImage();
     },
 
     /** 手で版を切り替える(前にバックアップを作る。再起動は呼ぶ側で) */

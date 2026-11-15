@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, unlinkSync, writeFileSync 
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { FetchLike } from "./net";
+import { v02DirOf } from "./env";
 
 const REPO = "mesamaru/craftshelf";
 const TAG = /^(dev-)?v(03\.\d{2}\.\d{2})$/; // v03.xx.xx = 安定版 / dev-v03.xx.xx = 開発版
@@ -72,7 +73,15 @@ export function versionService({ fetch, dataDir, appDir = process.cwd() }: { fet
   return {
     /** いま動いている版・イメージの版・パネルで選んだ版 */
     state() {
-      return { current: readVersion(appDir), image: readVersion(imageDir), selected: existsSync(join(root, "current")) ? readFileSync(join(root, "current"), "utf8").trim() : null };
+      const image = readVersion(imageDir);
+      const selected = existsSync(join(root, "current")) ? readFileSync(join(root, "current"), "utf8").trim() : null;
+      return {
+        current: readVersion(appDir), image, selected,
+        // v02 のパネルから切り替えて動いている(v02 の v03switch.py が V02_CONFIG_DIR を渡して起動する。イメージが v03 のときは違う)。
+        // このときは versions/current を消して再起動すると v02 で起動する
+        fromV02: !!process.env.V02_CONFIG_DIR && !!selected && !image.startsWith("03."),
+        v02Data: existsSync(join(v02DirOf(dataDir), "index.db")),
+      };
     },
 
     /** GitHub にある v03 の版 */

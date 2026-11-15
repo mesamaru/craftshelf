@@ -77,6 +77,32 @@ describe("版の切り替え", () => {
     expect(svc.state().selected).toBeNull();
   });
 
+  it("v02 から切り替えて動いているか: v02 が渡す V02_CONFIG_DIR があり、版を選んでいて、イメージが v03 でないときだけ", async () => {
+    const image = mkdtempSync(join(tmpdir(), "cs-ver-img-"));
+    const setImage = (v: string) => writeFileSync(join(image, "VERSION"), v + String.fromCharCode(10));
+    setImage("02.25.04");
+    const env = { ...process.env };
+    try {
+      process.env.CRAFTSHELF_APP_DIR = image; // イメージの場所は、作るときに読む
+      delete process.env.V02_CONFIG_DIR;
+      const v = versionService({ fetch: fake, dataDir, appDir: dataDir });
+      await v.use(V);
+      expect(v.state()).toMatchObject({ fromV02: false, image: "02.25.04" }); // v02 から起動していない
+      process.env.V02_CONFIG_DIR = dataDir;
+      expect(v.state().fromV02).toBe(true);
+      setImage("03.60.00"); // v03 のイメージ(v03 のイメージに v02 のデータを読ませているとき)
+      expect(v.state().fromV02).toBe(false);
+      setImage("02.25.04");
+      v.useImage(); // v02 に戻す = 選んだ版の印を消す
+      expect(v.state()).toMatchObject({ fromV02: false, selected: null });
+      expect(v.state().v02Data).toBe(false);
+      writeFileSync(join(dataDir, "index.db"), "");
+      expect(v.state().v02Data).toBe(true);
+    } finally {
+      process.env = env;
+    }
+  });
+
   it("use: 取ってきてある版は取り直さずに選ぶ(更新の前に戻すとき)", async () => {
     tampered = true; // 取りに行けば失敗する
     await svc.use(V);

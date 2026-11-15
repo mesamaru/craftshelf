@@ -1,6 +1,26 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "安定版のチャンネル": "Stable channel",
+  "開発版のチャンネル": "Development channel",
+  "パネルの自動更新をやめる": "Turn off automatic panel updates",
+  "パネルの自動更新を使う": "Turn on automatic panel updates",
+  "切り替える前に、パネルのバックアップを作ります(置き場所・残す数は定期バックアップの設定のもの)。データベースは「足すだけ」で変えていくので、前の版に戻してもデータは読めます。メンバーごとの権限などを知らない古い版には戻せません。選んだ版が起動できなかったときは、イメージの版に自動で戻ります。": "A panel backup is made before switching (location and count follow the scheduled backup settings). The database only ever gains tables and columns, so earlier versions can still read the data. Versions too old to know things like per-member permissions can't be chosen. If the chosen version fails to start, the panel falls back to the image's version automatically.",
+  "安定版のチャンネルは、確かめ終えた版だけを受け取り、最新にする・一つ前の版に戻すができます。開発版のチャンネルは、新しい機能を早く受け取り、以前の版を選んで戻せます。自動更新は、選んだチャンネルの新しい版を 6 時間ごとに確かめて入れます(大きな版上げ(v04 など)は自動では入れません)。": "The stable channel receives only tested releases; you can update to the latest or go back one version. The development channel gets new features early, and you can pick an earlier version to go back to. Automatic updates check the chosen channel every 6 hours and install new versions (major upgrades such as v04 are never installed automatically).",
+  "このパネルは v02 から切り替えて動いていないので、ここからは v02 に戻せません": "This panel was not switched from v02, so it can't go back to v02 from here",
+  "v02 に戻すには、Docker のイメージを v02 に戻してください(v02 のデータは書き換えていません)。": "To go back to v02, switch the Docker image back to v02 (the v02 data has not been modified).",
+  "v02 に戻しますか?パネルが再起動し、v02 で動きます。v02 は v03 に移る前のデータで動き、v03 で変えたこと(足したアドオン・設定など)は引き継がれません。v03 のデータは残るので、v02 の画面からもう一度 v03 に切り替えれば続きから使えます。": "Go back to v02? The panel restarts and runs v02. v02 uses the data from before you moved to v03; changes made in v03 (added add-ons, settings, etc.) are not carried over. The v03 data is kept, so switching to v03 again from v02 picks up where you left off.",
+  "v02 に戻す": "Go back to v02",
+  "イメージの版": "Image version",
+  "以前の版": "Earlier versions",
+  "アップデート": "Update",
+  "今すぐアップデート": "Update Now",
+  "CraftShelf は最新です": "CraftShelf is up to date",
+  "確かめ終えた版だけを受け取ります": "Receive only tested releases.",
+  "新しい機能を早く試せます。不具合があるかもしれません": "Get new features early. There may be bugs.",
+  "開発版": "Development",
+  "安定版": "Stable",
+  "チャンネル": "Channel",
   "パネルから割り当ての番号を受け取れませんでした": "Could not get the allocation number from the panel",
   "パネルが割り当てを足しませんでした(パネルの設定で自動の割り当てが許されていないか、このサーバーの割り当ての数が上限です。パネルの管理者に「ネットワーク」で足してもらってください)": "The panel did not add an allocation (automatic allocation is disabled in the panel, or this server has reached its allocation limit. Ask the panel admin to add one under Network).",
   "割り当ては Pterodactyl のサーバーだけにあります": "Only Pterodactyl servers have allocations",
@@ -1978,6 +1998,15 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^(安定版|開発版) · (.*)$/, (_, c, d) => `${c === "安定版" ? "Stable" : "Development"} · ${d}`],
+  [/^ほかに (\d+) 個の版の変更も入ります$/, "Also includes changes from $1 more versions"],
+  [/^いまの版 v([\d.]+) · (.+) に確かめました$/, "Current version v$1 · checked $2"],
+  [/^いまの版 v([\d.]+)$/, "Current version v$1"],
+  [/^一つ前の版に戻す\(v([\d.]+)\)$/, "Go back one version (v$1)"],
+  [/^v([\d.]+) に更新しますか[?？]パネルが再起動します\(データはそのままです\)$/, "Update to v$1? The panel restarts (data is kept)"],
+  [/^v([\d.]+) に戻しますか[?？]パネルが再起動します\(データはそのままです\)$/, "Go back to v$1? The panel restarts (data is kept)"],
+  [/^イメージの版\(v([\d.]+)\)に戻しますか[?？]パネルが再起動します$/, "Go back to the image version (v$1)? The panel restarts"],
+  [/^いまのデータを読めない古い版\(v([\d.]+) より前\)は出しません。戻した版は、自動更新で新しい版にまた上がります。$/, "Versions too old to read the current data (before v$1) are not listed. A version you go back to is updated again by automatic updates."],
   [/^割り当て (\d+) を足しました$/, "Added allocation $1"],
   [/^重複・範囲外・割り当て外 (\d+) 件$/, "Duplicates, out of range, not allocated: $1"],
   [/^まとめて直す\((\d+) 件\)$/, "Fix all ($1)"],

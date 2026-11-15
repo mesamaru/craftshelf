@@ -1,12 +1,12 @@
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { createFileRoute, redirect, useRouter } from "@tanstack/react-router";
 import { SettingsFrame } from "~/lib/settings-frame";
-import { Btn, Info } from "~/lib/ui";
+import { Btn, Info, Seg } from "~/lib/ui";
 import { renderSVG } from "uqr";
 import { authClient } from "~/lib/auth-client";
 import { errorText } from "~/lib/errors";
 import { getImportReport } from "~/lib/session";
-import { getVersions, installVersion, rollbackUpdate, setAutoUpdate, useImageVersion } from "~/lib/versions-api";
+import { backToV02, getVersions, installVersion, setAutoUpdate, useImageVersion } from "~/lib/versions-api";
 import { useCan } from "~/lib/use-can";
 import { SCOPE_LABELS, SCOPE_SHORT, TOKEN_SCOPES, type TokenScope, permsAllowScope } from "~/lib/permissions";
 import { useServerFn } from "@tanstack/react-start";
@@ -35,7 +35,7 @@ type Section = (typeof SECTIONS)[number];
 const INFO: Partial<Record<Section, ReactNode>> = {
   look: <><span>見た目と背景画像はアカウントに保存し、どの端末でも同じになります。背景画像は長い辺 1920 px までに縮めて保存し(2 MB まで)、テーマの背景の代わりに使います。</span><span>言語は、このブラウザでの表示だけが変わります。利用者が入力した名前などは訳しません。</span></>,
   tokens: <><span>スクリプトなどから CraftShelf を操作するときに使います(使える API は「API の説明」にあります)。トークンは x-api-key か Authorization: Bearer で渡します。</span><span>選んでいるチームのもので、選んだ範囲の中で、あなたの権限(役割と、メンバーごとに足し引きした権限)のとおりに動きます。</span></>,
-  versions: <span>切り替える前に、パネルのバックアップを作ります(置き場所・残す数は定期バックアップの設定のもの)。データベースは「足すだけ」で変えていくので、前の版に戻してもデータは読めます。ただし、メンバーごとの権限などを知らない古い版には戻せません(選べる版に出しません)。選んだ版が起動できなかったときは、イメージの版に自動で戻ります。</span>,
+  versions: <><span>安定版のチャンネルは、確かめ終えた版だけを受け取り、最新にする・一つ前の版に戻すができます。開発版のチャンネルは、新しい機能を早く受け取り、以前の版を選んで戻せます。自動更新は、選んだチャンネルの新しい版を 6 時間ごとに確かめて入れます(大きな版上げ(v04 など)は自動では入れません)。</span><span>切り替える前に、パネルのバックアップを作ります(置き場所・残す数は定期バックアップの設定のもの)。データベースは「足すだけ」で変えていくので、前の版に戻してもデータは読めます。メンバーごとの権限などを知らない古い版には戻せません。選んだ版が起動できなかったときは、イメージの版に自動で戻ります。</span></>,
   telemetry: <span>開発の参考にするため、版・OS・使っている機能・登録数(おおまかな範囲)だけを送ります。名前・ファイル名・アドレス・IP アドレスなどは送りません。送るのは、ここをオンにしたときだけです。</span>,
   import: <span>v02 のデータは書き換えていません。Docker のイメージを v02 に戻せば、v02 をそのまま使えます。</span>,
 };
@@ -285,8 +285,11 @@ function ImportReport({ userId }: { userId: string }) {
 }
 
 type VersionInfo = Awaited<ReturnType<typeof getVersions>>;
+type Rel = VersionInfo["releases"][number];
 
-// パネルのバージョン(自分用の版。チームのオーナーと管理者だけ): GitHub にある版を選んで切り替える
+// パネルのアップデート(自分用の版。チームのオーナーと管理者だけ。iOS の「ソフトウェアアップデート」の形):
+// 上に自動更新とチャンネル、まん中に入れられる版(無ければ「最新です」)、下に戻す操作。
+// 安定版は「最新にする」と「一つ前の安定版に戻す」だけ、開発版は以前の版を選んで戻せる。v02 から切り替えたパネルは v02 に戻せる
 function Versions({ userId }: { userId: string }) {
   const { app } = Route.useRouteContext();
   const { can } = useCan(userId);
@@ -294,7 +297,6 @@ function Versions({ userId }: { userId: string }) {
   const [info, setInfo] = useState<VersionInfo | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState("");
-  const [pick, setPick] = useState("");
   useEffect(() => {
     if (admin) getVersions().then(setInfo, (e) => setError(e instanceof Error ? e.message : String(e)));
   }, [admin]);
@@ -309,7 +311,6 @@ function Versions({ userId }: { userId: string }) {
     }
     setError("再起動を待ちきれませんでした。少し待ってから開き直してください");
   };
-  const canRestore = can({ member: ["update"] });
   const saveAuto = async (auto: boolean, channel: "stable" | "dev") => {
     setError("");
     // 先に画面を変える(続けて変えたとき、前の値で上書きしないように)
@@ -321,8 +322,8 @@ function Versions({ userId }: { userId: string }) {
       getVersions().then(setInfo, () => {});
     }
   };
-  const run = async (label: string, fn: () => Promise<unknown>) => {
-    if (!(await confirmDialog({ message: label, ok: label.includes("戻しますか") ? "戻す" : "切り替える", danger: label.includes("戻しますか") }))) return;
+  const run = async (message: string, ok: string, danger: boolean, fn: () => Promise<unknown>) => {
+    if (!(await confirmDialog({ message, ok, danger }))) return;
     setBusy("切り替えています…");
     setError("");
     try {
@@ -337,105 +338,98 @@ function Versions({ userId }: { userId: string }) {
 
   if (!info) return <section className="group"><div className="row muted">{error || "確かめています…"}</div></section>;
   const { current, image, updates, releases } = info;
-  // 開発版を使っているか「開発版も」を選んでいるときは、開発版も新しい版として出す
-  const devOk = updates.channel === "dev" || releases.some((r) => r.version === current && !r.stable);
-  const newer = releases.filter((r) => r.version > current && (r.stable || devOk)).sort((x, y) => y.version.localeCompare(x.version));
+  const dev = updates.channel === "dev";
+  const inChannel = (r: Rel) => dev || r.stable;
+  const byNew = (x: Rel, y: Rel) => y.version.localeCompare(x.version);
+  const newer = releases.filter((r) => inChannel(r) && r.version > current).sort(byNew);
   const latest = newer[0];
-  const others = releases.filter((r) => r.version !== current && r.version >= updates.floor).sort((x, y) => y.version.localeCompare(x.version));
-  const imageOpt = !!info.selected && image >= updates.floor && !others.some((r) => r.version === image);
-  const tooOld = releases.filter((r) => r.version < updates.floor).length;
-  const switchTo = () => {
-    if (pick === "image") return run(`イメージの版(v${image})に戻しますか? パネルが再起動します`, () => useImageVersion());
-    const up = pick > current;
-    return run(up ? `v${pick} に更新しますか? パネルが再起動します(データはそのままです)` : `v${pick} に戻しますか? パネルが再起動します(データはそのままです)`,
-      () => installVersion({ data: { version: pick } }));
-  };
+  // 戻せる版: いまのデータを読める版(下限)より新しく、いまの版より古いもの
+  const older = releases.filter((r) => inChannel(r) && r.version < current && r.version >= updates.floor).sort(byNew);
+  const imageOpt = dev && !!info.selected && image >= updates.floor && image < current && !older.some((r) => r.version === image);
+  const date = (s: string) => (s ? new Date(s).toLocaleDateString("ja-JP") : "");
+  const update = (v: string) => run(`v${v} に更新しますか?パネルが再起動します(データはそのままです)`, "アップデート", false, () => installVersion({ data: { version: v } }));
+  const goBack = (v: string) => run(`v${v} に戻しますか?パネルが再起動します(データはそのままです)`, "戻す", true, () => installVersion({ data: { version: v } }));
 
   return (
     <>
       <section className="group">
-        <div className="row upd-head">
-          <span className="main">
-            <span className="upd-ver" translate="no">{`CraftShelf v${current}`}</span>
-            <span className="muted">
-              {info.listError ? "新しい版を確かめられませんでした" : latest ? `新しい版 v${latest.version} があります` : "最新です"}
-              {updates.lastCheck ? ` · ${new Date(updates.lastCheck).toLocaleString("ja-JP")} に確かめました` : ""}
-            </span>
-          </span>
-          {latest && (
-            <Btn kind="pri" sm disabled={!!busy} onClick={() => run(`v${latest.version} に更新しますか? パネルが再起動します(データはそのままです)`, () => installVersion({ data: { version: latest.version } }))}>
-              更新する
-            </Btn>
-          )}
-        </div>
-        {newer.slice(0, 5).map((r) => (
-          <details className="row column upd-notes" key={r.version}>
-            <summary><b translate="no">{`v${r.version}`}</b>{r.stable ? "" : <small className="muted">(開発版)</small>} {noteTitle(r.notes)}</summary>
-            <ul>{notePoints(r.notes).map((x, i) => <li key={i}>{x}</li>)}</ul>
-          </details>
-        ))}
-        {newer.length > 5 && <div className="row muted">{`ほかに ${newer.length - 5} 個の版があります`}</div>}
-        {info.listError && <p className="row error" role="alert">{info.listError}</p>}
-        {busy && <p className="row muted" role="status">{busy}</p>}
-        {error && <p className="row error" role="alert">{error}</p>}
-      </section>
-
-      <div className="gtitle">自動アップデート<Info>入れる前にパネルのバックアップを作ります。大きな版上げ(v04 など)は自動では入れません。「この更新の前に戻す」で戻した版は、自動では入れ直しません。</Info></div>
-      <section className="group form">
         <label className="row">
-          <span>新しい版を自動で入れる(6 時間ごとに確かめる)</span>
-          <input className="trail switch" type="checkbox" checked={updates.auto} disabled={!!busy}
-            onChange={(e) => saveAuto(e.target.checked, updates.channel)} />
+          <span>自動更新</span>
+          <input className="trail switch" type="checkbox" checked={updates.auto} disabled={!!busy} onChange={(e) => saveAuto(e.target.checked, updates.channel)} />
         </label>
         <div className="row">
-          <span>入れる版</span>
-          <select className="trail" value={updates.channel} disabled={!!busy} aria-label="自動で入れる版" onChange={(e) => saveAuto(updates.auto, e.target.value === "dev" ? "dev" : "stable")}>
-            <option value="stable">安定版だけ</option>
-            <option value="dev">開発版も</option>
-          </select>
+          <span className="main"><span>チャンネル</span><span className="muted">{dev ? "新しい機能を早く試せます。不具合があるかもしれません" : "確かめ終えた版だけを受け取ります"}</span></span>
+          <span className="upd-seg"><Seg label="チャンネル" value={updates.channel} options={[["stable", "安定版"], ["dev", "開発版"]] as const}
+            onChange={(c) => !busy && c !== updates.channel && saveAuto(updates.auto, c)} /></span>
         </div>
       </section>
 
-      {(others.length > 0 || imageOpt || updates.history.length > 0) && (
+      <section className="group upd-card">
+        <div className="upd-top">
+          <img src="/icon.svg" alt="" className="upd-icon" />
+          <span className="main">
+            <b translate="no">{`CraftShelf ${latest ? latest.version : current}`}</b>
+            <span className="muted">{latest ? `${latest.stable ? "安定版" : "開発版"} · ${date(latest.publishedAt)}` : info.listError ? "新しい版を確かめられませんでした" : "CraftShelf は最新です"}</span>
+          </span>
+        </div>
+        {latest && (
+          <>
+            <div className="upd-notes">
+              <b>{noteTitle(latest.notes)}</b>
+              <ul>{notePoints(latest.notes).slice(0, 6).map((x, i) => <li key={i}>{x}</li>)}</ul>
+              {newer.length > 1 && <span className="muted small">{`ほかに ${newer.length - 1} 個の版の変更も入ります`}</span>}
+            </div>
+            <Btn kind="pri" className="upd-go" disabled={!!busy} onClick={() => update(latest.version)}>今すぐアップデート</Btn>
+          </>
+        )}
+        {(busy || error || info.listError) && (
+          <div className="upd-msg">
+            {busy && <p className="muted" role="status">{busy}</p>}
+            {error && <p className="error" role="alert">{error}</p>}
+            {info.listError && <p className="error">{info.listError}</p>}
+          </div>
+        )}
+        <div className="upd-foot muted small">{`いまの版 v${current}${updates.lastCheck ? ` · ${new Date(updates.lastCheck).toLocaleString("ja-JP")} に確かめました` : ""}`}</div>
+      </section>
+
+      {!dev && older[0] && (
         <section className="group">
-          <details className="row column upd-more">
-            <summary>前の版に戻す</summary>
-            {(others.length > 0 || imageOpt) && (
-              <div className="upd-pick">
-                <select value={pick} disabled={!!busy} aria-label="切り替える版" onChange={(e) => setPick(e.target.value)}>
-                  <option value="">版を選ぶ</option>
-                  {imageOpt && <option value="image">{`v${image}(イメージの版)`}</option>}
-                  {others.map((r) => (
-                    <option key={r.version} value={r.version}>
-                      {`v${r.version}${r.stable ? "" : "(開発版)"}${r.publishedAt ? ` · ${new Date(r.publishedAt).toLocaleDateString("ja-JP")}` : ""}`}
-                    </option>
-                  ))}
-                </select>
-                <Btn sm kind={pick && pick !== "image" && pick > current ? "tint" : "red"} disabled={!pick || !!busy} onClick={switchTo}>切り替える</Btn>
-              </div>
-            )}
-            {tooOld > 0 && <span className="muted small">{`v${updates.floor} より前の版は、いまのデータを読めないので選べません`}</span>}
-            {updates.history.length > 0 && (
-              <>
-                <span className="upd-sub">更新の記録<Info>「この更新の前に戻す」は、版と、更新の前のバックアップのデータに戻します。更新の前のバックアップは、定期バックアップの「残す数」を超えると古いものから消えます。</Info></span>
-                {updates.history.map((h) => (
-                  <div className="upd-hist" key={h.at}>
-                    <span className="main">
-                      <span translate="no">{`v${h.from} → v${h.to}`}{h.auto ? "(自動)" : ""}</span>
-                      <span className="muted">{`${new Date(h.at).toLocaleString("ja-JP")}${h.rolledBackAt ? " · 戻しました" : h.backup ? "" : " · バックアップなし"}`}</span>
-                    </span>
-                    {h.canRollback && canRestore && (
-                      <button className="link small" type="button" disabled={!!busy}
-                        onClick={() => run(`v${h.from} と、この更新の前のデータに戻しますか? パネルが再起動します(今のデータは before-restore-… に残します)`, () => rollbackUpdate({ data: { at: h.at } }))}>
-                        この更新の前に戻す
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </>
-            )}
-          </details>
+          <button className="row link" type="button" disabled={!!busy} onClick={() => goBack(older[0].version)}>{`一つ前の版に戻す(v${older[0].version})`}</button>
         </section>
+      )}
+      {dev && (older.length > 0 || imageOpt) && (
+        <>
+          <div className="gtitle">以前の版<Info>{`いまのデータを読めない古い版(v${updates.floor} より前)は出しません。戻した版は、自動更新で新しい版にまた上がります。`}</Info></div>
+          <section className="group">
+            {imageOpt && (
+              <button className="row click" type="button" disabled={!!busy}
+                onClick={() => run(`イメージの版(v${image})に戻しますか?パネルが再起動します`, "戻す", true, () => useImageVersion())}>
+                <span className="mid"><span className="ttl" translate="no">{`v${image}`}</span><span className="sub">イメージの版</span></span><span className="trail link">戻す</span>
+              </button>
+            )}
+            {older.map((r) => (
+              <button className="row click" type="button" key={r.version} disabled={!!busy} onClick={() => goBack(r.version)}>
+                <span className="mid">
+                  <span className="ttl" translate="no">{`v${r.version}`}<small className="muted"> {r.stable ? "安定版" : "開発版"}</small></span>
+                  <span className="sub">{[date(r.publishedAt), noteTitle(r.notes)].filter(Boolean).join(" · ")}</span>
+                </span>
+                <span className="trail link">戻す</span>
+              </button>
+            ))}
+          </section>
+        </>
+      )}
+
+      {info.fromV02 && (
+        <section className="group">
+          <button className="row link danger" type="button" disabled={!!busy}
+            onClick={() => run("v02 に戻しますか?パネルが再起動し、v02 で動きます。v02 は v03 に移る前のデータで動き、v03 で変えたこと(足したアドオン・設定など)は引き継がれません。v03 のデータは残るので、v02 の画面からもう一度 v03 に切り替えれば続きから使えます。", "v02 に戻す", true, () => backToV02())}>
+            v02 に戻す
+          </button>
+        </section>
+      )}
+      {!info.fromV02 && info.v02Data && (
+        <section className="group"><div className="row muted">v02 に戻すには、Docker のイメージを v02 に戻してください(v02 のデータは書き換えていません)。</div></section>
       )}
     </>
   );

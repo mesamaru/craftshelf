@@ -38,12 +38,13 @@ describe("パネルの更新と、更新の前に戻す", () => {
   let t: Awaited<ReturnType<typeof setup>>;
   let owner: Headers, admin: Headers, editor: Headers;
   const calls: string[] = [];
-  const state = { current: "03.61.00", image: "03.60.00", selected: null as string | null };
+  const state = { current: "03.61.00", image: "03.60.00", selected: null as string | null, fromV02: false };
   let releases = [rel("03.62.00", true), rel("03.61.00", true)];
   const versions = {
     state: () => state,
     list: async () => releases,
     use: async (v: string) => { calls.push(`use ${v}`); },
+    useImage: () => { calls.push("useImage"); },
   } as unknown as Parameters<typeof updateService>[1];
   let n = 0;
   const backups = {
@@ -136,6 +137,20 @@ describe("パネルの更新と、更新の前に戻す", () => {
     expect((await svc.settings(owner)).floor).toBe("03.65.00");
     s.floor = DATA_FLOOR;
     writeUpdateState(join(dataDir, "v03"), s);
+  });
+
+  it("v02 に戻すのは、v02 から切り替えて動いているときだけ。版の印を消し、記録に残す", async () => {
+    expect(await code(svc.backToV02(admin))).toBe(400); // v03 のイメージで動いている
+    Object.assign(state, { fromV02: true, image: "02.25.04", selected: "03.61.00" });
+    try {
+      calls.length = 0;
+      await svc.backToV02(admin);
+      expect(calls).toEqual(["useImage"]);
+      const [a] = await t.db.select().from(auditLog).where(eq(auditLog.action, "v02 に戻す"));
+      expect(a?.target).toBe("v03.61.00 → v02.25.04");
+    } finally {
+      Object.assign(state, { fromV02: false, image: "03.60.00", selected: null });
+    }
   });
 
   it("手での切り替え・更新の前に戻すも、動いている処理があれば断る(自動アップデートと同じ)", async () => {

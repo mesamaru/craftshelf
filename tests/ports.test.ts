@@ -1,6 +1,6 @@
 // ポート管理の通しテスト(Pterodactyl は偽物の応答で代わりをする)
 import { beforeAll, describe, expect, it } from "vitest";
-import { findProblems, rangeOf } from "~/lib/ports";
+import { findProblems, freeAllocs, rangeOf } from "~/lib/ports";
 import { HttpError } from "~/server/guard";
 import type { FetchLike } from "~/server/net";
 import { numericEntries, portLike, readPort, writePort } from "~/server/port-config";
@@ -91,6 +91,18 @@ describe("範囲と重複", () => {
     const probs = findProblems(servers, [], []);
     expect(probs.map((x) => x.serverId)).toEqual(["c"]);
   });
+  it("Pterodactyl のサーバー: 割り当てに無い番号は「割り当て外」。直す先は空いている割り当てで、メモが種類の名前に合うものが先", () => {
+    const p = (id: string, port: number, source = "file", kindId: string | null = "vc") => ({ id, kindId, port, source, file: "", key: "", label: "", memo: "", ignored: false });
+    const alloc = [{ port: 25565, ip: "", notes: "", isDefault: true }, { port: 19132, ip: "", notes: "", isDefault: false }, { port: 24454, ip: "", notes: "Voice", isDefault: false }];
+    const s = { id: "a", name: "A", groupId: null, machine: "m1", alloc, ports: [p("1", 25565, "file", null), p("2", 24500), p("3", 19132, "allocation", null)] };
+    expect(freeAllocs(s, null, [], "Voice Chat")).toEqual([24454, 19132]);
+    expect(freeAllocs(s, null, [24454])).toEqual([19132]);
+    expect(findProblems([s], [k({ id: "vc", name: "Voice Chat" })], [])).toEqual([
+      { serverId: "a", portId: "2", port: 24500, type: "noalloc", fix: 24454, message: "Pterodactyl の割り当てに無い番号です(外から届きません)" },
+    ]);
+    // 割り当てを読めないサーバー(フォルダ・エージェント)は確かめない
+    expect(findProblems([{ ...s, alloc: null }], [], [])).toEqual([]);
+  });
 });
 
 describe("ポート管理(サーバーから読み取る)", () => {
@@ -136,7 +148,12 @@ describe("ポート管理(サーバーから読み取る)", () => {
     // 22-建築 の割り当て 19132 は、設定ファイルに無いので「そのほか」
     const build = o.servers.find((s) => s.name === "22-建築")!;
     expect(build.ports.some((p) => p.port === 19132 && p.source === "allocation" && kindName(p.kindId) === "そのほか")).toBe(true);
-    expect(o.problems.map((p) => `${p.type}:${p.port}`)).toEqual(["dup:20453"]);
+    // 割り当て(ネットワーク)は開くたびに読む。割り当てに無い番号は「割り当て外」(外から届かない)。重複が先
+    expect(lobby.alloc?.map((a) => a.port)).toEqual([20500, 20453]);
+    const probs = o.problems.map((p) => `${o.servers.find((s) => s.id === p.serverId)!.name}:${p.type}:${p.port}:${p.fix}`);
+    expect(probs.filter((x) => x.includes(":noalloc:") && x.startsWith("00-")).sort()).toEqual(["00-ロビー:noalloc:25575:null", "00-ロビー:noalloc:8801:null"]); // ロビーは空いている割り当てが無い
+    expect(probs.filter((x) => x.includes(":dup:20453:"))).toHaveLength(1); // 重複は 2 つ目にだけ出す(どちらが 2 つ目かは ID の順)
+    expect(probs.find((x) => x.startsWith("22-建築:"))).toMatch(/^22-建築:(dup|noalloc):20453:19132$/); // 建築の 20453 は割り当てにも無い。空いている 19132 を勧める
   });
 
   it("番号を変えると設定ファイルも書き換え、重複する番号にはできない", async () => {
@@ -146,7 +163,13 @@ describe("ポート管理(サーバーから読み取る)", () => {
     expect(await code(ports.savePorts(owner, build.id, [{ id: vc.id, port: 25575 }]))).toBe(400); // ロビーの RCON と重なる
     o = await ports.savePorts(owner, build.id, [{ id: vc.id, port: 20455, memo: "建築用" }]);
     expect(disk.build0002["plugins/voicechat/voicechat-server.properties"]).toBe("port=20455\n");
-    expect(o.problems).toEqual([]);
+    // 割り当てに無い番号にもできる(警告だけ。直す先は空いている割り当て)
+    expect(o.problems.filter((p) => p.serverId === build.id).map((p) => `${p.type}:${p.port}:${p.fix}`)).toEqual(["noalloc:20455:19132"]);
+    // 自分の割り当て(19132。いまは「そのほか」の行)にするのは重複ではない。割り当ての行は 1 つとして数える
+    o = await ports.savePorts(owner, build.id, [{ id: vc.id, port: 19132 }]);
+    expect(disk.build0002["plugins/voicechat/voicechat-server.properties"]).toBe("port=19132\n");
+    expect(o.problems.filter((p) => p.serverId === build.id)).toEqual([]);
+    o = await ports.savePorts(owner, build.id, [{ id: vc.id, port: 20455 }]);
     // 割り当てのポートは、パネルで変える
     const alloc = build.ports.find((p) => p.source === "allocation")!;
     expect(await code(ports.savePorts(owner, build.id, [{ id: alloc.id, port: 19133 }]))).toBe(400);

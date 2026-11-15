@@ -171,7 +171,7 @@ html { background: #f2f2f7; }
 .tag-icon { width: 16px; height: 16px; vertical-align: -3px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 .pc .check { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; } /* 太くして見やすく */
 .pc.dup, .mono.dup, .small.dup, .small.err { color: var(--danger); } .pc.dup { border-color: var(--danger); }
-.pc.out, .mono.out, .small.out { color: #c27c00; } .pc.out { border-color: #c27c00; }
+.pc.out, .mono.out, .small.out, .pc.noalloc, .mono.noalloc, .small.noalloc { color: #c27c00; } .pc.out, .pc.noalloc { border-color: #c27c00; } .pc.noalloc { border-style: dashed; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-weight: 700; }
 .small { font-size: 12.5px; }
 code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; background: var(--line); padding: 0 4px; border-radius: 4px; }
@@ -196,7 +196,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; fo
 .port-line { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
 .port-line input:not(.num), .port-line select { flex: 1; min-width: 0; }
 input.num { width: 90px; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; } input.num.short { width: 56px; }
-input.num.dup, input.num.err { border-color: var(--danger); color: var(--danger); } input.num.out { border-color: #c27c00; }
+input.num.dup, input.num.err { border-color: var(--danger); color: var(--danger); } input.num.out, input.num.noalloc { border-color: #c27c00; }
 input.memo { width: 100%; }
 .order { display: inline-flex; align-items: center; gap: 2px; } .order .link { font-size: 11px; padding: 0 2px; }
 .grip { cursor: grab; touch-action: none; user-select: none; color: var(--muted); padding: 0 4px; }

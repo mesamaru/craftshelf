@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { Btn, Chip, ChipBar, Info, Seg, Sheet } from "~/lib/ui";
-import { type Group, type Kind, type Port, freePorts, isPort, rangeOf } from "~/lib/ports";
+import { confirmDialog } from "~/lib/dialog-queue";
+import { type Group, type Kind, type Port, counted, freeAllocs, freePorts, isPort, outsideAlloc, rangeOf } from "~/lib/ports";
 import { adoptFoundPort, portOverview, savePortRules, saveServerPorts, scanPorts, setServerPortInfo } from "~/lib/ports-api";
 import { useCan } from "~/lib/use-can";
 import { Bell } from "~/lib/bell";
@@ -64,7 +65,7 @@ function Ports() {
     <main className="page fill wide">
       <Link to="/servers" className="back">‹ サーバー</Link>
       <header className="bar">
-        <h1>ポート<small>{`${data.servers.length} 台`}</small><Info>ポートは Pterodactyl の割り当てと、種類ごとの設定ファイルから読み取ります。重複は同じマシン(Pterodactyl のノード)の中だけで確かめます。番号を押すと、そのサーバーのポートを変えられます。</Info></h1>
+        <h1>ポート<small>{`${data.servers.length} 台`}</small><Info><span>ポートは Pterodactyl の割り当てと、種類ごとの設定ファイルから読み取ります。重複は同じマシン(Pterodactyl のノード)の中だけで確かめます。番号を押すと、そのサーバーのポートを変えられます。</span><span>Pterodactyl のサーバーは、開くたびに割り当て(ネットワーク)を読みます。コンテナの外から届くのは割り当ての番号だけなので、設定ファイルの番号が割り当てに無ければ「割り当て外」として出し、空いている割り当てに変えられます。</span></Info></h1>
         <Bell open={bell} setOpen={setBell} count={data.problems.length + found.length} label={`ポートの知らせ ${data.problems.length + found.length} 件`}>
           <ProblemList data={data} found={found} edit={edit} onChange={setData} />
         </Bell>
@@ -104,7 +105,7 @@ function Ports() {
                         </button>
                       </td>
                       {data.kinds.map((k) => {
-                        const ps = s.ports.filter((p) => live(p) && p.kindId === k.id);
+                        const ps = counted(s).filter((p) => p.kindId === k.id);
                         return (
                           <td key={k.id}>
                             {ps.map((p) => {
@@ -151,9 +152,30 @@ function ProblemList({ data, found, edit, onChange }: { data: Overview; found: {
   const [error, setError] = useState("");
   const name = (id: string) => data.servers.find((s) => s.id === id)?.name ?? "";
   const run = async (fn: () => Promise<Overview>) => { try { onChange(await fn()); setError(""); } catch (e) { setError(message(e)); } };
+  // 直す先があるものを、サーバーごとに 1 回で保存する(設定ファイルの番号も書き換える)
+  const fixable = data.problems.filter((pr) => pr.fix);
+  const [busy, setBusy] = useState(false);
+  const fixAll = async () => {
+    const ids = [...new Set(fixable.map((pr) => pr.serverId))];
+    if (!(await confirmDialog({ message: `${fixable.length} 件のポートを、示した番号に変えますか?(設定ファイルの番号も書き換えます。サーバーを再起動すると新しい番号になります)`, ok: "変える" }))) return;
+    setBusy(true);
+    try {
+      let last: Overview | null = null;
+      for (const id of ids) last = await save({ data: { serverId: id, changes: fixable.filter((pr) => pr.serverId === id).map((pr) => ({ id: pr.portId, port: pr.fix! })) } });
+      if (last) onChange(last);
+      setError("");
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <>
-      <div className="row"><b>重複・範囲外 {data.problems.length} 件</b></div>
+      <div className="row">
+        <b className="grow">{`重複・範囲外・割り当て外 ${data.problems.length} 件`}</b>
+        {edit && fixable.length > 1 && <button className="btn tint sm" type="button" disabled={busy} onClick={fixAll}>{`まとめて直す(${fixable.length} 件)`}</button>}
+      </div>
       {data.problems.length === 0 && <div className="row muted">問題はありません</div>}
       {data.problems.map((pr) => (
         <div className="row" key={pr.portId}>
@@ -202,7 +224,9 @@ function ServerPanel({ data, server, focus, addKind, edit, onClose, onSaved }:
   const setInfo = useServerFn(setServerPortInfo);
   const scan = useServerFn(scanPorts);
   const [rows, setRows] = useState<Draft[]>(() => {
-    const r: Draft[] = server.ports.filter((p) => p.source !== "found" || p.ignored).map((p) => ({ ...p, port: String(p.port), remove: false }));
+    // 割り当ての行のうち、設定ファイル・手入力が同じ番号を使っているものは出さない(上の割り当ての一覧に出る)
+    const shown = new Set(counted(server));
+    const r: Draft[] = server.ports.filter((p) => p.ignored || (p.source !== "found" && shown.has(p))).map((p) => ({ ...p, port: String(p.port), remove: false }));
     if (addKind) r.push({ kindId: addKind, port: "", memo: "", source: "manual", label: "", file: "", key: "", ignored: false, remove: false });
     return r;
   });
@@ -211,20 +235,27 @@ function ServerPanel({ data, server, focus, addKind, edit, onClose, onSaved }:
   const [busy, setBusy] = useState(false);
   const group = data.groups.find((g) => g.id === server.groupId);
   const kindOf = (id: string | null) => data.kinds.find((k) => k.id === id);
-  const firstFree = (kindId: string | null) => freePorts(data.servers, server.machine, rangeOf(kindOf(kindId), group), 1)[0];
+  // 下書きで使っている番号(割り当ての行と、消す・外すものは除く)
+  const drafted = (except?: Draft) => rows.filter((x) => x !== except && !x.remove && !x.ignored && x.source !== "allocation").map((x) => Number(x.port));
+  // 空いている番号: Pterodactyl のサーバーは空いている割り当て、それ以外は範囲の中の空き
+  const frees = (kindId: string | null, n: number, except?: Draft) => (server.alloc
+    ? freeAllocs(server, rangeOf(kindOf(kindId), group), drafted(except), kindOf(kindId)?.name).slice(0, n)
+    : freePorts(data.servers, server.machine, rangeOf(kindOf(kindId), group), n));
+  const firstFree = (kindId: string | null) => frees(kindId, 1)[0];
   useEffect(() => {
     if (addKind) setRows((r) => r.map((x, i) => (i === r.length - 1 && !x.port ? { ...x, port: String(firstFree(addKind) ?? "") } : x)));
   }, []);
 
-  // 入力中に確かめる: 番号の形・同じマシンの重複・範囲
+  // 入力中に確かめる: 番号の形・同じマシンの重複(自分の割り当ての行を使うのは重複にしない)・割り当て外・範囲
   const check = (d: Draft): [string, string] => {
     const n = Number(d.port);
     if (!isPort(n)) return ["err", "1〜65535 の番号を入れてください"];
     if (d.ignored || d.remove) return ["", ""];
     const other = data.servers.filter((s) => s.machine === server.machine)
-      .flatMap((s) => (s.id === server.id ? rows.filter((x) => x !== d && !x.remove && !x.ignored).map((x) => ({ s, port: Number(x.port), label: x.label })) : s.ports.filter(live).map((p) => ({ s, port: p.port, label: p.label }))))
+      .flatMap((s) => (s.id === server.id ? rows.filter((x) => x !== d && !x.remove && !x.ignored && (x.source === "allocation") === (d.source === "allocation")).map((x) => ({ s, port: Number(x.port), label: x.label })) : counted(s).map((p) => ({ s, port: p.port, label: p.label }))))
       .find((x) => x.port === n);
     if (other) return ["dup", `「${other.s.name}」${other.label ? `の ${other.label}` : ""}が使っています`];
+    if (outsideAlloc(server, { port: n, source: d.source })) return ["noalloc", "Pterodactyl の割り当てに無い番号です(外から届きません)"];
     const r = rangeOf(kindOf(d.kindId), group);
     if (r && (n < r[0] || n > r[1])) return ["out", `範囲 ${r[0]}–${r[1]} の外です`];
     return ["", ""];
@@ -236,6 +267,19 @@ function ServerPanel({ data, server, focus, addKind, edit, onClose, onSaved }:
   };
   const willWrite = [...new Set(rows.filter((d) => d.id && !d.remove && (d.source === "file" || d.source === "adopted") && server.ports.find((p) => p.id === d.id)?.port !== Number(d.port)).map((d) => d.file))];
   const set = (i: number, v: Partial<Draft>) => setRows((r) => r.map((x, j) => (j === i ? { ...x, ...v } : x)));
+  // 割り当てに無い番号の行を、空いている割り当てに振り直す(下書きだけ。保存は「保存」で)
+  const outside = rows.filter((d) => !d.remove && !d.ignored && isPort(Number(d.port)) && outsideAlloc(server, { port: Number(d.port), source: d.source }));
+  const assignable = outside.length > 0 && freeAllocs(server, null, drafted()).length >= outside.length;
+  const fitAlloc = () => setRows((r) => {
+    const used = drafted();
+    return r.map((x) => {
+      if (!outside.includes(x)) return x;
+      const n = freeAllocs(server, rangeOf(kindOf(x.kindId), group), used, kindOf(x.kindId)?.name)[0];
+      if (n === undefined) return x;
+      used.push(n);
+      return { ...x, port: String(n) };
+    });
+  });
 
   const submit = async () => {
     setBusy(true);
@@ -276,12 +320,39 @@ function ServerPanel({ data, server, focus, addKind, edit, onClose, onSaved }:
         </div>
       </section>
 
+      {server.alloc && (
+        <>
+          <div className="gtitle">Pterodactyl の割り当て<Info>パネルの「ネットワーク」の番号です。コンテナの外から届くのはこの番号だけです。割り当てを足す・消すのはパネルで行います。</Info></div>
+          <section className="group">
+            {server.alloc.length === 0 && <div className="row muted">割り当てがありません。</div>}
+            {server.alloc.map((a) => {
+              const users = rows.filter((x) => !x.remove && !x.ignored && x.source !== "allocation" && Number(x.port) === a.port);
+              return (
+                <div className="row" key={a.port}>
+                  <span className="mono" translate="no">{`${a.ip}:${a.port}`}</span>
+                  <span className="main">
+                    <span>{users.length ? users.map((x) => kindOf(x.kindId)?.name ?? (x.label || "ポート")).join("・") : "空き"}{a.isDefault ? "(既定)" : ""}</span>
+                    {a.notes && <span className="muted" translate="no">{a.notes}</span>}
+                  </span>
+                </div>
+              );
+            })}
+            {edit && outside.length > 0 && (
+              <div className="row">
+                <span className="main"><span>{`割り当てに無い番号が ${outside.length} 個あります`}</span><span className="muted">{assignable ? "空いている割り当てに振り直します(保存すると設定ファイルを書き換えます)" : "空いている割り当てが足りません。パネルの「ネットワーク」で割り当てを足してください"}</span></span>
+                <button className="btn tint sm" type="button" disabled={!assignable} onClick={fitAlloc}>割り当てに合わせる</button>
+              </div>
+            )}
+          </section>
+        </>
+      )}
+
       <div className="gtitle">ポート</div>
       <section className="group">
         {rows.length === 0 && <div className="row muted">まだポートがありません。</div>}
         {rows.map((d, i) => {
           const [st, why] = check(d);
-          const sugg = st ? freePorts(data.servers, server.machine, rangeOf(kindOf(d.kindId), group), 3) : [];
+          const sugg = st && st !== "err" ? frees(d.kindId, 3, d) : [];
           const auto = d.source !== "manual";
           return (
             <div className={`row column ${d.id === focus ? "focus" : ""} ${d.remove || d.ignored ? "faded" : ""}`} key={d.id ?? `new${i}`}>

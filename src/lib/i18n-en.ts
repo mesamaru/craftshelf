@@ -1,6 +1,15 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "Pterodactyl のサーバーは、開くたびに割り当て(ネットワーク)を読みます。コンテナの外から届くのは割り当ての番号だけなので、設定ファイルの番号が割り当てに無ければ「割り当て外」として出し、空いている割り当てに変えられます。": "For Pterodactyl servers, allocations (Network) are read every time you open this page. Only allocated numbers are reachable from outside the container, so a config port that is not allocated is shown as “not allocated” and can be moved to a free allocation.",
+  "割り当てに合わせる": "Match allocations",
+  "空いている割り当てが足りません。パネルの「ネットワーク」で割り当てを足してください": "Not enough free allocations. Add allocations in the panel’s Network tab.",
+  "空いている割り当てに振り直します(保存すると設定ファイルを書き換えます)": "Reassigns them to free allocations (saving rewrites the config files)",
+  "(既定)": " (default)",
+  "空き": "Free",
+  "割り当てがありません。": "No allocations.",
+  "パネルの「ネットワーク」の番号です。コンテナの外から届くのはこの番号だけです。割り当てを足す・消すのはパネルで行います。": "These are the numbers in the panel’s Network tab. Only these are reachable from outside the container. Add or remove allocations in the panel.",
+  "Pterodactyl の割り当てに無い番号です(外から届きません)": "Not in the Pterodactyl allocations (unreachable from outside)",
   "(自動)": " (auto)",
   "「この更新の前に戻す」は、版と、更新の前のバックアップのデータに戻します。更新の前のバックアップは、定期バックアップの「残す数」を超えると古いものから消えます。": "\"Undo this update\" restores the version and the data from the backup taken before the update. Pre-update backups are deleted oldest first once the scheduled backup's \"keep\" count is exceeded.",
   "切り替える": "Switch",
@@ -1964,6 +1973,10 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^重複・範囲外・割り当て外 (\d+) 件$/, "Duplicates, out of range, not allocated: $1"],
+  [/^まとめて直す\((\d+) 件\)$/, "Fix all ($1)"],
+  [/^割り当てに無い番号が (\d+) 個あります$/, "$1 ports are not allocated"],
+  [/^(\d+) 件のポートを、示した番号に変えますか[?？]\(設定ファイルの番号も書き換えます。サーバーを再起動すると新しい番号になります\)$/, "Change $1 ports to the suggested numbers? (Config files are rewritten too. The new numbers apply after a restart.)"],
   // 03.78.01(展開の穴ふさぎ)
   [/制御文字\(NUL など\)・見えない文字を含む名前/g, "Name containing control characters (such as NUL) or invisible characters"],
   [/Windows の短い名前\(8\.3\)の形\(PROGRA~1 など\)/g, "Windows short-name (8.3) form (such as PROGRA~1)"],

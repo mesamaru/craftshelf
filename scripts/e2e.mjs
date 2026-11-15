@@ -221,7 +221,8 @@ await step("ポートの画面で、種類とグループを足して並べ替�
 await step("フォルダのサーバーを足すと、一覧と詳細のタブで見られる", async () => {
   const dir = (e2eDir = mkdtempSync(join(tmpdir(), "cs-e2e-")));
   writeFileSync(join(dir, "paper-1.21.4.jar"), "");
-  writeFileSync(join(dir, "server.properties"), "motd=e2e");
+  // server-port: 手元で 25565 に Minecraft が動いていても、動いていると見なさないように(1 番は誰も受けない)
+  writeFileSync(join(dir, "server.properties"), "motd=e2e\nserver-port=1\n");
   await page.goto(base + "/servers");
   await page.locator("main").getByRole("button", { name: "＋ サーバーを追加" }).click();
   const sheet = page.getByRole("dialog");
@@ -332,6 +333,7 @@ await step("サーバーの一覧を並べ替え・絞り込める", async () =>
   for (const name of ["サーバー2", "サーバー10", "alpha", "Beta"]) {
     const dir = mkdtempSync(join(tmpdir(), "cs-e2e-"));
     writeFileSync(join(dir, "paper-1.21.4.jar"), "");
+    writeFileSync(join(dir, "server.properties"), "server-port=1\n"); // 手元の 25565 に左右されない
     await probe.click();
     const sheet = page.getByRole("dialog");
     await sheet.getByRole("tab", { name: "フォルダ" }).click();

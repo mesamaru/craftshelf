@@ -3,8 +3,11 @@
 export type Kind = { id: string; name: string; mode: string; start: number | null; size: number | null; rangeFrom: number | null; rangeTo: number | null; proto: string; file: string; key: string };
 export type Group = { id: string; number: string; name: string };
 export type Port = { id: string; kindId: string | null; port: number; source: string; file: string; key: string; label: string; memo: string; ignored: boolean };
-export type ServerPorts = { id: string; name: string; groupId: string | null; machine: string; ports: Port[] };
-export type Problem = { serverId: string; portId: string; port: number; type: "dup" | "out"; message: string; fix: number | null };
+// Pterodactyl の割り当て(ネットワーク)。コンテナの外から届くのは、この番号だけ
+export type Alloc = { port: number; ip: string; notes: string; isDefault: boolean };
+// alloc: Pterodactyl のサーバーで、割り当てを読めたときだけ(フォルダ・エージェント・読めなかったときは無い)
+export type ServerPorts = { id: string; name: string; groupId: string | null; machine: string; ports: Port[]; alloc?: Alloc[] | null };
+export type Problem = { serverId: string; portId: string; port: number; type: "dup" | "out" | "noalloc"; message: string; fix: number | null };
 
 export const PORT_MIN = 1;
 export const PORT_MAX = 65535;
@@ -24,13 +27,31 @@ export function rangeOf(kind: Kind | undefined, group: Group | undefined): [numb
 
 // 管理しているポート(「管理から外す」・まだ聞いているものは数えない)
 const live = (p: Port) => !p.ignored && p.source !== "found";
+// 割り当ての行のうち、同じサーバーの設定ファイル・手入力の番号と同じもの(同じポートを 2 回数えない)
+const covered = (s: ServerPorts, p: Port) => p.source === "allocation" && s.ports.some((q) => q !== p && live(q) && q.source !== "allocation" && q.port === p.port);
+/** 数えるポート(管理していて、割り当ての重なりを除いたもの) */
+export const counted = (s: ServerPorts) => s.ports.filter((p) => live(p) && !covered(s, p));
+
+/**
+ * 割り当てのうち、そのサーバーのどのポートも使っていない番号。並びは、パネルのメモが種類の名前に合うもの(「voice」と Voice Chat など)、
+ * r の範囲の中のもの、の順に先
+ */
+export function freeAllocs(s: ServerPorts, r: [number, number] | null = null, used: number[] = [], kindName = ""): number[] {
+  if (!s.alloc) return [];
+  const taken = new Set([...counted(s).filter((p) => p.source !== "allocation").map((p) => p.port), ...used]);
+  const word = kindName.trim().toLowerCase().split(/\s+/)[0] ?? "";
+  const score = (a: Alloc) => (word && a.notes.toLowerCase().includes(word) ? 0 : 2) + (r && (a.port < r[0] || a.port > r[1]) ? 1 : 0);
+  return s.alloc.filter((a) => !taken.has(a.port)).sort((a, b) => score(a) - score(b)).map((a) => a.port);
+}
+/** 割り当てに無い番号か(割り当てを読めたサーバーで、割り当てそのものでないポート) */
+export const outsideAlloc = (s: ServerPorts, p: { port: number; source: string }) => !!s.alloc && p.source !== "allocation" && !s.alloc.some((a) => a.port === p.port);
 
 /** 同じマシンで同じ番号を使っているもの・範囲の外のもの。直す先の候補(空いている番号)も付ける */
 export function findProblems(servers: ServerPorts[], kinds: Kind[], groups: Group[]): Problem[] {
   const kindOf = new Map(kinds.map((k) => [k.id, k]));
   const groupOf = new Map(groups.map((g) => [g.id, g]));
   const used = new Map<string, { serverId: string; port: Port }[]>(); // マシン:番号 → 使っているもの
-  for (const s of servers) for (const p of s.ports.filter(live)) {
+  for (const s of servers) for (const p of counted(s)) {
     const k = `${s.machine}:${p.port}`;
     used.set(k, [...(used.get(k) ?? []), { serverId: s.id, port: p }]);
   }
@@ -43,16 +64,26 @@ export function findProblems(servers: ServerPorts[], kinds: Kind[], groups: Grou
   const nameOf = new Map(servers.map((s) => [s.id, s.name]));
   const out: Problem[] = [];
   for (const s of servers) {
-    for (const p of s.ports.filter(live)) {
+    const given: number[] = []; // このサーバーで、直す先として配った割り当て
+    // 直す先: Pterodactyl のサーバーは、空いている割り当て(外から届く番号)。それ以外は、範囲の中の空いている番号
+    const fixFor = (r: [number, number] | null, kind?: Kind) => {
+      if (!s.alloc) return freeIn(s.machine, r);
+      const n = freeAllocs(s, r, given, kind?.name)[0] ?? null;
+      if (n !== null) given.push(n);
+      return n;
+    };
+    for (const p of counted(s)) {
       const kind = p.kindId ? kindOf.get(p.kindId) : undefined;
       const r = rangeOf(kind, s.groupId ? groupOf.get(s.groupId) : undefined);
       const others = (used.get(`${s.machine}:${p.port}`) ?? []).filter((u) => u.port.id !== p.id);
       // 重複は、2 つ目以降に出す(1 つ目はそのまま使い続ける想定)
       if (others.length && others.some((u) => u.port.id < p.id)) {
-        out.push({ serverId: s.id, portId: p.id, port: p.port, type: "dup", fix: freeIn(s.machine, r),
+        out.push({ serverId: s.id, portId: p.id, port: p.port, type: "dup", fix: fixFor(r, kind),
           message: `${others.map((u) => `${nameOf.get(u.serverId)}${u.port.label ? `(${u.port.label})` : ""}`).join("・")} と同じ番号です` });
+      } else if (outsideAlloc(s, p)) {
+        out.push({ serverId: s.id, portId: p.id, port: p.port, type: "noalloc", fix: fixFor(r, kind), message: "Pterodactyl の割り当てに無い番号です(外から届きません)" });
       } else if (r && (p.port < r[0] || p.port > r[1])) {
-        out.push({ serverId: s.id, portId: p.id, port: p.port, type: "out", fix: freeIn(s.machine, r), message: `${kind!.name} の範囲 ${r[0]}–${r[1]} の外です` });
+        out.push({ serverId: s.id, portId: p.id, port: p.port, type: "out", fix: fixFor(r, kind), message: `${kind!.name} の範囲 ${r[0]}–${r[1]} の外です` });
       }
     }
   }
@@ -62,7 +93,7 @@ export function findProblems(servers: ServerPorts[], kinds: Kind[], groups: Grou
 /** 空いている番号(その範囲で、同じマシンのどれも使っていないもの) */
 export function freePorts(servers: ServerPorts[], machine: string, r: [number, number] | null, n = 3): number[] {
   if (!r) return [];
-  const taken = new Set(servers.filter((s) => s.machine === machine).flatMap((s) => s.ports.filter(live).map((p) => p.port)));
+  const taken = new Set(servers.filter((s) => s.machine === machine).flatMap((s) => counted(s).map((p) => p.port)));
   const out: number[] = [];
   for (let x = r[0]; x <= r[1] && out.length < n; x++) if (!taken.has(x)) out.push(x);
   return out;

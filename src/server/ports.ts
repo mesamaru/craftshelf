@@ -2,7 +2,7 @@
 // 種類(表の列)とグループ(表の行)はチームごとに決める。どの処理も、選んでいるチームの中だけを読み書きする
 import { randomUUID } from "node:crypto";
 import { and, asc, eq, inArray } from "drizzle-orm";
-import { DEFAULT_KINDS, PORT_CATALOG, type Port, type ServerPorts, findProblems, isPort } from "~/lib/ports";
+import { type Alloc, DEFAULT_KINDS, PORT_CATALOG, type Port, type ServerPorts, findProblems, isPort } from "~/lib/ports";
 import { portGroup, portKind, server, serverPort, serverPortInfo } from "./db/schema";
 import { HttpError, isHttpError, requireTeam } from "./guard";
 import { eventService } from "./events";
@@ -47,12 +47,22 @@ export function portService(deps: Deps) {
     await ensureKinds(teamId);
     const kinds = await db.select().from(portKind).where(eq(portKind.teamId, teamId)).orderBy(asc(portKind.position));
     const groups = await db.select().from(portGroup).where(eq(portGroup.teamId, teamId)).orderBy(asc(portGroup.position));
-    const rows = await db.select({ id: server.id, name: server.name, groupId: serverPortInfo.groupId, memo: serverPortInfo.memo, machine: serverPortInfo.machine, scannedAt: serverPortInfo.scannedAt })
+    const rows = await db.select({ id: server.id, name: server.name, kind: server.kind, groupId: serverPortInfo.groupId, memo: serverPortInfo.memo, machine: serverPortInfo.machine, scannedAt: serverPortInfo.scannedAt })
       .from(server).leftJoin(serverPortInfo, eq(serverPortInfo.serverId, server.id)).where(eq(server.teamId, teamId)).orderBy(asc(server.name))
       .then((all) => all.filter((r) => !scope || scope.has(r.id)));
     const ports = rows.length ? await db.select().from(serverPort).where(inArray(serverPort.serverId, rows.map((r) => r.id))).orderBy(asc(serverPort.port)) : [];
-    const servers = rows.map((r) => ({
-      ...r, memo: r.memo ?? "", machine: r.machine ?? "",
+    // Pterodactyl の割り当ては、開くたびに読む(パネルへの問い合わせは 1 台 1 回で、2 分覚える。読めなければ割り当ての確かめをしない)
+    const alloc = new Map<string, Alloc[]>();
+    if (!everyone) {
+      await Promise.all(rows.filter((r) => r.kind === "ptero").map(async (r) => {
+        try {
+          const { client, remoteId } = await serverOf(deps, teamId, r.id);
+          alloc.set(r.id, (await client.allocations(remoteId)).map((a) => ({ port: a.port, ip: a.alias || a.ip, notes: a.notes, isDefault: a.isDefault })));
+        } catch { /* つながらない・権限が無い: 割り当ては出さない */ }
+      }));
+    }
+    const servers = rows.map(({ kind: _kind, ...r }) => ({
+      ...r, memo: r.memo ?? "", machine: r.machine ?? "", alloc: alloc.get(r.id) ?? null,
       ports: ports.filter((p) => p.serverId === r.id).map((p): Port => ({ id: p.id, kindId: p.kindId, port: p.port, source: p.source, file: p.file, key: p.key, label: p.label, memo: p.memo, ignored: p.ignored })),
     }));
     return { kinds, groups, servers, problems: findProblems(servers, kinds, groups), catalog: PORT_CATALOG };
@@ -273,7 +283,8 @@ export function portService(deps: Deps) {
       const all = ov.servers.filter((s) => s.machine === me.machine).flatMap((s) => (s.id === serverId ? next.ports : s.ports).map((p) => ({ s, p })))
         .filter(({ p }) => !p.ignored && p.source !== "found");
       for (const c of checked) {
-        const hit = all.find(({ p }) => p.id !== c.id && p.port === c.port);
+        // 自分のサーバーの割り当ての行と同じ番号にするのは、割り当てを使うことなので重複ではない
+        const hit = all.find(({ s, p }) => p.id !== c.id && p.port === c.port && !(s.id === serverId && p.source === "allocation" && c.source !== "allocation"));
         if (hit) throw new HttpError(400, `${c.port} は「${hit.s.id === serverId ? me.name : !scope || scope.has(hit.s.id) ? hit.s.name : "割り当てのないサーバー"}」${hit.p.label ? `の ${hit.p.label}` : ""}が使っています`);
       }
 

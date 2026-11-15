@@ -1,5 +1,6 @@
 import { type ReactNode, useEffect, useState } from "react";
 import { Link, createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { LIBRARY_CHANGED } from "~/lib/library-add";
 import { useServerFn } from "@tanstack/react-start";
 import { identifyMods, libraryCatalog, serverChanges, undoChange, installMod, installedMods, modUpdates, removeMod, rollbackMod, searchMods, serverDetail, serverMissingDeps, setModEnabled, setModHold } from "~/lib/library-api";
 import { importServerFile } from "~/lib/uploads-api";
@@ -90,6 +91,12 @@ function ServerPage() {
     reload();
     checkDeps();
     if (server.profile) checkUpdates();
+  }, [server.id, server.profile?.platform, server.profile?.mcVersion]);
+  // 上の「読み直す」(パネルへの問い合わせの覚えは、その前に捨ててある): 入っているもの・本体・前提を読み直す
+  useEffect(() => {
+    const again = () => { reload(); reloadSoft(); checkDeps(); };
+    window.addEventListener(LIBRARY_CHANGED, again);
+    return () => window.removeEventListener(LIBRARY_CHANGED, again);
   }, [server.id, server.profile?.platform, server.profile?.mcVersion]);
 
   const go = (t: Tab) => navigate({ to: "/servers/$id", params: { id: server.id }, search: t === "overview" ? {} : { tab: t } });

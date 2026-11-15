@@ -9,7 +9,7 @@ import { libraryCatalog, librarySummary } from "./library-api";
 import { AddSheet, LIBRARY_CHANGED, libraryChanged } from "./library-add";
 import { OPEN_NOTICES, OPEN_PALETTE } from "./palette";
 import { roleLabel } from "./permissions";
-import { listServers, sharedLocalEnabled } from "./servers-api";
+import { listServers, sharedLocalEnabled, forgetServerReads } from "./servers-api";
 import { useStatuses } from "./server-status";
 import { unreadCount } from "./notices";
 import { Icon, type IconName, Sheet } from "./ui";
@@ -96,7 +96,8 @@ export function Shell({ user, children }: { user: { id: string; name: string }; 
   const at = sectionOf(path);
   const edit = can({ library: ["edit"] });
   const search = () => window.dispatchEvent(new Event(OPEN_PALETTE));
-  const reload = () => { forgetShared(); libraryChanged(); router.invalidate(); };
+  // パネルの覚えを捨ててから読み直す(Pterodactyl で直接変えたものも、すぐ見える)
+  const reload = async () => { await forgetServerReads().catch(() => {}); forgetShared(); libraryChanged(); router.invalidate(); };
   const nav = (to: string, icon: IconName, label: string, key: string, n?: ReactNode) => (
     <Link to={to as "/"} className="nav" title={label} aria-current={at === key ? "page" : undefined}>
       <Icon name={icon} /><span className="t">{label}</span>{n}

@@ -92,7 +92,12 @@ export function portService(deps: Deps) {
     const texts = new Map<string, string | null>();
     const read = async (f: string) => { if (!texts.has(f)) texts.set(f, await client.readFile(remoteId, f)); return texts.get(f)!; };
 
+    // プラグインの設定は、そのプラグインのフォルダがあるときだけ読む(無いプラグインの分まで問い合わせない)
+    const pluginList = await client.listFiles(remoteId, "plugins");
+    const pluginDirs = new Set(pluginList.filter((f) => !f.isFile).map((f) => f.name.toLowerCase()));
     for (const k of kinds.filter((x) => x.file && x.key)) {
+      const [top, dir] = k.file.split("/");
+      if (top === "plugins" && dir && !dir.includes("*") && !pluginDirs.has(dir.toLowerCase())) continue;
       const file = await resolveFile(client, remoteId, k.file);
       const text = file ? await read(file) : null;
       const hit = text && file ? readPort(file, text, k.key) : null;
@@ -112,7 +117,7 @@ export function portService(deps: Deps) {
     }
     // 知らないプラグインの設定から、ポートらしい項目を探す(聞いて、管理するか決めてもらう)
     const known = new Set(kinds.map((k) => k.file.split("/")[1]?.toLowerCase()).filter(Boolean));
-    const folders = (await client.listFiles(remoteId, "plugins")).filter((f) => !f.isFile && !known.has(f.name.toLowerCase())).slice(0, PORT_LIMITS.scanPluginFolders);
+    const folders = pluginList.filter((f) => !f.isFile && !known.has(f.name.toLowerCase())).slice(0, PORT_LIMITS.scanPluginFolders);
     for (const dir of folders) {
       const file = `plugins/${dir.name}/config.yml`;
       const text = await read(file);
@@ -276,7 +281,7 @@ export function portService(deps: Deps) {
         const { client, remoteId } = await serverOf(deps, who, serverId);
         await remote(async () => {
           for (const w of writes) {
-            const text = await client.readFile(remoteId, w.file);
+            const text = await client.readFile(remoteId, w.file, true);
             const out = text === null ? null : writePort(w.file, text, w.key, w.port);
             if (out === null) throw new HttpError(409, `${w.file} に ${w.key} が見つかりません(読み取り直してください)`);
             await client.writeFile(remoteId, w.file, out);

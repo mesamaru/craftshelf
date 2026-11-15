@@ -70,13 +70,13 @@ export function worldService(deps: Deps) {
   async function archive(client: PteroClient, remoteId: string, out: string) {
     const world = await worldOf(client, remoteId);
     const dirs: string[] = [];
-    for (const d of [world, `${world}_nether`, `${world}_the_end`]) if ((await client.listFiles(remoteId, d)).length) dirs.push(d);
+    for (const d of [world, `${world}_nether`, `${world}_the_end`]) if ((await client.listFiles(remoteId, d, true)).length) dirs.push(d);
     if (!dirs.length) throw new HttpError(404, `ワールドのフォルダ(${world})が見つかりません`);
     const tar = tarGz(out);
     const skipped: string[] = [];
     let files = 0;
     const walk = async (dir: string, depth: number) => {
-      for (const f of await client.listFiles(remoteId, dir)) {
+      for (const f of await client.listFiles(remoteId, dir, true)) {
         const rel = `${dir}/${f.name}`;
         if (!f.isFile) {
           if (depth < WORLD_LIMITS.depth) await walk(rel, depth + 1);
@@ -224,7 +224,7 @@ export function worldService(deps: Deps) {
         if (state !== "offline" && state !== "unknown") throw new HttpError(409, "サーバーが止まりませんでした。止めてからやり直してください");
       }
       const stream = s.targetId ? await fromStorage(async () => (await storeOf(who.teamId, s.targetId)).read(keyOf(row.id, name))) : createReadStream(join(panelDir(row.id), name));
-      const present = new Set((await remote(() => client.listFiles(remoteId, "/"))).map((f) => f.name));
+      const present = new Set((await remote(() => client.listFiles(remoteId, "/", true))).map((f) => f.name));
       const stamp = stampOf();
       let allowed: string[] = [];
       let files = 0;

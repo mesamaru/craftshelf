@@ -7,6 +7,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { jarMeta } from "~/server/jar";
 import { libraryService } from "~/server/library";
 import type { FetchLike } from "~/server/net";
+import { forgetPteroReads } from "~/server/ptero";
 import { serverService } from "~/server/servers";
 import { setup } from "./helpers";
 import { makeZip } from "./zip";
@@ -111,7 +112,8 @@ const fake: FetchLike = async (url) => {
 let lib: ReturnType<typeof libraryService>;
 let owner: Headers;
 const ids: Record<string, string> = {};
-const put = (server: string, name: string, data: Uint8Array) => disk.set(`${server}/mods/${name}`, data);
+// パネルで直接置いた・消したとき: 問い合わせの覚え(10 秒)を捨てて、すぐ見えるようにする
+const put = (server: string, name: string, data: Uint8Array) => { disk.set(`${server}/mods/${name}`, data); forgetPteroReads(); };
 const unmet = async (server: string) => (await lib.serverDeps(owner, ids[server])).unmet;
 
 beforeAll(async () => {
@@ -147,6 +149,7 @@ describe("Mod の前提不足(手で置いた jar)", () => {
     put("fab00001", "samename.jar", fabricMod({ id: "samename" }));
     expect(await unmet("fab00001")).toEqual([]);
     disk.delete("fab00001/mods/private-lib.jar");
+    forgetPteroReads();
     put("fab00001", "private-lib.jar.disabled", fabricMod({ id: "my-private-lib" }));
     expect((await unmet("fab00001")).map((d) => d.name)).toEqual(["my-private-lib"]);
   });

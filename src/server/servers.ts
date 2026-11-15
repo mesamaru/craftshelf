@@ -9,7 +9,7 @@ import { agentServer, localServer, member, memberServer, memberServerLimit, pter
 import { HttpError, requireTeam } from "./guard";
 import { type FetchLike, UnsafeUrlError, checkPublicUrl, isPublicAddress } from "./net";
 import { type Ping, gamePort, ping } from "./mcping";
-import { POWER_SIGNALS, type PowerSignal, PteroError, type Resources, pteroClient } from "./ptero";
+import { POWER_SIGNALS, type PowerSignal, PteroError, type Resources, forgetPteroReadsFor, pteroClient } from "./ptero";
 import { eventService } from "./events";
 import { checkRoot, detectFromJar, localClient } from "./local";
 import { hint, open, seal } from "./secrets";
@@ -206,6 +206,13 @@ export function serverService(deps: Deps) {
       });
       await record({ teamId, userId: user.id, kind: "admin", action: "Pterodactyl パネルを登録", target: name, detail: url });
       return { id, servers };
+    },
+
+    /** 「読み直す」: チームのパネルへの問い合わせの覚え(30 秒など)と、サーバーの状態の覚えを捨てる。次に読むときはパネルに問い合わせる */
+    async forgetReads(headers: Headers) {
+      const { teamId } = await requireTeam(auth, headers);
+      for (const c of await db.select({ url: pteroConnection.url }).from(pteroConnection).where(eq(pteroConnection.teamId, teamId))) forgetPteroReadsFor(c.url);
+      for (const k of statusMemo.keys()) if (k.startsWith(`${teamId}:`)) statusMemo.delete(k);
     },
 
     async listConnections(headers: Headers) {

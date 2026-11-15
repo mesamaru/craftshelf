@@ -26,6 +26,8 @@ const TAG_MAX = 30;
 const TAGS_PER_ITEM = 20;
 // 配布元を中身から探すとき: 1 回に調べる数と、1 つの大きさの上限
 const IDENTIFY_MAX = 100;
+// サーバーの jar の中身のハッシュ(サーバー・場所・大きさ・更新日時ごと。古いものから捨てる)
+const identifyHashes = new Map<string, { sha1: string; fp: number }>();
 const IDENTIFY_BYTES = 100 * 1024 * 1024;
 // 版の一覧(サーバーのアドオンの「入れる」「版を変える」)に出す版の数
 const VERSIONS_LISTED = 100;
@@ -664,11 +666,11 @@ export function modTools(deps: Deps) {
 
   /** サーバーにあるアドオン(サーバーの種類のフォルダの .jar と、ワールドの datapacks の .zip。無効にしたものも) */
   async function addonsIn(target: Target, p: Profile) {
-    const out: { name: string; size: number; dir: string; datapack: boolean }[] = [];
+    const out: { name: string; size: number; dir: string; datapack: boolean; modifiedAt: string }[] = [];
     for (const q of [fileProfile(p, ".jar"), ...(kindsOf(p.platform).includes("datapack") ? [fileProfile(p, ".zip")] : [])]) {
       const dir = await dirOf(target, q);
       for (const f of await remote(() => target.client.listFiles(target.remoteId, dir))) {
-        if (f.isFile && ADDON.test(f.name) && (q.kind ? DATAPACK : JAR).test(f.name)) out.push({ name: f.name, size: f.size, dir, datapack: !!q.kind });
+        if (f.isFile && ADDON.test(f.name) && (q.kind ? DATAPACK : JAR).test(f.name)) out.push({ name: f.name, size: f.size, dir, datapack: !!q.kind, modifiedAt: f.modifiedAt });
       }
     }
     return out;
@@ -684,8 +686,18 @@ export function modTools(deps: Deps) {
     const unknown = (await addonsIn(target, p)).filter((f) => !known.has(f.name) && (!only || f.name === only)).slice(0, IDENTIFY_MAX);
     const hashes: { filename: string; sha1: string; fp: number }[] = [];
     for (const f of unknown) {
-      const data = await remote(() => client.readBytes(remoteId, `${f.dir}/${f.name}`, IDENTIFY_BYTES));
-      hashes.push({ filename: f.name, sha1: createHash("sha1").update(data).digest("hex"), fp: cfFingerprint(data) });
+      // 同じ名前・大きさ・更新日時の jar は、前に読んだハッシュを使う(比較を開くたびに読み直さない)
+      const key = f.modifiedAt ? `${row.id}|${f.dir}/${f.name}|${f.size}|${f.modifiedAt}` : "";
+      let h = key ? identifyHashes.get(key) : undefined;
+      if (!h) {
+        const data = await remote(() => client.readBytes(remoteId, `${f.dir}/${f.name}`, IDENTIFY_BYTES));
+        h = { sha1: createHash("sha1").update(data).digest("hex"), fp: cfFingerprint(data) };
+        if (key) {
+          if (identifyHashes.size >= 5000) identifyHashes.delete(identifyHashes.keys().next().value!);
+          identifyHashes.set(key, h);
+        }
+      }
+      hashes.push({ filename: f.name, ...h });
     }
     const mr = await fromSource(() => modrinth.byHashes(hashes.map((h) => h.sha1)));
     const key = await cfKeyOf(teamId);

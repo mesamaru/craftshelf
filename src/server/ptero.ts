@@ -47,12 +47,75 @@ export async function bodyToFile(res: Response, maxBytes: number, path: string) 
 }
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// 読むだけの問い合わせの覚え(パネルの URL とキーごと)。同じ問い合わせは、同時なら 1 回にまとめ、短い間は使い回す。
+// CraftShelf から書き込んだ(GET 以外を送った)サーバーの分は、すぐ捨てる。パネルで直接変えたものは、長くても ttl だけ遅れて見える。
+// 読んでから書く・利用者が開いて直す・ファイルのタブでたどるときは fresh(覚えを使わない)
+// 上の「読み直す」は、チームのパネルの覚えを捨ててから読む(forgetPteroReadsFor)
+export const READ_TTL = { list: 30_000, file: 30_000, resources: 2_000, servers: 60_000, allocations: 120_000, details: 300_000 } as const;
+// このファイルはビルドで 2 か所に入る(画面の下ごしらえとサーバーの処理)ので、覚えと同時の数はプロセスで 1 つにする
+const G = globalThis as { __csPteroReads?: Map<string, { until: number; p: Promise<unknown> }>; __csPteroGates?: Map<string, { busy: number; queue: (() => void)[] }> };
+const reads = (G.__csPteroReads ??= new Map());
+function remembered<T>(key: string, ttl: number, fresh: boolean | undefined, fn: () => Promise<T>): Promise<T> {
+  const now = Date.now();
+  const hit = reads.get(key);
+  if (!fresh && hit && hit.until > now) return hit.p as Promise<T>;
+  if (reads.size > 5000) for (const [k, v] of reads) if (v.until <= now) reads.delete(k);
+  const p = fn();
+  reads.set(key, { until: now + ttl, p });
+  p.catch(() => { if (reads.get(key)?.p === p) reads.delete(key); }); // 失敗は覚えない
+  return p;
+}
+const forgetReads = (prefix: string) => { for (const k of reads.keys()) if (k.startsWith(prefix)) reads.delete(k); };
+/** 覚えをすべて捨てる(テストで、パネルの中身を外から変えたとき) */
+export const forgetPteroReads = () => reads.clear();
+/** そのパネルの覚えを捨てる(画面の「読み直す」。キーは問わない) */
+export const forgetPteroReadsFor = (baseUrl: string) => forgetReads(`${baseUrl}|`);
+
+// パネルごとの、同時の問い合わせの数(一度にたくさん送って、Pterodactyl の回数の上限に当たらないように)
+const PANEL_PARALLEL = 6;
+const gates = (G.__csPteroGates ??= new Map());
+async function gate(panel: string) {
+  let g = gates.get(panel);
+  if (!g) gates.set(panel, (g = { busy: 0, queue: [] }));
+  const q = g;
+  if (q.busy >= PANEL_PARALLEL) await new Promise<void>((r) => q.queue.push(r)); // 空いた枠を、そのまま受け取る
+  else q.busy++;
+  return () => { const next = q.queue.shift(); if (next) next(); else q.busy--; };
+}
+
 export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
+  const memoKey = `${baseUrl}|${createHash("sha256").update(apiKey).digest("hex").slice(0, 16)}|`;
+  const serverKey = (ident: string) => `${memoKey}${ident}|`;
+  const dirKey = (d: string) => d.replace(/^\/+|\/+$/g, "");
   // body が文字列なら、そのまま送る(ファイルの書き込み)。それ以外は JSON
-  async function req(method: string, path: string, body?: unknown, ok = [200, 201, 204], timeoutMs = 20_000) {
+  async function req(method: string, path: string, body?: unknown, ok = [200, 201, 204], timeoutMs = 20_000): Promise<Response> {
+    const release = await gate(baseUrl);
     let res: Response;
     try {
-      res = await fetch(baseUrl + path, {
+      res = await send(method, path, body, timeoutMs);
+      // 回数の上限: 読むだけなら、言われた時間(10 秒まで)待って 1 回だけやり直す
+      if (res.status === 429 && method === "GET") {
+        const wait = Math.min(10, Math.max(1, Number(res.headers.get("retry-after")) || 2));
+        await res.body?.cancel().catch(() => {});
+        await new Promise((r) => setTimeout(r, wait * 1000));
+        res = await send(method, path, body, timeoutMs);
+      }
+    } finally {
+      release();
+      const m = method !== "GET" && path.match(/^\/api\/client\/servers\/([^/?]+)/);
+      if (m) forgetReads(serverKey(m[1])); // 書き込んだサーバーの覚えを捨てる
+    }
+    if (ok.includes(res.status)) return res;
+    if (res.status >= 300 && res.status < 400) throw new PteroError("URL が転送されました。パネルの正しい URL を入力してください");
+    if (res.status === 401 || res.status === 403) throw new PteroError("API キーが無効か、このサーバーを操作する権限がありません(Client API キー ptlc_… を使ってください)");
+    if (res.status === 404) throw new PteroError("サーバーが見つかりません");
+    if (res.status === 409) throw new PteroError("サーバーが処理中のため操作できません(インストール中・移行中など)");
+    if (res.status === 429) throw new PteroError("Pterodactyl へのリクエストが多すぎます。しばらく待ってからお試しください");
+    throw new PteroError(`Pterodactyl からエラーが返りました(HTTP ${res.status})`);
+  }
+  async function send(method: string, path: string, body: unknown, timeoutMs: number): Promise<Response> {
+    try {
+      return await fetch(baseUrl + path, {
         method,
         headers: {
           Authorization: `Bearer ${apiKey}`,
@@ -69,13 +132,6 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
         : `${new URL(baseUrl).hostname} に接続できません(URL を確認してください)`;
       throw new PteroError(msg);
     }
-    if (ok.includes(res.status)) return res;
-    if (res.status >= 300 && res.status < 400) throw new PteroError("URL が転送されました。パネルの正しい URL を入力してください");
-    if (res.status === 401 || res.status === 403) throw new PteroError("API キーが無効か、このサーバーを操作する権限がありません(Client API キー ptlc_… を使ってください)");
-    if (res.status === 404) throw new PteroError("サーバーが見つかりません");
-    if (res.status === 409) throw new PteroError("サーバーが処理中のため操作できません(インストール中・移行中など)");
-    if (res.status === 429) throw new PteroError("Pterodactyl へのリクエストが多すぎます。しばらく待ってからお試しください");
-    throw new PteroError(`Pterodactyl からエラーが返りました(HTTP ${res.status})`);
   }
 
   const srv = (ident: string) => {
@@ -173,6 +229,7 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
       } catch {
         throw new PteroError("Pterodactyl のノード(Wings)に接続できません");
       }
+      forgetReads(serverKey(ident)); // Wings へ直接送ったので、req では捨てられない
       if (!res.ok) throw new PteroError(`ファイルを送れませんでした(HTTP ${res.status})`);
     },
     // ファイルの中身(jar などのバイナリ)。ダウンロード用の URL を受け取り、Wings から読む
@@ -390,7 +447,17 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
       cancelJob(jobId, jobKey(ident));
     }),
   };
-  return { ...base, ...extract };
+  // 画面に出すために読むもの(覚えを使う)。返すものは呼ぶ側が変えても覚えに響かないよう写す。展開(extract)は、覚えを使わない base を使う
+  const cachedReads = {
+    servers: () => remembered(`${memoKey}servers`, READ_TTL.servers, false, () => base.servers()).then((l) => l.map((x) => ({ ...x }))),
+    resources: (ident: string) => remembered(`${serverKey(ident)}resources`, READ_TTL.resources, false, () => base.resources(ident)).then((r) => ({ ...r })),
+    listFiles: (ident: string, directory: string, fresh?: boolean) =>
+      remembered(`${serverKey(ident)}list|${dirKey(directory)}`, READ_TTL.list, fresh, () => base.listFiles(ident, directory)).then((l) => l.map((x) => ({ ...x }))),
+    readFile: (ident: string, file: string, fresh?: boolean) => remembered(`${serverKey(ident)}file|${dirKey(file)}`, READ_TTL.file, fresh, () => base.readFile(ident, file)),
+    allocations: (ident: string) => remembered(`${serverKey(ident)}allocations`, READ_TTL.allocations, false, () => base.allocations(ident)).then((l) => l.map((x) => ({ ...x }))),
+    details: (ident: string) => remembered(`${serverKey(ident)}details`, READ_TTL.details, false, () => base.details(ident)).then((d) => ({ egg: d.egg, vars: { ...d.vars } })),
+  };
+  return { ...base, ...cachedReads, ...extract };
 }
 
 // ファイル・コマンドなど、フォルダのサーバー・エージェントも同じ形で持つ操作(バックアップは Pterodactyl だけ)

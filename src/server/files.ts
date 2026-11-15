@@ -42,10 +42,10 @@ export function fileService(deps: Deps) {
   async function readText(target: Awaited<ReturnType<typeof serverOf>>, path: string) {
     const name = path.split("/").pop() ?? "";
     const dir = path.split("/").slice(0, -1).join("/");
-    const entry = (await remote(() => target.client.listFiles(target.remoteId, dir || "/"))).find((f) => f.name === name && f.isFile);
+    const entry = (await remote(() => target.client.listFiles(target.remoteId, dir || "/", true))).find((f) => f.name === name && f.isFile);
     if (!entry) throw new HttpError(404, "ファイルが見つかりません");
     if (entry.size > FILE_LIMITS.maxBytes) throw new HttpError(400, `大きすぎるファイル(${Math.ceil(FILE_LIMITS.maxBytes / 1024)} KB まで)は、ここでは開けません`);
-    const text = await remote(() => target.client.readFile(target.remoteId, path));
+    const text = await remote(() => target.client.readFile(target.remoteId, path, true));
     if (text === null) throw new HttpError(404, "ファイルが見つかりません");
     return text;
   }
@@ -82,11 +82,11 @@ export function fileService(deps: Deps) {
       const { teamId } = who;
       const target = await serverOf(deps, who, serverId);
       const n = Math.max(20, Math.min(FILE_LIMITS.logLines, Math.floor(lines) || 400));
-      const entry = (await remote(() => target.client.listFiles(target.remoteId, "logs")).catch(() => [])).find((f) => f.name === "latest.log" && f.isFile);
+      const entry = (await remote(() => target.client.listFiles(target.remoteId, "logs", true)).catch(() => [])).find((f) => f.name === "latest.log" && f.isFile);
       if (!entry) return { file: LOG_FILE, found: false, lines: [] as string[] };
       // 大きすぎるログは取り寄せない(Pterodactyl はファイル全体を返すため)
       if (entry.size > FILE_LIMITS.logBytes) throw new HttpError(400, "ログが大きすぎて読めません(サーバーを再起動すると新しいログになります)");
-      const text = (await remote(() => target.client.readFile(target.remoteId, LOG_FILE))) ?? "";
+      const text = (await remote(() => target.client.readFile(target.remoteId, LOG_FILE, true))) ?? "";
       // eslint-disable-next-line no-control-regex
       const all = text.replace(/\r\n/g, "\n").replace(/\x1b\[[0-9;]*m/g, "").split("\n");
       while (all.length && !all[all.length - 1].trim()) all.pop();
@@ -99,7 +99,7 @@ export function fileService(deps: Deps) {
       const { teamId } = who;
       const target = await serverOf(deps, who, serverId);
       const d = cleanPath(dir);
-      const files = await remote(() => target.client.listFiles(target.remoteId, d || "/"));
+      const files = await remote(() => target.client.listFiles(target.remoteId, d || "/", true));
       return {
         dir: d,
         entries: files.map((f) => ({ name: f.name, isFile: f.isFile, size: f.size, editable: f.isFile && editable(f.name) && f.size <= FILE_LIMITS.maxBytes }))

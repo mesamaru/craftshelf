@@ -6,6 +6,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { jarMeta } from "~/server/jar";
 import { libraryService } from "~/server/library";
 import type { FetchLike } from "~/server/net";
+import { forgetPteroReads } from "~/server/ptero";
 import { serverService } from "~/server/servers";
 import { setup } from "./helpers";
 import { makeZip } from "./zip";
@@ -74,6 +75,7 @@ describe("手で置いた jar", () => {
     let d = await lib.serverDeps(owner, id);
     expect(d.unmet).toEqual([{ name: "Vault", by: ["ShopPlugin"] }]);
     disk.set("plugins/Vault-1.7.jar", yml("name: Vault\nversion: 1.7\nmain: v.V\n"));
+    forgetPteroReads(); // パネルで直接置いたもの: 覚え(10 秒)を捨てて、すぐ見る
     d = await lib.serverDeps(owner, id);
     expect(d.unmet).toEqual([]);
   });

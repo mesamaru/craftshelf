@@ -77,7 +77,7 @@ export function modpackService(deps: Deps) {
     }
     let written = 0;
     for (const [rel, text] of [...files].slice(0, OVERRIDES_MAX)) {
-      const before = await remote(() => target.client.readFile(target.remoteId, rel)).catch(() => null);
+      const before = await remote(() => target.client.readFile(target.remoteId, rel, true)).catch(() => null);
       if (before === text) continue;
       await remote(() => target.client.writeFile(target.remoteId, rel, text));
       if (before !== null) await db.insert(serverFileHistory).values({ id: randomUUID(), serverId: target.row.id, path: rel, content: before, savedBy: userId });

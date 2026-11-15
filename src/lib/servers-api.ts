@@ -22,6 +22,9 @@ export const sharedServers = () => shared("servers", () => listServers(), 3000);
 /** フォルダのサーバーを使えるか(このプロセスでは変わらないので、枠と各画面で 1 回だけ読む) */
 export const sharedLocalEnabled = () => shared("local-enabled", () => localEnabled(), 300_000);
 
+/** 「読み直す」: パネルへの問い合わせの覚えを捨てる(src/server/ptero.ts の READ_TTL) */
+export const forgetServerReads = createServerFn({ method: "POST" }).handler(async () => (await svc()).forgetReads(headers()));
+
 export const listConnections = createServerFn({ method: "GET" }).handler(async () => (await svc()).listConnections(headers()));
 
 export const serverStatus = createServerFn({ method: "GET" })

@@ -223,6 +223,18 @@ export function portService(deps: Deps) {
       return overviewOf(who);
     },
 
+    /** Pterodactyl のサーバーに割り当てを 1 つ足す(番号はパネルが決める。パネルが自動の割り当てを許しているときだけ) */
+    async addAllocation(headers: Headers, serverId: string) {
+      const who = await requireTeam(auth, headers, { server: ["update"] });
+      const { teamId, user } = who;
+      await serverInTeam(who, serverId);
+      const { row, client, remoteId } = await serverOf(deps, who, serverId);
+      if (row.kind !== "ptero") throw new HttpError(400, "割り当ては Pterodactyl のサーバーだけにあります");
+      const a = await remote(() => (client as unknown as { addAllocation: (id: string) => Promise<{ port: number }> }).addAllocation(remoteId));
+      await record({ teamId, userId: user.id, kind: "admin", action: "Pterodactyl の割り当てを足す", target: row.name, detail: String(a.port) });
+      return { port: a.port, ...(await overviewOf(who)) };
+    },
+
     /** サーバーのグループとメモ */
     async setServerInfo(headers: Headers, serverId: string, input: { groupId: string | null; memo: string }) {
       const who = await requireTeam(auth, headers, { server: ["update"] });

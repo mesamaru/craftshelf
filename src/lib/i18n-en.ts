@@ -1,9 +1,14 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "パネルから割り当ての番号を受け取れませんでした": "Could not get the allocation number from the panel",
+  "パネルが割り当てを足しませんでした(パネルの設定で自動の割り当てが許されていないか、このサーバーの割り当ての数が上限です。パネルの管理者に「ネットワーク」で足してもらってください)": "The panel did not add an allocation (automatic allocation is disabled in the panel, or this server has reached its allocation limit. Ask the panel admin to add one under Network).",
+  "割り当ては Pterodactyl のサーバーだけにあります": "Only Pterodactyl servers have allocations",
+  "パネルの設定で自動の割り当てが許されているときだけ足せます。番号はパネルが決めます(上限もパネルの設定のとおり)。": "Only works when the panel allows automatic allocation. The panel picks the number (and enforces its limit).",
+  "＋ 割り当てを足す": "+ Add allocation",
+  "空いている割り当てが足りません。下の「＋ 割り当てを足す」か、パネルの「ネットワーク」で足してください": "Not enough free allocations. Use “+ Add allocation” below or add them in the panel’s Network tab.",
   "Pterodactyl のサーバーは、開くたびに割り当て(ネットワーク)を読みます。コンテナの外から届くのは割り当ての番号だけなので、設定ファイルの番号が割り当てに無ければ「割り当て外」として出し、空いている割り当てに変えられます。": "For Pterodactyl servers, allocations (Network) are read every time you open this page. Only allocated numbers are reachable from outside the container, so a config port that is not allocated is shown as “not allocated” and can be moved to a free allocation.",
   "割り当てに合わせる": "Match allocations",
-  "空いている割り当てが足りません。パネルの「ネットワーク」で割り当てを足してください": "Not enough free allocations. Add allocations in the panel’s Network tab.",
   "空いている割り当てに振り直します(保存すると設定ファイルを書き換えます)": "Reassigns them to free allocations (saving rewrites the config files)",
   "(既定)": " (default)",
   "空き": "Free",
@@ -1973,6 +1978,7 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^割り当て (\d+) を足しました$/, "Added allocation $1"],
   [/^重複・範囲外・割り当て外 (\d+) 件$/, "Duplicates, out of range, not allocated: $1"],
   [/^まとめて直す\((\d+) 件\)$/, "Fix all ($1)"],
   [/^割り当てに無い番号が (\d+) 個あります$/, "$1 ports are not allocated"],

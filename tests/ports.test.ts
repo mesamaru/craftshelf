@@ -42,6 +42,14 @@ const fake: FetchLike = async (url, init) => {
   const m = u.pathname.match(/^\/api\/client\/servers\/(\w+)\/(.+)$/);
   if (!m || !disk[m[1]]) return json({}, 404);
   const files = disk[m[1]];
+  // 割り当てを足す: 1 台 3 つまで(それを超えるとパネルは 400)
+  if (m[2] === "network/allocations" && init?.method === "POST") {
+    const list = allocations[m[1]];
+    if (list.length >= 3) return json({ errors: [{ code: "DisplayException" }] }, 400);
+    const a = { port: 25600 + list.length, notes: "", is_default: false };
+    list.push(a);
+    return json({ attributes: { ip: "0.0.0.0", ip_alias: null, ...a } });
+  }
   if (m[2] === "network/allocations") return json({ data: allocations[m[1]].map((a) => ({ attributes: { ip: "0.0.0.0", ip_alias: null, ...a } })) });
   if (m[2] === "files/contents") { const f = u.searchParams.get("file")!; return f in files ? new Response(files[f]) : json({}, 404); }
   if (m[2] === "files/write") { const f = u.searchParams.get("file")!; files[f] = String(init?.body); writes.push(`${m[1]}:${f}`); return new Response(null, { status: 204 }); }
@@ -216,6 +224,21 @@ describe("ポート管理(サーバーから読み取る)", () => {
     expect(o.problems.map((p) => `${p.type}:${p.port}`)).toContain("out:20512"); // 20 番台は 20520–20529
     expect(await code(ports.saveRules(owner, { kinds: [{ name: "x", mode: "fixed", rangeFrom: 9, rangeTo: 1, proto: "TCP", file: "", key: "" }], groups: [] }))).toBe(400);
     expect(await code(ports.saveRules(owner, { kinds: [{ name: "x", mode: "free", proto: "TCP", file: "../etc/passwd", key: "a" }], groups: [] }))).toBe(400);
+  });
+
+  it("割り当てを足せる(番号はパネルが決める)。上限ならパネルの理由を伝える。閲覧者は足せない", async () => {
+    let o = await ports.overview(owner);
+    const build = o.servers.find((s) => s.name === "22-建築")!;
+    const before = build.alloc!.length;
+    expect(await code(ports.addAllocation(viewer, build.id))).toBe(403);
+    const r = await ports.addAllocation(owner, build.id);
+    expect(r.port).toBe(25600 + before);
+    expect(r.servers.find((s) => s.id === build.id)!.alloc!.map((a) => a.port)).toContain(r.port); // 足したあとの割り当てを読み直している
+    const e = await ports.addAllocation(owner, build.id).then(() => null, (x) => x);
+    expect(e).toBeInstanceOf(HttpError);
+    expect(e.message).toMatch(/自動の割り当てが許されていないか/);
+    o = await ports.overview(owner);
+    expect(o.servers.find((s) => s.id === build.id)!.alloc).toHaveLength(3);
   });
 
   it("権限とチーム", async () => {

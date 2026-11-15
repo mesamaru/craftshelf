@@ -45,6 +45,9 @@ export async function bodyToFile(res: Response, maxBytes: number, path: string) 
     throw e instanceof PteroError ? e : new PteroError("ファイルを取ってこられませんでした(途中で切れました)");
   }
 }
+const allocationOf = (a: Record<string, unknown>): Allocation => ({
+  ip: String(a.ip ?? ""), alias: String(a.ip_alias ?? ""), port: Number(a.port ?? 0), notes: String(a.notes ?? ""), isDefault: !!a.is_default,
+});
 export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // 読むだけの問い合わせの覚え(パネルの URL とキーごと)。同じ問い合わせは、同時なら 1 回にまとめ、短い間は使い回す。
@@ -192,9 +195,22 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
     // サーバーに割り当てられたポート(Pterodactyl の割り当て。is_default がゲームのポート)
     async allocations(ident: string): Promise<Allocation[]> {
       const d = await (await req("GET", srv(ident) + "/network/allocations")).json();
-      return (d?.data ?? []).map((x: { attributes?: Record<string, unknown> }) => x.attributes ?? {}).map((a: Record<string, unknown>) => ({
-        ip: String(a.ip ?? ""), alias: String(a.ip_alias ?? ""), port: Number(a.port ?? 0), notes: String(a.notes ?? ""), isDefault: !!a.is_default,
-      })).filter((a: Allocation) => Number.isInteger(a.port) && a.port > 0);
+      return (d?.data ?? []).map((x: { attributes?: Record<string, unknown> }) => allocationOf(x.attributes ?? {})).filter((a: Allocation) => Number.isInteger(a.port) && a.port > 0);
+    },
+    // 割り当てを 1 つ足す(番号はパネルが決める)。パネルの設定で自動の割り当てが許され、サーバーの割り当ての上限に余裕があるときだけ
+    async addAllocation(ident: string): Promise<Allocation> {
+      let a: Allocation;
+      try {
+        const res = await req("POST", srv(ident) + "/network/allocations");
+        a = allocationOf((await res.json().catch(() => null))?.attributes ?? {}); // 中身が読めなければ、下で「受け取れませんでした」
+      } catch (e) {
+        if (e instanceof PteroError && /HTTP 4(00|22)/.test(e.message)) {
+          throw new PteroError("パネルが割り当てを足しませんでした(パネルの設定で自動の割り当てが許されていないか、このサーバーの割り当ての数が上限です。パネルの管理者に「ネットワーク」で足してもらってください)");
+        }
+        throw e;
+      }
+      if (!Number.isInteger(a.port) || a.port <= 0) throw new PteroError("パネルから割り当ての番号を受け取れませんでした");
+      return a;
     },
     // egg の名前と起動の変数(MINECRAFT_VERSION・SERVER_JARFILE など)。サーバーの種類を推し量るのに使う
     async details(ident: string): Promise<{ egg: string; vars: Record<string, string> }> {
@@ -461,5 +477,5 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
 }
 
 // ファイル・コマンドなど、フォルダのサーバー・エージェントも同じ形で持つ操作(バックアップは Pterodactyl だけ)
-export type PteroClient = Omit<ReturnType<typeof pteroClient>, "backups" | "details">;
+export type PteroClient = Omit<ReturnType<typeof pteroClient>, "backups" | "details" | "addAllocation">;
 export type PteroBackups = ReturnType<typeof pteroClient>["backups"];

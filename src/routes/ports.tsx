@@ -4,7 +4,7 @@ import { useServerFn } from "@tanstack/react-start";
 import { Btn, Chip, ChipBar, Info, Seg, Sheet } from "~/lib/ui";
 import { confirmDialog } from "~/lib/dialog-queue";
 import { type Group, type Kind, type Port, counted, freeAllocs, freePorts, isPort, outsideAlloc, rangeOf } from "~/lib/ports";
-import { adoptFoundPort, portOverview, savePortRules, saveServerPorts, scanPorts, setServerPortInfo } from "~/lib/ports-api";
+import { adoptFoundPort, portOverview, savePortRules, saveServerPorts, scanPorts, setServerPortInfo, addPortAllocation } from "~/lib/ports-api";
 import { useCan } from "~/lib/use-can";
 import { Bell } from "~/lib/bell";
 import { pageTitle } from "~/lib/titles";
@@ -223,6 +223,21 @@ function ServerPanel({ data, server, focus, addKind, edit, onClose, onSaved }:
   const save = useServerFn(saveServerPorts);
   const setInfo = useServerFn(setServerPortInfo);
   const scan = useServerFn(scanPorts);
+  const addAlloc = useServerFn(addPortAllocation);
+  // 割り当てを足す(パネルが番号を決める)。下書きはそのまま残す
+  const moreAlloc = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      const r = await addAlloc({ data: { serverId: server.id } });
+      onSaved(r);
+      setDone(`割り当て ${r.port} を足しました`);
+    } catch (x) {
+      setError(message(x));
+    } finally {
+      setBusy(false);
+    }
+  };
   const [rows, setRows] = useState<Draft[]>(() => {
     // 割り当ての行のうち、設定ファイル・手入力が同じ番号を使っているものは出さない(上の割り当ての一覧に出る)
     const shown = new Set(counted(server));
@@ -339,9 +354,14 @@ function ServerPanel({ data, server, focus, addKind, edit, onClose, onSaved }:
             })}
             {edit && outside.length > 0 && (
               <div className="row">
-                <span className="main"><span>{`割り当てに無い番号が ${outside.length} 個あります`}</span><span className="muted">{assignable ? "空いている割り当てに振り直します(保存すると設定ファイルを書き換えます)" : "空いている割り当てが足りません。パネルの「ネットワーク」で割り当てを足してください"}</span></span>
+                <span className="main"><span>{`割り当てに無い番号が ${outside.length} 個あります`}</span><span className="muted">{assignable ? "空いている割り当てに振り直します(保存すると設定ファイルを書き換えます)" : "空いている割り当てが足りません。下の「＋ 割り当てを足す」か、パネルの「ネットワーク」で足してください"}</span></span>
                 <button className="btn tint sm" type="button" disabled={!assignable} onClick={fitAlloc}>割り当てに合わせる</button>
               </div>
+            )}
+            {edit && (
+              <button className="row link" type="button" disabled={busy} onClick={moreAlloc}>
+                ＋ 割り当てを足す<Info>パネルの設定で自動の割り当てが許されているときだけ足せます。番号はパネルが決めます(上限もパネルの設定のとおり)。</Info>
+              </button>
             )}
           </section>
         </>

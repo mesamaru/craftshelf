@@ -22,6 +22,11 @@ export const savePortRules = createServerFn({ method: "POST" })
   }))
   .handler(async ({ data }) => (await svc()).saveRules(headers(), data));
 
+/** Pterodactyl のサーバーに割り当てを 1 つ足す(番号はパネルが決める) */
+export const addPortAllocation = createServerFn({ method: "POST" })
+  .validator(z.object({ serverId: sid }))
+  .handler(async ({ data }) => (await svc()).addAllocation(headers(), data.serverId));
+
 export const setServerPortInfo = createServerFn({ method: "POST" })
   .validator(z.object({ serverId: sid, groupId: sid.nullable(), memo: z.string().max(200) }))
   .handler(async ({ data }) => (await svc()).setServerInfo(headers(), data.serverId, data));

@@ -197,7 +197,7 @@ function ServerRow({ server, st, old, checked, on }: { server: Server; st: Statu
             : STATE_LABELS[s.state] ?? "状態がわかりません"}
         </span>
       </span>
-      {old > 0 ? <span className="badge upd" title={`アドオン: 更新 ${old} 件`}>{`更新 ${old}`}</span> : checked && server.platform ? <span className="badge ok" title="アドオン: 最新(サーバー本体の新しいビルドは、サーバーの画面で確かめます)">最新</span> : null}
+      {old > 0 ? <span className="badge upd" title={`アドオン: 更新 ${old} 件`}>{`更新 ${old}`}</span> : checked && server.platform ? <span className="badge ok" title="アドオンはすべて最新(サーバー本体の新しいビルド・前提が足りないかは、サーバーの画面で確かめます)">アドオン最新</span> : null}
       <span className="chev" aria-hidden="true">›</span>
     </Link>
   );

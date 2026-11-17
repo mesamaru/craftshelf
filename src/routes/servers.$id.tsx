@@ -142,6 +142,7 @@ function Power({ server, state, onPower, onSetup }: { server: { id: string; name
   const [error, setError] = useState("");
   const send = async (signal: "start" | "stop" | "restart") => {
     if (signal === "stop" && !(await confirmDialog({ message: `${server.name} を停止しますか?`, ok: "停止", danger: true }))) return;
+    if (signal === "restart" && !(await confirmDialog({ message: `${server.name} を再起動しますか?(遊んでいる人は一度切れます)`, ok: "再起動", danger: true }))) return;
     setBusy(true);
     setError("");
     try {

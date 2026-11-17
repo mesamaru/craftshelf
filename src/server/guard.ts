@@ -58,7 +58,7 @@ async function fromApiKey(auth: Auth, key: string) {
     throw new HttpError(401, "API トークンが正しくないか、期限が切れています");
   }
   const meta = (typeof r.key.metadata === "string" ? JSON.parse(r.key.metadata) : r.key.metadata ?? {}) as KeyMeta;
-  if (!meta.teamId) throw new HttpError(401, "この API トークンは使えません(CraftShelf の「アカウント」で作り直してください)");
+  if (!meta.teamId) throw new HttpError(401, "この API トークンは使えません(CraftShelf の「設定」の「API トークン」で作り直してください)");
   const ctx = await auth.$context;
   const user = await ctx.internalAdapter.findUserById(r.key.referenceId);
   const member = await ctx.adapter.findOne<{ role: string }>({

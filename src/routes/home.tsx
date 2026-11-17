@@ -99,7 +99,7 @@ function Home() {
       <div className="tiles">
         <Tile to="/" icon="library" k="登録しているもの" v={<>{items.length}<small>件</small></>} s={`${files} ファイル`} />
         <Tile to={admin && cat.storage ? "/storage" : "/"} icon="disk" k="使っている容量" v={fmtSize(size)} s={cat.storage ? cat.storage.name || "ローカル" : ""} />
-        <Tile to="/" search={{ f: "upd" }} icon="reload" k="更新があるもの" warn={upd.length > 0} v={<>{old ? upd.length : "—"}<small>件</small></>} s={`${linked.length} 件を確認対象にしています`} />
+        <Tile to="/" search={{ f: "upd" }} icon="reload" k="更新があるもの" warn={upd.length > 0} v={<>{old ? upd.length : "—"}<small>件</small></>} s={linked.length ? `配布元がわかる ${linked.length} 件を確かめます` : "配布元がわかるものがありません"} />
         <Tile to="/" icon="link" k="配布元の連携" v={<>{pct}<small>%</small></>} s={`${linked.length} / ${items.length} 件`} />
       </div>
     ),
@@ -108,9 +108,9 @@ function Home() {
         <div className="card-h"><h4>更新があるもの</h4></div>
         <div className="card-b">
           {upd.length > 0 ? <div className="group flat">{upd.slice(0, SHOW).map((i) => itemRow(i, <span className="badge upd">{`${old!.get(i.id)!.length} 台`}</span>))}</div>
-            : <p className="dash-empty">{!old ? "確かめると、ここに更新が出ます" : linked.length ? "すべて最新です" : "配布元のあるものを足すと、ここに更新が出ます"}</p>}
+            : <p className="dash-empty">{!linked.length ? "配布元のあるものを足すと、ここに更新が出ます" : !old ? "確かめると、ここに更新が出ます" : "すべて最新です"}</p>}
           {upd.length > SHOW && <Link to="/" search={{ f: "upd" }} className="kv linkish"><span>もっと見る</span><span>{`残り ${upd.length - SHOW} 件 ›`}</span></Link>}
-          <div className="chips"><Btn kind="tint" sm disabled={checking} onClick={check}><Icon name="reload" />{checking ? "確かめています…" : "今すぐ確認"}</Btn></div>
+          {linked.length > 0 && <div className="chips"><Btn kind="tint" sm disabled={checking} onClick={check}><Icon name="reload" />{checking ? "確かめています…" : "いま確かめる"}</Btn></div>}
         </div>
       </section>
     ),

@@ -1,6 +1,13 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "配布元がわかるものがありません": "No items with a known source",
+  "すべて済みました。": "All done.",
+  "ライブラリにもう一度出す": "Show in the library again",
+  "「設定」の「パネルのアップデート」から入れ替えられます": "You can switch versions under Settings → Panel updates",
+  "いま確かめる": "Check now",
+  "アドオンはすべて最新(サーバー本体の新しいビルド・前提が足りないかは、サーバーの画面で確かめます)": "All add-ons are up to date (check new server builds and missing dependencies on the server page)",
+  "アドオン最新": "Add-ons up to date",
   "安定版のチャンネル": "Stable channel",
   "開発版のチャンネル": "Development channel",
   "パネルの自動更新をやめる": "Turn off automatic panel updates",
@@ -399,8 +406,8 @@ export const EN: Record<string, string> = {
   "配布元を付け替える(別のプロジェクトのページの URL)": "Relink to another project (its page URL)",
   "配布元を付け替えますか?(サーバーに入っているものは、次の更新で新しいプロジェクトの版に入れ替わります)": "Relink the source? (Installed copies are replaced with the new project's version on the next update)",
   "受け取る版のチームの既定": "Team default for versions to receive",
-  "更新・サーバーに入れるときに、どの版を選ぶかです。「正式版だけ」でも、正式版が 1 つも無いものはベータ版を使います。アイテムごとに「詳しく」→「情報を直す」で変えられます。":
-    "Which versions are picked when updating or installing. Even with “Releases only”, betas are used for projects with no release at all. Change it per item under “Details” → “Edit info”.",
+  "更新・サーバーに入れるときに、どの版を選ぶかです。「正式版だけ」でも、正式版が 1 つも無いものはベータ版を使います。アイテムごとに、アイテムを開いて ✎(情報を直す)で変えられます。":
+    "Which versions are picked when updating or installing. Even with “Releases only”, betas are used for projects with no release at all. Change it per item by opening the item and pressing ✎ (Edit info).",
   "ページの URL(Modrinth・SpigotMC・CurseForge)": "Page URL (Modrinth, SpigotMC, CurseForge)",
   "配布元のページの URL": "Source page URL",
   "URL から足す": "Add from URL",
@@ -945,7 +952,7 @@ export const EN: Record<string, string> = {
   "ここで直せるのは、テキストの設定ファイルだけです": "Only text config files can be edited here",
   "ここで開けるのは、テキストの設定ファイルだけです": "Only text config files can be opened here",
   "この API トークンの持ち主は、もうチームにいません": "The owner of this API token is no longer in the team",
-  "この API トークンは使えません(CraftShelf の「アカウント」で作り直してください)": "This API token cannot be used (create a new one under “Account” in CraftShelf)",
+  "この API トークンは使えません(CraftShelf の「設定」の「API トークン」で作り直してください)": "This API token cannot be used (create a new one under Settings → API tokens in CraftShelf)",
   "このアプリで入れたものではありません": "Not installed by this app",
   "このキーで操作できるサーバーがありません。": "This key cannot operate any servers.",
   "このサーバーにはセットを結び付けていません": "No set is linked to this server",
@@ -1518,7 +1525,7 @@ export const EN: Record<string, string> = {
   "本人が端末をなくしたときに使います。外すと、その人のいまのログインもすべて切れます。操作は記録に残ります。オーナーの設定は変えられません。":
     "Use this when a member has lost their device. It also signs them out everywhere. The action is recorded. The owner's settings cannot be changed.",
   "サービス版では、本人が予備のコードかパスワードの再設定で設定し直してください": "In the hosted version, members reset this themselves with a backup code or password reset",
-  "自分の設定は「アカウント」で変えてください": "Change your own settings under “Account”",
+  "自分の設定は「設定」の「プロフィール」で変えてください": "Change your own settings under Settings → Profile",
   "オーナーの設定は変えられません": "The owner's settings cannot be changed",
   // 03.55.00: アップロード(複数・フォルダ・ドラッグ&ドロップ)
   "jar のファイルが見つかりませんでした": "No jar files were found",
@@ -1724,7 +1731,7 @@ export const EN: Record<string, string> = {
   "zip でダウンロード(保存した版から)": "Download as zip (from saved versions)",
   "チームで使う Mod・プラグインの一覧です。Modrinth・SpigotMC のものは、サーバーが配布元から直接取り込みます(アップロードしたもの・保存した版は、保存先から送ります)。入れる版は、サーバーの種類とバージョンに合うものを選びます(Paper のサーバーには Paper 向けの作りを優先)。":
     "The mods and plugins your team uses. Servers pull Modrinth and SpigotMC files directly from the source (uploads and saved versions are sent from storage). The version installed is the one that fits the server type and version (Paper builds are preferred on Paper servers).",
-  "まだありません。ライブラリのアップロードしたものの「版を見る」・「保存した版」か、選んだものから作れます。": "None yet. Create one from “Versions” of an upload or “Saved versions” in the library, or from selected items.",
+  "まだありません。ライブラリでアイテムを開いて「共有リンクを作る」を押すか、一覧で選んだものから作れます(アップロード・保存した版のあるものだけ)。": "None yet. Open an item in the library and press “Create share link”, or create one from selected items (only items with an upload or a saved version).",
   "保存した版のあるものがありません(「保存する」にするか、版の一覧から保存してください)": "Nothing has saved versions (turn on “Save” or save from the version list)",
   "まとめると大きすぎます(3.5 GB まで)。分けてダウンロードしてください": "Too large as one zip (up to 3.5 GB). Download in parts",
   "配布元のファイルの保存は、自分用の版だけで使えます": "Saving files from sources is available only in the self-hosted edition",
@@ -1998,6 +2005,8 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^配布元がわかる (\d+) 件を確かめます$/, "Checks $1 items with a known source"],
+  [/^(.+) を再起動しますか[?？]\(遊んでいる人は一度切れます\)$/, "Restart $1? (Players will be disconnected)"],
   [/^(安定版|開発版) · (.*)$/, (_, c, d) => `${c === "安定版" ? "Stable" : "Development"} · ${d}`],
   [/^ほかに (\d+) 個の版の変更も入ります$/, "Also includes changes from $1 more versions"],
   [/^いまの版 v([\d.]+) · (.+) に確かめました$/, "Current version v$1 · checked $2"],

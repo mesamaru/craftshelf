@@ -30,7 +30,7 @@ function Shares() {
     <SettingsFrame at="shares" info={<><span>リンクの URL は作ったときにしか表示しません(このアプリには、URL の鍵のハッシュだけを残します)。期限が切れたリンク・回数を使い切ったリンク・止めたリンクは使えません。</span></>}>
       <section className="group">
         {!rows && !error && <div className="row muted">読み込んでいます…</div>}
-        {rows?.length === 0 && <div className="row muted">まだありません。ライブラリのアップロードしたものの「版を見る」・「保存した版」か、選んだものから作れます。</div>}
+        {rows?.length === 0 && <div className="row muted">まだありません。ライブラリでアイテムを開いて「共有リンクを作る」を押すか、一覧で選んだものから作れます(アップロード・保存した版のあるものだけ)。</div>}
         {rows?.map((s) => (
           <div className="row" key={s.id}>
             <span className="main">

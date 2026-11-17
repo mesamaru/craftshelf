@@ -103,7 +103,7 @@ export function teamService(deps: Deps) {
       const { teamId, user, apiKey } = await requireTeam(auth, headers, { member: ["update"] });
       if (apiKey) throw new HttpError(403, "この操作は、ログインしてから行ってください");
       if (!deps.local) throw new HttpError(400, "サービス版では、本人が予備のコードかパスワードの再設定で設定し直してください");
-      if (userId === user.id) throw new HttpError(400, "自分の設定は「アカウント」で変えてください");
+      if (userId === user.id) throw new HttpError(400, "自分の設定は「設定」の「プロフィール」で変えてください");
       const role = await roleOf(teamId, userId);
       if (role === null) throw new HttpError(404, "メンバーが見つかりません");
       if (isOwner(role)) throw new HttpError(403, "オーナーの設定は変えられません");

@@ -1,18 +1,17 @@
 import { type ReactNode, useEffect, useState } from "react";
-import { Link, createFileRoute, redirect } from "@tanstack/react-router";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 import { authClient } from "~/lib/auth-client";
 import { errorText } from "~/lib/errors";
 import { filesAccess, setEditorFiles } from "~/lib/files-api";
 import { curseforgeKey, libraryCatalog, setCurseforgeKey, setLibraryChannel } from "~/lib/library-api";
-import { listSets } from "~/lib/sets-api";
-import { OPEN_ADD } from "~/lib/shell";
 import { CHANNELS, type Channel } from "~/lib/sources";
 import { Btn, Info } from "~/lib/ui";
 import { SettingsFrame } from "~/lib/settings-frame";
 import { useCan } from "~/lib/use-can";
 import { useServerFn } from "@tanstack/react-start";
 import { ASSIGNABLE_ROLES, GRANTS, GRANT_LABELS, type Grant, type RoleName, roleLabel } from "~/lib/permissions";
-import { serverAssignments, setServerAssignment } from "~/lib/servers-api";
+import { serverAssignments, setServerAssignment, sharedLocalEnabled } from "~/lib/servers-api";
+import { SetupCard } from "~/lib/setup-card";
 import { settingsTitle } from "~/lib/titles";
 import { deleteTeam, memberGrants, resetSignIn, setMemberGrants, transferOwner } from "~/lib/teams-api";
 import { confirmDialog } from "~/lib/dialog-queue";
@@ -33,7 +32,7 @@ type Section = (typeof SECTIONS)[number];
 const INFO: Partial<Record<Section, ReactNode>> = {
   perms: <><span>役割(閲覧者・編集者・管理者)の権限に、メンバーごとに足したり引いたりできます。たとえば「編集者だけど設定ファイルも直せる」「閲覧者だけどサーバーの電源は操作できる」「編集者だけどライブラリは変えられない」のようにできます。</span><span>メンバーの招待・役割の変更・チームの設定・利用状況・パネルのバックアップは、役割(管理者以上)だけで決まります。オーナーの権限は減らせません。API トークンも、作った人の今の権限の分だけ使えます。</span></>,
   curseforge: <span>設定すると、サーバーの画面とライブラリで CurseForge からも探して入れられます。作者が外部からのダウンロードを許していないものは入れられません。キーは暗号化して保存し、画面には最後の 4 文字だけを出します。</span>,
-  channel: <span>更新・サーバーに入れるときに、どの版を選ぶかです。「正式版だけ」でも、正式版が 1 つも無いものはベータ版を使います。アイテムごとに「詳しく」→「情報を直す」で変えられます。</span>,
+  channel: <span>更新・サーバーに入れるときに、どの版を選ぶかです。「正式版だけ」でも、正式版が 1 つも無いものはベータ版を使います。アイテムごとに、アイテムを開いて ✎(情報を直す)で変えられます。</span>,
 };
 
 // チーム(メンバー・招待・役割・チームの切り替え・権限・連携)
@@ -86,7 +85,7 @@ function Team() {
         <Assignments key={`a${team.members.map((m) => m.role).join()}`} />
       </>}
       {at === "curseforge" && app.mode === "self" && can({ integrations: ["manage"] }) && <CurseForgeKey />}
-      {team && (at === "setup" || at === "channel") && admin && <LibrarySetup key={team.id} members={team.members.length} part={at} />}
+      {team && (at === "setup" || at === "channel") && admin && <LibrarySetup key={team.id} part={at} />}
     </SettingsFrame>
   );
 }
@@ -524,41 +523,15 @@ function SignInHelp({ members }: { members: { userId: string; name: string }[] }
   );
 }
 
-// はじめての設定と受け取る版(管理者以上。03.65.00 まではライブラリの画面にあった)
-function LibrarySetup({ members, part }: { members: number; part: "setup" | "channel" }) {
+// はじめの設定(ライブラリの上と同じもの)と受け取る版(管理者以上)
+function LibrarySetup({ part }: { part: "setup" | "channel" }) {
   const load = useServerFn(libraryCatalog);
   const [cat, setCat] = useState<Awaited<ReturnType<typeof libraryCatalog>> | null>(null);
+  const [local, setLocal] = useState(false);
   const reload = () => { load().then(setCat, () => setCat(null)); };
-  useEffect(reload, []);
+  useEffect(() => { reload(); sharedLocalEnabled().then(setLocal, () => setLocal(false)); }, []);
   if (!cat) return null;
-  return part === "setup" ? <Guide cat={cat} members={members} /> : <TeamChannel value={cat.channel} onDone={reload} />;
-}
-
-// はじめての設定(済んだものに ✓)
-function Guide({ cat, members }: { cat: Awaited<ReturnType<typeof libraryCatalog>>; members: number }) {
-  const sets = useServerFn(listSets);
-  const [setCount, setSetCount] = useState<number | null>(null);
-  useEffect(() => { sets().then((s) => setSetCount(s.length), () => setSetCount(0)); }, []);
-  const steps = [
-    { done: cat.servers.length > 0, label: "サーバーをつなぐ(Pterodactyl パネル・フォルダ)", to: "/servers" as const },
-    { done: cat.servers.length > 0 && cat.servers.every((s) => s.type), label: "サーバーの種類(Paper・Fabric など)を選ぶ", to: "/servers" as const },
-    { done: cat.items.length > 0, label: "ライブラリに Mod・プラグインを足す", to: null, add: true },
-    { done: (setCount ?? 0) > 0, label: "セットを作って、まとめて入れる", to: "/sets" as const },
-    { done: members > 1, label: "チームの人を招待する", to: "/team" as const },
-  ];
-  if (setCount === null) return null;
-  return (
-    <section className="group">
-      {steps.map((s) => (
-        <div className="row" key={s.label}>
-          <span className={s.done ? "badge ok" : "badge upd"}>{s.done ? "済み" : "まだ"}</span>
-          <span className="mid"><span className={s.done ? "sub" : "ttl"}>{s.label}</span></span>
-          {!s.done && s.to && <Link to={s.to} className="btn tint sm">開く</Link>}
-          {!s.done && "add" in s && <Btn kind="tint" sm onClick={() => window.dispatchEvent(new Event(OPEN_ADD))}>開く</Btn>}
-        </div>
-      ))}
-    </section>
-  );
+  return part === "setup" ? <SetupCard cat={cat} local={local} pinned /> : <TeamChannel value={cat.channel} onDone={reload} />;
 }
 
 // 受け取る版のチームの既定

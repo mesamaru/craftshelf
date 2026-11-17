@@ -147,7 +147,7 @@ export function eventService(deps: Deps) {
       for (const { id } of await db.select({ id: organization.id }).from(organization)) {
         const [done] = await db.select({ id: auditLog.id }).from(auditLog)
           .where(and(eq(auditLog.teamId, id), eq(auditLog.kind, "panel"), eq(auditLog.target, target))).limit(1);
-        if (!done) await record({ teamId: id, userId: null, kind: "panel", action: "パネルの新しい版があります", target, detail: "「アカウント」の「パネルのバージョン」から入れ替えられます" });
+        if (!done) await record({ teamId: id, userId: null, kind: "panel", action: "パネルの新しい版があります", target, detail: "「設定」の「パネルのアップデート」から入れ替えられます" });
       }
     },
 

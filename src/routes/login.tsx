@@ -95,7 +95,7 @@ function Login() {
             <button className="btn pri" disabled={busy}>ログイン</button>
           </form>
           <button className="btn sec" type="button" onClick={withPasskey} disabled={busy}>パスキーでログイン</button>
-          {app.mail && <p className="foot"><Link to="/forgot">パスワードを忘れたとき</Link></p>}
+          {app.mail ? <p className="foot"><Link to="/forgot">パスワードを忘れたとき</Link></p> : <p className="foot muted small">パスワードを忘れたときは、チームのオーナー・管理者に頼んでください(設定の「ユーザーと権限」から、ログインを戻せます)。</p>}
           {app.mode === "self" && app.signupOpen ? (
             <p className="foot">はじめて使うときは <Link to="/signup" search={{ next }}>最初の管理者を作る</Link></p>
           ) : (

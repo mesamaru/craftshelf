@@ -1,6 +1,13 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "最初のセットを作る": "Create your first set",
+  "パスワードを忘れたときは、チームのオーナー・管理者に頼んでください(設定の「ユーザーと権限」から、ログインを戻せます)。": "If you forgot your password, ask the team owner or an admin (they can reset your sign-in under Settings → Users and permissions).",
+  "読み取りは、どのトークンでもできます": "Any token can read",
+  "できること": "Permissions",
+  "明るさを選ぶ": "Choose brightness",
+  "割当外": "Unalloc",
+  "範囲外": "Out",
   "このセットに、このサーバーの種類のものがありません": "This set has nothing for this server type",
   "種類を決めていないので選べません": "Can't choose: type not set",
   "種類を決めていません": "Type not set",
@@ -2060,6 +2067,7 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^ · Minecraft (.+) が出ています$/, " · Minecraft $1 is out"],
   [/^サーバー (.+) · Minecraft (.+)$/, "Server $1 · Minecraft $2"],
   [/^いまは「(.+)」$/, "now “$1”"],
   [/^ほか (\d+) 個$/, "$1 more"],

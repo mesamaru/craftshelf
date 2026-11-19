@@ -81,7 +81,7 @@ function Ports() {
           <Chip key={m} on={machine === m} translate="no" onClick={() => setMachine(machine === m ? "" : m)}>{m.split("/").pop() || "(不明)"}</Chip>
         ))}
       </ChipBar>
-      {note && <p className="notice" role="status">{note}</p>}
+      {note && <p className={`notice${note === "読み取りました" ? " ok" : ""}`} role="status">{note}</p>}
 
       {data.servers.length === 0 ? (
         <section className="group"><div className="row muted">サーバーがありません。「サーバー」で Pterodactyl のサーバーを追加してください。</div></section>
@@ -111,7 +111,7 @@ function Ports() {
                             {ps.map((p) => {
                               const pr = data.problems.find((x) => x.portId === p.id);
                               return <button key={p.id} type="button" className={`pc ${pr?.type ?? ""}`} title={pr?.message ?? (p.memo || SOURCE[p.source])}
-                                onClick={() => setPanel({ type: "server", id: s.id, focus: p.id })}>{p.port}</button>;
+                                onClick={() => setPanel({ type: "server", id: s.id, focus: p.id })}>{p.port}{pr && <span className="pc-tag">{pr.type === "dup" ? "重複" : pr.type === "out" ? "範囲外" : "割当外"}</span>}</button>;
                             })}
                             {!ps.length && edit && <button type="button" className="pc add" aria-label={`${s.name} に ${k.name} を追加`} onClick={() => setPanel({ type: "server", id: s.id, addKind: k.id })}>＋</button>}
                           </td>

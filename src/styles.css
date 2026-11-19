@@ -1005,3 +1005,21 @@ a:not([class]) { color: var(--link); text-underline-offset: 2px; text-decoration
 .pick-info dd.dim { color: var(--muted); }
 .warn-text { color: var(--warn-ink); }
 .picks-foot { display: flex; gap: 8px; flex-wrap: wrap; }
+/* 指で押す端末: 小さいボタン・チップ・ポートの番号・ⓘ の押せる所を広げる */
+@media (pointer: coarse) {
+  .btn.sm { min-height: 36px; }
+  .chip { min-height: 34px; }
+  .pc { min-height: 32px; min-width: 40px; }
+  .info { position: relative; }
+  .info::before { content: ""; position: absolute; inset: -8px; }
+  .palette .foot { display: none; }
+}
+/* ポートの問題の種類を文字でも出す */
+.pc .pc-tag { font-size: 10px; font-weight: 700; margin-left: 4px; }
+.notice.ok { color: var(--ok-ink, var(--link)); background: color-mix(in srgb, var(--accent) 14%, transparent); }
+/* 比較・ポートの表: スマホでは幅を決め打ちせず、名前の列を折り返して、サーバーの列を多く見せる */
+@media (max-width: 720px) {
+  .ports-table table { min-width: 0; font-size: 13px; }
+  .ports-table th:first-child, .ports-table td:first-child { white-space: normal; max-width: 36vw; min-width: 96px; }
+  .ports-table th, .ports-table td { padding: 6px 8px; }
+}

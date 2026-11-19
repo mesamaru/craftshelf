@@ -1,5 +1,5 @@
 // 設定の 2 段の形: 左にまとまり(自分・セキュリティ・管理・連携・運用・ツール・サポート・表示・CraftShelf。v02 の設定と同じ分け方)、右に中身。スマホは一覧から押して入り、中身の上に「‹ 設定」。使い方は docs/UI.md
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 import { Link, useRouteContext, useRouter } from "@tanstack/react-router";
 import { authClient } from "./auth-client";
 import { roleLabel } from "./permissions";
@@ -61,6 +61,8 @@ function useGroups(ctx: Ctx): [string, Entry[]][] {
 
 /** 設定の画面の枠。at = 開いているまとまり、root = スマホで一覧を出す(/settings を何も選ばずに開いたとき)、info = 見出しの ⓘ */
 export function SettingsFrame({ at, root, info, children }: { at: SettingsKey; root?: boolean; info?: ReactNode; children: ReactNode }) {
+  // 開いたまとまりの行を、左の一覧の見えるところへ(一覧が長いと、下のほうの行が隠れたままになるため)
+  useEffect(() => { document.querySelector(".set-nav [aria-current='page']")?.scrollIntoView({ block: "nearest" }); }, [at]);
   const ctx = useRouteContext({ strict: false }) as Ctx;
   const router = useRouter();
   const groups = useGroups(ctx);

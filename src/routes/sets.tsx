@@ -70,7 +70,7 @@ function Sets() {
         {edit && <Btn kind="pri" onClick={() => setSheet("new")}>＋ セットを作成</Btn>}
       </div>
       {sets.length === 0 && (
-        <section className="card glass empty"><span className="big" aria-hidden="true">🧺</span><p>まだセットがありません</p></section>
+        <section className="card glass empty"><span className="big" aria-hidden="true">🧺</span><p>まだセットがありません</p>{edit && <Btn kind="tint" onClick={() => setSheet("new")}>最初のセットを作る</Btn>}</section>
       )}
       <div className="cards">
         {sets.map((s) => <SetCard key={s.id} set={s} edit={edit} local={local} onOpen={() => setOpen(s.id)} onChange={reload} />)}

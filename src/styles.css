@@ -967,3 +967,7 @@ a:not([class]) { color: var(--link); text-underline-offset: 2px; text-decoration
 .pick-q { margin: 0; }
 .pick-list { max-height: min(46vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
 .pick-foot { gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--line); }
+/* セットの版を選ぶ欄(アイテムの行の下に開く) */
+.pin-panel { background: var(--chip); gap: 8px; }
+.pin-list { margin: 0; max-height: min(44vh, 380px); overflow-y: auto; overscroll-behavior: contain; }
+.pin-foot { display: flex; gap: 8px; }

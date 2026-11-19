@@ -5,10 +5,11 @@ import { ApplyResults } from "~/lib/apply-results";
 import { libraryCatalog, libraryItemVersions } from "~/lib/library-api";
 import { uploadedFiles } from "~/lib/uploads-api";
 import { getSchedule, setSchedule } from "~/lib/schedule-api";
-import { ITEM_TYPES, PLATFORMS, PLATFORM_IDS } from "~/lib/platforms";
+import { ITEM_TYPES, PLATFORMS, PLATFORM_IDS, mcRange } from "~/lib/platforms";
+import { localDate } from "~/lib/format";
 import { AddonIcon } from "~/lib/type-icon";
 import { addSetDeps, applySet, createSet, listSets, pinSetItem, removeSet, renameSet, setMissingDeps, syncServerSet, toggleSetItem } from "~/lib/sets-api";
-import { Btn, Chip, Icon, Info, Menu, Sheet } from "~/lib/ui";
+import { Btn, Chip, Icon, Info, Menu, Sheet, fmtSize } from "~/lib/ui";
 import { sourceLabel } from "~/lib/sources";
 import { useCan } from "~/lib/use-can";
 import { sharedLocalEnabled } from "~/lib/servers-api";
@@ -147,6 +148,7 @@ function SetSheet({ set, catalog, edit, local, onChange, onClose }: { set: SetRo
   const [error, setError] = useState("");
   const [results, setResults] = useState<{ server: string; verb: string; list: Result } | null>(null);
   const [type, setType] = useState(""); // 種類での絞り込み(空 = すべて)
+  const [pinning, setPinning] = useState<string | null>(null); // 版を選ぶ欄を開いているアイテム
   const [adding, setAdding] = useState(set.items.length === 0); // ライブラリから選ぶ欄(中身が空なら初めから開く)
   const inSet = new Set(set.items.map((i) => i.id));
   const fits = (i: { projectType: string }) => !type || i.projectType === type;
@@ -185,17 +187,22 @@ function SetSheet({ set, catalog, edit, local, onChange, onClose }: { set: SetRo
       )}
       <section className="group">
         {set.items.length === 0 && <div className="row muted">まだ何も入っていません。{edit && catalog.items.length === 0 ? "先にライブラリに Mod・プラグインを登録すると、ここに足せます。" : ""}</div>}
-        {set.items.filter(fits).map((i) => (
+        {set.items.filter(fits).map((i) => [
           <div className="row" key={i.id}>
             <AddonIcon type={i.projectType} url={i.iconUrl} />
             <span className="mid">
               <span className="ttl" translate="no">{i.title}</span>
-              <span className="sub">{TYPE_LABEL[i.projectType] ?? i.projectType} · {sourceLabel(i.source, i.origin)}{i.versionId && <> · <b translate="no">{i.versionNumber}</b></>}</span>
+              <span className="sub">{sourceLabel(i.source, i.origin)} · {i.versionId ? <><b translate="no">{i.versionNumber}</b> に固定</> : "いつも新しい版"}</span>
             </span>
-            {edit && i.source !== "spigot" && <Pin setId={set.id} item={i} disabled={!!busy} onDone={onChange} />}
+            {edit && i.source !== "spigot" && (
+              <button className="trail link" type="button" disabled={!!busy} aria-expanded={pinning === i.id} onClick={() => setPinning(pinning === i.id ? null : i.id)}>
+                {pinning === i.id ? "閉じる" : i.versionId ? "版を変える" : "版を選ぶ"}
+              </button>
+            )}
             {edit && <Btn kind="red" sm disabled={!!busy} onClick={() => run(i.id, () => toggle({ data: { id: set.id, itemId: i.id, add: false } }))}>外す</Btn>}
-          </div>
-        ))}
+          </div>,
+          pinning === i.id && <PinPanel key={`pin-${i.id}`} setId={set.id} item={i} onDone={onChange} onClose={() => setPinning(null)} />,
+        ])}
         {edit && addable.length > 0 && !adding && (
           <button className="row link" type="button" disabled={!!busy} onClick={() => setAdding(true)}>{`＋ ライブラリから足す(${addable.length} 件から選ぶ)`}</button>
         )}
@@ -280,39 +287,66 @@ function AddPicker({ items, busy, onAdd, onClose }: { items: Catalog["items"]; b
   );
 }
 
-// セットのアイテムの版を固定する・やめる(版の一覧は、押したときに配布元から読む)
-function Pin({ setId, item, disabled, onDone }: { setId: string; item: SetRow["items"][number]; disabled: boolean; onDone: () => void }) {
+// セットのアイテムの版を固定する欄(アイテムの行の下に開く): 「いつも新しい版」と、配布元の版(新しい順)・アップロードした版を並べ、
+// 選んで「この版にする」。版の一覧は、開いたときに配布元から読む
+function PinPanel({ setId, item, onDone, onClose }: { setId: string; item: SetRow["items"][number]; onDone: () => void; onClose: () => void }) {
   const versions = useServerFn(libraryItemVersions);
   const uploads = useServerFn(uploadedFiles);
   const pin = useServerFn(pinSetItem);
-  const [list, setList] = useState<{ id: string; label: string }[] | null>(null);
+  const [list, setList] = useState<{ id: string; label: string; sub: string; tag?: string }[] | null>(null);
+  const [sel, setSel] = useState(item.versionId ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
-  const run = async (fn: () => Promise<unknown>) => {
+  useEffect(() => {
+    const load = item.source === "upload"
+      ? uploads({ data: { itemId: item.id } }).then((fs) => fs.map((f) => ({ id: f.id, label: f.version || f.filename, sub: [localDate(f.createdAt), fmtSize(f.size)].join(" · ") })))
+      : versions({ data: { itemId: item.id } }).then((vs) => vs.map((v) => ({ id: v.versionId, label: v.versionNumber, tag: V_TYPE[v.type],
+        sub: [loaderNames(v.loaders), v.mcVersions.length ? `MC ${mcRange(v.mcVersions)}` : "", v.date ? localDate(v.date) : ""].filter(Boolean).join(" · ") })));
+    load.then((l) => setList(item.versionId && !l.some((v) => v.id === item.versionId) ? [{ id: item.versionId, label: item.versionNumber ?? "", sub: "いま固定している版" }, ...l] : l),
+      (e) => setError(message(e)));
+  }, [item.id]);
+  const save = async () => {
     setBusy(true);
     setError("");
     try {
-      await fn();
+      await pin({ data: { id: setId, itemId: item.id, versionId: sel || null } });
+      onDone();
+      onClose();
     } catch (e) {
       setError(message(e));
-    } finally {
       setBusy(false);
     }
   };
-  const open = () => run(async () => setList(item.source === "upload"
-    ? (await uploads({ data: { itemId: item.id } })).map((f) => ({ id: f.id, label: f.version || f.filename }))
-    : (await versions({ data: { itemId: item.id } })).map((v) => ({ id: v.versionId, label: v.mcVersions.length ? `${v.versionNumber}(${v.mcVersions.slice(0, 3).join("・")})` : v.versionNumber }))));
-  if (error) return <span className="trail error small" role="alert">{error}</span>;
-  if (!list) return <button className="trail link" type="button" disabled={disabled || busy} onClick={open}>{busy ? "読み込んでいます…" : "版を選ぶ"}</button>;
+  const choice = (id: string, label: string, sub: string, tag?: string) => (
+    <button key={id || "latest"} type="button" className={`row link vrow${sel === id ? " sel" : ""}`} role="radio" aria-checked={sel === id} disabled={busy} onClick={() => setSel(id)}>
+      <span className="vdot" aria-hidden="true" />
+      <span className="mid">
+        <span className="ttl"><span translate={id ? "no" : undefined}>{label}</span>{tag && <span className="tag">{tag}</span>}{id && id === item.versionId && <span className="tag">いまの固定</span>}</span>
+        {sub && <span className="sub">{sub}</span>}
+      </span>
+    </button>
+  );
+  const changed = sel !== (item.versionId ?? "");
   return (
-    <select className="trail" value={item.versionId ?? ""} disabled={disabled || busy} aria-label={`${item.title} の版`}
-      onChange={(e) => run(async () => { await pin({ data: { id: setId, itemId: item.id, versionId: e.target.value || null } }); setList(null); onDone(); })}>
-      <option value="">いつも新しい版(固定しない)</option>
-      {item.versionId && !list.some((v) => v.id === item.versionId) && <option value={item.versionId} translate="no">{item.versionNumber}</option>}
-      {list.map((v) => <option key={v.id} value={v.id} translate="no">{v.label}</option>)}
-    </select>
+    <div className="row column pin-panel">
+      <div className="group vlist pin-list" role="radiogroup" aria-label={`${item.title} の版`}>
+        {choice("", "いつも新しい版(固定しない)", "新しい版が出たら、そろえるときにそれを入れます")}
+        {!list && !error && <div className="row muted">版を読み込んでいます…</div>}
+        {list?.length === 0 && <div className="row muted">選べる版がありません</div>}
+        {list?.map((v) => choice(v.id, v.label, v.sub, v.tag))}
+      </div>
+      {error && <p className="error small" role="alert">{error}</p>}
+      <span className="actions pin-foot">
+        <span className="grow" />
+        <Btn sm disabled={busy} onClick={onClose}>やめる</Btn>
+        <Btn kind="pri" sm disabled={busy || !changed} onClick={save}>{busy ? "変えています…" : sel ? "この版にする" : "固定をやめる"}</Btn>
+      </span>
+    </div>
   );
 }
+const V_TYPE: Record<string, string> = { beta: "ベータ", alpha: "アルファ" };
+// 動く作り(同じ版番号が Paper 向け・Bukkit 向けのように分かれていることがあるので、見分けられるように出す)
+const loaderNames = (ls: string[]) => ls.slice(0, 3).map((l) => l.charAt(0).toUpperCase() + l.slice(1)).join("・") + (ls.length > 3 ? " ほか" : "");
 
 // セットの前提(Modrinth・CurseForge の必須)のうち、セットに入っていないものを確かめて足す
 function Deps({ set, edit, onChange }: { set: SetRow; edit: boolean; onChange: () => void }) {

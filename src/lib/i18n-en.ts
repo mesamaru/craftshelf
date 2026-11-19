@@ -1,6 +1,12 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "固定をやめる": "Unpin",
+  "いま固定している版": "Currently pinned",
+  "いまの固定": "Pinned",
+  "新しい版が出たら、そろえるときにそれを入れます": "When a new version comes out, it is installed the next time you sync",
+  " に固定": " (pinned)",
+  "いつも新しい版": "Always latest",
   "入れられるサーバーがありません(サーバーの画面で、サーバーの種類を決めると出ます)。": "No servers to install to (set a server's type on the server page to see it here).",
   "プラグインのサーバー": "Plugin server",
   "Mod のサーバー": "Mod server",

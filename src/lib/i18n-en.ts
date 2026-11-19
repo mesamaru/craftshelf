@@ -1,6 +1,10 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "ライブラリのアイテムを名前で探す": "Search library items by name",
+  "件を足す": "Add",
+  "足すものにチェックを入れます": "Check the items to add",
+  "見つかりません。": "Nothing found.",
   "配布元がわかるものがありません": "No items with a known source",
   "すべて済みました。": "All done.",
   "ライブラリにもう一度出す": "Show in the library again",
@@ -2005,6 +2009,9 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^＋ ライブラリから足す\((\d+) 件から選ぶ\)$/, "+ Add from library (choose from $1)"],
+  [/^(\d+) 件を選んでいます$/, "$1 selected"],
+  [/^(\d+) 件を足す$/, "Add $1"],
   [/^配布元がわかる (\d+) 件を確かめます$/, "Checks $1 items with a known source"],
   [/^(.+) を再起動しますか[?？]\(遊んでいる人は一度切れます\)$/, "Restart $1? (Players will be disconnected)"],
   [/^(安定版|開発版) · (.*)$/, (_, c, d) => `${c === "安定版" ? "Stable" : "Development"} · ${d}`],

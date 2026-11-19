@@ -963,3 +963,7 @@ a:not([class]) { color: var(--link); text-underline-offset: 2px; text-decoration
 .upd-msg p { margin: 0; }
 .upd-foot { border-top: 1px solid var(--line); padding-top: 10px; }
 @media (max-width: 720px) { .upd-seg { width: 140px; } }
+/* セットに足す: 探す欄・一覧(長いときは中で流す)・下の決める行 */
+.pick-q { margin: 0; }
+.pick-list { max-height: min(46vh, 420px); overflow-y: auto; overscroll-behavior: contain; }
+.pick-foot { gap: 8px; flex-wrap: wrap; border-top: 1px solid var(--line); }

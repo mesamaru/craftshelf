@@ -8,7 +8,7 @@ import { getSchedule, setSchedule } from "~/lib/schedule-api";
 import { ITEM_TYPES, PLATFORMS, PLATFORM_IDS } from "~/lib/platforms";
 import { AddonIcon } from "~/lib/type-icon";
 import { addSetDeps, applySet, createSet, listSets, pinSetItem, removeSet, renameSet, setMissingDeps, syncServerSet, toggleSetItem } from "~/lib/sets-api";
-import { Btn, Chip, Info, Menu, Sheet } from "~/lib/ui";
+import { Btn, Chip, Icon, Info, Menu, Sheet } from "~/lib/ui";
 import { sourceLabel } from "~/lib/sources";
 import { useCan } from "~/lib/use-can";
 import { sharedLocalEnabled } from "~/lib/servers-api";
@@ -147,6 +147,7 @@ function SetSheet({ set, catalog, edit, local, onChange, onClose }: { set: SetRo
   const [error, setError] = useState("");
   const [results, setResults] = useState<{ server: string; verb: string; list: Result } | null>(null);
   const [type, setType] = useState(""); // 種類での絞り込み(空 = すべて)
+  const [adding, setAdding] = useState(set.items.length === 0); // ライブラリから選ぶ欄(中身が空なら初めから開く)
   const inSet = new Set(set.items.map((i) => i.id));
   const fits = (i: { projectType: string }) => !type || i.projectType === type;
   const addable = catalog.items.filter((i) => !inSet.has(i.id) && fits(i));
@@ -195,17 +196,14 @@ function SetSheet({ set, catalog, edit, local, onChange, onClose }: { set: SetRo
             {edit && <Btn kind="red" sm disabled={!!busy} onClick={() => run(i.id, () => toggle({ data: { id: set.id, itemId: i.id, add: false } }))}>外す</Btn>}
           </div>
         ))}
-        {edit && addable.length > 0 && (
-          <div className="row">
-            <span>ライブラリから足す</span>
-            <select className="trail" value="" disabled={!!busy} aria-label={`${set.name} にライブラリから足す`}
-              onChange={(e) => { const itemId = e.target.value; if (itemId) run(itemId, () => toggle({ data: { id: set.id, itemId, add: true } })); }}>
-              <option value="">選んでください…</option>
-              {addable.map((i) => <option key={i.id} value={i.id} translate="no">{i.title}({TYPE_LABEL[i.projectType] ?? i.projectType})</option>)}
-            </select>
-          </div>
+        {edit && addable.length > 0 && !adding && (
+          <button className="row link" type="button" disabled={!!busy} onClick={() => setAdding(true)}>{`＋ ライブラリから足す(${addable.length} 件から選ぶ)`}</button>
         )}
       </section>
+      {edit && addable.length > 0 && adding && (
+        <AddPicker items={addable} busy={!!busy} onClose={() => setAdding(false)}
+          onAdd={(ids) => run("add", async () => { for (const itemId of ids) await toggle({ data: { id: set.id, itemId, add: true } }); setAdding(false); })} />
+      )}
       {set.items.some((i) => i.source === "modrinth" || i.source === "curseforge") && <>
         <div className="gtitle">前提</div>
         <section className="group"><Deps set={set} edit={edit} onChange={onChange} /></section>
@@ -240,6 +238,44 @@ function SetSheet({ set, catalog, edit, local, onChange, onClose }: { set: SetRo
       </>}
       {error && <p className="error" role="alert">{error}</p>}
     </Sheet>
+  );
+}
+
+// ライブラリから選んでセットに足す: 名前で探し、アイコン・種類・配布元を見て、チェックしたものをまとめて足す
+function AddPicker({ items, busy, onAdd, onClose }: { items: Catalog["items"]; busy: boolean; onAdd: (ids: string[]) => void; onClose: () => void }) {
+  const [q, setQ] = useState("");
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const word = q.trim().toLowerCase();
+  const shown = items.filter((i) => !word || i.title.toLowerCase().includes(word)).sort((a, b) => a.title.localeCompare(b.title));
+  const pick = (id: string) => setPicked((p) => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  return (
+    <>
+      <div className="gtitle">ライブラリから足す</div>
+      <section className="group">
+        <div className="row sfilter pick-q">
+          <label className="q"><Icon name="search" /><input type="search" placeholder="名前で探す" aria-label="ライブラリのアイテムを名前で探す" value={q} onChange={(e) => setQ(e.target.value)} autoFocus /></label>
+        </div>
+        <div className="pick-list">
+          {shown.length === 0 && <div className="row muted">見つかりません。</div>}
+          {shown.map((i) => (
+            <label className="row click" key={i.id}>
+              <input type="checkbox" className="ck" checked={picked.has(i.id)} disabled={busy} onChange={() => pick(i.id)} />
+              <AddonIcon type={i.projectType} url={i.iconUrl} />
+              <span className="mid">
+                <span className="ttl" translate="no">{i.title}</span>
+                <span className="sub">{TYPE_LABEL[i.projectType] ?? i.projectType} · {sourceLabel(i.source, i.origin)}</span>
+              </span>
+            </label>
+          ))}
+        </div>
+        <div className="row pick-foot">
+          <span className="muted small">{picked.size ? `${picked.size} 件を選んでいます` : "足すものにチェックを入れます"}</span>
+          <span className="grow" />
+          <Btn sm disabled={busy} onClick={onClose}>閉じる</Btn>
+          <Btn kind="pri" sm disabled={busy || picked.size === 0} onClick={() => onAdd([...picked])}>{busy ? "足しています…" : `${picked.size || ""} 件を足す`.trim()}</Btn>
+        </div>
+      </section>
+    </>
   );
 }
 

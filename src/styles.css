@@ -971,3 +971,8 @@ a:not([class]) { color: var(--link); text-underline-offset: 2px; text-decoration
 .pin-panel { background: var(--chip); gap: 8px; }
 .pin-list { margin: 0; max-height: min(44vh, 380px); overflow-y: auto; overscroll-behavior: contain; }
 .pin-foot { display: flex; gap: 8px; }
+/* 上のバーの「処理」のしるし */
+.rbtn.jobs.busy::after { content: ""; position: absolute; inset: 1px; border-radius: 50%; border: 2px solid transparent; border-top-color: var(--accent); animation: jobs-spin 1s linear infinite; }
+@keyframes jobs-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .rbtn.jobs.busy::after { animation: none; border-color: var(--accent); } }
+.nb.run, .nb.ok { background: var(--accent); color: var(--accent-ink); }

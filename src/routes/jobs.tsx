@@ -3,6 +3,7 @@ import { createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { Btn, Chip, ChipBar, Info } from "~/lib/ui";
 import { listJobs } from "~/lib/jobs-api";
+import { JobRow } from "~/lib/jobs-ui";
 import { pageTitle } from "~/lib/titles";
 
 export const Route = createFileRoute("/jobs")({
@@ -15,14 +16,6 @@ export const Route = createFileRoute("/jobs")({
 });
 
 type Job = Awaited<ReturnType<typeof listJobs>>[number];
-const STATE: Record<Job["state"], string> = { running: "実行中", queued: "待ち", done: "成功", failed: "失敗" };
-const time = (s: string | null) => (s ? new Date(s).toLocaleString("ja-JP") : "");
-// かかった時間(終わっていなければ今まで)
-const took = (j: Job) => {
-  if (!j.startedAt) return "";
-  const sec = Math.max(0, Math.round(((j.finishedAt ? new Date(j.finishedAt).getTime() : Date.now()) - new Date(j.startedAt).getTime()) / 1000));
-  return sec < 60 ? `${sec} 秒` : `${Math.floor(sec / 60)} 分 ${sec % 60} 秒`;
-};
 
 // 処理の一覧(v02 の「処理」): サーバーへの導入・そろえる・バックアップなどの、実行中・待ち・終わったもの
 function Jobs() {
@@ -40,18 +33,7 @@ function Jobs() {
   }, [busy]);
   const active = (jobs ?? []).filter((j) => j.state === "running" || j.state === "queued");
   const ended = (jobs ?? []).filter((j) => (j.state === "done" || j.state === "failed") && (filter === "all" || j.state === "failed"));
-  const row = (j: Job) => (
-    <div className="row" key={j.id}>
-      <span className={`badge state-${j.state}`}>{STATE[j.state]}</span>
-      <span className="mid">
-        <span className="ttl">{j.action}{(j.serverName || j.target) && <> · <span translate="no">{[j.serverName, j.target].filter(Boolean).join(" · ")}</span></>}</span>
-        <span className="sub">
-          {time(j.createdAt)}{j.userName ? <> · <span translate="no">{j.userName}</span></> : " · 予約・自動"}{took(j) && <> · <span>{took(j)}</span></>}
-        </span>
-        {j.detail && <span className={`small pre${j.state === "failed" ? " error" : " muted"}`}>{j.detail}</span>}
-      </span>
-    </div>
-  );
+  const row = (j: Job) => <JobRow key={j.id} j={j} />;
   return (
     <main className="page fill">
       <header className="bar">

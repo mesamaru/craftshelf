@@ -1,6 +1,9 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "一部失敗": "Partly failed",
+  "すべての処理を見る ›": "See all jobs ›",
+  "最近終わったもの": "Recently finished",
   "固定をやめる": "Unpin",
   "いま固定している版": "Currently pinned",
   "いまの固定": "Pinned",
@@ -2024,6 +2027,9 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^処理 (\d+) 件が動いています$/, "$1 jobs running"],
+  [/^処理 (\d+) 件に失敗があります$/, "$1 jobs had failures"],
+  [/^処理 (\d+) 件が終わりました$/, "$1 jobs finished"],
   [/^足りない (\d+) 件$/, "$1 missing"],
   [/^(\d+) 件をすべて足す$/, "Add all $1"],
   [/^「(.+)」に必要です$/, "Required by “$1”"],

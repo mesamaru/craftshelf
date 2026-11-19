@@ -14,6 +14,7 @@ import { useStatuses } from "./server-status";
 import { unreadCount } from "./notices";
 import { Icon, type IconName, Sheet } from "./ui";
 import { shared, forgetShared } from "./shared";
+import { JobsButton } from "./jobs-ui";
 import { useCan, useTeamKey } from "./use-can";
 
 /** 「＋ 追加」のシートを開く(ライブラリの画面の、空のときの案内などから) */
@@ -144,6 +145,7 @@ export function Shell({ user, children }: { user: { id: string; name: string }; 
             </button>
             <span className="grow" />
             {edit && <button type="button" className="btn pri addbtn" onClick={() => setSheet("add")}>＋ 追加</button>}
+            <JobsButton />
             <button type="button" className="rbtn" onClick={reload} aria-label="読み直す" title="読み直す"><Icon name="reload" /></button>
             <button type="button" className="rbtn m" onClick={openNotices} aria-label={`お知らせ ${notices.unread} 件`} title="お知らせ"><Icon name="bell" />{unread}</button>
             <Link to="/settings" className="rbtn m" aria-label="設定" title="設定"><Icon name="settings" /></Link>

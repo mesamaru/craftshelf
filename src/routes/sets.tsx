@@ -18,6 +18,7 @@ import { MobileSearch, StoragePill } from "~/lib/shell";
 import { downloadZip } from "~/lib/zip-download";
 import { pageTitle } from "~/lib/titles";
 import { confirmDialog, promptDialog } from "~/lib/dialog-queue";
+import { jobsChanged } from "~/lib/jobs-ui";
 
 export const Route = createFileRoute("/sets")({
   beforeLoad: ({ context }) => {
@@ -222,7 +223,7 @@ function SetSheet({ set, catalog, edit, local, onChange, onClose }: { set: SetRo
             <div className="row" key={s.id}>
               <span className="mid"><span className="ttl" translate="no">{s.name}</span><span className="sub">このセットに結び付けています</span></span>
               <Btn kind="tint" sm disabled={!!busy} onClick={async () => {
-                if ((await confirmDialog({ message: `「${s.name}」を「${set.name}」にそろえますか?(足りないものも入れる)`, ok: "そろえる" }))) run("sync", async () => setResults({ server: s.name, verb: "そろえた", list: await sync({ data: { serverId: s.id, mode: "add" } }) }));
+                if ((await confirmDialog({ message: `「${s.name}」を「${set.name}」にそろえますか?(足りないものも入れる)`, ok: "そろえる" }))) run("sync", async () => { jobsChanged(); setResults({ server: s.name, verb: "そろえた", list: await sync({ data: { serverId: s.id, mode: "add" } }) }); });
               }}>そろえる</Btn>
             </div>
           ))}
@@ -234,7 +235,7 @@ function SetSheet({ set, catalog, edit, local, onChange, onClose }: { set: SetRo
               </span>
               <Btn kind="tint" sm disabled={!!busy} onClick={async () => {
                 if (await confirmDialog({ message: `「${t.name}」に「${set.name}」を入れますか?(まだ入っていないものだけを入れます。入っているものはそのままです)`, ok: "入れる" })) {
-                  run("apply", async () => setResults({ server: t.name, verb: "入れた", list: await apply({ data: { id: set.id, serverId: t.id } }) }));
+                  run("apply", async () => { jobsChanged(); return setResults({ server: t.name, verb: "入れた", list: await apply({ data: { id: set.id, serverId: t.id } }) }); });
                 }
               }}>入れる</Btn>
             </div>

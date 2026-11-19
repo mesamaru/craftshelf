@@ -1,6 +1,15 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "入れられるサーバーがありません(サーバーの画面で、サーバーの種類を決めると出ます)。": "No servers to install to (set a server's type on the server page to see it here).",
+  "プラグインのサーバー": "Plugin server",
+  "Mod のサーバー": "Mod server",
+  "このセットに結び付けています": "Linked to this set",
+  "＋ 足す": "+ Add",
+  "もう一度確かめる": "Check again",
+  "そろっています": "All set",
+  "入れる先のサーバーの種類": "Target server type",
+  "セットの Mod・プラグインが必要とするもの(Modrinth・CurseForge の「必須」)のうち、セットに入っていないものを探します。必要なものはサーバーの種類で変わるので、入れる先の種類を選んでから確かめます。": "Finds required dependencies (Modrinth / CurseForge “required”) of the set's mods and plugins that are not in the set. What's needed depends on the server type, so choose the target type first.",
   "ライブラリのアイテムを名前で探す": "Search library items by name",
   "件を足す": "Add",
   "足すものにチェックを入れます": "Check the items to add",
@@ -2009,6 +2018,11 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^足りない (\d+) 件$/, "$1 missing"],
+  [/^(\d+) 件をすべて足す$/, "Add all $1"],
+  [/^「(.+)」に必要です$/, "Required by “$1”"],
+  [/^確かめられなかったもの: (.+)$/, "Could not check: $1"],
+  [/^「(.+)」に「(.+)」を入れますか[?？]\(まだ入っていないものだけを入れます。入っているものはそのままです\)$/, "Install “$2” on “$1”? (Only what isn't installed yet is added; existing ones are kept.)"],
   [/^＋ ライブラリから足す\((\d+) 件から選ぶ\)$/, "+ Add from library (choose from $1)"],
   [/^(\d+) 件を選んでいます$/, "$1 selected"],
   [/^(\d+) 件を足す$/, "Add $1"],

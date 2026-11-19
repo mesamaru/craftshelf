@@ -205,7 +205,7 @@ function SetSheet({ set, catalog, edit, local, onChange, onClose }: { set: SetRo
           onAdd={(ids) => run("add", async () => { for (const itemId of ids) await toggle({ data: { id: set.id, itemId, add: true } }); setAdding(false); })} />
       )}
       {set.items.some((i) => i.source === "modrinth" || i.source === "curseforge") && <>
-        <div className="gtitle">前提</div>
+        <div className="gtitle">前提<Info>セットの Mod・プラグインが必要とするもの(Modrinth・CurseForge の「必須」)のうち、セットに入っていないものを探します。必要なものはサーバーの種類で変わるので、入れる先の種類を選んでから確かめます。</Info></div>
         <section className="group"><Deps set={set} edit={edit} onChange={onChange} /></section>
       </>}
       {edit && set.items.length > 0 && <>
@@ -213,25 +213,26 @@ function SetSheet({ set, catalog, edit, local, onChange, onClose }: { set: SetRo
         <section className="group">
           {set.servers.map((s) => (
             <div className="row" key={s.id}>
-              <span className="mid"><span className="ttl" translate="no">{s.name}</span><span className="sub">結び付けています</span></span>
+              <span className="mid"><span className="ttl" translate="no">{s.name}</span><span className="sub">このセットに結び付けています</span></span>
               <Btn kind="tint" sm disabled={!!busy} onClick={async () => {
                 if ((await confirmDialog({ message: `「${s.name}」を「${set.name}」にそろえますか?(足りないものも入れる)`, ok: "そろえる" }))) run("sync", async () => setResults({ server: s.name, verb: "そろえた", list: await sync({ data: { serverId: s.id, mode: "add" } }) }));
               }}>そろえる</Btn>
             </div>
           ))}
-          <div className="row">
-            <span>サーバーに入れる</span>
-            {targets.length ? (
-              <select className="trail" value="" disabled={!!busy} aria-label={`${set.name} をサーバーに入れる`}
-                onChange={(e) => {
-                  const s = targets.find((x) => x.id === e.target.value);
-                  if (s) run("apply", async () => setResults({ server: s.name, verb: "入れた", list: await apply({ data: { id: set.id, serverId: s.id } }) }));
-                }}>
-                <option value="">サーバーを選ぶ…</option>
-                {targets.map((s) => <option key={s.id} value={s.id} translate="no">{s.name}</option>)}
-              </select>
-            ) : <span className="trail muted">{set.servers.length ? "ほかに種類を決めたサーバーはありません" : "種類を決めたサーバーがありません"}</span>}
-          </div>
+          {targets.map((t) => (
+            <div className="row" key={t.id}>
+              <span className="mid">
+                <span className="ttl" translate="no">{t.name}</span>
+                <span className="sub">{[t.type === "mod" ? "Mod のサーバー" : "プラグインのサーバー", t.mc && `Minecraft ${t.mc}`].filter(Boolean).join(" · ")}</span>
+              </span>
+              <Btn kind="tint" sm disabled={!!busy} onClick={async () => {
+                if (await confirmDialog({ message: `「${t.name}」に「${set.name}」を入れますか?(まだ入っていないものだけを入れます。入っているものはそのままです)`, ok: "入れる" })) {
+                  run("apply", async () => setResults({ server: t.name, verb: "入れた", list: await apply({ data: { id: set.id, serverId: t.id } }) }));
+                }
+              }}>入れる</Btn>
+            </div>
+          ))}
+          {!targets.length && !set.servers.length && <div className="row muted">入れられるサーバーがありません(サーバーの画面で、サーバーの種類を決めると出ます)。</div>}
           {(busy === "apply" || busy === "sync") && <div className="row muted">サーバーに入れています…</div>}
           {results && <ApplyResults server={results.server} verb={results.verb} list={results.list} />}
         </section>
@@ -340,29 +341,34 @@ function Deps({ set, edit, onChange }: { set: SetRow; edit: boolean; onChange: (
   });
   return (
     <>
-      <div className="row">
-        <span>前提を確かめる</span>
-        <span className="trail actions">
-          <select value={platform} disabled={busy} aria-label="前提を確かめるサーバーの種類" onChange={(e) => { setPlatform(e.target.value); setR(null); }}>
-            {PLATFORM_IDS.map((k) => <option key={k} value={k}>{PLATFORMS[k].label}</option>)}
-          </select>
-          <button className="link" type="button" disabled={busy} onClick={recheck}>{busy && !r ? "確かめています…" : "確かめる"}</button>
-        </span>
-      </div>
-      {r && r.missing.length === 0 && <div className="row muted">前提はそろっています。</div>}
-      {r && r.missing.length > 0 && <div className="row error">{`前提が足りません(${r.missing.length} 件)`}</div>}
+      <label className="row">
+        <span>入れる先のサーバーの種類</span>
+        <select className="trail" value={platform} disabled={busy} aria-label="前提を確かめるサーバーの種類" onChange={(e) => { setPlatform(e.target.value); setR(null); }}>
+          {PLATFORM_IDS.map((k) => <option key={k} value={k}>{PLATFORMS[k].label}</option>)}
+        </select>
+      </label>
+      {!r && <button className="row link" type="button" disabled={busy} onClick={recheck}>{busy ? "確かめています…" : "前提を確かめる"}</button>}
+      {r && (
+        <div className="row">
+          {r.missing.length ? <span className="badge upd">{`足りない ${r.missing.length} 件`}</span> : <span className="badge ok">そろっています</span>}
+          <span className="grow" />
+          <button className="trail link" type="button" disabled={busy} onClick={recheck}>もう一度確かめる</button>
+        </div>
+      )}
       {r?.missing.map((m) => (
         <div className="row" key={`${m.source}:${m.projectId}`}>
-          <AddonIcon type={m.projectType} url={m.iconUrl} size="sm" />
-          <span className="main">
-            <span translate="no">{m.title}</span>
-            <span className="muted small"><span translate="no">{m.by.join("、")}</span> が使います</span>
+          <AddonIcon type={m.projectType} url={m.iconUrl} />
+          <span className="mid">
+            <span className="ttl" translate="no">{m.title}</span>
+            <span className="sub">{`「${m.by.join("」「")}」に必要です`}</span>
           </span>
-          {edit && <button className="trail link" type="button" disabled={busy} onClick={() => addSome([m])}>セットに足す</button>}
+          {edit && <Btn kind="tint" sm disabled={busy} onClick={() => addSome([m])}>＋ 足す</Btn>}
         </div>
       ))}
-      {edit && r && r.missing.length > 1 && <button className="row link" type="button" disabled={busy} onClick={() => addSome(r.missing)}>{`足りない ${r.missing.length} 件をすべて足す`}</button>}
-      {r?.errors.map((x) => <div className="row muted small" key={x} translate="no">{x}</div>)}
+      {edit && r && r.missing.length > 1 && (
+        <div className="row"><span className="grow" /><Btn kind="pri" sm disabled={busy} onClick={() => addSome(r.missing)}>{busy ? "足しています…" : `${r.missing.length} 件をすべて足す`}</Btn></div>
+      )}
+      {r && r.errors.length > 0 && <div className="row muted small" translate="no">{`確かめられなかったもの: ${r.errors.join("、")}`}</div>}
       {error && <p className="row error" role="alert">{error}</p>}
     </>
   );

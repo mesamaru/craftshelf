@@ -45,7 +45,7 @@ export function fileStore(deps: Deps) {
   const { db, secret, fetch } = deps;
   const { record } = eventService(deps);
   const defaultConfig = (): StorageConfig => {
-    if (!deps.local) throw new HttpError(400, "アップロードしたアドオンは、自分用の版だけで使えます");
+    if (!deps.local) throw new HttpError(400, "アップロードしたアドオンは、自分で動かす CraftShelf だけで使えます");
     return { kind: "local", path: join(deps.local.dataDir, "v03", "library") };
   };
   const configOf = (t: typeof storageTarget.$inferSelect) => JSON.parse(open(secret, t.configSealed, sealContext(t.teamId, t.id))) as StorageConfig;
@@ -79,7 +79,7 @@ export function fileStore(deps: Deps) {
   const read = async (teamId: string, f: FileRow) => fromStorage(async () => (await storeOf(teamId, f.targetId)).get(f.storageKey));
   const stream = async (teamId: string, f: FileRow) => fromStorage(async () => (await storeOf(teamId, f.targetId)).read(f.storageKey));
   const tempPath = (what: string) => {
-    if (!deps.local) throw new HttpError(400, "アップロードしたアドオンは、自分用の版だけで使えます");
+    if (!deps.local) throw new HttpError(400, "アップロードしたアドオンは、自分で動かす CraftShelf だけで使えます");
     const dir = join(deps.local.dataDir, "v03", "tmp");
     mkdirSync(dir, { recursive: true });
     return join(dir, `${what}-${randomUUID()}.part`);
@@ -134,7 +134,7 @@ export function fileStore(deps: Deps) {
    */
   async function saveUpstream(teamId: string, userId: string | null, item: typeof libraryItem.$inferSelect,
     file: { versionId: string; versionNumber: string; filename: string; url: string }, opts: { targetId?: string | null } = {}) {
-    if (!deps.local) throw new HttpError(400, "配布元のファイルの保存は、自分用の版だけで使えます");
+    if (!deps.local) throw new HttpError(400, "配布元のファイルの保存は、自分で動かす CraftShelf だけで使えます");
     const have = await savedOf(teamId, item.source, item.projectId, file.versionId);
     if (have) return have;
     if (!file.url || !SAFE_FILE.test(file.filename)) throw new HttpError(400, "この版は、配布元からファイルを取ってこられません");
@@ -292,7 +292,7 @@ export function uploadService(deps: Deps) {
   const { record } = eventService(deps);
   const jobs = jobService(deps);
   const needLocal = () => {
-    if (!deps.local) throw new HttpError(400, "アップロードしたアドオンは、自分用の版だけで使えます");
+    if (!deps.local) throw new HttpError(400, "アップロードしたアドオンは、自分で動かす CraftShelf だけで使えます");
   };
 
   function cleanConfig(input: { kind: string; path?: string; url?: string; user?: string; password?: string; host?: string; share?: string; domain?: string }): { config: StorageConfig; summary: string } {
@@ -556,7 +556,7 @@ export function uploadService(deps: Deps) {
     async files(headers: Headers, itemId: string) {
       const { teamId } = await requireTeam(auth, headers);
       const [item] = await db.select().from(libraryItem).where(and(eq(libraryItem.id, itemId), eq(libraryItem.teamId, teamId)));
-      if (!item) throw new HttpError(404, "見つかりません");
+      if (!item) throw new HttpError(404, "アドオンが見つかりません");
       const rows = await db.select().from(libraryFile).where(eq(libraryFile.itemId, itemId)).orderBy(desc(libraryFile.createdAt));
       return rows.map((f) => ({ id: f.id, filename: f.filename, version: f.version, size: f.size, loaders: JSON.parse(f.loaders) as string[], createdAt: f.createdAt.toISOString(),
         saved: !!f.upstreamVersionId, origin: f.origin })); // saved = 配布元の版を保存したもの。origin = 出どころ(src/lib/origin.ts。空 = 古い行)
@@ -567,7 +567,7 @@ export function uploadService(deps: Deps) {
       const { teamId, user } = await requireTeam(auth, headers, { library: ["edit"] });
       const [r] = await db.select({ f: libraryFile, title: libraryItem.title }).from(libraryFile).innerJoin(libraryItem, eq(libraryFile.itemId, libraryItem.id))
         .where(and(eq(libraryFile.id, fileId), eq(libraryItem.teamId, teamId)));
-      if (!r) throw new HttpError(404, "見つかりません");
+      if (!r) throw new HttpError(404, "版が見つかりません");
       await fromStorage(() => removeStored(teamId, r.f));
       await db.delete(libraryFile).where(eq(libraryFile.id, fileId));
       await record({ teamId, userId: user.id, kind: "changes", action: "アップロードした版を消す", target: r.title, detail: r.f.filename });
@@ -578,7 +578,7 @@ export function uploadService(deps: Deps) {
       const { teamId } = await requireTeam(auth, headers);
       const [r] = await db.select({ f: libraryFile }).from(libraryFile).innerJoin(libraryItem, eq(libraryFile.itemId, libraryItem.id))
         .where(and(eq(libraryFile.id, fileId), eq(libraryItem.teamId, teamId)));
-      if (!r) throw new HttpError(404, "見つかりません");
+      if (!r) throw new HttpError(404, "版が見つかりません");
       return { filename: r.f.filename, size: r.f.size, stream: await stream(teamId, r.f) };
     },
   };

@@ -147,8 +147,8 @@ describe("新しい版の見回り", () => {
     latest = { id: "ver00003", number: "5.6.0" };
     expect(await sets.runUpdateChecks(at(0))).toEqual([serverId]);
     const [r] = await ev.list(owner);
-    expect([r.kind, r.action, r.target, r.detail]).toEqual(["updates", "新しいバージョンがあります", "ロビー", "・LuckPerms: 5.5.0 → 5.6.0"]);
-    expect(sent).toEqual(["**新しいバージョンがあります** ロビー(自動)\n・LuckPerms: 5.5.0 → 5.6.0"]);
+    expect([r.kind, r.action, r.target, r.detail]).toEqual(["updates", "新しい版があります", "ロビー", "・LuckPerms: 5.5.0 → 5.6.0"]);
+    expect(sent).toEqual(["**新しい版があります** ロビー(自動)\n・LuckPerms: 5.5.0 → 5.6.0"]);
     expect((await ev.recent(editor)).some((e) => e.kind === "updates")).toBe(true);
     expect(await sets.runUpdateChecks(at(1))).toEqual([]); // 1 日たっていない
     expect(await sets.runUpdateChecks(at(25))).toEqual([]); // 同じ版はもう知らせない

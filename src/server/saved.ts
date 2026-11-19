@@ -41,7 +41,7 @@ export function savedService(deps: Deps) {
   const library = libraryService(deps);
   const { record } = eventService(deps);
   const needLocal = () => {
-    if (!deps.local) throw new HttpError(400, "配布元のファイルの保存は、自分用の版だけで使えます");
+    if (!deps.local) throw new HttpError(400, "配布元のファイルの保存は、自分で動かす CraftShelf だけで使えます");
   };
   const itemOf = async (teamId: string, itemId: string) => {
     const [i] = await db.select().from(libraryItem).where(and(eq(libraryItem.id, itemId), eq(libraryItem.teamId, teamId)));

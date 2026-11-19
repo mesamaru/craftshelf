@@ -141,7 +141,7 @@ function Servers() {
               <button type="button" className={`glass${updates ? " warn" : ""}`} disabled={checking} onClick={() => checkOld(true)} title="押すと、配布元に問い合わせて確かめ直します">
                 <small>更新</small><b>{checking && updates === null ? "…" : updates ?? "—"}</b>
               </button>
-              <div className="glass"><small>人数</small><b>{players}</b></div>
+              <div className="glass"><small>プレイヤー</small><b>{players}</b></div>
             </div>
             {servers.length === 0 && <section className="group"><div className="row muted">まだサーバーがありません。</div></section>}
             {servers.length > 0 && (
@@ -192,7 +192,7 @@ function ServerRow({ server, st, old, checked, on }: { server: Server; st: Statu
           <span translate="no">{kind || server.connection || ""}</span>
           {" · "}
           {typeof st === "string" ? <span className="error">つながりません</span>
-            : !s ? "確認中…"
+            : !s ? "確かめています…"
             : s.state === "running" && s.ping ? `${s.ping.online} / ${s.ping.max} 人`
             : STATE_LABELS[s.state] ?? "状態がわかりません"}
         </span>

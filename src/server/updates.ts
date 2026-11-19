@@ -52,7 +52,7 @@ export function updateService(deps: Deps, versions: Versions, backups: Backups) 
   const { db, auth } = deps;
   const { record, announcePanel } = eventService(deps);
   const jobs = jobService(deps);
-  if (!deps.local) throw new Error("パネルの更新は、自分用の版だけで使えます");
+  if (!deps.local) throw new Error("パネルのアップデートは、自分で動かす CraftShelf だけで使えます");
   const v03Dir = join(deps.local.dataDir, "v03");
   const read = () => readUpdateState(v03Dir);
   const write = (s: UpdateState) => writeUpdateState(v03Dir, s);
@@ -104,7 +104,7 @@ export function updateService(deps: Deps, versions: Versions, backups: Backups) 
       s.auto = input.auto;
       s.channel = input.channel === "dev" ? "dev" : "stable";
       write(s);
-      await record({ teamId: who.teamId, userId: who.user.id, kind: "admin", action: input.auto ? "パネルの自動更新を使う" : "パネルの自動更新をやめる",
+      await record({ teamId: who.teamId, userId: who.user.id, kind: "admin", action: input.auto ? "パネルの自動アップデートを使う" : "パネルの自動アップデートをやめる",
         detail: s.channel === "dev" ? "開発版のチャンネル" : "安定版のチャンネル" });
     },
 

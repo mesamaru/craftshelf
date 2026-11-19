@@ -50,7 +50,7 @@ export function worldService(deps: Deps) {
   const panelDir = (serverId: string) => join(v03(), "worlds", serverId);
   const keyOf = (serverId: string, name = "") => [WORLD_DIR, serverId, name].filter(Boolean).join("/");
   const needFiles = () => {
-    if (!deps.local) throw new HttpError(400, "フォルダのサーバー・エージェントのワールドのバックアップは、自分用の版だけで使えます");
+    if (!deps.local) throw new HttpError(400, "フォルダのサーバー・エージェントのワールドのバックアップは、自分で動かす CraftShelf だけで使えます");
   };
   const checkName = (name: string) => {
     if (!WORLD_NAME.test(name)) throw new HttpError(400, "バックアップの名前が正しくありません");
@@ -184,7 +184,7 @@ export function worldService(deps: Deps) {
   }
 
   /**
-   * バックアップから戻す(管理者以上・危ない操作なので画面では 2 回確かめる)。Pterodactyl はパネルの復元(truncate なら今のファイルを消してから)。
+   * バックアップから戻す(管理者以上・危ない操作なので画面では 2 回確かめる)。Pterodactyl はパネルの復元(truncate ならいまのファイルを消してから)。
    * フォルダのサーバー・エージェントは、サーバーが止まっていることを確かめ(stop なら止めて待つ)、今のワールドのフォルダを名前を変えて残してから展開する。
    * 途中で失敗したら、展開したものを消して、残したフォルダを元の名前に戻す
    */
@@ -195,7 +195,7 @@ export function worldService(deps: Deps) {
     if (row.kind === "ptero") {
       await remote(() => backupsOf(client).restore(remoteId, name, !!input.truncate));
       await record({ teamId: who.teamId, userId: who.user.id, kind: "backup", action: "ワールドをバックアップから戻す", target: row.name,
-        detail: `${name}(Pterodactyl のバックアップ${input.truncate ? "。今のファイルを消してから" : ""})` });
+        detail: `${name}(Pterodactyl のバックアップ${input.truncate ? "。いまのファイルを消してから" : ""})` });
       return { aside: [] as string[], files: 0 };
     }
     needFiles();

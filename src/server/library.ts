@@ -809,7 +809,7 @@ export function libraryService(deps: Deps) {
 
   async function itemOf(teamId: string, itemId: string) {
     const [i] = await db.select().from(libraryItem).where(and(eq(libraryItem.id, itemId), eq(libraryItem.teamId, teamId)));
-    if (!i) throw new HttpError(404, "見つかりません");
+    if (!i) throw new HttpError(404, "アドオンが見つかりません");
     return i;
   }
 
@@ -1027,7 +1027,7 @@ export function libraryService(deps: Deps) {
     /** CurseForge の API キーを設定する(使えることを確かめてから保存)。null なら消す */
     async setCurseforgeKey(headers: Headers, key: string | null) {
       const { teamId, user } = await requireTeam(auth, headers, { integrations: ["manage"] });
-      if (!deps.local) throw new HttpError(400, "CurseForge は、自分用の版だけで使えます");
+      if (!deps.local) throw new HttpError(400, "CurseForge は、自分で動かす CraftShelf だけで使えます");
       if (key === null) {
         await db.delete(teamCurseforge).where(eq(teamCurseforge.teamId, teamId));
         forgetLatest(teamId);
@@ -1257,7 +1257,7 @@ export function libraryService(deps: Deps) {
         .where(and(eq(libraryFile.itemId, itemId), eq(libraryItem.teamId, teamId)));
       for (const { f } of own) await files.dropFile(teamId, f);
       const gone = await db.delete(libraryItem).where(and(eq(libraryItem.id, itemId), eq(libraryItem.teamId, teamId))).returning({ title: libraryItem.title });
-      if (!gone.length) throw new HttpError(404, "見つかりません");
+      if (!gone.length) throw new HttpError(404, "アドオンが見つかりません");
       await record({ teamId, userId: user.id, kind: "admin", action: "ライブラリから外す", target: gone[0].title });
     },
 
@@ -1268,7 +1268,7 @@ export function libraryService(deps: Deps) {
       if (!t || t.length > TAG_MAX) throw new HttpError(400, `タグは 1〜${TAG_MAX} 文字にしてください`);
       const ids = itemIds.length ? (await db.select({ id: libraryItem.id }).from(libraryItem)
         .where(and(eq(libraryItem.teamId, teamId), inArray(libraryItem.id, itemIds)))).map((r) => r.id) : [];
-      if (!ids.length) throw new HttpError(404, "見つかりません");
+      if (!ids.length) throw new HttpError(404, "アドオンが見つかりません");
       if (on) {
         const full = await db.select({ itemId: libraryTag.itemId, n: count() }).from(libraryTag).where(inArray(libraryTag.itemId, ids)).groupBy(libraryTag.itemId);
         if (full.some((f) => f.n >= TAGS_PER_ITEM)) throw new HttpError(400, `タグは 1 つにつき ${TAGS_PER_ITEM} 個までです`);
@@ -1283,7 +1283,7 @@ export function libraryService(deps: Deps) {
     async favorite(headers: Headers, itemId: string, on: boolean) {
       const { teamId, user } = await requireTeam(auth, headers);
       const [i] = await db.select({ id: libraryItem.id }).from(libraryItem).where(and(eq(libraryItem.id, itemId), eq(libraryItem.teamId, teamId)));
-      if (!i) throw new HttpError(404, "見つかりません");
+      if (!i) throw new HttpError(404, "アドオンが見つかりません");
       if (on) await db.insert(libraryFavorite).values({ userId: user.id, itemId }).onConflictDoNothing();
       else await db.delete(libraryFavorite).where(and(eq(libraryFavorite.userId, user.id), eq(libraryFavorite.itemId, itemId)));
     },
@@ -1389,7 +1389,7 @@ export function libraryService(deps: Deps) {
           return { title: r.found[0].title, how: "found" as const };
         }
       }
-      if (!deps.local) throw new HttpError(404, "配布元が見つかりませんでした(配布元のわからないファイルを取り込めるのは、自分用の版だけです)");
+      if (!deps.local) throw new HttpError(404, "配布元が見つかりませんでした(配布元のわからないファイルを取り込めるのは、自分で動かす CraftShelf だけです)");
       return { title: (await uploadService(deps).fromServer(headers, id, filename)).title, how: "upload" as const };
     },
 

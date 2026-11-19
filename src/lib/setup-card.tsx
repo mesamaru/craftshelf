@@ -30,7 +30,7 @@ export function SetupCard({ cat, local, pinned }: { cat: Catalog; local: boolean
   const skip = (k: string) => save({ ...st, skip: [...(st.skip ?? []), k] });
   const skipped = (k: string) => !!st.skip?.includes(k);
   const steps = ([
-    local && { k: "storage", t: "保存先を決める", done: !!cat.storage?.name || skipped("storage"), later: "ローカルのままにする", to: "/storage", go: "保存先を開く",
+    local && { k: "storage", t: "保存先を決める", done: !!cat.storage?.name || skipped("storage"), later: "パネルの中のままにする", to: "/storage", go: "保存先を開く",
       info: "初めはこのパネルの中(ローカル)に保存します。NAS などに置くなら、保存先を足します。" },
     { k: "addon", t: "アドオンを追加する", done: cat.items.length > 0 },
     { k: "server", t: "サーバーをつなぐ", done: cat.servers.length > 0, to: "/servers", go: "サーバーを開く" },

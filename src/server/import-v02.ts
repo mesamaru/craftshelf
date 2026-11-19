@@ -855,7 +855,7 @@ export async function maybeImportV02Pins(db: Db, opts: { v02Dir: string; v03Dir:
 export const V02_PERMS: Record<string, { grants: Grant[]; note?: string }> = {
   storage: { grants: ["storage:manage"], note: "パネルのバックアップは、v03 では管理者以上だけです" },
   audit: { grants: ["audit:read"] },
-  integrations: { grants: ["integrations:manage"], note: "Pterodactyl のパネルを登録するのは、v03 では「サーバーを追加する」の権限です(要るなら「ユーザーと権限」で足してください)" },
+  integrations: { grants: ["integrations:manage"], note: "Pterodactyl のパネルを登録するのは、v03 では「サーバーを追加する」の権限です(要るなら「メンバーと権限」で足してください)" },
   system: { grants: ["panel:manage"] },
   users: { grants: [], note: "v03 では、メンバーの招待・役割の変更は管理者以上だけです(要るなら役割を管理者にしてください)" },
 };

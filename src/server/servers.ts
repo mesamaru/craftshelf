@@ -92,7 +92,7 @@ export async function serverOf(deps: Deps, who: Who | string, id: string) {
   if (!s) throw new HttpError(404, "サーバーが見つかりません");
   if (typeof who !== "string") await needServerAccess(deps, who, s.id);
   if (s.kind === "local") {
-    if (!deps.local) throw new HttpError(400, "フォルダのサーバーは、自分用の版だけで使えます");
+    if (!deps.local) throw new HttpError(400, "フォルダのサーバーは、自分で動かす CraftShelf だけで使えます");
     const [l] = await deps.db.select().from(localServer).where(eq(localServer.serverId, s.id));
     if (!l) throw new HttpError(404, "サーバーのフォルダの設定が見つかりません");
     let root: string;
@@ -305,7 +305,7 @@ export function serverService(deps: Deps) {
     /** パネルから見えるフォルダをたどる(フォルダと jar だけ。管理者以上・自分用の版だけ) */
     async browseHost(headers: Headers, path: string) {
       await requireTeam(auth, headers, { server: ["create"], ...HOST_ADMIN });
-      if (!deps.local) throw new HttpError(400, "フォルダのサーバーは、自分用の版だけで使えます");
+      if (!deps.local) throw new HttpError(400, "フォルダのサーバーは、自分で動かす CraftShelf だけで使えます");
       const p = resolve(String(path || "/"));
       if (!isAbsolute(p)) throw new HttpError(400, "フォルダの場所が正しくありません");
       let list;
@@ -322,7 +322,7 @@ export function serverService(deps: Deps) {
     /** フォルダのサーバーを追加する(管理者以上・自分用の版だけ)。jar の名前から種類とバージョンを決める */
     async addLocal(headers: Headers, input: { rootDir: string; name: string; jar?: string }) {
       const { teamId, user } = await requireTeam(auth, headers, { server: ["create"], ...HOST_ADMIN });
-      if (!deps.local) throw new HttpError(400, "フォルダのサーバーは、自分用の版だけで使えます");
+      if (!deps.local) throw new HttpError(400, "フォルダのサーバーは、自分で動かす CraftShelf だけで使えます");
       let root: string;
       try {
         root = checkRoot(input.rootDir, deps.local.dataDir);
@@ -377,7 +377,7 @@ export function serverService(deps: Deps) {
         detail: { none: "設定しない", command: "コマンド", docker: `Docker(${container})` }[input.control] });
     },
 
-    /** 動いているか・CPU・メモリと、Minecraft のサーバーの人数・名前の一部・応答の速さ(ping。つながらなければ null)。5 秒のあいだは覚えた結果を返す */
+    /** 動いているか・CPU・メモリと、Minecraft のサーバーの人数・名前の一部・応答の速さ(ping。つながらなければ null)。5 秒のあいだは前の結果を返す */
     async status(headers: Headers, id: string) {
       const who = await requireTeam(auth, headers);
       await needServerAccess(deps, who, id);

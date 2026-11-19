@@ -81,7 +81,7 @@ function Cleanup() {
     <main className="page fill">
       <Link to="/" className="back">‹ ライブラリ</Link>
       <header className="bar">
-        <h1>アドオンの整理<Info>条件に当てはまるものを抜き出して、確かめてから消せます。サーバーで使っている版・セットで固定した版は「古い版」「重複」に出しません。「どのサーバーにも入っていない」もののうち、セットに入っているものは最初は選んでいません。</Info></h1>
+        <h1>アドオンの整理<Info>条件に当てはまるものを探して、確かめてから消せます。サーバーで使っている版・セットで固定した版は「古い版」「重複」に出しません。「どのサーバーにも入っていない」もののうち、セットに入っているものは最初は選んでいません。</Info></h1>
       </header>
       {!can({ library: ["edit"] }) && <section className="group"><div className="row muted">整理できるのは、編集者以上の人です。</div></section>}
       <ChipBar label="条件">
@@ -99,7 +99,7 @@ function Cleanup() {
               <span className="sub">{c.param[2]}</span>
             </label>
           )}
-          <Btn kind="pri" sm disabled={busy} onClick={run}>{busy && !rows ? "抜き出しています…" : "抜き出す"}</Btn>
+          <Btn kind="pri" sm disabled={busy} onClick={run}>{busy && !rows ? "探しています…" : "探す"}</Btn>
         </div>
       </section>
       {rows && (

@@ -54,7 +54,7 @@ type Sort = "fav" | "name" | "new" | "old" | "size" | "count";
 type Filter = { q: string; type: string; source: string; tag: string; mc: string; sort: Sort; fav: boolean; nomc: boolean; old: boolean; oldIds: Map<string, Set<string>> | null;
   deps: boolean; depIds: Map<string, DepInfo> | null };
 const NO_FILTER: Filter = { q: "", type: "", source: "", tag: "", mc: "", sort: "fav", fav: false, nomc: false, old: false, oldIds: null, deps: false, depIds: null };
-const SORTS: [Sort, string][] = [["fav", "お気に入りを上に"], ["name", "名前順"], ["new", "追加が新しい順"], ["old", "更新があるものを上に"], ["size", "大きい順"], ["count", "バージョンが多い順"]];
+const SORTS: [Sort, string][] = [["fav", "お気に入りを上に"], ["name", "名前順"], ["new", "追加が新しい順"], ["old", "更新があるものを上に"], ["size", "大きい順"], ["count", "版が多い順"]];
 
 // 名前順で来たものを、選んだ並べ方に
 function filterItems(items: CatItem[], f: Filter) {
@@ -454,7 +454,7 @@ function Bulk({ ids, cat, share, allShown, onAll, onClear, onDone }:
   );
 }
 
-// アイテムの詳しい情報(右のシート。v02 と同じ並び): 種類の印・名前 ☆・版の情報・編集・⋯ / タグ / 配布元 / 共有 / 保存しているバージョン / 前提 / 変更内容 / 情報。
+// アイテムの詳しい情報(右のシート。v02 と同じ並び): 種類の印・名前 ☆・版の情報・編集・⋯ / タグ / 配布元 / 共有 / 保存している版 / 前提 / 変更内容 / 情報。
 // どのサーバーに入っているかは出さない(入れる・更新は ⋯ から、入れる先を選ぶ)
 function ItemSheet({ item, cat, edit, admin, local, old, depInfo, onChange, onDeps, onFavorite, onClose, onRemoved }:
   { item: CatItem; cat: Catalog; edit: boolean; admin: boolean; local: boolean; old?: Set<string>; depInfo?: DepInfo;
@@ -541,7 +541,7 @@ function ItemSheet({ item, cat, edit, admin, local, old, depInfo, onChange, onDe
           <section className="group"><div className="row"><ShareMaker itemIds={[item.id]} name={item.title} label="共有リンクを作る(いちばん新しい版)" /></div></section>
         </>}
         {(item.source === "upload" || local) && <>
-          <div className="gtitle">{`保存しているバージョン(${item.files})`}</div>
+          <div className="gtitle">{`保存している版(${item.files})`}</div>
           <Files item={item} keep={cat.keep} edit={edit} local={local} onChange={onChange} />
         </>}
         <div className="gtitle">前提</div>
@@ -563,7 +563,7 @@ function SourceBox({ item, url }: { item: CatItem; url: string | null }) {
       <section className="group">
         <div className="row">
           <span className="ic"><span className="icon-ph t-link"><Icon name="link" /></span></span>
-          <span className="mid"><span className="ttl">配布元が未設定です</span><span className="sub">{item.origin ? sourceLabel(item.source, item.origin) : "アップロードしたもの"}</span></span>
+          <span className="mid"><span className="ttl">配布元がわかりません</span><span className="sub">{item.origin ? sourceLabel(item.source, item.origin) : "アップロードしたもの"}</span></span>
           <Info>アップロードしたものは、ファイルのまま扱います(配布元からは更新しません)。配布元のものを使うときは、「＋ 追加」で配布元から足してください。</Info>
         </div>
       </section>
@@ -680,7 +680,7 @@ function DepWarnings({ servers, edit, onInstalled }: { servers: DepInfo; edit: b
     <section className="group">
       {[...deps].map(([k, { dep, serverIds }]) => (
         <div key={k} className="row">
-          <span className="badge bad">前提</span>
+          <span className="badge bad">前提不足</span>
           <AddonIcon type={dep.projectType} url={dep.iconUrl} />
           <span className="mid"><span className="ttl" translate="no">{dep.title}</span><span className="sub">{`${serverIds.length} 台に足りません`}</span></span>
           {edit && <Btn kind="tint" sm disabled={!!busy} onClick={() => add(k)}>{busy === k ? "入れています…" : "入れる"}</Btn>}
@@ -869,7 +869,7 @@ function EditInfo({ item, teamChannel, onDone, onClose }: { item: CatItem; teamC
   );
 }
 
-// 保存しているバージョン(アップロードしたもの・保存した配布元の版。新しい順): ダウンロード・削除と、保存の設定(保存するか・古い版を残す数)
+// 保存している版(アップロードしたもの・保存した配布元の版。新しい順): ダウンロード・削除と、保存の設定(保存するか・古い版を残す数)
 function Files({ item, keep, edit, local, onChange }: { item: CatItem; keep: Catalog["keep"]; edit: boolean; local: boolean; onChange: () => void }) {
   const itemId = item.id;
   const load = useServerFn(uploadedFiles);
@@ -911,7 +911,7 @@ function Files({ item, keep, edit, local, onChange }: { item: CatItem; keep: Cat
             <span className="sub"><span translate="no">{f.filename}</span> · {fmtSize(f.size)} · {new Date(f.createdAt).toLocaleString("ja-JP", { dateStyle: "medium", timeStyle: "short" })}{f.loaders.length ? ` · ${f.loaders.join(" / ")}` : ""}{f.origin && !(upstream && f.origin === "upstream") ? ` · ${originLabel(f.origin)}` : ""}</span>
           </span>
           <a className="rbtn sm" href={`/api/library/files/${f.id}`} download aria-label="ダウンロード" title="ダウンロード"><Icon name="download" /></a>
-          {edit && <button type="button" className="rbtn sm red" aria-label="削除" title="削除"
+          {edit && <button type="button" className="rbtn sm red" aria-label="消す" title="消す"
             onClick={async () => (await confirmDialog({ message: `${f.filename} を消しますか?(保存先からも消えます。サーバーに入っているものはそのままです)`, ok: "消す", danger: true })) && remove({ data: { fileId: f.id } }).then(() => { reload(); onChange(); }, (e) => setError(message(e)))}><Icon name="trash" /></button>}
         </div>
       ))}

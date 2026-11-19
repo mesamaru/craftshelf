@@ -4,7 +4,7 @@ import { kindLabel } from "./platforms";
 export type ServerSort = "name" | "nameDesc" | "running" | "update" | "players" | "new" | "kind";
 export type ServerFilter = "all" | "running" | "stopped" | "update";
 export const SERVER_SORTS: [ServerSort, string][] = [
-  ["name", "名前順"], ["nameDesc", "名前の逆順"], ["running", "稼働中を上に"], ["update", "更新があるものを上に"], ["players", "人数が多い順"], ["new", "追加が新しい順"], ["kind", "種類順"],
+  ["name", "名前順"], ["nameDesc", "名前の逆順"], ["running", "稼働中を上に"], ["update", "更新があるものを上に"], ["players", "プレイヤーが多い順"], ["new", "追加が新しい順"], ["kind", "種類順"],
 ];
 export const SERVER_FILTERS: [ServerFilter, string][] = [["all", "すべて"], ["running", "稼働中"], ["stopped", "停止中"], ["update", "更新あり"]];
 export const isServerSort = (v: unknown): v is ServerSort => SERVER_SORTS.some(([k]) => k === v);

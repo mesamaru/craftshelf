@@ -57,7 +57,7 @@ function Backup() {
     setError("再起動を待ちきれませんでした。少し待ってから開き直してください");
   };
   const upload = async (file: File) => {
-    if (!(await confirmDialog({ message: `${file.name} から戻しますか?パネルが再起動し、今のデータと入れ替えます(今のデータは消さずに残します)`, ok: "戻す", danger: true }))) return;
+    if (!(await confirmDialog({ message: `${file.name} から戻しますか?パネルが再起動し、いまのデータと入れ替えます(いまのデータは消さずに残します)`, ok: "戻す", danger: true }))) return;
     setBusy("送っています…");
     setError("");
     const res = await fetch("/api/backup/restore", { method: "POST", body: file });
@@ -74,7 +74,7 @@ function Backup() {
       <span className="main"><span translate="no">{at ? new Date(at).toLocaleString("ja-JP") : ""}</span><span className="muted small" translate="no">{name}{bytes !== null ? ` · ${fmtSize(bytes)}` : ""}</span></span>
       <a className="trail link" href={`/api/backup/${name}`} download>ダウンロード</a>
       <button className="link" type="button" disabled={!!busy} onClick={async () => {
-        if (!(await confirmDialog({ message: "このバックアップから戻しますか?パネルが再起動し、今のデータと入れ替えます(今のデータは消さずに残します)", ok: "戻す", danger: true }))) return;
+        if (!(await confirmDialog({ message: "このバックアップから戻しますか?パネルが再起動し、いまのデータと入れ替えます(いまのデータは消さずに残します)", ok: "戻す", danger: true }))) return;
         setBusy("切り替えています…");
         setError("");
         try {
@@ -89,14 +89,14 @@ function Backup() {
   );
 
   return (
-    <SettingsFrame at="backup" info={<span>バックアップには、データベース(チーム・サーバー・ライブラリ・設定)、保存したパスワードなどを解く鍵、パネルの中に置いたアドオンが入ります(NAS などほかの保存先のファイルと、サーバーのファイルは入りません)。鍵が入るので、ダウンロードしたものは大切に保管してください。戻すときは、今のデータを before-restore-… のフォルダに移して残します。</span>}>
+    <SettingsFrame at="backup" info={<span>バックアップには、データベース(チーム・サーバー・ライブラリ・設定)、保存したパスワードなどを解く鍵、パネルの中に置いたアドオンが入ります(NAS などほかの保存先のファイルと、サーバーのファイルは入りません)。鍵が入るので、ダウンロードしたものは大切に保管してください。戻すときは、いまのデータを before-restore-… のフォルダに移して残します。</span>}>
       {(data?.pending || data?.reimport) && (
         <p className="notice" role="status">
           {data.reimport ? "次の起動で v02 から取り込み直します。" : "次の起動でバックアップと入れ替えます。"}<button type="button" className="link" disabled={!!busy} onClick={() => run("やめています…", () => cancel())}>やめる</button>
         </p>
       )}
       <section className="group">
-        <button className="row link" type="button" disabled={!!busy || !data} onClick={() => run("作っています…", () => create())}>{busy === "作っています…" ? busy : "今のデータのバックアップを作る"}</button>
+        <button className="row link" type="button" disabled={!!busy || !data} onClick={() => run("作っています…", () => create())}>{busy === "作っています…" ? busy : "いまのデータのバックアップを作る"}</button>
       </section>
       {data && draft && (
         <>
@@ -163,7 +163,7 @@ function Backup() {
           <section className="group">
             <Link to="/settings" search={{ s: "import" }} className="row click"><span className="mid"><span className="ttl">取り込んだ内容</span></span><span className="chev" aria-hidden="true">›</span></Link>
             <button className="row link danger" type="button" disabled={!!busy} onClick={async () => {
-              if (!(await confirmDialog({ message: "v02 のデータを取り込み直しますか?パネルが再起動し、v03 の今のデータ(v03 で変えたこと)を before-reimport-… のフォルダに移して、v02 のデータを取り込み直します。", ok: "取り込み直す", danger: true }))) return;
+              if (!(await confirmDialog({ message: "v02 のデータを取り込み直しますか?パネルが再起動し、v03 のいまのデータ(v03 で変えたこと)を before-reimport-… のフォルダに移して、v02 のデータを取り込み直します。", ok: "取り込み直す", danger: true }))) return;
               setBusy("切り替えています…");
               setError("");
               try {

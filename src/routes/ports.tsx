@@ -52,7 +52,7 @@ function Ports() {
     try {
       const r = await scan({ data: {} });
       setData(r);
-      setNote(r.failed.length ? `読み取れなかったサーバー: ${r.failed.map((f) => `${f.name}(${f.message})`).join("、")}` : "読み取りました");
+      setNote(r.failed.length ? `読み取れなかったサーバー: ${r.failed.map((f) => `${f.name}(${f.message})`).join("、")}` : "設定ファイルを読み取りました");
     } catch (e) {
       setNote(message(e));
     } finally {
@@ -72,7 +72,7 @@ function Ports() {
       </header>
       <ChipBar label="絞り込み" tools={edit && <>
         <Btn sm onClick={() => setPanel({ type: "rules" })}>種類とグループ</Btn>
-        <Btn sm onClick={rescan} disabled={busy}>{busy ? "読み取っています…" : "再読込"}</Btn>
+        <Btn sm onClick={rescan} disabled={busy}>{busy ? "読み取っています…" : "読み取り直す"}</Btn>
       </>}>
         <Chip on={!machine && !onlyProblems} onClick={() => { setMachine(""); setOnlyProblems(false); }}>すべて</Chip>
         <Chip on={onlyProblems} warn onClick={() => setOnlyProblems(!onlyProblems)}>問題だけ<span className="n">{data.problems.length}</span></Chip>
@@ -81,7 +81,7 @@ function Ports() {
           <Chip key={m} on={machine === m} translate="no" onClick={() => setMachine(machine === m ? "" : m)}>{m.split("/").pop() || "(不明)"}</Chip>
         ))}
       </ChipBar>
-      {note && <p className={`notice${note === "読み取りました" ? " ok" : ""}`} role="status">{note}</p>}
+      {note && <p className={`notice${note === "設定ファイルを読み取りました" ? " ok" : ""}`} role="status">{note}</p>}
 
       {data.servers.length === 0 ? (
         <section className="group"><div className="row muted">サーバーがありません。「サーバー」で Pterodactyl のサーバーを追加してください。</div></section>
@@ -331,7 +331,7 @@ function ServerPanel({ data, server, focus, addKind, edit, onClose, onSaved }:
         <div className="row">
           <span className="main"><span>マシン</span><span className="muted">{server.machine.split("/").pop() || "(不明)"} · 自動更新 {server.scannedAt ? new Date(server.scannedAt).toLocaleString("ja-JP") : "まだ"}</span></span>
           <button className="btn sec sm" type="button" disabled={busy}
-            onClick={async () => { setBusy(true); try { onSaved(await scan({ data: { serverId: server.id } })); onClose(); } catch (x) { setError(message(x)); } finally { setBusy(false); } }}>再読込</button>
+            onClick={async () => { setBusy(true); try { onSaved(await scan({ data: { serverId: server.id } })); onClose(); } catch (x) { setError(message(x)); } finally { setBusy(false); } }}>読み取り直す</button>
         </div>
       </section>
 
@@ -385,7 +385,7 @@ function ServerPanel({ data, server, focus, addKind, edit, onClose, onSaved }:
                   autoFocus={d.id === focus || (!d.id && i === rows.length - 1)} aria-label="ポート番号" onChange={(e) => set(i, { port: e.target.value.trim() })} />
                 {edit && (auto
                   ? <button className="btn sec sm" type="button" onClick={() => set(i, { ignored: !d.ignored })} title="次の読み取りでも出てこないようにします">{d.ignored ? "戻す" : "管理から外す"}</button>
-                  : <button className="btn red sm" type="button" onClick={() => (d.id ? set(i, { remove: !d.remove }) : setRows((r) => r.filter((_, j) => j !== i)))}>{d.remove ? "戻す" : "削除"}</button>)}
+                  : <button className="btn red sm" type="button" onClick={() => (d.id ? set(i, { remove: !d.remove }) : setRows((r) => r.filter((_, j) => j !== i)))}>{d.remove ? "戻す" : "消す"}</button>)}
               </span>
               <span className="muted small">{SOURCE[d.source] ?? d.source}{d.file ? ` · ${d.file}${d.key ? ` の ${d.key}` : ""}` : ""}{d.source === "allocation" ? "(番号はパネルの「ネットワーク」で変えます)" : ""}</span>
               {st && <span className={`small ${st}`}>{why}{sugg.length > 0 && edit && <> → 空き: {sugg.map((n) => <button key={n} type="button" className="btn sec sm" onClick={() => set(i, { port: String(n) })}>{n}</button>)}</>}</span>}
@@ -474,7 +474,7 @@ function RulesPanel({ data, onClose, onSaved }: { data: Overview; onClose: () =>
               <b>{c.plugin}</b><span className="muted small"><code>{c.file}</code> の <code>{c.key}</code> · {c.proto}</span>
             </div>
           ))}
-          <div className="row muted small">この一覧は CraftShelf が最初から知っているものです。種類の「ファイル」「項目」にそのまま書けます。一覧に無いプラグインは、再読込のときに plugins/*/config.yml からポートらしい項目を探して、ベルで聞きます。</div>
+          <div className="row muted small">この一覧は CraftShelf が最初から知っているものです。種類の「ファイル」「項目」にそのまま書けます。一覧に無いプラグインは、読み取り直すときに plugins/*/config.yml からポートらしい項目を探して、ベルで聞きます。</div>
         </section>
       ) : tab === "kinds" ? (
         <section className="group">

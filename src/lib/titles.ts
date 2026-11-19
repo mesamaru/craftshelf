@@ -1,7 +1,7 @@
 // ページのタイトル(タブの名前)と、設定の各まとまりの名前。メニュー・設定の左の一覧・Ctrl K・タイトルで同じ名前を使う。
 // 英語表示のときは、画面と同じ辞書で訳す(src/lib/i18n.ts)
 
-/** 「ライブラリ - CraftShelf」のような題。parts は大きい順(「設定」「ユーザーと権限」など) */
+/** 「ライブラリ - CraftShelf」のような題。parts は大きい順(「設定」「メンバーと権限」など) */
 export const pageTitle = (...parts: (string | null | undefined | false)[]) => [...parts.filter(Boolean), "CraftShelf"].join(" - ");
 
 export type SettingsKey =
@@ -12,13 +12,13 @@ export type SettingsKey =
 /** 設定の左の一覧の名前(v02 の設定と同じ言葉) */
 export const SETTING_LABEL: Record<SettingsKey, string> = {
   profile: "プロフィール", security: "パスワードと二段階認証", passkeys: "パスキー", look: "見た目と言語",
-  members: "ユーザーと権限", perms: "権限と割り当て", activity: "操作の記録と通知", storage: "ストレージ", shares: "共有リンク",
+  members: "メンバーと権限", perms: "権限と割り当て", activity: "操作の記録と通知", storage: "保存先", shares: "共有リンク",
   tokens: "API トークン", curseforge: "CurseForge API キー", setup: "はじめの設定", channel: "受け取る版",
-  backup: "バックアップ", versions: "パネルのアップデート", usage: "ユーザーごとの利用状況", telemetry: "利用状況の送信",
+  backup: "バックアップ", versions: "パネルのアップデート", usage: "メンバーごとの利用状況", telemetry: "利用状況の送信",
   api: "API の説明", import: "v02 からの取り込み", feedback: "お問い合わせ・要望", cleanup: "アドオンの整理",
 };
 
-/** 設定のまとまりの題(例 設定: ユーザーと権限 - CraftShelf)。key が無い・知らないときは「設定 - CraftShelf」 */
+/** 設定のまとまりの題(例 設定: メンバーと権限 - CraftShelf)。key が無い・知らないときは「設定 - CraftShelf」 */
 export const settingsTitle = (key?: string | null) => pageTitle(key && key in SETTING_LABEL ? `設定: ${SETTING_LABEL[key as SettingsKey]}` : "設定");
 
 /** Ctrl K の「画面」の行き先(名前は、いまのメニュー・設定の一覧に合わせる) */

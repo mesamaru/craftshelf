@@ -58,7 +58,7 @@ export function backupService(deps: Deps) {
   const jobs = jobService(deps);
   const { storeOf } = fileStore(deps);
   const v03Dir = () => {
-    if (!deps.local) throw new HttpError(400, "バックアップは、自分用の版だけで使えます");
+    if (!deps.local) throw new HttpError(400, "バックアップは、自分で動かす CraftShelf だけで使えます");
     return join(deps.local.dataDir, "v03");
   };
   const backupsDir = () => join(v03Dir(), "backups");

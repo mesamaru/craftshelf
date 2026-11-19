@@ -16,7 +16,7 @@ const num = (v: unknown, d: number) => (typeof v === "number" ? v : typeof v ===
 export const ROUTES: Route[] = [
   // サーバー
   { method: "GET", path: "/servers", scope: "read", summary: "サーバーの一覧", handler: (s, h) => s.servers.listServers(h) },
-  { method: "GET", path: "/servers/statuses", scope: "read", summary: "権限のあるサーバーすべての状態を 1 回で(id → 状態。つながらないサーバーは理由の文。ids にサーバーの ID をカンマで区切ると絞れる。外への問い合わせは同時に 8 つまで・5 秒は覚えた結果)", handler: (s, h, _p, b) => s.servers.statuses(h, str(b.ids) ? str(b.ids).split(",").filter(Boolean).slice(0, 200) : undefined) },
+  { method: "GET", path: "/servers/statuses", scope: "read", summary: "権限のあるサーバーすべての状態を 1 回で(id → 状態。つながらないサーバーは理由の文。ids にサーバーの ID をカンマで区切ると絞れる。外への問い合わせは同時に 8 つまで・5 秒のあいだは前の結果を返します)", handler: (s, h, _p, b) => s.servers.statuses(h, str(b.ids) ? str(b.ids).split(",").filter(Boolean).slice(0, 200) : undefined) },
   { method: "GET", path: "/servers/:id", scope: "read", summary: "サーバーの名前・種類・バージョン", handler: (s, h, [id]) => s.library.detail(h, id) },
   { method: "POST", path: "/servers/:id/profile", scope: "admin", summary: "サーバーの種類(platform: paper・fabric など)と Minecraft のバージョン(mcVersion)を設定する", example: { platform: "paper", mcVersion: "1.21.4" }, handler: (s, h, [id], b) => s.library.setProfile(h, id, { platform: str(b.platform), mcVersion: str(b.mcVersion) }) },
   { method: "GET", path: "/servers/:id/status", scope: "read", summary: "サーバーの状態(動いているか・CPU・メモリ・ping: 人数・名前の一部・応答の速さ)", handler: (s, h, [id]) => s.servers.status(h, id) },
@@ -24,9 +24,9 @@ export const ROUTES: Route[] = [
   { method: "GET", path: "/servers/:id/logs", scope: "control", summary: "最近のログ(logs/latest.log の最後の行。lines で 20〜1000 行)", handler: (s, h, [id], b) => s.files.logs(h, id, num(b.lines, 400)) },
   { method: "POST", path: "/servers/:id/command", scope: "control", summary: "コンソールにコマンドを送る(command)", example: { command: "say こんにちは" }, handler: (s, h, [id], b) => s.files.command(h, id, str(b.command)) },
   // サーバー本体
-  { method: "GET", path: "/servers/:id/software", scope: "read", summary: "サーバー本体の今のビルドと、いちばん新しいビルド", handler: (s, h, [id]) => s.software.info(h, id) },
+  { method: "GET", path: "/servers/:id/software", scope: "read", summary: "サーバー本体のいまのビルドと、いちばん新しいビルド", handler: (s, h, [id]) => s.software.info(h, id) },
   { method: "POST", path: "/servers/:id/software", scope: "admin", summary: "サーバー本体をいちばん新しいビルドに入れ替える(restart: true で再起動も)", example: { restart: true }, handler: (s, h, [id], b) => s.software.update(h, id, b.restart === true) },
-  { method: "GET", path: "/servers/:id/software/builds", scope: "read", summary: "サーバー本体の配布元のビルドの一覧(今の Minecraft のバージョンの)と、選べるバージョン", handler: (s, h, [id]) => s.software.builds(h, id) },
+  { method: "GET", path: "/servers/:id/software/builds", scope: "read", summary: "サーバー本体の配布元のビルドの一覧(いまの Minecraft のバージョンの)と、選べるバージョン", handler: (s, h, [id]) => s.software.builds(h, id) },
   { method: "POST", path: "/servers/:id/software/install", scope: "admin", summary: "サーバー本体を選んだビルドに入れ替える(mc・build を省くといちばん新しいもの。restart: true で再起動も)", example: { mc: "1.21.4", build: "", restart: false }, handler: (s, h, [id], b) => s.software.install(h, id, { mc: str(b.mc) || undefined, build: str(b.build) || undefined, restart: b.restart === true }) },
   { method: "POST", path: "/servers/:id/software/rollback", scope: "admin", summary: "サーバー本体を残した jar に戻す(file を省くといちばん新しいもの)", example: {}, handler: (s, h, [id], b) => s.software.rollback(h, id, str(b.file) || undefined) },
   // サーバーの Mod・プラグイン
@@ -61,7 +61,7 @@ export const ROUTES: Route[] = [
   { method: "GET", path: "/servers/:id/worlds", scope: "control", summary: "ワールドのバックアップの一覧と設定(Pterodactyl はパネルのバックアップ)", handler: (s, h, [id]) => s.worlds.get(h, id) },
   { method: "POST", path: "/servers/:id/worlds", scope: "control", summary: "ワールドのバックアップを始める(終わると一覧・処理の一覧・操作の記録に出る)", example: {}, handler: async (s, h, [id]) => { await s.worlds.create(h, id); return { started: true }; } },
   { method: "POST", path: "/servers/:id/worlds/remove", scope: "control", summary: "ワールドのバックアップを消す(name)", example: { name: "world-20261109-050000.tar.gz" }, handler: (s, h, [id], b) => s.worlds.remove(h, id, str(b.name)) },
-  { method: "POST", path: "/servers/:id/worlds/restore", scope: "admin", summary: "ワールドをバックアップから戻す(name。stop: true で動いていたら止める、truncate: true で Pterodactyl の今のファイルを消してから)", example: { name: "world-20261109-050000.tar.gz", stop: true, truncate: false }, handler: (s, h, [id], b) => s.worlds.restore(h, id, str(b.name), { stop: b.stop === true, truncate: b.truncate === true }) },
+  { method: "POST", path: "/servers/:id/worlds/restore", scope: "admin", summary: "ワールドをバックアップから戻す(name。stop: true で動いていたら止める、truncate: true で Pterodactyl のいまのファイルを消してから)", example: { name: "world-20261109-050000.tar.gz", stop: true, truncate: false }, handler: (s, h, [id], b) => s.worlds.restore(h, id, str(b.name), { stop: b.stop === true, truncate: b.truncate === true }) },
   // ライブラリ
   { method: "GET", path: "/library", scope: "read", summary: "ライブラリ(チームの Mod・プラグイン・データパック・リソースパック・シェーダー・Modパック。対応 MC・受け取る版・手で決めた前提を含む)", handler: (s, h) => s.library.catalog(h) },
   { method: "GET", path: "/library/search", scope: "read", summary: "ライブラリに足すものを配布元で探す(query、type: plugin / mod / datapack / resourcepack / shader / modpack、source)", handler: (s, h, _p, b) => s.library.searchCatalog(h, str(b.query), str(b.type) || "plugin", str(b.source) || "modrinth") },
@@ -75,7 +75,7 @@ export const ROUTES: Route[] = [
   { method: "POST", path: "/library/:id/remove", scope: "library", summary: "ライブラリから外す(サーバーに入っているものはそのまま)", example: {}, handler: (s, h, [id]) => s.library.removeItem(h, id) },
   { method: "GET", path: "/library/:id/versions", scope: "read", summary: "アイテムの配布元の版(新しい順)。変更内容は /library/:id/versions/:versionId/changelog", handler: (s, h, [id]) => s.library.itemVersions(h, id) },
   { method: "GET", path: "/library/:id/versions/:versionId/changelog", scope: "read", summary: "版の変更内容(Modrinth・CurseForge。文字だけ)", handler: (s, h, [id, v]) => s.library.itemChangelog(h, id, v) },
-  { method: "POST", path: "/library/:id/save", scope: "library", summary: "配布元の版を保存先に保存する(自分用の版。versionId を省くと、受け取る版のとおりのいちばん新しい版)", example: { versionId: "" }, handler: (s, h, [id], b) => s.saved.save(h, id, str(b.versionId) || undefined) },
+  { method: "POST", path: "/library/:id/save", scope: "library", summary: "配布元の版を保存先に保存する(自分で動かす CraftShelf。versionId を省くと、受け取る版のとおりのいちばん新しい版)", example: { versionId: "" }, handler: (s, h, [id], b) => s.saved.save(h, id, str(b.versionId) || undefined) },
   { method: "POST", path: "/library/:id/keep", scope: "library", summary: "アイテムの保存の設定(keepFiles: \"\" = チームの既定 / on / off、keepVersions: 古い版を残す数。null = チームの既定・0 = 整理しない)", example: { keepFiles: "on", keepVersions: 3 }, handler: (s, h, [id], b) => s.saved.setItem(h, id, { keepFiles: str(b.keepFiles), keepVersions: b.keepVersions === null || b.keepVersions === undefined ? null : num(b.keepVersions, 0) }) },
   { method: "GET", path: "/library/cleanup", scope: "library", summary: "アドオンの整理: 条件(cond: old = 古い版 / dup = 同じ版の重複 / stale = 長く更新の無いもの / unused = どのサーバーにも入っていないもの、n = 残す数か月数)に当てはまるもの", handler: (s, h, _p, b) => s.saved.cleanup(h, str(b.cond) as never, num(b.n, 3)) },
   { method: "POST", path: "/library/cleanup/delete", scope: "library", summary: "アドオンの整理で選んだものを消す(fileIds: 版の ID の配列、itemIds: ライブラリから外すアイテムの ID の配列)", example: { fileIds: [], itemIds: [] }, handler: (s, h, _p, b) => s.saved.cleanupRemove(h, { fileIds: ids(b.fileIds), itemIds: ids(b.itemIds) }) },
@@ -92,10 +92,10 @@ export const ROUTES: Route[] = [
   { method: "POST", path: "/sets/:id/apply", scope: "library", summary: "セットの中身をサーバーに入れる(serverId。足りないものだけ)", example: { serverId: "<サーバーの ID>" }, handler: (s, h, [id], b) => s.sets.apply(h, id, str(b.serverId)) },
   // パネル
   { method: "GET", path: "/me/permissions", scope: "read", summary: "自分のこのチームでの権限(役割・チームの設定・メンバーごとの足し引きを合わせたもの。\"種類:操作\" の一覧)", handler: (s, h) => s.teams.myPerms(h) },
-  { method: "GET", path: "/jobs", scope: "read", summary: "処理の一覧(導入・そろえる・バックアップなど。待ち・実行中・成功・失敗)", handler: (s, h) => s.jobs.list(h) },
+  { method: "GET", path: "/jobs", scope: "read", summary: "処理の一覧(入れる・そろえる・バックアップなど。待ち・実行中・成功・失敗)", handler: (s, h) => s.jobs.list(h) },
   { method: "GET", path: "/events", scope: "admin", summary: "操作の記録", handler: (s, h) => s.events.list(h) },
-  { method: "GET", path: "/backups", scope: "admin", summary: "パネルのバックアップの一覧と定期バックアップの設定(自分用の版)", handler: (s, h) => s.backups.list(h) },
-  { method: "POST", path: "/backups", scope: "admin", summary: "パネルのバックアップを作る(自分用の版。置き場所・残す数は定期バックアップの設定のもの)", example: {}, handler: (s, h) => s.backups.create(h) },
+  { method: "GET", path: "/backups", scope: "admin", summary: "パネルのバックアップの一覧と定期バックアップの設定(自分で動かす CraftShelf)", handler: (s, h) => s.backups.list(h) },
+  { method: "POST", path: "/backups", scope: "admin", summary: "パネルのバックアップを作る(自分で動かす CraftShelf。置き場所・残す数は定期バックアップの設定のもの)", example: {}, handler: (s, h) => s.backups.create(h) },
 ];
 
 /** 画面の「API の説明」・GET /api/v1 に出す形 */

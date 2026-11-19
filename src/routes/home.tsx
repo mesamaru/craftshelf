@@ -31,7 +31,7 @@ const SHOW_SERVERS = 8; // サーバー欄は 8 台まで。残りは「ほか N
 const SHOW = 4; // 一覧は 4 件まで。あとは「もっと見る」でライブラリへ
 const NAMES = Object.fromEntries(DASH_WIDGETS) as Record<string, string>;
 
-// ホーム(v02 のダッシュボード): 数のカード・更新があるもの・最近追加したもの・種類ごとの件数・確認が必要なもの・サーバー・配布元の連携。
+// ホーム(v02 のダッシュボード): 数のカード・更新があるもの・最近追加したもの・種類ごとの件数・見てほしいもの・サーバー・配布元の連携。
 // 「ウィジェットを編集」で、並べ替え・表示 / 非表示・全幅・メモ / ToDo / 時計 / 今日の日付の追加ができる(並びはアカウントに保存)
 function Home() {
   const { user } = Route.useRouteContext();
@@ -41,7 +41,7 @@ function Home() {
   const outdated = useServerFn(outdatedLibraryServers);
   const save = useServerFn(saveMyDash);
   const [cat, setCat] = useState<Catalog | null>(null);
-  const [old, setOld] = useState<Map<string, string[]> | null>(null); // 古い版のあるアイテム → サーバー(「今すぐ確認」で配布元に問い合わせる)
+  const [old, setOld] = useState<Map<string, string[]> | null>(null); // 古い版のあるアイテム → サーバー(「いま確かめる」で配布元に問い合わせる)
   const [checking, setChecking] = useState(false);
   const [error, setError] = useState("");
   const [layout, setLayout] = useState<DashLayout>(() => cleanDash(user.dash ?? DASH_DEFAULT));
@@ -98,9 +98,9 @@ function Home() {
     tiles: (
       <div className="tiles">
         <Tile to="/" icon="library" k="登録しているもの" v={<>{items.length}<small>件</small></>} s={`${files} ファイル`} />
-        <Tile to={admin && cat.storage ? "/storage" : "/"} icon="disk" k="使っている容量" v={fmtSize(size)} s={cat.storage ? cat.storage.name || "ローカル" : ""} />
+        <Tile to={admin && cat.storage ? "/storage" : "/"} icon="disk" k="使っている容量" v={fmtSize(size)} s={cat.storage ? cat.storage.name || "パネルの中" : ""} />
         <Tile to="/" search={{ f: "upd" }} icon="reload" k="更新があるもの" warn={upd.length > 0} v={<>{old ? upd.length : "—"}<small>件</small></>} s={linked.length ? `配布元がわかる ${linked.length} 件を確かめます` : "配布元がわかるものがありません"} />
-        <Tile to="/" icon="link" k="配布元の連携" v={<>{pct}<small>%</small></>} s={`${linked.length} / ${items.length} 件`} />
+        <Tile to="/" icon="link" k="配布元" v={<>{pct}<small>%</small></>} s={`${linked.length} / ${items.length} 件`} />
       </div>
     ),
     updates: (
@@ -139,11 +139,11 @@ function Home() {
     ),
     attention: (
       <section className="card glass">
-        <div className="card-h"><h4>確認が必要なもの</h4>{editor && <Link to="/cleanup" className="btn sm tint"><Icon name="wand" />整理</Link>}</div>
+        <div className="card-h"><h4>見てほしいもの</h4>{editor && <Link to="/cleanup" className="btn sm tint"><Icon name="wand" />整理</Link>}</div>
         <div className="card-b">
           {noMc > 0 && <Link to="/" search={{ f: "nomc" }} className="kv linkish"><span>対応 MC が不明</span><span>{`${noMc} 件 ›`}</span></Link>}
           <Link to="/" search={{ f: "deps" }} className="kv linkish"><span>前提不足</span><span>確かめる ›</span></Link>
-          {items.length > linked.length && <div className="kv"><span>配布元が未設定</span><span>{`${items.length - linked.length} 件`}</span></div>}
+          {items.length > linked.length && <div className="kv"><span>配布元がわからない</span><span>{`${items.length - linked.length} 件`}</span></div>}
         </div>
       </section>
     ),
@@ -174,11 +174,11 @@ function Home() {
     ),
     links: (
       <section className="card glass">
-        <div className="card-h"><h4>配布元の連携</h4></div>
+        <div className="card-h"><h4>配布元</h4></div>
         <div className="card-b">
           <div className="meter" title={`${linked.length} / ${items.length} 件`}><i style={{ width: `${pct}%` }} /></div>
-          <div className="kv"><span>連携済み</span><span>{`${linked.length} 件`}</span></div>
-          <div className="kv"><span>未連携</span><span>{`${items.length - linked.length} 件`}</span></div>
+          <div className="kv"><span>わかる</span><span>{`${linked.length} 件`}</span></div>
+          <div className="kv"><span>わからない</span><span>{`${items.length - linked.length} 件`}</span></div>
         </div>
       </section>
     ),
@@ -186,7 +186,7 @@ function Home() {
       <section className="card glass">
         <div className="card-h"><h4>保存先とバックアップ</h4><Link to="/storage" className="btn sm">設定</Link></div>
         <div className="card-b">
-          <div className="kv"><span>保存先</span><span translate={cat.storage.name ? "no" : undefined}>{cat.storage.name || "ローカル"}</span></div>
+          <div className="kv"><span>保存先</span><span translate={cat.storage.name ? "no" : undefined}>{cat.storage.name || "パネルの中"}</span></div>
           <div className="kv"><span>自動バックアップ</span><span>{backup?.enabled ? `毎日 ${backup.time}` : "設定されていません"}</span></div>
         </div>
       </section>

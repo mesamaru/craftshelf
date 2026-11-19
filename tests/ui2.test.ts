@@ -46,8 +46,8 @@ describe("ページのタイトル", () => {
     expect(pageTitle("ライブラリ")).toBe("ライブラリ - CraftShelf");
     expect(pageTitle("サーバー: alpha")).toBe("サーバー: alpha - CraftShelf");
     expect(pageTitle()).toBe("CraftShelf");
-    expect(settingsTitle("members")).toBe("設定: ユーザーと権限 - CraftShelf");
-    expect(settingsTitle("storage")).toBe("設定: ストレージ - CraftShelf");
+    expect(settingsTitle("members")).toBe("設定: メンバーと権限 - CraftShelf");
+    expect(settingsTitle("storage")).toBe("設定: 保存先 - CraftShelf");
     expect(settingsTitle(undefined)).toBe("設定 - CraftShelf");
     expect(settingsTitle("nothing")).toBe("設定 - CraftShelf");
   });
@@ -57,7 +57,7 @@ describe("ページのタイトル", () => {
       pageTitle("パスワードの再設定"), pageTitle("利用規約"), pageTitle("プライバシー"), pageTitle("チームへの招待"), settingsTitle(),
       ...Object.keys(SETTING_LABEL).map((k) => settingsTitle(k))];
     for (const t of all) expect(translate(t), t).not.toMatch(/[぀-ヿ㐀-鿿]/);
-    expect(translate(settingsTitle("members"))).toBe("Settings: Users and permissions - CraftShelf");
+    expect(translate(settingsTitle("members"))).toBe("Settings: Members and permissions - CraftShelf");
     expect(translate(pageTitle("サーバー: alpha"))).toBe("Server: alpha - CraftShelf");
     expect(translate(pageTitle("ライブラリ"))).toBe("Library - CraftShelf");
   });
@@ -66,20 +66,20 @@ describe("ページのタイトル", () => {
 describe("Ctrl K の行き先は、いまの画面の名前", () => {
   const labels = PAGE_HITS.map((h) => h.label);
   it("設定の左の一覧・メニューの名前で、足りない行き先(サーバー本体・パスキー・設定の各まとまり)がある", () => {
-    for (const l of ["ユーザーと権限", "ストレージ", "ユーザーごとの利用状況", "設定", "操作の記録と通知", "比較", "処理", "サーバー本体", "パスキー", "パスワードと二段階認証",
+    for (const l of ["メンバーと権限", "保存先", "メンバーごとの利用状況", "設定", "操作の記録と通知", "比較", "処理", "サーバー本体", "パスキー", "パスワードと二段階認証",
       "見た目と言語", "API トークン", "CurseForge API キー", "受け取る版", "はじめの設定", "パネルのアップデート", "v02 からの取り込み", "お問い合わせ・要望", "利用状況の送信", "アドオンの整理", "ライブラリ", "ホーム", "セット", "サーバー", "ポート", "ファイル比較"]) {
       expect(labels, l).toContain(l);
     }
   });
   it("古い名前は無い", () => {
-    for (const old of ["チーム", "保存先", "利用状況", "アカウントの設定", "操作の記録と Discord への通知", "サーバーの比較", "処理の一覧", "バックアップ "]) expect(labels, old).not.toContain(old);
+    for (const old of ["チーム", "ストレージ", "利用状況", "アカウントの設定", "操作の記録と Discord への通知", "サーバーの比較", "処理の一覧", "バックアップ "]) expect(labels, old).not.toContain(old);
   });
   it("行き先はどれも、実在する画面", () => {
     const tree = readFileSync("src/routeTree.gen.ts", "utf8");
     for (const h of PAGE_HITS) expect(tree, h.to).toContain(`'${h.to}'`);
   });
   it("設定の各まとまりは、同じ名前で出す(左の一覧・見出し・タイトル)", () => {
-    expect(SETTING_LABEL.members).toBe("ユーザーと権限");
+    expect(SETTING_LABEL.members).toBe("メンバーと権限");
     expect(PAGE_HITS.find((h) => h.label === "パスキー")).toMatchObject({ to: "/settings", search: { s: "passkeys" }, sub: "設定" });
   });
 });
@@ -109,10 +109,10 @@ describe("そろえる・入れる結果の一行のまとめ", () => {
 describe("ライブラリの一覧の説明は、どの出どころのものも同じ形", () => {
   const base = { createdAt: "2026-11-11T00:00:00Z" };
   it("版 · N バージョン · 大きさ · 日付(分からない値だけ省く)", () => {
-    expect(itemSub({ ...base, version: "5.4.1", files: 0, size: 0 }, false)).toBe("5.4.1 · 1 バージョン");
-    expect(itemSub({ ...base, version: "5.4.1", files: 2, size: 2457 }, false)).toBe("5.4.1 · 2 バージョン · 2.4 KB");
+    expect(itemSub({ ...base, version: "5.4.1", files: 0, size: 0 }, false)).toBe("5.4.1 · 版 1 つ");
+    expect(itemSub({ ...base, version: "5.4.1", files: 2, size: 2457 }, false)).toBe("5.4.1 · 版 2 つ · 2.4 KB");
     expect(itemSub({ ...base, version: "", files: 0, size: 0 }, false)).toBe("");
-    expect(itemSub({ ...base, version: "1.0", files: 1, size: 100 })).toMatch(/^1\.0 · 1 バージョン · 100 B · \d{4}\/\d+\/\d+$/);
+    expect(itemSub({ ...base, version: "1.0", files: 1, size: 100 })).toMatch(/^1\.0 · 版 1 つ · 100 B · \d{4}\/\d+\/\d+$/);
   });
 });
 

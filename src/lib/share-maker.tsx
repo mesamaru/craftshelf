@@ -48,7 +48,7 @@ export function ShareMaker({ itemIds, name, label }: { itemIds: string[]; name: 
           <button className="link small" type="button" onClick={() => setOpen(false)}>やめる</button>
         </span>
       )}
-      {made && <span className="muted">{`${made.expiresAt ? `${new Date(made.expiresAt).toLocaleString("ja-JP")} まで使えます` : "期限はありません"}${max ? `(${max} 回まで)` : ""}。この URL は今だけ表示します。`}</span>}
+      {made && <span className="muted">{`${made.expiresAt ? `${new Date(made.expiresAt).toLocaleString("ja-JP")} まで使えます` : "期限はありません"}${max ? `(${max} 回まで)` : ""}。この URL はいまだけ表示します。`}</span>}
       {lines.map((l) => (
         <span key={l.label} className="actions">
           <input className="codes share-url" readOnly value={l.text} translate="no" onFocus={(e) => e.currentTarget.select()} aria-label={`共有リンクの ${l.label}`} />

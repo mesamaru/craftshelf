@@ -37,7 +37,7 @@ type SetRow = Awaited<ReturnType<typeof listSets>>[number];
 type Catalog = Awaited<ReturnType<typeof libraryCatalog>>;
 type Result = Awaited<ReturnType<typeof applySet>>;
 
-// セット(v02 と同じ形): 見出しの下に一言と「＋ セットを作成」、2 列のカード(名前・件数・中身・操作)。編集・サーバーに入れるは右のシートで、中身・前提・版の固定・サーバーを扱う
+// セット(v02 と同じ形): 見出しの下に一言と「＋ セットを作る」、2 列のカード(名前・件数・中身・操作)。編集・サーバーに入れるは右のシートで、中身・前提・版の固定・サーバーを扱う
 function Sets() {
   const { user } = Route.useRouteContext();
   const { sets, catalog } = Route.useLoaderData();
@@ -57,7 +57,7 @@ function Sets() {
         <h1>セット<small>{`${sets.length} 個`}</small>
           <Info>
             <span>セットは、ライブラリから選んだ Mod・プラグインの組み合わせです。「サーバーに入れる」で、サーバーの種類に合うもののうち、まだ入っていないものをまとめて入れます(Paper のサーバーに Mod は入れません)。「前提を確かめる」は、選んだ種類のサーバーに入るいちばん新しい版の前提(Modrinth・CurseForge の必須)が、セットに入っているかを見ます。</span>
-            <span>「版を選ぶ」で版を固定すると、セットを入れる・そろえる・予約・自動更新で、新しい版ではなくその版を入れます(サーバーの種類・バージョンに合わない版は、結果に知らせて飛ばします)。セットを結び付けたすべてのサーバーで同じ版になります。サーバーの画面の「更新を止める」は、そのサーバーだけ今入っている版のままにするもので、固定より先に効きます。SpigotMC のものは固定できません(いちばん新しい版だけを入れられます)。</span>
+            <span>「版を選ぶ」で版を固定すると、セットを入れる・そろえる・予約・自動更新で、新しい版ではなくその版を入れます(サーバーの種類・バージョンに合わない版は、結果に知らせて飛ばします)。セットを結び付けたすべてのサーバーで同じ版になります。サーバーの画面の「更新を止める」は、そのサーバーだけいま入っている版のままにするもので、固定より先に効きます。SpigotMC のものは固定できません(いちばん新しい版だけを入れられます)。</span>
           </Info>
         </h1>
         <StoragePill />
@@ -67,7 +67,7 @@ function Sets() {
         <p className="muted">よく使う組み合わせをセットにして、サーバーにまとめて入れます。</p>
         <span className="grow" />
         <Btn sm onClick={() => setSheet("schedule")}>予約</Btn>
-        {edit && <Btn kind="pri" onClick={() => setSheet("new")}>＋ セットを作成</Btn>}
+        {edit && <Btn kind="pri" onClick={() => setSheet("new")}>＋ セットを作る</Btn>}
       </div>
       {sets.length === 0 && (
         <section className="card glass empty"><span className="big" aria-hidden="true">🧺</span><p>まだセットがありません</p>{edit && <Btn kind="tint" onClick={() => setSheet("new")}>最初のセットを作る</Btn>}</section>
@@ -77,7 +77,7 @@ function Sets() {
       </div>
       {opened && <SetSheet set={opened} catalog={catalog} elsewhere={new Map(sets.filter((x) => x.id !== opened.id).flatMap((x) => x.servers.map((v) => [v.id, x.name] as const)))} edit={edit} local={local} onChange={reload} onClose={() => setOpen("")} />}
       {sheet === "new" && (
-        <Sheet title="セットを作成" onClose={() => setSheet("")}>
+        <Sheet title="セットを作る" onClose={() => setSheet("")}>
           <NewSet onCreated={() => { reload(); setSheet(""); }} />
           <FromModpack onCreated={reload} servers={can({ server: ["update"] }) ? catalog.servers : []} />
         </Sheet>
@@ -129,7 +129,7 @@ function SetCard({ set, edit, local, onOpen, onChange }: { set: SetRow; edit: bo
             } catch (e) {
               setError(message(e));
             }
-          }}>削除</Btn>}
+          }}>消す</Btn>}
         </div>
         {error && <p className="error" role="alert">{error}</p>}
       </div>
@@ -641,7 +641,7 @@ function Schedule({ editable }: { editable: boolean }) {
   );
 }
 
-// Modpack(.mrpack・CurseForge の zip)から、ライブラリとセットを作る
+// Modパック(.mrpack・CurseForge の zip)から、ライブラリとセットを作る
 function FromModpack({ onCreated, servers }: { onCreated: () => void; servers: { id: string; name: string }[] }) {
   const [server, setServer] = useState("");
   const [busy, setBusy] = useState(false);
@@ -665,11 +665,11 @@ function FromModpack({ onCreated, servers }: { onCreated: () => void; servers: {
   };
   return (
     <>
-      <div className="gtitle">Modpack から作る<Info>Modpack に入っている Mod をライブラリに載せ、Modpack の名前のセットを作ります。Modrinth のものはファイルの中身(SHA-1)で探し、CurseForge のものは設定の「CurseForge API キー」で API キーを設定すると読めます。設定ファイル(overrides)は、サーバーを選んだときだけ、そのサーバーに書き込みます(テキストの設定ファイルだけ。上書きする前の中身は履歴に残ります。管理者以上)。</Info></div>
+      <div className="gtitle">Modパックから作る<Info>Modパックに入っている Mod をライブラリに載せ、Modパックの名前のセットを作ります。Modrinth のものはファイルの中身(SHA-1)で探し、CurseForge のものは設定の「CurseForge API キー」で API キーを設定すると読めます。設定ファイル(overrides)は、サーバーを選んだときだけ、そのサーバーに書き込みます(テキストの設定ファイルだけ。上書きする前の中身は履歴に残ります。管理者以上)。</Info></div>
       <section className="group">
         {servers.length > 0 && (
           <div className="row">
-            <span>設定ファイル(overrides)も書き込むサーバー</span>
+            <span>設定ファイル(overrides)を書き込むサーバー</span>
             <select className="trail" value={server} onChange={(e) => setServer(e.target.value)} aria-label="設定ファイルも書き込むサーバー">
               <option value="">書き込まない</option>
               {servers.map((s) => <option key={s.id} value={s.id} translate="no">{s.name}</option>)}
@@ -677,7 +677,7 @@ function FromModpack({ onCreated, servers }: { onCreated: () => void; servers: {
           </div>
         )}
         <label className="row link">
-          {busy ? "読み込んでいます…" : "Modpack のファイル(.mrpack・CurseForge の zip)を選ぶ"}
+          {busy ? "読み込んでいます…" : "Modパックのファイル(.mrpack・CurseForge の zip)を選ぶ"}
           <input type="file" accept=".mrpack,.zip" hidden disabled={busy} onChange={(e) => { const f = e.target.files?.[0]; e.target.value = ""; if (f) send(f); }} />
         </label>
         {note && <p className="row muted" role="status" translate="no">{note}</p>}

@@ -229,7 +229,7 @@ function Passkeys() {
         <div className="row" key={p.id}>
           <span translate="no">{p.name || "パスキー"}</span>
           <button className="trail link" type="button" onClick={() => rename(p.id, p.name || "パスキー")}>名前を変える</button>
-          <button className="link danger" type="button" onClick={() => remove(p.id)}>削除</button>
+          <button className="link danger" type="button" onClick={() => remove(p.id)}>消す</button>
         </div>
       ))}
       <button className="row link" type="button" onClick={add}>パスキーを追加</button>
@@ -379,7 +379,7 @@ function Versions({ userId }: { userId: string }) {
               <ul>{notePoints(latest.notes).slice(0, 6).map((x, i) => <li key={i}>{x}</li>)}</ul>
               {newer.length > 1 && <span className="muted small">{`ほかに ${newer.length - 1} 個の版の変更も入ります`}</span>}
             </div>
-            <Btn kind="pri" className="upd-go" disabled={!!busy} onClick={() => update(latest.version)}>今すぐアップデート</Btn>
+            <Btn kind="pri" className="upd-go" disabled={!!busy} onClick={() => update(latest.version)}>いますぐアップデート</Btn>
           </>
         )}
         {(busy || error || info.listError) && (

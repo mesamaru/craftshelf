@@ -71,8 +71,8 @@ describe("英語表示", () => {
     expect(translate("232(試験版)(今)")).toBe("232 (experimental, current)");
     expect(translate("選んだ 2 台をまとめて最新にする(最新のものは飛ばす)")).toBe("Update 2 selected servers to the newest builds (skip up-to-date ones)");
     expect(translate("送っています… 2 / 5")).toBe("Uploading… 2 / 5");
-    expect(translate("2026/1/4 4:00:00 まで使えます(5 回まで)。この URL は今だけ表示します。")).toBe("Valid until 2026/1/4 4:00:00 (up to 5 downloads). This URL is shown only now.");
-    expect(translate("期限はありません。この URL は今だけ表示します。")).toBe("No expiry. This URL is shown only now.");
+    expect(translate("2026/1/4 4:00:00 まで使えます(5 回まで)。この URL はいまだけ表示します。")).toBe("Valid until 2026/1/4 4:00:00 (up to 5 downloads). This URL is shown only now.");
+    expect(translate("期限はありません。この URL はいまだけ表示します。")).toBe("No expiry. This URL is shown only now.");
     expect(translate("共有リンク「Lobby」の 2 件")).toBe("2 items in share link “Lobby”"); // v02 から取り込んだ結果
     expect(translate("前提の紐付け: 自作 → LuckPerms(LP-Core)")).toBe("Dependency link: 自作 → LuckPerms(LP-Core)");
     expect(translate("操作 12 回(30 日で 3 回)")).toBe("12 actions (3 in the last 30 days)");
@@ -94,7 +94,7 @@ describe("英語表示", () => {
     expect(translate("アドオン 6")).toBe("Add-ons 6");
     expect(translate("ほか 3 件")).toBe("3 more");
     expect(translate("常に最新")).toBe("Always latest");
-    expect(translate("＋ セットを作成")).toBe("＋ Create set");
+    expect(translate("＋ セットを作る")).toBe("＋ Create set");
     expect(translate("「メモ」を消しますか?")).toBe("Delete “Note”?");
     expect(translate("足せるウィジェットは 12 個までです")).toBe("You can add up to 12 widgets");
     expect(translate("今年の 315 日目")).toBe("Day 315 of the year");
@@ -102,10 +102,10 @@ describe("英語表示", () => {
     expect(translate("(火)")).toBe("(Tue)");
     expect(translate("11/11(火)")).toBe("11/11 (Tue)");
     expect(translate("残り 3 件")).toBe("3 left");
-    expect(translate("ユーザーと権限")).toBe("Users and permissions");
+    expect(translate("メンバーと権限")).toBe("Members and permissions");
     // 03.68.00: v02 に合わせた枠・ホーム・ライブラリ
-    expect(translate("5.4.145 · 2 バージョン · 2.4 KB · 2026/11/11")).toBe("5.4.145 · 2 versions · 2.4 KB · 2026/11/11");
-    expect(translate("1.0 · 1 バージョン")).toBe("1.0 · 1 version");
+    expect(translate("5.4.145 · 版 2 つ · 2.4 KB · 2026/11/11")).toBe("5.4.145 · 2 versions · 2.4 KB · 2026/11/11");
+    expect(translate("1.0 · 版 1 つ")).toBe("1.0 · 1 version");
     expect(translate("2 / 5 済み")).toBe("2 / 5 done");
     expect(translate("残り 3 件 ›")).toBe("3 more ›");
     expect(translate("未同期 2")).toBe("2 behind");

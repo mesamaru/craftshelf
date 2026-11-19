@@ -132,7 +132,7 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
     } catch (e) {
       const msg = e instanceof Error && /公開|EUNSAFEADDR/.test(String((e as { cause?: unknown }).cause ?? e.message))
         ? "公開されていないアドレスにはつなげません"
-        : `${new URL(baseUrl).hostname} に接続できません(URL を確認してください)`;
+        : `${new URL(baseUrl).hostname} に接続できません(URL を確かめてください)`;
       throw new PteroError(msg);
     }
   }
@@ -243,7 +243,7 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
       try {
         res = await fetch(`${url}${url.includes("?") ? "&" : "?"}directory=${encodeURIComponent(directory)}`, { method: "POST", body: form as unknown as BodyInit, signal: AbortSignal.timeout(transferTimeout(blob.size)) });
       } catch {
-        throw new PteroError("Pterodactyl のノード(Wings)に接続できません");
+        throw new PteroError("Pterodactyl のノード(Wings)につながりません(ノードが動いているか、パネルのノードの設定を確かめてください)");
       }
       forgetReads(serverKey(ident)); // Wings へ直接送ったので、req では捨てられない
       if (!res.ok) throw new PteroError(`ファイルを送れませんでした(HTTP ${res.status})`);
@@ -257,7 +257,7 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
       try {
         res = await fetch(url, { signal: AbortSignal.timeout(300_000) });
       } catch {
-        throw new PteroError("Pterodactyl のノード(Wings)に接続できません");
+        throw new PteroError("Pterodactyl のノード(Wings)につながりません(ノードが動いているか、パネルのノードの設定を確かめてください)");
       }
       if (!res.ok) throw new PteroError(`ファイルを取ってこられませんでした(HTTP ${res.status})`);
       if (Number(res.headers.get("content-length") ?? 0) > maxBytes) throw new PteroError("ファイルが大きすぎます");
@@ -272,7 +272,7 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
       try {
         res = await fetch(url, { signal: AbortSignal.timeout(transferTimeout(maxBytes)) });
       } catch {
-        throw new PteroError("Pterodactyl のノード(Wings)に接続できません");
+        throw new PteroError("Pterodactyl のノード(Wings)につながりません(ノードが動いているか、パネルのノードの設定を確かめてください)");
       }
       if (!res.ok) throw new PteroError(`ファイルを取ってこられませんでした(HTTP ${res.status})`);
       await bodyToFile(res, maxBytes, path);

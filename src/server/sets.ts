@@ -648,7 +648,7 @@ export function setService(deps: Deps) {
           const fresh = lines.filter((l) => !before.has(l));
           await db.update(server).set({ updateNotice: lines.join("\n") }).where(eq(server.id, s.id));
           if (fresh.length) {
-            await record({ teamId: s.teamId, userId: null, kind: "updates", action: "新しいバージョンがあります", target: s.name, detail: fresh.join("\n") });
+            await record({ teamId: s.teamId, userId: null, kind: "updates", action: "新しい版があります", target: s.name, detail: fresh.join("\n") });
             found.push(s.id);
           }
         } catch (e) {

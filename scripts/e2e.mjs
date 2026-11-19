@@ -32,7 +32,7 @@ await step("登録するとライブラリが開く", async () => {
   await page.getByPlaceholder("表示名").fill("E2E");
   await page.getByPlaceholder("メールアドレス").fill(email);
   await page.getByPlaceholder("パスワード(10 文字以上)").fill("e2e-password-0123");
-  await page.getByRole("button", { name: "作成" }).click();
+  await page.getByRole("button", { name: "アカウントを作る" }).click();
   await page.waitForURL(base + "/");
   await page.getByRole("heading", { name: "ライブラリ" }).waitFor();
   await page.getByText(/まだ何もありません/).waitFor();
@@ -73,7 +73,7 @@ await step("左のメニュー・スマホの下のタブで画面を移れる",
   await page.locator(".top").getByRole("link", { name: "設定" }).click(); // スマホの設定は上のバー
   await page.waitForURL(base + "/settings");
   // スマホの設定は一覧から押して入り、「‹ 設定」で一覧に戻る
-  await page.locator(".set-nav").getByRole("link", { name: "ユーザーと権限" }).click();
+  await page.locator(".set-nav").getByRole("link", { name: "メンバーと権限" }).click();
   await page.waitForURL(base + "/team");
   await page.getByText("E2E(自分)").waitFor();
   await page.screenshot({ path: ".e2e/phone.png" });
@@ -123,7 +123,7 @@ await step("ホームのウィジェットを編集して、メモ・ToDo を足
 await step("セットを作ると一覧に出る", async () => {
   await page.goto(base + "/sets");
   await page.getByText(/まだセットがありません/).waitFor();
-  await page.getByRole("button", { name: "＋ セットを作成" }).click(); // 作るのはシート
+  await page.getByRole("button", { name: "＋ セットを作る" }).click(); // 作るのはシート
   await page.getByRole("dialog").getByPlaceholder("セットの名前(例 ロビー用)").fill("ロビー用");
   await page.getByRole("dialog").getByRole("button", { name: "作る", exact: true }).click();
   await page.getByRole("dialog").waitFor({ state: "detached" });
@@ -387,14 +387,14 @@ await step("ドラッグ&ドロップの欄から jar を足すと、一覧と�
   await page.locator(".dropcard input[type=file]").first().setInputFiles({ name: "E2EPlugin-1.0.jar", mimeType: "application/java-archive",
     buffer: Buffer.from(makeZip({ "plugin.yml": "name: E2EPlugin\nversion: 1.0\nmain: a.B\n", "a/B.class": "x" }, false)) });
   const row = page.locator(".items .row", { hasText: "E2EPlugin" });
-  await row.getByText(/^1\.0 · 1 バージョン · [\d.]+ (B|KB) · /).waitFor();
+  await row.getByText(/^1\.0 · 版 1 つ · [\d.]+ (B|KB) · /).waitFor();
   if (await row.locator(".srvs").count()) throw new Error("一覧にサーバーの印が出ています");
   await page.screenshot({ path: ".e2e/library-item.png", fullPage: true });
   await row.click();
   await page.waitForURL(/item=/);
   const sheet = page.getByRole("dialog", { name: "E2EPlugin" });
-  await sheet.getByText("保存しているバージョン(1)").waitFor();
-  await sheet.getByText("配布元が未設定です").waitFor();
+  await sheet.getByText("保存している版(1)").waitFor();
+  await sheet.getByText("配布元がわかりません").waitFor();
   if (await sheet.getByRole("tab", { name: "サーバー" }).count()) throw new Error("詳しくにサーバーのタブがあります");
   if (await sheet.getByText("E2E", { exact: true }).count()) throw new Error("詳しくにサーバーの名前が出ています");
   // サーバーに入れるのは ⋯ から、入れる先を選ぶ
@@ -405,7 +405,7 @@ await step("ドラッグ&ドロップの欄から jar を足すと、一覧と�
   await page.screenshot({ path: ".e2e/library-sheet.png" });
   await page.keyboard.press("Escape"); // 重ねたシートは上のものだけ閉じる
   await page.getByRole("dialog", { name: "サーバーに入れる" }).waitFor({ state: "detached" });
-  await sheet.getByText("保存しているバージョン(1)").waitFor();
+  await sheet.getByText("保存している版(1)").waitFor();
   // タグを付ける(入力のダイアログ): フォーカスは中に入り、Tab は中を回る。Enter で決定
   await sheet.getByRole("button", { name: "その他の操作" }).click();
   await page.getByRole("menuitem", { name: "タグを付ける" }).click();
@@ -425,7 +425,7 @@ await step("ドラッグ&ドロップの欄から jar を足すと、一覧と�
   await page.screenshot({ path: ".e2e/confirm.png" });
   await page.keyboard.press("Escape");
   await ask.waitFor({ state: "detached" });
-  await sheet.getByText("保存しているバージョン(1)").waitFor();
+  await sheet.getByText("保存している版(1)").waitFor();
   await page.goBack(); // 戻るボタンで詳しくを閉じる
   await page.getByRole("dialog").waitFor({ state: "detached" });
   if (page.url().includes("item=")) throw new Error("閉じても URL にアイテムが残っています");
@@ -591,7 +591,7 @@ await step("JS・CSS は事前に圧縮して届く(gzip・br。展開すると�
 await step("ページのタイトルが画面ごとに変わる(サーバーは名前、設定はまとまりの名前)", async () => {
   const title = async (p) => { await page.goto(base + p); await page.waitForFunction(() => document.title !== "CraftShelf", null, { timeout: 5000 }); return page.title(); };
   const want = [["/", "ライブラリ - CraftShelf"], ["/home", "ホーム - CraftShelf"], ["/sets", "セット - CraftShelf"], ["/compare", "比較 - CraftShelf"], ["/jobs", "処理 - CraftShelf"],
-    ["/team", "設定: ユーザーと権限 - CraftShelf"], ["/settings?s=passkeys", "設定: パスキー - CraftShelf"], ["/storage", "設定: ストレージ - CraftShelf"], ["/activity", "設定: 操作の記録と通知 - CraftShelf"]];
+    ["/team", "設定: メンバーと権限 - CraftShelf"], ["/settings?s=passkeys", "設定: パスキー - CraftShelf"], ["/storage", "設定: 保存先 - CraftShelf"], ["/activity", "設定: 操作の記録と通知 - CraftShelf"]];
   for (const [p, t] of want) { const got = await title(p); if (got !== t) throw new Error(`${p} のタイトルが ${got}(${t} のはず)`); }
   await page.goto(base + "/servers");
   const link = page.locator(".srv-side a.row", { hasText: "E2E" }).first();
@@ -608,8 +608,8 @@ await step("Ctrl K に、いまのメニュー・設定の名前の行き先が�
   await page.keyboard.press("Control+k");
   await page.getByRole("dialog", { name: "検索" }).waitFor();
   await page.locator(".palette-input").fill("設定");
-  await page.locator(".palette-hit", { hasText: "ユーザーと権限" }).waitFor();
-  for (const n of ["ストレージ", "ユーザーごとの利用状況", "操作の記録と通知", "パスキー"]) await page.locator(".palette-hit", { hasText: n }).first().waitFor();
+  await page.locator(".palette-hit", { hasText: "メンバーと権限" }).waitFor();
+  for (const n of ["保存先", "メンバーごとの利用状況", "操作の記録と通知", "パスキー"]) await page.locator(".palette-hit", { hasText: n }).first().waitFor();
   await page.locator(".palette-input").fill("サーバー本体");
   await page.locator(".palette-hit", { hasText: "サーバー本体" }).waitFor();
   await page.locator(".palette-input").fill("チーム");

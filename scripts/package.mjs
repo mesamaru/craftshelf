@@ -44,7 +44,7 @@ const README = `CraftShelf v03 ${VERSION}
 待ち受け: データの場所の launcher.json に {"host": "0.0.0.0", "port": 8765} と書くと、LAN のほかの端末からも開けます。
 自動起動: Windows は Win+R で shell:startup を開いて CraftShelf.cmd のショートカットを置く。
           macOS は「システム設定」→「一般」→「ログイン項目」に CraftShelf.command を足す。
-更新: パネルの「アカウント」→「パネルのバージョン」から(自動アップデートも選べます)。
+更新: パネルの「設定」→「パネルのアップデート」から(自動アップデートも選べます)。
 ログインを戻す(二段階認証の端末も予備のコードもなくしたとき):
       Windows: CraftShelf.cmd reset-owner <メールアドレスか名前>   macOS・Linux: ./craftshelf.sh reset-owner <メールアドレスか名前>
 説明: https://github.com/mesamaru/craftshelf/tree/dev/docs/INSTALL.md

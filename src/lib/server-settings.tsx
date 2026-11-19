@@ -452,7 +452,7 @@ function LocalControl({ id, onSaved }: { id: string; onSaved: () => void }) {
 // a が b より古いバージョンか(1.21.10 は 1.21.4 より新しい)
 const older = (a: string, b: string) => { const x = a.split(".").map(Number), y = b.split(".").map(Number); for (let i = 0; i < 3; i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) < (y[i] || 0); return false; };
 
-// サーバー本体(jar): 今のビルドといちばん新しいビルド。入れ替える(ビルド・Minecraft のバージョンを選べる)・残した jar に戻すのは管理者以上
+// サーバー本体(jar): いまのビルドといちばん新しいビルド。入れ替える(ビルド・Minecraft のバージョンを選べる)・残した jar に戻すのは管理者以上
 function Software({ id, admin, info: loaded, reload: reloadInfo }: { id: string; admin: boolean; info: SoftInfo | string | null; reload: () => Promise<unknown> }) {
   const update = useServerFn(updateSoftware);
   const install = useServerFn(installSoftware);
@@ -486,7 +486,7 @@ function Software({ id, admin, info: loaded, reload: reloadInfo }: { id: string;
   const mcChanged = !!(info && pick.mc && info.mc && pick.mc !== info.mc && !info.proxy);
   return (
     <>
-      <p className="sub">今のビルドと、いちばん新しいビルド
+      <p className="sub">いまのビルドと、いちばん新しいビルド
         <Info>動かしている jar(本体)の種類とビルドです。アドオンを探す条件(「アドオンの種類とバージョン」)とは別です。入れ替えるときは、サーバーが配布元から直接 jar を取り込みます。入れ替える前の jar はサーバーのフォルダに 5 つまで残し、そこへ戻せます。Paper・Folia・Purpur・Leaf・Pufferfish・Velocity・Waterfall・BungeeCord・Fabric・Vanilla・Mohist・SpongeVanilla は入れ替えられ、Forge・NeoForge・Quilt・Arclight は新しい版があるかだけを確かめます。</Info>
       </p>
       <section className="group">
@@ -508,7 +508,7 @@ function Software({ id, admin, info: loaded, reload: reloadInfo }: { id: string;
         {info && (
           <>
             <div className="row"><span>{info.label}</span><span className="trail muted" translate={info.jar ? "no" : undefined}>{info.jar || "jar がわかりません"}</span></div>
-            <div className="row"><span>今のビルド</span><span className="trail" translate={info.build ? "no" : undefined}>{info.build ? `${info.mc ? `${info.mc} · ` : ""}${info.build}` : "わかりません"}</span></div>
+            <div className="row"><span>いまのビルド</span><span className="trail" translate={info.build ? "no" : undefined}>{info.build ? `${info.mc ? `${info.mc} · ` : ""}${info.build}` : "わかりません"}</span></div>
             <div className="row">
               <span>いちばん新しいビルド</span>
               {info.update && <span className="badge upd">更新あり</span>}
@@ -525,11 +525,11 @@ function Software({ id, admin, info: loaded, reload: reloadInfo }: { id: string;
         <div className="chips">
           {info.update && info.latest?.auto && (
             <Btn kind="tint" sm disabled={busy || !info.jar} onClick={() => run(
-              `${info.jar} を ${info.latest!.build} に入れ替えますか?(今の jar は残し、あとで戻せます)`,
+              `${info.jar} を ${info.latest!.build} に入れ替えますか?(いまの jar は残し、あとで戻せます)`,
               async () => { const r = await update({ data: { id, restart } }); return `${r.build} に入れ替えました${after(r)}`; },
             )}>{busy ? "入れ替えています…" : "いちばん新しいビルドに入れ替える"}</Btn>
           )}
-          {info.auto && !builds && <Btn sm disabled={busy || !info.jar} onClick={() => openBuilds()}>バージョンを選んで入れ替える…</Btn>}
+          {info.auto && !builds && <Btn sm disabled={busy || !info.jar} onClick={() => openBuilds()}>版を選んで入れ替える…</Btn>}
         </div>
       )}
       {info && admin && builds && (
@@ -564,7 +564,7 @@ function Software({ id, admin, info: loaded, reload: reloadInfo }: { id: string;
             <Btn kind="pri" sm disabled={busy || !pick.build} onClick={() => run(
               mcChanged
                 ? `Minecraft を ${info.mc} から ${pick.mc}(ビルド ${pick.build})に変えますか?ワールドのバックアップを取ったか、プラグイン・Mod が ${pick.mc} に対応しているかを確かめてください。`
-                : `${info.jar} を ${pick.build} に入れ替えますか?(今の jar は残し、あとで戻せます)`,
+                : `${info.jar} を ${pick.build} に入れ替えますか?(いまの jar は残し、あとで戻せます)`,
               async () => { const r = await install({ data: { id, mc: pick.mc || undefined, build: pick.build, restart } }); setBuilds(null); return `${r.mc ? `${r.mc} ` : ""}${r.build} に入れ替えました${after(r)}`; },
             )}>{busy ? "入れ替えています…" : "選んだビルドに入れ替える"}</Btn>
           </div>
@@ -581,7 +581,7 @@ function Software({ id, admin, info: loaded, reload: reloadInfo }: { id: string;
               </span>
               {admin && (
                 <Btn sm disabled={busy} onClick={() => run(
-                  `${b.build || "前の jar"} に戻しますか?(今の jar は代わりに残します)`,
+                  `${b.build || "前の jar"} に戻しますか?(いまの jar は代わりに残します)`,
                   async () => { const r = await back({ data: { id, file: b.file } }); return `${r.build || "前の jar"} に戻しました。サーバーを再起動すると戻した jar で動きます`; },
                 )}>戻す</Btn>
               )}

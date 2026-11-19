@@ -55,7 +55,7 @@ function Usage() {
             <div className="row"><span>メンバー</span><span className="trail">{u.members} 人</span></div>
             <div className="row"><span>共有リンク</span><span className="trail">{u.shareLinks} 個</span></div>
           </section>
-          <div className="gtitle">ユーザーごと<Info>ユーザーごとの数は、このチームの中で、その人が登録・アップロード・作成したものと、操作の記録に残った操作の数です。予約・自動更新で動いたものは数えません。</Info></div>
+          <div className="gtitle">メンバーごと<Info>メンバーごとの数は、このチームの中で、その人が登録・アップロード・作成したものと、操作の記録に残った操作の数です。予約・自動更新で動いたものは数えません。</Info></div>
           <section className="group">
             {u.users.map((m) => (
               <div className="row" key={m.id}>

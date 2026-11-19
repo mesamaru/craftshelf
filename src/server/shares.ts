@@ -21,7 +21,7 @@ export function shareService(deps: Deps) {
   const { stream } = fileStore(deps);
   const { record } = eventService(deps);
   const needLocal = () => {
-    if (!deps.local) throw new HttpError(400, "共有リンクは、自分用の版だけで使えます");
+    if (!deps.local) throw new HttpError(400, "共有リンクは、自分で動かす CraftShelf だけで使えます");
   };
 
   return {
@@ -77,7 +77,7 @@ export function shareService(deps: Deps) {
       const { teamId, user: me } = who;
       const [s] = await db.select().from(shareLink).where(and(eq(shareLink.id, id), eq(shareLink.teamId, teamId)));
       const admin = holds(who, { member: ["update"] });
-      if (!s || (s.createdBy !== me.id && !admin)) throw new HttpError(404, "見つかりません");
+      if (!s || (s.createdBy !== me.id && !admin)) throw new HttpError(404, "共有リンクが見つかりません");
       await db.update(shareLink).set({ expiresAt: new Date() }).where(eq(shareLink.id, id));
       await record({ teamId, userId: me.id, kind: "admin", action: "共有リンクを止める", target: s.name });
     },
@@ -88,7 +88,7 @@ export function shareService(deps: Deps) {
       const { teamId, user: me } = who;
       const [s] = await db.select().from(shareLink).where(and(eq(shareLink.id, id), eq(shareLink.teamId, teamId)));
       const admin = holds(who, { member: ["update"] });
-      if (!s || (s.createdBy !== me.id && !admin)) throw new HttpError(404, "見つかりません");
+      if (!s || (s.createdBy !== me.id && !admin)) throw new HttpError(404, "共有リンクが見つかりません");
       await db.delete(shareLink).where(eq(shareLink.id, id));
       await record({ teamId, userId: me.id, kind: "admin", action: "共有リンクを消す", target: s.name });
     },

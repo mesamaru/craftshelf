@@ -2,7 +2,7 @@
 // アカウントに保存する(user_pref.dash の JSON)ので、画面と保存の両方でここの cleanDash を通す
 export const DASH_WIDGETS = [
   ["tiles", "概要"], ["updates", "更新があるもの"], ["recent", "最近追加したもの"], ["cats", "種類ごとの件数"],
-  ["attention", "確認が必要なもの"], ["servers", "サーバー"], ["links", "配布元の連携"], ["storage", "保存先とバックアップ"],
+  ["attention", "見てほしいもの"], ["servers", "サーバー"], ["links", "配布元"], ["storage", "保存先とバックアップ"],
 ] as const;
 export const CUSTOM_TYPES = { memo: "メモ", todo: "ToDo リスト", clock: "時計", date: "今日の日付" } as const;
 export type CustomType = keyof typeof CUSTOM_TYPES;

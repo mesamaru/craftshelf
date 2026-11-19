@@ -81,7 +81,7 @@ export function teamService(deps: Deps) {
     async deleteTeam(headers: Headers, confirmName: string) {
       const { teamId, user, apiKey } = await requireTeam(auth, headers);
       if (apiKey) throw new HttpError(403, "この操作は、ログインしてから行ってください");
-      if (deps.local) throw new HttpError(400, "自分用の版では、チームは消せません");
+      if (deps.local) throw new HttpError(400, "自分で動かす CraftShelf では、チームは消せません");
       if (!isOwner(await roleOf(teamId, user.id))) throw new HttpError(403, "チームを消せるのは、オーナーだけです");
       const [org] = await db.select({ name: organization.name }).from(organization).where(eq(organization.id, teamId));
       if (!org || confirmName.trim() !== org.name) throw new HttpError(400, "確かめのため、チームの名前をそのまま入力してください");
@@ -134,7 +134,7 @@ export function teamService(deps: Deps) {
     async deleteAccount(headers: Headers, password: string) {
       const s = await requireUser(auth, headers);
       if (s.apiKey) throw new HttpError(403, "この操作は、ログインしてから行ってください");
-      if (deps.local) throw new HttpError(400, "自分用の版では、アカウントは消せません(管理者にチームから外してもらってください)");
+      if (deps.local) throw new HttpError(400, "自分で動かす CraftShelf では、アカウントは消せません(管理者にチームから外してもらってください)");
       const me = s.user.id;
       const [acc] = await db.select({ password: account.password }).from(account).where(and(eq(account.userId, me), eq(account.providerId, "credential")));
       if (!acc?.password || !(await verifyPassword({ hash: acc.password, password: String(password ?? "") }))) throw new HttpError(400, "パスワードが違います");

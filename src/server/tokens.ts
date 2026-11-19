@@ -67,7 +67,7 @@ export function tokenService(deps: Deps) {
       needSession(headers);
       const { teamId, user } = await requireTeam(auth, headers);
       const mine = (await this.list(headers)).find((k) => k.id === id);
-      if (!mine) throw new HttpError(404, "見つかりません");
+      if (!mine) throw new HttpError(404, "トークンが見つかりません");
       await auth.api.deleteApiKey({ headers, body: { keyId: id } });
       await record({ teamId, userId: user.id, kind: "admin", action: "API トークンを消す", target: mine.name });
     },

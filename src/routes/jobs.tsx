@@ -17,7 +17,7 @@ export const Route = createFileRoute("/jobs")({
 
 type Job = Awaited<ReturnType<typeof listJobs>>[number];
 
-// 処理の一覧(v02 の「処理」): サーバーへの導入・そろえる・バックアップなどの、実行中・待ち・終わったもの
+// 処理の一覧(v02 の「処理」): サーバーに入れる・そろえる・バックアップなどの、実行中・待ち・終わったもの
 function Jobs() {
   const load = useServerFn(listJobs);
   const [jobs, setJobs] = useState<Job[] | null>(null);
@@ -37,7 +37,7 @@ function Jobs() {
   return (
     <main className="page fill">
       <header className="bar">
-        <h1>処理<Info>サーバーへの導入・セットでそろえる・まとめて最新にする・本体の入れ替え・バックアップなどの、時間のかかる処理です。終わったものは 30 日たつと消えます。結果の詳しい内容は「操作の記録」にも残ります。</Info></h1>
+        <h1>処理<Info>サーバーに入れる・セットでそろえる・まとめて最新にする・本体の入れ替え・バックアップなどの、時間のかかる処理です。終わったものは 30 日たつと消えます。結果の詳しい内容は「操作の記録」にも残ります。</Info></h1>
       </header>
       <ChipBar label="絞り込み" tools={<Btn sm onClick={reload}>読み直す</Btn>}>
         <Chip on={filter === "all"} onClick={() => setFilter("all")}>すべて</Chip>

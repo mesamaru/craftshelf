@@ -1,6 +1,6 @@
-// Modpack からライブラリとセットを作る(v02 の Modパックの読み込み)。
+// Modパックからライブラリとセットを作る(v02 の Modパックの読み込み)。
 // v03 はファイルを持たないので、Modrinth の .mrpack はファイルの SHA-1 で Modrinth のプロジェクトを、
-// CurseForge の Modpack(manifest.json)はプロジェクトの ID を、ライブラリに載せる。サーバーでは動かないもの(env.server が unsupported)は飛ばす
+// CurseForge の Modパック(manifest.json)はプロジェクトの ID を、ライブラリに載せる。サーバーでは動かないもの(env.server が unsupported)は飛ばす
 // ライブラリの Modパック(03.58.00 から): 配布元(Modrinth・CurseForge)のいちばん新しい版か、アップロードしたファイルを読んで、同じようにセットを作る
 import { randomUUID } from "node:crypto";
 import { and, count, desc, eq } from "drizzle-orm";
@@ -53,7 +53,7 @@ export function modpackService(deps: Deps) {
   const { db, auth } = deps;
 
   /**
-   * Modpack の overrides(.mrpack は overrides と server-overrides。server-overrides を優先)のテキストの設定ファイルを、サーバーに書き込む。
+   * Modパックの overrides(.mrpack は overrides と server-overrides。server-overrides を優先)のテキストの設定ファイルを、サーバーに書き込む。
    * 上書きする前の中身は、設定ファイルの履歴に残す
    */
   async function writeOverrides(target: Awaited<ReturnType<typeof serverOf>>, data: Uint8Array, cfDir: string | null, userId: string) {
@@ -89,7 +89,7 @@ export function modpackService(deps: Deps) {
   const { record } = eventService(deps);
 
   return {
-    /** Modpack(.mrpack・CurseForge の zip)を読み、入っている Mod をライブラリに載せて、同じ名前のセットを作る(編集者以上) */
+    /** Modパック(.mrpack・CurseForge の zip)を読み、入っている Mod をライブラリに載せて、同じ名前のセットを作る(編集者以上) */
     async import(headers: Headers, filename: string, data: Uint8Array, serverId?: string) {
       const who = await requireTeam(auth, headers, { library: ["edit"] });
       const { teamId, user } = who;
@@ -98,7 +98,7 @@ export function modpackService(deps: Deps) {
       if (data.byteLength > MODPACK_MAX_BYTES) throw new HttpError(400, "ファイルが大きすぎます");
       const texts = readZipTexts(data, ["modrinth.index.json", "manifest.json"]);
       if (!texts || (!texts.has("modrinth.index.json") && !texts.has("manifest.json"))) {
-        throw new HttpError(400, ".mrpack か、CurseForge の Modpack(manifest.json が入った zip)を選んでください");
+        throw new HttpError(400, ".mrpack か、CurseForge の Modパック(manifest.json が入った zip)を選んでください");
       }
       const stem = filename.replace(/\.(mrpack|zip)$/i, "");
       let name = stem;
@@ -127,7 +127,7 @@ export function modpackService(deps: Deps) {
         }
       } catch (e) {
         if (isHttpError(e)) throw e;
-        throw new HttpError(400, "Modpack の中身が読めませんでした");
+        throw new HttpError(400, "Modパックの中身が読めませんでした");
       }
       const uniq = [...new Map(entries.map((e) => [`${e.source}:${e.projectId}`, e])).values()];
       if (!uniq.length) throw new HttpError(400, "ライブラリに載せられる Mod がありませんでした");
@@ -137,7 +137,7 @@ export function modpackService(deps: Deps) {
       let cf = new Map<string, { title: string; slug: string; iconUrl: string }>();
       if (uniq.some((e) => e.source === "curseforge")) {
         const key = await tools.cfKeyOf(teamId);
-        if (!key) throw new HttpError(400, "CurseForge の Modpack を読むには、設定の「CurseForge API キー」で API キーを設定してください");
+        if (!key) throw new HttpError(400, "CurseForge の Modパックを読むには、設定の「CurseForge API キー」で API キーを設定してください");
         cf = await fromSource(() => curseforgeClient(deps.fetch, key).projects(uniq.filter((e) => e.source === "curseforge").map((e) => e.projectId)));
       }
       const known = uniq.filter((e) => (e.source === "modrinth" ? mr : cf).has(e.projectId));
@@ -156,16 +156,16 @@ export function modpackService(deps: Deps) {
         itemIds.push(await tools.remember(teamId, user.id, e.source, e.projectId, { ...info, title: info.title || e.projectId, projectType: "mod" }));
       }
       const setId = randomUUID();
-      await db.insert(addonSet).values({ id: setId, teamId, name: name.slice(0, 60) || "Modpack", createdBy: user.id });
+      await db.insert(addonSet).values({ id: setId, teamId, name: name.slice(0, 60) || "Modパック", createdBy: user.id });
       const inSet = [...new Set(itemIds)].slice(0, SET_LIMITS.itemsPerSet);
       if (inSet.length) await db.insert(addonSetItem).values(inSet.map((itemId) => ({ setId, itemId })));
       // 取り込んだあとは、ライブラリの同じ名前の項目がそのまま使われる(足しただけ)
-      await record({ teamId, userId: user.id, kind: "sets", action: "Modpack から作る", target: name, detail: `${inSet.length} 件${missing.length ? `・見つからないもの ${missing.length} 件` : ""}` });
+      await record({ teamId, userId: user.id, kind: "sets", action: "Modパックから作る", target: name, detail: `${inSet.length} 件${missing.length ? `・見つからないもの ${missing.length} 件` : ""}` });
       const overrides = target ? await writeOverrides(target, data, texts.has("modrinth.index.json") ? null : (() => {
         try { return String(JSON.parse(texts.get("manifest.json")!).overrides || "overrides"); } catch { return "overrides"; }
       })(), user.id) : null;
       if (overrides && target) {
-        await record({ teamId, userId: user.id, kind: "admin", action: "Modpack の設定ファイルを書き込む", target: target.row.name, detail: `${name}・${overrides.written} 個` });
+        await record({ teamId, userId: user.id, kind: "admin", action: "Modパックの設定ファイルを書き込む", target: target.row.name, detail: `${name}・${overrides.written} 個` });
       }
       return { name, setId, added: inSet.length, missing, skipped, overrides };
     },

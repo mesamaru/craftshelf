@@ -110,7 +110,7 @@ function Compare() {
   return (
     <main className="page fill wide">
       <header className="bar">
-        <h1>比較<Info><span>入っているもの・ライブラリに無いものを押すと、無効にする(消さずに止める)・有効にする・ライブラリに取り込むもできます。配布元のわからないものは、ファイルの中身から探し、見つからなければ、サーバーから取り込んだものとしてライブラリに載せます(自分用の版)。</span><span>「導入」を押すと、そのサーバーに入れるものとして選べます(そのサーバーの Minecraft に合う最新版。タグのボタンで別の版も選べます。もう一度押すと選ぶのをやめます)。入っている版を押すと、版を変える・外すができます。古い版を選んだものは「更新を止める」にします。サーバーの種類に合わないところは「—」です。</span></Info></h1>
+        <h1>比較<Info><span>入っているもの・ライブラリに無いものを押すと、無効にする(消さずに止める)・有効にする・ライブラリに取り込むもできます。配布元のわからないものは、ファイルの中身から探し、見つからなければ、サーバーから取り込んだものとしてライブラリに載せます(自分で動かす CraftShelf)。</span><span>「＋ 入れる」を押すと、そのサーバーに入れるものとして選べます(そのサーバーの Minecraft に合う最新版。タグのボタンで別の版も選べます。もう一度押すと選ぶのをやめます)。入っている版を押すと、版を変える・外すができます。古い版を選んだものは「更新を止める」にします。サーバーの種類に合わないところは「—」です。</span></Info></h1>
       </header>
       <Tabs value="addons" options={COMPARE_TABS} label="比較" onChange={(v) => v === "files" && navigate({ to: "/compare/files" })} />
 
@@ -154,7 +154,7 @@ function Compare() {
                       return (
                         <td key={s.id}>
                           {p ? <Picked serverId={s.id} mc={s.mc} item={i} pick={p} onPick={(x) => setPick(key, x)} />
-                            : <button type="button" className="pc add" aria-pressed="false" onClick={() => setPick(key, LATEST)} title="このサーバーに入れる">＋ 導入</button>}
+                            : <button type="button" className="pc add" aria-pressed="false" onClick={() => setPick(key, LATEST)} title="このサーバーに入れる">＋ 入れる</button>}
                         </td>
                       );
                     })}
@@ -208,7 +208,7 @@ function Compare() {
           {picks.size > 0 && (
             <ActionBar label="選んだもの">
               <strong>{`${picks.size} 件`}</strong>
-              <Btn kind="pri" sm disabled={busy} onClick={run}>{busy ? "入れています…" : "導入する"}</Btn>
+              <Btn kind="pri" sm disabled={busy} onClick={run}>{busy ? "入れています…" : "入れる"}</Btn>
               <Btn sm disabled={busy} aria-label="選択を解除" onClick={() => setPicks(new Map())}>✕</Btn>
             </ActionBar>
           )}
@@ -226,8 +226,8 @@ function Picked({ serverId, mc, item, pick, onPick }: { serverId: string; mc: st
   return (
     <span className="port-line">
       {/* もう一度押すと、選ぶのをやめる */}
-      <button type="button" className="pc on" aria-pressed="true" title="もう一度押すと、導入をやめます" onClick={() => onPick(null)}>
-        <svg className="check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>導入
+      <button type="button" className="pc on" aria-pressed="true" title="もう一度押すと、入れるのをやめます" onClick={() => onPick(null)}>
+        <svg className="check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>入れる
       </button>
       <button type="button" className="link small" title="版を選ぶ" aria-label="版を選ぶ" aria-expanded={open} onClick={() => setOpen((x) => !x)}><TagIcon /></button>
       <span className="small mono" translate={pick.versionId ? "no" : undefined}>{pick.versionNumber}</span>

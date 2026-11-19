@@ -42,7 +42,7 @@ function Software() {
     const ids = chosen.filter((id) => updatable.some((s) => s.id === id));
     const skipped = chosen.length - ids.length;
     if (!ids.length) return setNote("選んだサーバーは、どれも最新か、自動で入れ替えられません");
-    if (!(await confirmDialog({ message: `${ids.length} 台のサーバー本体を、いちばん新しいビルドに入れ替えますか?(今の jar は残し、あとで戻せます${restart ? "。入れ替えたら再起動します" : "。サーバーを再起動すると新しい jar で動きます"})`, ok: "入れ替える" }))) return;
+    if (!(await confirmDialog({ message: `${ids.length} 台のサーバー本体を、いちばん新しいビルドに入れ替えますか?(いまの jar は残し、あとで戻せます${restart ? "。入れ替えたら再起動します" : "。サーバーを再起動すると新しい jar で動きます"})`, ok: "入れ替える" }))) return;
     setNote("");
     for (const id of ids) {
       setBusy(id);

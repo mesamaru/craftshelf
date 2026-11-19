@@ -184,7 +184,7 @@ export function Shell({ user, children }: { user: { id: string; name: string }; 
 export function StoragePill() {
   const { storage, admin } = useContext(ShellCtx);
   if (!storage) return null;
-  const inner = <><span className="sd" aria-hidden="true" /><Icon name="library" /><span className="t" translate={storage.name ? "no" : undefined}>{storage.name || "ローカル"}</span></>;
+  const inner = <><span className="sd" aria-hidden="true" /><Icon name="library" /><span className="t" translate={storage.name ? "no" : undefined}>{storage.name || "パネルの中"}</span></>;
   return admin ? <Link to="/storage" className="pill" title="保存先">{inner}</Link> : <span className="pill" title="保存先">{inner}</span>;
 }
 

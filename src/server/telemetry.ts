@@ -86,7 +86,7 @@ export function telemetryService(deps: Deps) {
     /** 送るかどうかを決める(管理者以上)。送ると決めたら、すぐに 1 回送る */
     async set(headers: Headers, enabled: boolean) {
       const who = await requireTeam(auth, headers, { panel: ["manage"] });
-      if (!deps.local) throw new HttpError(400, "自分用の版だけで使えます");
+      if (!deps.local) throw new HttpError(400, "自分で動かす CraftShelf だけで使えます");
       write({ ...read(), enabled });
       await record({ teamId: who.teamId, userId: who.user.id, kind: "admin", action: enabled ? "利用状況の送信をオンにする" : "利用状況の送信をオフにする" });
       if (enabled) await send().catch(() => false);
@@ -117,7 +117,7 @@ export function telemetryService(deps: Deps) {
           method: "POST", headers: { "Content-Type": "application/json", "User-Agent": `CraftShelf/${versionOf()}` }, body: JSON.stringify(body), signal: AbortSignal.timeout(20_000),
         });
       } catch {
-        throw new HttpError(502, "送信できませんでした(インターネット接続を確認してください)");
+        throw new HttpError(502, "送信できませんでした(インターネットにつながっているか確かめてください)");
       }
       if (!res.ok) {
         const msg = await res.json().then((j: { error?: string }) => j.error ?? "", () => "");

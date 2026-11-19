@@ -117,7 +117,7 @@ function ServerPage() {
           <small>{kind && <span translate="no">{`${kind} · `}</span>}{CONNECTION[server.kind] ?? server.kind}</small>
         </div>
         <span className={`spill${state === "running" ? " ok" : state === "starting" || state === "stopping" ? " warn" : ""}`}>
-          <span className={`dot ${state}`} aria-hidden="true" />{!st ? "確認中…" : STATE_LABELS[state] ?? "状態がわかりません"}
+          <span className={`dot ${state}`} aria-hidden="true" />{!st ? "確かめています…" : STATE_LABELS[state] ?? "状態がわかりません"}
         </span>
       </div>
       <Tabs label="サーバーの画面" value={shown} options={tabs} onChange={go} />
@@ -243,18 +243,18 @@ function Overview({ st, state, control, server, soft, onPower, onSoftware, onTab
             )}
             {a.deps?.unmet.map((d) => (
               <div className="row" key={`unmet:${d.name}`}>
-                <span className="badge bad">前提</span>
+                <span className="badge bad">前提不足</span>
                 {d.install && <AddonIcon type={d.install.projectType} url={d.install.iconUrl} />}
-                <span className="mid"><span className="ttl" translate="no">{d.name}</span><span className="sub"><span translate="no">{d.by.join("、")}</span> が使います(入っていません)</span></span>
+                <span className="mid"><span className="ttl" translate="no">{d.name}</span><span className="sub"><span translate="no">{d.by.join("、")}</span> に必要です(入っていません)</span></span>
                 {d.install && a.edit && <Btn kind="tint" sm disabled={!!busy} onClick={() => act(`dep:${d.install!.projectId}`, () => install({ data: { id: a.id, projectId: d.install!.projectId, source: d.install!.source } }))}>
                   {busy === `dep:${d.install.projectId}` ? "入れています…" : "入れる"}</Btn>}
               </div>
             ))}
             {a.deps?.missing.map((d) => (
               <div className="row" key={`dep:${d.source}:${d.projectId}`}>
-                <span className="badge bad">前提</span>
+                <span className="badge bad">前提不足</span>
                 <AddonIcon type={d.projectType} url={d.iconUrl} />
-                <span className="mid"><span className="ttl" translate="no">{d.title}</span><span className="sub"><span translate="no">{d.by.join("、")}</span> が使います</span></span>
+                <span className="mid"><span className="ttl" translate="no">{d.title}</span><span className="sub"><span translate="no">{d.by.join("、")}</span> に必要です</span></span>
                 {a.edit && <Btn kind="tint" sm disabled={!!busy} onClick={() => act(`dep:${d.projectId}`, () => install({ data: { id: a.id, projectId: d.projectId, source: d.source } }))}>
                   {busy === `dep:${d.projectId}` ? "入れています…" : "入れる"}</Btn>}
               </div>
@@ -343,7 +343,7 @@ function Addons(a: AddonProps) {
             <div className="row" key={`unmet:${d.name}`}>
               <span className="badge bad">前提不足</span>
               {d.install && <AddonIcon type={d.install.projectType} url={d.install.iconUrl} />}
-              <span className="mid"><span className="ttl" translate="no">{d.name}</span><span className="sub"><span translate="no">{d.by.join("、")}</span> が使います(入っていません)</span></span>
+              <span className="mid"><span className="ttl" translate="no">{d.name}</span><span className="sub"><span translate="no">{d.by.join("、")}</span> に必要です(入っていません)</span></span>
               {d.install && edit && <Btn kind="tint" sm disabled={!!busy} onClick={() => run(`dep:${d.install!.projectId}`, () => install({ data: { id, projectId: d.install!.projectId, source: d.install!.source } }))}>
                 {busy === `dep:${d.install.projectId}` ? "入れています…" : "入れる"}</Btn>}
             </div>
@@ -352,7 +352,7 @@ function Addons(a: AddonProps) {
             <div className="row" key={`dep:${d.source}:${d.projectId}`}>
               <span className="badge bad">前提不足</span>
               <AddonIcon type={d.projectType} url={d.iconUrl} />
-              <span className="mid"><span className="ttl" translate="no">{d.title}</span><span className="sub"><span translate="no">{d.by.join("、")}</span> が使います</span></span>
+              <span className="mid"><span className="ttl" translate="no">{d.title}</span><span className="sub"><span translate="no">{d.by.join("、")}</span> に必要です</span></span>
               {edit && <Btn kind="tint" sm disabled={!!busy} onClick={() => run(`dep:${d.projectId}`, () => install({ data: { id, projectId: d.projectId, source: d.source } }))}>
                 {busy === `dep:${d.projectId}` ? "入れています…" : "入れる"}</Btn>}
             </div>
@@ -852,7 +852,7 @@ function Worlds({ id, admin, chips }: { id: string; admin: boolean; chips: React
   return (
     <>
       <ChipBar label="バックアップ" tools={d?.available && (
-        <Btn kind="pri" sm disabled={busy || d.running} onClick={() => act(() => create({ data: { id } }), "")}>{d.running ? "保存しています…" : "今すぐ保存"}</Btn>
+        <Btn kind="pri" sm disabled={busy || d.running} onClick={() => act(() => create({ data: { id } }), "")}>{d.running ? "保存しています…" : "いますぐ保存"}</Btn>
       )}>{chips}</ChipBar>
       <div className="gtitle">ワールドのバックアップ
         <Info>
@@ -864,7 +864,7 @@ function Worlds({ id, admin, chips }: { id: string; admin: boolean; chips: React
       </div>
       <section className="group">
         {!d && !error && <div className="row muted">読み込んでいます…</div>}
-        {d && !d.available && <div className="row muted">フォルダのサーバー・エージェントのワールドのバックアップは、自分用の版だけで使えます。</div>}
+        {d && !d.available && <div className="row muted">フォルダのサーバー・エージェントのワールドのバックアップは、自分で動かす CraftShelf だけで使えます。</div>}
         {d && !d.running && d.last && (d.last.ok
           ? <div className="row muted" role="status">{`作りました: ${new Date(d.last.at).toLocaleString("ja-JP")}`}</div>
           : <div className="row error" role="alert">{`作れませんでした: ${d.last.message}`}</div>)}
@@ -884,8 +884,8 @@ function Worlds({ id, admin, chips }: { id: string; admin: boolean; chips: React
               <Btn kind="red" sm disabled={busy || d.running} onClick={async () => {
                 const what = new Date(b.at).toLocaleString("ja-JP");
                 if (!(await confirmDialog({ message: ptero
-                  ? `${what} のバックアップから戻しますか?サーバーは止まり、サーバー全体がこのときの状態に戻ります${opt.truncate ? "(今のファイルはすべて消えます)" : ""}。`
-                  : `${what} のバックアップからワールドを戻しますか?今のワールドは名前を変えて残します。`,
+                  ? `${what} のバックアップから戻しますか?サーバーは止まり、サーバー全体がこのときの状態に戻ります${opt.truncate ? "(いまのファイルはすべて消えます)" : ""}。`
+                  : `${what} のバックアップからワールドを戻しますか?いまのワールドは名前を変えて残します。`,
                   // 2 段(以前は確認が 2 回続いた)。2 段目で「戻す」と入力するまで実行できない
                   ok: "戻す", danger: true, word: "戻す",
                   second: ptero ? "もう一度確かめます。本当に戻しますか?" : `もう一度確かめます。サーバーが止まっていることを確かめましたか?${opt.stop ? "(動いていたら止めます)" : "(動いていれば戻しません)"}` }))) return;
@@ -903,7 +903,7 @@ function Worlds({ id, admin, chips }: { id: string; admin: boolean; chips: React
           </div>
         ))}
         {admin && d && d.backups.length > 0 && (ptero
-          ? <label className="row"><span className="mid">戻すときに、今のファイルを消してから戻す</span><input type="checkbox" className="switch" checked={opt.truncate} onChange={(e) => setOpt({ ...opt, truncate: e.target.checked })} /></label>
+          ? <label className="row"><span className="mid">戻すときに、いまのファイルを消してから戻す</span><input type="checkbox" className="switch" checked={opt.truncate} onChange={(e) => setOpt({ ...opt, truncate: e.target.checked })} /></label>
           : <label className="row"><span className="mid">戻すときに、動いていたら止める</span><input type="checkbox" className="switch" checked={opt.stop} onChange={(e) => setOpt({ ...opt, stop: e.target.checked })} /></label>)}
       </section>
       {note && <p className="muted" role="status">{note}</p>}

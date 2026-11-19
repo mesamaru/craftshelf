@@ -333,7 +333,7 @@ export function portService(deps: Deps) {
       const { teamId } = who;
       const [p] = await db.select({ p: serverPort, teamId: server.teamId }).from(serverPort).innerJoin(server, eq(serverPort.serverId, server.id))
         .where(and(eq(serverPort.id, portId), eq(server.teamId, teamId)));
-      if (!p || p.p.source !== "found") throw new HttpError(404, "見つけたポートが見つかりません");
+      if (!p || p.p.source !== "found") throw new HttpError(404, "読み取ったポートが、もうありません(読み取り直してください)");
       await needServerAccess(deps, who, p.p.serverId);
       let kindId = input.kindId ?? null;
       if (input.newKindName) {

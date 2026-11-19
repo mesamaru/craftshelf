@@ -13,11 +13,11 @@ export const EVENT_KINDS = {
   schedule: "予約の結果",
   power: "起動・停止",
   admin: "登録と設定の変更",
-  updates: "新しいバージョンの発見(サーバーに入っているものの更新)",
+  updates: "新しい版の発見(サーバーに入っているものの更新)",
   auto: "自動で入れた(自動更新・予約でそろえた)",
   errors: "エラー(予約・自動更新・バックアップの失敗)",
   backup: "バックアップ(作った・失敗)",
-  panel: "パネルの更新(v03 の新しい版)",
+  panel: "パネルのアップデート(v03 の新しい版)",
 } as const;
 export type EventKind = keyof typeof EVENT_KINDS;
 const isKind = (v: unknown): v is EventKind => typeof v === "string" && v in EVENT_KINDS;

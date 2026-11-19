@@ -161,7 +161,7 @@ export function localClient(root: string, fetch: FetchLike, control: Control, op
       const none = { cpu: null, memory: null, disk: null, uptime: null };
       if (control.control === "docker" && control.container) {
         const r = await docker("GET", `${containerPath()}/json`);
-        if (r.status === 404) throw new PteroError("コンテナが見つかりません");
+        if (r.status === 404) throw new PteroError("Docker のコンテナが見つかりません(サーバーの設定の「起動・停止」でコンテナの名前を確かめてください)");
         const s = JSON.parse(r.body || "{}")?.State?.Status;
         return { state: s === "running" ? "running" : s === "restarting" ? "starting" : "offline", ...none };
       }
@@ -185,7 +185,7 @@ export function localClient(root: string, fetch: FetchLike, control: Control, op
       if (!POWER_SIGNALS.includes(signal)) throw new PteroError("不正な操作です");
       if (control.control === "docker") {
         const r = await docker("POST", `${containerPath()}/${signal === "kill" ? "kill" : signal}`);
-        if (r.status === 404) throw new PteroError("コンテナが見つかりません");
+        if (r.status === 404) throw new PteroError("Docker のコンテナが見つかりません(サーバーの設定の「起動・停止」でコンテナの名前を確かめてください)");
         if (r.status >= 400) throw new PteroError(`Docker がエラーを返しました(HTTP ${r.status})`);
         return;
       }

@@ -1,6 +1,18 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "新しいものから数えます。0 なら全部残します": "Counted from the newest. 0 keeps everything",
+  "保存先の inbox/ に .jar・.zip・.mrpack を置いて押すと、中身から配布元を探して(Modrinth・CurseForge)ライブラリに載せます。見つからないものは、アップロードしたものとして載せます。取り込んだものは inbox/ から消します。": "Put .jar, .zip or .mrpack files in inbox/ of the storage location and press this to look up their source (Modrinth / CurseForge) and add them to the library. Files that can't be identified are added as uploads. Imported files are removed from inbox/.",
+  "「記録なし」は、このアプリが登録していないファイルです(バックアップ・ほかのアプリのものなど)。ライブラリに取り込むときは、保存先の inbox/ に移してから下の「inbox/ から取り込む」を押します。": "“Not registered” files weren't registered by this app (backups, other apps' files, etc.). To import them into the library, move them into inbox/ in the storage location and press “Import from inbox/” below.",
+  " · 記録なし": " · not registered",
+  " · 取り込み待ち": " · waiting for import",
+  " · 保存した版": " · saved version",
+  "ファイルはありません": "No files",
+  "ファイルを移す…": "Move files…",
+  "これからは、この保存先に保存します": "New files will be saved here from now on",
+  "＋ 保存先を足す": "+ Add a storage location",
+  "使用中": "In use",
+  "アップロードしたアドオン・保存した版の置き場所です。「使用中」の保存先に、これから保存します。切り替えても、いままでのファイルは元の保存先に置いたまま使えます(移すときは、保存先を開いて「ファイルを移す」)。NAS は、SMB で直接つなぐか、パネルのコンテナにマウントして「フォルダ」として足してください。": "Where uploaded add-ons and saved versions are kept. New files go to the location marked “In use”. Switching keeps existing files where they are (to move them, open a location and use “Move files”). For a NAS, connect directly over SMB or mount it into the panel's container and add it as a “Folder”.",
   "一部失敗": "Partly failed",
   "すべての処理を見る ›": "See all jobs ›",
   "最近終わったもの": "Recently finished",
@@ -2027,6 +2039,12 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^既定 · (.+)$/, "Default · $1"],
+  [/^空き (.+) \/ 全体 (.+)$/, "$1 free / $2 total"],
+  [/^登録しているファイル (\d+) 個 · (.+?)( · うち保存した版 (\d+) 個)?$/, (_, n, s, _x, v) => `${n} registered files · ${s}${v ? ` · ${v} saved versions` : ""}`],
+  [/^中身\(ファイル (\d+) 個(。多いので途中まで)?\)$/, (_, n, more) => `Contents (${n} files${more ? ", truncated" : ""})`],
+  [/^「(.+)」のファイルを「(.+)」へ移しますか[?？]\(1 つずつ、移した先で中身を確かめてから元を消します。数が多いと時間がかかります\)$/, "Move the files in “$1” to “$2”? (Each file is checked at the destination before the original is removed. Many files take a while.)"],
+  [/^保存先「(.+)」を消しますか[?？]\(ファイルが残っていると消せません。保存先の中のファイルは消しません\)$/, "Remove storage location “$1”? (It can't be removed while files remain. Files inside it are not deleted.)"],
   [/^処理 (\d+) 件が動いています$/, "$1 jobs running"],
   [/^処理 (\d+) 件に失敗があります$/, "$1 jobs had failures"],
   [/^処理 (\d+) 件が終わりました$/, "$1 jobs finished"],

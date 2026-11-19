@@ -11,6 +11,7 @@ import { PLATFORMS, type Platform, isPlatform } from "~/lib/platforms";
 import { addonSetItem, backupSchedule, libraryFile, libraryItem, storageTarget, installedMod, server, serverProfile, teamOption, worldBackup } from "./db/schema";
 import { CF_HOSTS } from "./curseforge";
 import { eventService } from "./events";
+import { jobService } from "./jobs";
 import { HttpError, isHttpError, requireTeam } from "./guard";
 import { remote, serverOf, worldOf } from "./servers";
 import { analyzeJar, analyzePack, fileSource } from "./jar";
@@ -289,6 +290,7 @@ export function uploadService(deps: Deps) {
   const { db, auth, secret } = deps;
   const { storeOf, stream, tempPath, configOf, activeOf, prune, removeStored } = fileStore(deps);
   const { record } = eventService(deps);
+  const jobs = jobService(deps);
   const needLocal = () => {
     if (!deps.local) throw new HttpError(400, "アップロードしたアドオンは、自分用の版だけで使えます");
   };
@@ -365,34 +367,57 @@ export function uploadService(deps: Deps) {
       const { teamId, user } = await requireTeam(auth, headers, { storage: ["manage"] });
       needLocal();
       if (from === to) throw new HttpError(400, "移す先を、移す元と別の保存先にしてください");
+      const names = new Map<string | null, string>([[null, "パネルの中"]]);
       for (const id of [from, to]) {
-        if (id && !(await db.select({ id: storageTarget.id }).from(storageTarget).where(and(eq(storageTarget.id, id), eq(storageTarget.teamId, teamId)))).length) {
-          throw new HttpError(404, "保存先が見つかりません");
-        }
+        if (!id) continue;
+        const [t] = await db.select({ name: storageTarget.name }).from(storageTarget).where(and(eq(storageTarget.id, id), eq(storageTarget.teamId, teamId)));
+        if (!t) throw new HttpError(404, "保存先が見つかりません");
+        names.set(id, t.name);
       }
-      const rows = await db.select({ f: libraryFile }).from(libraryFile).innerJoin(libraryItem, eq(libraryFile.itemId, libraryItem.id))
-        .where(and(eq(libraryItem.teamId, teamId), from ? eq(libraryFile.targetId, from) : isNull(libraryFile.targetId)));
+      const where = (id: string | null) => and(eq(libraryItem.teamId, teamId), id ? eq(libraryFile.targetId, id) : isNull(libraryFile.targetId));
+      const rows = (await db.select({ f: libraryFile }).from(libraryFile).innerJoin(libraryItem, eq(libraryFile.itemId, libraryItem.id)).where(where(from))).map((r) => r.f);
+      // 移す先で、もう同じ場所を使っている版(中身のハッシュ)。違う中身なら上書きしない
+      const onDst = new Map((await db.select({ key: libraryFile.storageKey, sha: libraryFile.sha256 }).from(libraryFile)
+        .innerJoin(libraryItem, eq(libraryFile.itemId, libraryItem.id)).where(where(to))).map((r) => [r.key, r.sha]));
+      // 同じファイルを指す記録(v02 から取り込んだものなど)は、まとめて 1 回で移す(先に元を消すと、残りが読めなくなる)
+      const byKey = new Map<string, (typeof rows)[number][]>();
+      for (const f of rows) byKey.set(f.storageKey, [...(byKey.get(f.storageKey) ?? []), f]);
       const src = await storeOf(teamId, from);
       const dst = await storeOf(teamId, to);
       // v02 から取り込んだ保存先からは、写すだけ(元は v02 も使っているので消さない)
       const keepSrc = !!from && !!(await db.select({ id: storageTarget.id }).from(storageTarget).where(and(eq(storageTarget.id, from), eq(storageTarget.v02, true)))).length;
-      let moved = 0;
-      const failed: { filename: string; message: string }[] = [];
-      for (const { f } of rows) {
-        try {
-          const data = await src.get(f.storageKey);
-          await dst.put(f.storageKey, data);
-          const back = await dst.get(f.storageKey);
-          if (createHash("sha256").update(back).digest("hex") !== f.sha256) throw new StorageError("移した先の中身が元と違います");
-          await db.update(libraryFile).set({ targetId: to }).where(eq(libraryFile.id, f.id));
-          if (!keepSrc) await src.remove(f.storageKey).catch(() => {}); // 元が消せなくても、移した先は使える
-          moved++;
-        } catch (e) {
-          failed.push({ filename: f.filename, message: e instanceof Error ? e.message : "移せませんでした" });
+      const hashOf = async (r: Readable) => { const h = createHash("sha256"); for await (const c of r) h.update(c as Buffer); return h.digest("hex"); };
+      // 時間がかかるので、処理として記録する(上のバーのしるしで様子が見られる)
+      return jobs.track({ teamId, userId: user.id, action: "保存先のファイルを移す", target: `${names.get(from)} → ${names.get(to)}` }, async () => {
+        let moved = 0;
+        const failed: { filename: string; message: string }[] = [];
+        for (const [key, group] of byKey) {
+          const tmp = tempPath("move");
+          try {
+            const there = onDst.get(key);
+            const want = group.find((f) => f.sha256)?.sha256 ?? "";
+            if (there !== undefined && there !== want) throw new StorageError("移す先の同じ場所に、別のファイルがあります");
+            if (there === undefined) {
+              // 元を一時ファイルに少しずつ写し(大きいファイルをメモリに載せない)、送ってから、移した先を読み直して中身を確かめる
+              await pipeline(await src.read(key), createWriteStream(tmp));
+              const got = await hashOf(createReadStream(tmp));
+              if (want && got !== want) throw new StorageError("元のファイルの中身が、記録と違います");
+              await dst.putFile(key, tmp);
+              if ((await hashOf(await dst.read(key))) !== got) throw new StorageError("移した先の中身が元と違います");
+            }
+            await db.update(libraryFile).set({ targetId: to }).where(inArray(libraryFile.id, group.map((f) => f.id)));
+            if (!keepSrc) await src.remove(key).catch(() => {}); // 元が消せなくても、移した先は使える
+            moved += group.length;
+          } catch (e) {
+            for (const f of group) failed.push({ filename: f.filename, message: e instanceof Error ? e.message : "移せませんでした" });
+          } finally {
+            rmSync(tmp, { force: true });
+          }
         }
-      }
-      await record({ teamId, userId: user.id, kind: "admin", action: "保存先のファイルを移す", detail: `${moved} 個を移しました${failed.length ? `・${failed.length} 個は移せませんでした` : ""}` });
-      return { moved, failed };
+        await record({ teamId, userId: user.id, kind: "admin", action: "保存先のファイルを移す", target: `${names.get(from)} → ${names.get(to)}`,
+          detail: `${moved} 個を移しました${failed.length ? `・${failed.length} 個は移せませんでした` : ""}` });
+        return { moved, failed };
+      }, (r) => `移した ${r.moved} / 失敗 ${r.failed.length}`);
     },
 
     /** 保存先を消す(ファイルが残っているものは消せない) */

@@ -1,11 +1,11 @@
 // アップロードしたアドオン: 受け取り・ライブラリ・サーバーへ送る・保存先(Pterodactyl・WebDAV は偽物の応答で代わりをする)
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
 import { backupService } from "~/server/backup";
-import { storageTarget, worldBackup } from "~/server/db/schema";
+import { job, libraryFile, libraryItem, storageTarget, worldBackup } from "~/server/db/schema";
 import { HttpError } from "~/server/guard";
 import { libraryService } from "~/server/library";
 import type { FetchLike } from "~/server/net";
@@ -251,6 +251,42 @@ describe("保存先のあいだでファイルを移す", () => {
     const item = (await lib.catalog(owner)).items.find((i) => i.title === "MyPlugin")!;
     const oldest = (await up.files(owner, item.id)).at(-1)!;
     expect((await bytesOf(up.download(owner, oldest.id))).toString("latin1")).toContain("class 1.0");
+  });
+
+  it("同じファイルを指す記録はまとめて移し、移す先の同じ場所に別のファイルがあれば上書きしない。移すのは処理として記録する", async () => {
+    const a = mkdtempSync(join(tmpdir(), "cs-up-mv-a-"));
+    const b = mkdtempSync(join(tmpdir(), "cs-up-mv-b-"));
+    await up.addTarget(owner, { name: "移す元 A", kind: "local", path: a });
+    await up.addTarget(owner, { name: "移す先 B", kind: "local", path: b });
+    const ts = (await up.targets(owner)).targets;
+    const A = ts.find((x) => x.name === "移す元 A")!;
+    const B = ts.find((x) => x.name === "移す先 B")!;
+    const one = await up.ingest(owner, "Shared-1.0.jar", makeZip({ "plugin.yml": "name: Shared\nversion: 1.0\nmain: s.S\n", "s/S.class": "shared" }, false), { targetId: A.id });
+    const two = await up.ingest(owner, "Clash-1.0.jar", makeZip({ "plugin.yml": "name: Clash\nversion: 1.0\nmain: c.C\n", "c/C.class": "clash" }, false), { targetId: A.id });
+    const fileOf = async (title: string) => (await t.db.select().from(libraryFile).innerJoin(libraryItem, eq(libraryFile.itemId, libraryItem.id)).where(eq(libraryItem.title, title)))[0].library_file;
+    const shared = await fileOf(one.title);
+    const clash = await fileOf(two.title);
+    // 同じファイルを指す記録をもう 1 つ(v02 から取り込んだものに、こういうことがある)
+    await t.db.insert(libraryFile).values({ ...shared, id: "shared-copy" });
+    // 移す先 B の同じ場所に、別の中身のファイルを使う記録がある
+    await t.db.insert(libraryFile).values({ ...clash, id: "clash-on-b", targetId: B.id, sha256: "0".repeat(64) });
+    const clashAt = join(b, ...clash.storageKey.split("/"));
+    mkdirSync(join(clashAt, ".."), { recursive: true });
+    writeFileSync(clashAt, "other");
+    const r = await up.moveFiles(owner, A.id, B.id);
+    expect(r.moved).toBe(2); // Shared の記録 2 つ
+    expect(r.failed.map((f) => f.message)).toEqual(["移す先の同じ場所に、別のファイルがあります"]);
+    const after = await t.db.select().from(libraryFile).where(inArray(libraryFile.id, [shared.id, "shared-copy", clash.id]));
+    expect(after.find((f) => f.id === shared.id)!.targetId).toBe(B.id);
+    expect(after.find((f) => f.id === "shared-copy")!.targetId).toBe(B.id);
+    expect(after.find((f) => f.id === clash.id)!.targetId).toBe(A.id); // 移せなかったものは元のまま
+    expect(existsSync(join(a, ...shared.storageKey.split("/")))).toBe(false); // 元は消える
+    expect(existsSync(join(a, ...clash.storageKey.split("/")))).toBe(true);
+    expect(readFileSync(join(b, ...clash.storageKey.split("/")), "utf8")).toBe("other"); // 上書きしない
+    for (const id of [shared.id, "shared-copy"]) expect((await bytesOf(up.download(owner, id))).toString("latin1")).toContain("shared");
+    const [j] = await t.db.select().from(job).where(eq(job.target, "移す元 A → 移す先 B"));
+    expect(j).toMatchObject({ state: "done", target: "移す元 A → 移す先 B", detail: "移した 2 / 失敗 1" });
+    await t.db.delete(libraryFile).where(inArray(libraryFile.id, ["shared-copy", "clash-on-b"]));
   });
 });
 

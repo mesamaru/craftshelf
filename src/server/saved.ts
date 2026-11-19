@@ -262,12 +262,13 @@ export function savedService(deps: Deps) {
       needLocal();
       const { name, store } = await targetOf(teamId, targetId);
       const { entries, truncated } = await fromStorage(() => walk(store, ""));
-      const known = new Map((await db.select({ key: libraryFile.storageKey, title: libraryItem.title, saved: libraryFile.upstreamVersionId }).from(libraryFile)
+      const known = new Map((await db.select({ key: libraryFile.storageKey, id: libraryFile.id, title: libraryItem.title, saved: libraryFile.upstreamVersionId }).from(libraryFile)
         .innerJoin(libraryItem, eq(libraryFile.itemId, libraryItem.id))
         .where(and(eq(libraryItem.teamId, teamId), targetId ? eq(libraryFile.targetId, targetId) : isNull(libraryFile.targetId)))).map((r) => [r.key, r]));
       return {
         name, truncated,
-        entries: entries.map((e) => ({ path: e.path, dir: e.dir, size: e.size, item: known.get(e.path)?.title ?? null, saved: !!known.get(e.path)?.saved, inbox: e.path.startsWith(`${INBOX}/`) })),
+        // fileId: 登録している版の ID(ダウンロードに使う。/api/library/files/<ID>)
+        entries: entries.map((e) => ({ path: e.path, dir: e.dir, size: e.size, item: known.get(e.path)?.title ?? null, fileId: known.get(e.path)?.id ?? null, saved: !!known.get(e.path)?.saved, inbox: e.path.startsWith(`${INBOX}/`) })),
       };
     },
 

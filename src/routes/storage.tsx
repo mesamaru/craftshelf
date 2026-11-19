@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
-import { Btn, Info, fmtSize } from "~/lib/ui";
+import { Btn, Icon, Info, fmtSize } from "~/lib/ui";
+import { jobsChanged } from "~/lib/jobs-ui";
 import { SettingsFrame } from "~/lib/settings-frame";
 import { activateStorageTarget, addStorageTarget, moveStorageFiles, removeStorageTarget, storageTargets } from "~/lib/uploads-api";
 import { savedOptions, scanStorage, setSavedOptions, storageContents, storageStatus } from "~/lib/saved-api";
@@ -19,70 +20,45 @@ export const Route = createFileRoute("/storage")({
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
 const KIND_LABEL: Record<string, string> = { local: "フォルダ", webdav: "WebDAV", smb: "SMB" };
+type Target = { id: string | null; name: string; kind: string; summary: string; active: boolean };
 
-// アップロードしたアドオンの保存先(自分用の版・管理者以上)
+// アップロードしたアドオンの保存先(自分用の版・管理者以上)。保存先を並べ、押すとその保存先の状況・中身・操作が開く
 function Storage() {
   const load = useServerFn(storageTargets);
-  const activate = useServerFn(activateStorageTarget);
-  const remove = useServerFn(removeStorageTarget);
   const [data, setData] = useState<Awaited<ReturnType<typeof storageTargets>> | null>(null);
-  const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  const [open, setOpen] = useState<string | null>(null); // 状況と中身を開いている保存先("" はパネルの中)
+  const [open, setOpen] = useState<string | null | undefined>(undefined); // 開いている保存先(null はパネルの中、undefined は閉じている)
+  const [adding, setAdding] = useState(false);
   const reload = () => load().then((d) => { setData(d); setError(""); }, (e) => setError(message(e)));
   useEffect(() => { reload(); }, []);
-
-  const run = async (key: string, fn: () => Promise<unknown>) => {
-    setBusy(key);
-    setError("");
-    try {
-      await fn();
-      await reload();
-    } catch (e) {
-      setError(message(e));
-    } finally {
-      setBusy("");
-    }
-  };
+  const all: Target[] = data ? [{ id: null, name: "パネルの中", kind: "panel", summary: "/data/v03/library", active: data.usingDefault }, ...data.targets] : [];
 
   return (
     <SettingsFrame at="storage">
-      <div className="gtitle">アップロードしたアドオンの保存先<Info>これからアップロードするものの置き場所です。切り替えても、いままでのファイルは元の保存先に置いたまま使えます。NAS は、SMB で直接つなぐか、パネルのコンテナにマウントして「フォルダ」として足してください。</Info></div>
+      <div className="gtitle">保存先<Info>アップロードしたアドオン・保存した版の置き場所です。「使用中」の保存先に、これから保存します。切り替えても、いままでのファイルは元の保存先に置いたまま使えます(移すときは、保存先を開いて「ファイルを移す」)。NAS は、SMB で直接つなぐか、パネルのコンテナにマウントして「フォルダ」として足してください。</Info></div>
       <section className="group">
         {!data && !error && <div className="row muted">読み込んでいます…</div>}
-        {data && (
-          <div className="row">
-            <span className="main"><span>パネルの中(既定)</span><span className="muted">/data/v03/library</span></span>
-            {data.usingDefault ? <span className="trail muted">使っています</span>
-              : <button className="trail link" type="button" disabled={!!busy} onClick={() => run("default", () => activate({ data: { id: null } }))}>これを使う</button>}
-            <button className="link" type="button" aria-expanded={open === ""} onClick={() => setOpen(open === "" ? null : "")}>{open === "" ? "閉じる" : "状況と中身"}</button>
-          </div>
-        )}
-        {data && open === "" && <div className="row column"><TargetDetail id={null} /></div>}
-        {data?.targets.map((t) => (
-          <div className="row" key={t.id}>
-            <span className="main">
-              <span translate="no">{t.name}</span>
-              <span className="muted" translate="no">{KIND_LABEL[t.kind] ?? t.kind} · {t.summary}</span>
+        {all.map((t) => [
+          <button key={t.id ?? "panel"} type="button" className="row click st-row" aria-expanded={open === t.id} onClick={() => setOpen(open === t.id ? undefined : t.id)}>
+            <span className={`cicon ${t.kind === "panel" ? "c-mod" : t.kind === "webdav" ? "c-teal" : t.kind === "smb" ? "c-plugin" : "c-datapack"}`} aria-hidden="true"><Icon name={t.kind === "webdav" ? "globe" : "disk"} /></span>
+            <span className="mid">
+              <span className="ttl"><span translate={t.id ? "no" : undefined}>{t.name}</span>{t.active && <span className="badge ok">使用中</span>}</span>
+              <span className="sub" translate="no">{t.kind === "panel" ? `既定 · ${t.summary}` : `${KIND_LABEL[t.kind] ?? t.kind} · ${t.summary}`}</span>
             </span>
-            {t.active ? <span className="trail muted">使っています</span>
-              : <button className="trail link" type="button" disabled={!!busy} onClick={() => run(t.id, () => activate({ data: { id: t.id } }))}>これを使う</button>}
-            <button className="link" type="button" aria-expanded={open === t.id} onClick={() => setOpen(open === t.id ? null : t.id)}>{open === t.id ? "閉じる" : "状況と中身"}</button>
-            <button className="link danger" type="button" disabled={!!busy}
-              onClick={async () => (await confirmDialog({ message: `保存先「${t.name}」を消しますか?(ファイルが残っていると消せません)`, ok: "消す", danger: true })) && run(`rm:${t.id}`, () => remove({ data: { id: t.id } }))}>消す</button>
-          </div>
-        ))}
-        {data && open && <div className="row column"><TargetDetail id={open} /></div>}
+            <span className="chev" aria-hidden="true">{open === t.id ? "▾" : "›"}</span>
+          </button>,
+          open === t.id && <TargetDetail key={`d-${t.id ?? "panel"}`} target={t} others={all.filter((x) => x.id !== t.id)} onChanged={reload} onRemoved={() => { setOpen(undefined); reload(); }} />,
+        ])}
+        {data && !adding && <button type="button" className="row link" onClick={() => setAdding(true)}>＋ 保存先を足す</button>}
         {error && <p className="row error" role="alert">{error}</p>}
       </section>
+      {adding && <NewTarget onDone={() => { setAdding(false); reload(); }} onCancel={() => setAdding(false)} />}
       <SavedOptions />
-      {data && data.targets.length > 0 && <MoveFiles targets={data.targets} onDone={reload} />}
-      <NewTarget onDone={reload} />
     </SettingsFrame>
   );
 }
 
-function NewTarget({ onDone }: { onDone: () => void }) {
+function NewTarget({ onDone, onCancel }: { onDone: () => void; onCancel: () => void }) {
   const add = useServerFn(addStorageTarget);
   const [kind, setKind] = useState<"local" | "webdav" | "smb">("local");
   const [f, setF] = useState({ name: "", path: "", url: "", user: "", password: "", host: "", share: "", domain: "" });
@@ -135,56 +111,9 @@ function NewTarget({ onDone }: { onDone: () => void }) {
             </>
           )}
         {error && <p className="row error" role="alert">{error}</p>}
-        <button className="row link" type="submit" disabled={busy}>{busy ? "確かめています…" : "書き込めるか確かめて足す"}</button>
+        <div className="row"><span className="grow" /><Btn sm disabled={busy} onClick={onCancel}>やめる</Btn>
+          <button className="btn pri sm" type="submit" disabled={busy}>{busy ? "確かめています…" : "書き込めるか確かめて足す"}</button></div>
       </form>
-    </>
-  );
-}
-
-// 保存先のあいだでファイルを移す(移した先で中身を確かめてから、元を消す)
-function MoveFiles({ targets, onDone }: { targets: { id: string; name: string }[]; onDone: () => void }) {
-  const move = useServerFn(moveStorageFiles);
-  const options = [{ id: "", name: "パネルの中(既定)" }, ...targets];
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState(targets[0]?.id ?? "");
-  const [busy, setBusy] = useState(false);
-  const [note, setNote] = useState("");
-  const [error, setError] = useState("");
-  const submit = async () => {
-    if (!(await confirmDialog({ message: "ファイルを移しますか?(数が多いと時間がかかります)", ok: "移す" }))) return;
-    setBusy(true);
-    setError("");
-    setNote("");
-    try {
-      const r = await move({ data: { from: from || null, to: to || null } });
-      setNote(`${r.moved} 個を移しました${r.failed.length ? `。移せなかったもの: ${r.failed.map((f) => `${f.filename}(${f.message})`).join("、")}` : ""}`);
-      onDone();
-    } catch (e) {
-      setError(message(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <>
-      <div className="gtitle">ファイルを移す<Info>1 つずつ、移した先で中身を確かめてから元を消します。移せなかったものは、元の保存先に残ります。</Info></div>
-      <section className="group form">
-        <div className="row">
-          <span>移す元</span>
-          <select className="trail" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="移す元">
-            {options.map((o) => <option key={o.id} value={o.id} translate="no">{o.name}</option>)}
-          </select>
-        </div>
-        <div className="row">
-          <span>移す先</span>
-          <select className="trail" value={to} onChange={(e) => setTo(e.target.value)} aria-label="移す先">
-            {options.map((o) => <option key={o.id} value={o.id} translate="no">{o.name}</option>)}
-          </select>
-        </div>
-        <button className="row link" type="button" disabled={busy || from === to} onClick={submit}>{busy ? "移しています…" : "移す"}</button>
-        {note && <p className="row muted" role="status" translate="no">{note}</p>}
-        {error && <p className="row error" role="alert">{error}</p>}
-      </section>
     </>
   );
 }
@@ -224,7 +153,7 @@ function SavedOptions() {
               <input className="trail switch" type="checkbox" checked={opt.keepFiles} onChange={(e) => setOpt({ ...opt, keepFiles: e.target.checked })} />
             </label>
             <label className="row">
-              <span className="main"><span>古い版を残す数</span><span className="muted">新しく保存した方から。0 は整理しない</span></span>
+              <span className="main"><span>古い版を残す数</span><span className="muted">新しいものから数えます。0 なら全部残します</span></span>
               <input className="trail" type="number" min={0} max={100} value={opt.keepVersions} aria-label="古い版を残す数"
                 onChange={(e) => setOpt({ ...opt, keepVersions: Math.max(0, Math.min(100, Math.floor(Number(e.target.value) || 0))) })} />
             </label>
@@ -239,72 +168,120 @@ function SavedOptions() {
   );
 }
 
-// 保存先の状況(つながるか・応答の時間・容量)と中身。inbox/ に置いたファイルを取り込める
-function TargetDetail({ id }: { id: string | null }) {
+// 保存先の中身(開いたとき): 状況(つながるか・応答・容量)・操作(使う・ファイルを移す・消す)・中身(アドオンごとにダウンロード)・inbox/ からの取り込み
+function TargetDetail({ target, others, onChanged, onRemoved }: { target: Target; others: Target[]; onChanged: () => void; onRemoved: () => void }) {
   const status = useServerFn(storageStatus);
   const contents = useServerFn(storageContents);
   const scan = useServerFn(scanStorage);
+  const activate = useServerFn(activateStorageTarget);
+  const remove = useServerFn(removeStorageTarget);
+  const move = useServerFn(moveStorageFiles);
+  const id = target.id;
   const [st, setSt] = useState<Awaited<ReturnType<typeof storageStatus>> | null>(null);
   const [list, setList] = useState<Awaited<ReturnType<typeof storageContents>> | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState("");
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
+  const [moveTo, setMoveTo] = useState<string | null | undefined>(undefined); // 移す先を選んでいるとき(undefined は閉じている)
   const reload = () => {
     setError("");
     status({ data: { id } }).then(setSt, (e) => setError(message(e)));
     contents({ data: { id } }).then(setList, (e) => setError(message(e)));
   };
   useEffect(reload, [id]);
-  const doScan = async () => {
-    setBusy(true);
+  const run = async (key: string, fn: () => Promise<string | void>) => {
+    setBusy(key);
     setError("");
     setNote("");
     try {
-      const r = await scan({ data: { id } });
-      setNote(`${r.checked} 個を調べ、${r.added.length} 個を取り込みました${r.failed.length ? `。取り込めなかったもの: ${r.failed.map((f) => `${f.name}(${f.message})`).join("、")}` : ""}`);
-      reload();
+      const n = await fn();
+      if (n) setNote(n);
     } catch (e) {
       setError(message(e));
     } finally {
-      setBusy(false);
+      setBusy("");
     }
   };
-  const unknown = list?.entries.filter((e) => !e.dir && !e.item && !e.inbox) ?? [];
+  const doMove = async () => {
+    const dest = others.find((o) => o.id === moveTo);
+    if (!dest || !(await confirmDialog({ message: `「${target.name}」のファイルを「${dest.name}」へ移しますか?(1 つずつ、移した先で中身を確かめてから元を消します。数が多いと時間がかかります)`, ok: "移す" }))) return;
+    jobsChanged();
+    await run("move", async () => {
+      const r = await move({ data: { from: id, to: dest.id } });
+      setMoveTo(undefined);
+      reload();
+      onChanged();
+      return `${r.moved} 個を移しました${r.failed.length ? `。移せなかったもの: ${r.failed.map((f) => `${f.filename}(${f.message})`).join("、")}` : ""}`;
+    });
+  };
+  const files = list?.entries.filter((e) => !e.dir) ?? [];
+  const unknown = files.filter((e) => !e.item && !e.inbox).length;
+  const nameOf = (path: string) => path.slice(path.lastIndexOf("/") + 1);
+  const used = st?.space ? st.space.total - st.space.free : 0;
   return (
-    <span className="files">
+    <div className="row column st-detail">
       {!st && !error && <span className="muted">確かめています…</span>}
       {st && (
-        <span>
-          {st.connected ? <span className="badge state-done">つながります</span> : <span className="badge state-failed">つながりません</span>}
-          <span className="muted">{st.connected ? ` 応答 ${st.latencyMs} ms` : ` ${st.error}`}</span>
-          {st.space && <span className="muted">{` · 容量 ${fmtSize(st.space.total)}(空き ${fmtSize(st.space.free)})`}</span>}
-          <span className="muted">{` · 登録しているファイル ${st.files} 個(${fmtSize(st.bytes)}、うち保存した版 ${st.saved} 個)`}</span>
-        </span>
+        <div className="st-status">
+          <span>{st.connected ? <span className="badge state-done">つながります</span> : <span className="badge state-failed">つながりません</span>}
+            <span className="muted small">{st.connected ? ` 応答 ${st.latencyMs} ms` : ` ${st.error}`}</span></span>
+          {st.space && (
+            <span className="st-space">
+              <span className="meter" aria-hidden="true"><i style={{ width: `${Math.min(100, (used / Math.max(1, st.space.total)) * 100)}%` }} /></span>
+              <span className="muted small">{`空き ${fmtSize(st.space.free)} / 全体 ${fmtSize(st.space.total)}`}</span>
+            </span>
+          )}
+          <span className="muted small">{`登録しているファイル ${st.files} 個 · ${fmtSize(st.bytes)}${st.saved ? ` · うち保存した版 ${st.saved} 個` : ""}`}</span>
+        </div>
       )}
+      <span className="st-acts">
+        {!target.active && <Btn kind="tint" sm disabled={!!busy} onClick={() => run("use", async () => { await activate({ data: { id } }); onChanged(); return "これからは、この保存先に保存します"; })}>これを使う</Btn>}
+        {others.length > 0 && <Btn sm disabled={!!busy} aria-expanded={moveTo !== undefined} onClick={() => setMoveTo(moveTo === undefined ? others[0].id : undefined)}>ファイルを移す…</Btn>}
+        <Btn sm disabled={!!busy} onClick={reload}>読み直す</Btn>
+        {id && <Btn kind="red" sm disabled={!!busy} onClick={async () => {
+          if (await confirmDialog({ message: `保存先「${target.name}」を消しますか?(ファイルが残っていると消せません。保存先の中のファイルは消しません)`, ok: "消す", danger: true })) {
+            run("rm", async () => { await remove({ data: { id } }); onRemoved(); });
+          }
+        }}>消す</Btn>}
+      </span>
+      {moveTo !== undefined && (
+        <div className="st-move">
+          <span>移す先</span>
+          <select value={moveTo ?? ""} disabled={!!busy} aria-label="移す先" onChange={(e) => setMoveTo(e.target.value || null)}>
+            {others.map((o) => <option key={o.id ?? "panel"} value={o.id ?? ""} translate="no">{o.name}</option>)}
+          </select>
+          <Btn kind="pri" sm disabled={!!busy} onClick={doMove}>{busy === "move" ? "移しています…" : "移す"}</Btn>
+        </div>
+      )}
+      {note && <span className="muted small" role="status" translate="no">{note}</span>}
+      {error && <span className="error small" role="alert">{error}</span>}
       {list && (
         <>
-          <span className="strong">中身</span>
-          {list.entries.length === 0 && <span className="muted">空です</span>}
-          {list.entries.map((e) => (
-            <span key={e.path} className={e.dir ? "muted" : ""}>
-              <span className="codes" translate="no">{e.dir ? `${e.path}/` : e.path}</span>
-              {!e.dir && <span className="muted small">{` ${fmtSize(e.size)}`}</span>}
-              {e.item && <span className="badge muted-badge"><span translate="no">{e.item}</span></span>}
-              {e.saved && <span className="badge muted-badge">保存した版</span>}
-              {!e.dir && !e.item && (e.inbox ? <span className="badge">取り込み待ち</span> : <span className="badge miss">記録なし</span>)}
-            </span>
-          ))}
-          {list.truncated && <span className="muted">多いので、ここまでを出しています</span>}
-          {unknown.length > 0 && <span className="muted small">「記録なし」は、このアプリが登録していないファイルです(バックアップ・ほかのアプリのものなど)。取り込むときは inbox/ に移してください。</span>}
+          <span className="st-sub">{`中身(ファイル ${files.length} 個${list.truncated ? "。多いので途中まで" : ""})`}</span>
+          <div className="group flat st-files">
+            {files.length === 0 && <div className="row muted">ファイルはありません</div>}
+            {files.map((e) => (
+              <div className="row" key={e.path}>
+                <span className="mid">
+                  <span className="ttl" translate="no">{e.item ?? nameOf(e.path)}</span>
+                  <span className="sub"><span translate="no">{e.item ? nameOf(e.path) : e.path}</span>{` · ${fmtSize(e.size)}`}
+                    {e.saved && " · 保存した版"}{!e.item && (e.inbox ? " · 取り込み待ち" : " · 記録なし")}</span>
+                </span>
+                {e.fileId && <a className="btn sm tint" href={`/api/library/files/${e.fileId}`} download>ダウンロード</a>}
+              </div>
+            ))}
+          </div>
+          {unknown > 0 && <span className="muted small">「記録なし」は、このアプリが登録していないファイルです(バックアップ・ほかのアプリのものなど)。ライブラリに取り込むときは、保存先の inbox/ に移してから下の「inbox/ から取り込む」を押します。</span>}
         </>
       )}
-      <span className="actions">
-        <button className="link small" type="button" disabled={busy} onClick={doScan}>{busy ? "取り込んでいます…" : "inbox/ から取り込む"}</button>
-        <button className="link small" type="button" disabled={busy} onClick={reload}>読み直す</button>
+      <span className="st-acts">
+        <Btn sm disabled={!!busy} onClick={() => run("scan", async () => {
+          const r = await scan({ data: { id } });
+          reload();
+          return `${r.checked} 個を調べ、${r.added.length} 個を取り込みました${r.failed.length ? `。取り込めなかったもの: ${r.failed.map((f) => `${f.name}(${f.message})`).join("、")}` : ""}`;
+        })}>{busy === "scan" ? "取り込んでいます…" : "inbox/ から取り込む"}</Btn>
+        <Info>保存先の inbox/ に .jar・.zip・.mrpack を置いて押すと、中身から配布元を探して(Modrinth・CurseForge)ライブラリに載せます。見つからないものは、アップロードしたものとして載せます。取り込んだものは inbox/ から消します。</Info>
       </span>
-      <span className="muted small">保存先の inbox/ に .jar・.zip・.mrpack を置いて「取り込む」を押すと、中身から配布元を探して(Modrinth・CurseForge)ライブラリに載せます。見つからないものは、アップロードしたものとして載せます。取り込んだものは inbox/ から消します。</span>
-      {note && <span className="muted" role="status" translate="no">{note}</span>}
-      {error && <span className="error" role="alert">{error}</span>}
-    </span>
+    </div>
   );
 }

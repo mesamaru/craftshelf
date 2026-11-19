@@ -988,3 +988,20 @@ a:not([class]) { color: var(--link); text-underline-offset: 2px; text-decoration
 .st-sub { font-size: 12px; font-weight: 600; color: var(--muted); margin-top: 4px; }
 .st-files { max-height: min(48vh, 420px); overflow-y: auto; overscroll-behavior: contain; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .st-files .row { padding-left: 0; padding-right: 0; }
+/* セットのサーバー: 追加するサーバーを選ぶ欄・入れる版を選ぶ欄 */
+.set-pick { gap: 6px; background: var(--chip); }
+.set-pick .pick-head, .picks-panel .picks-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.set-pick .group.flat .row { padding-left: 0; padding-right: 0; }
+.set-pick button.row:disabled { opacity: .5; cursor: default; }
+.add-row { font-weight: 600; }
+.picks-panel { gap: 10px; background: var(--chip); }
+.pick-card { background: var(--glass2); border: 1px solid var(--line); border-radius: 14px; padding: 10px 12px; display: flex; flex-direction: column; gap: 8px; }
+.pick-top { display: flex; align-items: center; gap: 10px; }
+.pick-top .mid { min-width: 0; }
+.pick-card select { max-width: 100%; }
+.pick-info { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 10px; margin: 0; font-size: 12.5px; }
+.pick-info dt { color: var(--muted); }
+.pick-info dd { margin: 0; min-width: 0; }
+.pick-info dd.dim { color: var(--muted); }
+.warn-text { color: var(--warn-ink); }
+.picks-foot { display: flex; gap: 8px; flex-wrap: wrap; }

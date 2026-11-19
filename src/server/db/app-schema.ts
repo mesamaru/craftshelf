@@ -239,6 +239,21 @@ export const serverSet = pgTable("server_set", {
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
+// 03.87.00 から。セットを結び付けたサーバーで、アイテムごとに入れる版(セットの画面の「編集」で選ぶ)。
+// version_id が null = 最新(このサーバーに合う、いちばん新しい版)/ ある = ライブラリに保存した版(配布元の版の ID か、アップロードした版の ID)。
+// 行が無いアイテムは、セットで固定した版のとおり(固定していなければ最新)
+export const serverSetPick = pgTable(
+  "server_set_pick",
+  {
+    serverId: text("server_id").notNull().references(() => server.id, { onDelete: "cascade" }),
+    itemId: text("item_id").notNull().references(() => libraryItem.id, { onDelete: "cascade" }),
+    versionId: text("version_id"),
+    versionNumber: text("version_number").notNull().default(""),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.serverId, t.itemId] })],
+);
+
 // 操作の記録(だれが・いつ・何をしたか)。user_id が null のものは予約で動いたもの。kind は Discord に知らせる種類
 export const auditLog = pgTable(
   "audit_log",

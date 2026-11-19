@@ -2,7 +2,7 @@
 import { randomUUID } from "node:crypto";
 import { and, asc, count, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import { ITEM_TYPES, PLATFORMS, isItemType, isPlatform } from "~/lib/platforms";
-import { addonSet, addonSetItem, installedMod, libraryItem, server, serverHold, serverSet } from "./db/schema";
+import { addonSet, addonSetItem, installedMod, libraryItem, server, serverHold, serverSet, serverSetPick } from "./db/schema";
 import { HttpError, isHttpError, requireTeam } from "./guard";
 import { isItemSource } from "~/lib/sources";
 import { fileProfile, forgetLatest, isDisabled, modTools, profileFor } from "./library";
@@ -11,6 +11,7 @@ import { type Deps, serverOf, needServerAccess, serverScope } from "./servers";
 import { softwareService } from "./software";
 import { fileStore } from "./uploads";
 import { jobService } from "./jobs";
+import { bestOf } from "./addon-versions";
 
 // 無料で使える範囲
 export const SET_LIMITS = { setsPerTeam: 50, itemsPerSet: 200 };
@@ -45,7 +46,7 @@ const cleanName = (name: string) => {
 
 export function setService(deps: Deps) {
   const { db, auth } = deps;
-  const { missingOf, latestFile, fileById, versionsOf, needProfile, installInto, holdsOf, pinsOf, updatesOf, removeFrom, project, remember } = modTools(deps);
+  const { missingOf, latestFile, fileById, versionsOf, mergedRows, needProfile, installInto, holdsOf, pinsOf, updatesOf, removeFrom, project, remember } = modTools(deps);
   const { record } = eventService(deps);
   const jobs = jobService(deps);
   // 結果のまとめ(通知・記録に使う)。変わったもの・失敗したものだけを並べる
@@ -225,6 +226,15 @@ export function setService(deps: Deps) {
     .from(addonSetItem).innerJoin(libraryItem, eq(addonSetItem.itemId, libraryItem.id))
     .where(eq(addonSetItem.setId, setId)).orderBy(asc(libraryItem.title));
 
+  // サーバーで入れる中身: セットの中身に、そのサーバーで選んだ版(最新 = 固定なし / ライブラリ = その版に固定)を重ねたもの
+  const itemsFor = async (setId: string, serverId: string) => {
+    const picks = new Map((await db.select().from(serverSetPick).where(eq(serverSetPick.serverId, serverId))).map((r) => [r.itemId, r]));
+    return (await itemsOf(setId)).map((i) => {
+      const pk = picks.get(i.id);
+      return pk ? { ...i, versionId: pk.versionId, versionNumber: pk.versionNumber } : i;
+    });
+  };
+
   // 中身の出どころ(いちばん新しい保存した版のもの。src/lib/origin.ts)
   const withOrigin = async <T extends { id: string }>(items: T[]) => {
     const o = await fileStore(deps).originsOf(items.map((i) => i.id));
@@ -326,10 +336,83 @@ export function setService(deps: Deps) {
       const set = await setOf(teamId, id);
       await serverInTeam(teamId, serverId);
       await needServerAccess(deps, who, serverId);
-      const items = await itemsOf(set.id);
+      const items = await itemsFor(set.id, serverId);
       const r = await jobs.track({ teamId, userId: user.id, serverId, action: "セットを入れる", target: set.name }, () => applyTo(teamId, user.id, items, serverId, "add"), head);
       await record({ teamId, userId: user.id, kind: "sets", action: "セットを入れる", target: `${set.name} → ${await serverName(serverId)}`, detail: summary(r) });
       return r;
+    },
+
+    /**
+     * セットを結び付けたサーバーで、アイテムごとに入れる版を選ぶための一覧(セットの画面の「編集」)。
+     * latest = このサーバーに合う、配布元のいちばん新しい版(アップロードしたものは無し)。saved = ライブラリに保存した版(新しい順)。
+     * pick = いま選んでいるもの(null = 最新、文字 = 保存した版の ID。行が無ければ default)
+     */
+    async serverPicks(headers: Headers, setId: string, serverId: string) {
+      const who = await requireTeam(auth, headers);
+      const { teamId } = who;
+      const set = await setOf(teamId, setId);
+      await serverInTeam(teamId, serverId);
+      await needServerAccess(deps, who, serverId);
+      const srv = await needProfile(serverId);
+      const picks = new Map((await db.select().from(serverSetPick).where(eq(serverSetPick.serverId, serverId))).map((r) => [r.itemId, r]));
+      const items = await itemsOf(set.id);
+      const ver = (r: { versionId: string; versionNumber: string; mcVersions: string[]; support: string; date: string; type: string }) =>
+        ({ versionId: r.versionId, versionNumber: r.versionNumber, mcVersions: r.mcVersions, support: r.support, date: r.date, type: r.type });
+      const rows = await Promise.all(items.map(async (it) => {
+        const base = { itemId: it.id, title: it.title, source: it.source, projectType: it.projectType, iconUrl: it.iconUrl };
+        const p = profileFor(srv, it.projectType);
+        if (!p || !isItemSource(it.source)) return { ...base, unfit: true, latest: null, saved: [], pick: null, picked: false, error: "" };
+        let latest: ReturnType<typeof ver> | null = null;
+        let saved: ReturnType<typeof ver>[] = [];
+        let error = "";
+        try {
+          const { rows: list, sel } = await mergedRows(it.source, it.projectId, p, teamId, true);
+          const best = it.source === "upload" ? undefined : bestOf(list.filter((r) => r.upstream), sel.channel, sel.rank);
+          latest = best ? ver(best) : null;
+          saved = list.filter((r) => it.source === "upload" || !!r.stored).map(ver);
+        } catch (e) {
+          if (!isHttpError(e)) throw e;
+          error = e.message;
+        }
+        const row = picks.get(it.id);
+        // まだ選んでいないもの: セットで固定した版があればそれ、無ければ最新(最新が無い・合わないなら、合う保存した版)
+        const fallback = it.versionId ?? (latest && latest.support !== "no" ? null : saved.find((s) => s.support !== "no")?.versionId ?? saved[0]?.versionId ?? null);
+        return { ...base, unfit: false, latest, saved, pick: row ? row.versionId : fallback, picked: !!row, error };
+      }));
+      return { server: { id: serverId, platform: srv.platform, mcVersion: srv.mcVersion }, items: rows };
+    },
+
+    /** サーバーごとの入れる版を保存する(versionId が null = 最新、文字 = ライブラリに保存した版)。セットを結び付けたサーバーだけ */
+    async savePicks(headers: Headers, setId: string, serverId: string, picks: { itemId: string; versionId: string | null }[]) {
+      const who = await requireTeam(auth, headers, { library: ["edit"] });
+      const { teamId, user } = who;
+      const set = await setOf(teamId, setId);
+      await serverInTeam(teamId, serverId);
+      await needServerAccess(deps, who, serverId);
+      const [b] = await db.select({ setId: serverSet.setId }).from(serverSet).where(eq(serverSet.serverId, serverId));
+      if (b?.setId !== set.id) throw new HttpError(400, "このサーバーには、このセットを結び付けていません");
+      const items = new Map((await itemsOf(set.id)).map((i) => [i.id, i]));
+      const rows: { serverId: string; itemId: string; versionId: string | null; versionNumber: string; updatedAt: Date }[] = [];
+      for (const p of picks) {
+        const it = items.get(p.itemId);
+        if (!it) throw new HttpError(404, "セットに入っていないアドオンです");
+        let versionNumber = "";
+        if (p.versionId) {
+          if (!isItemSource(it.source)) throw new HttpError(400, "この配布元のものは版を選べません");
+          // ライブラリに保存した版だけ(アップロードしたものは、そのアイテムの版)
+          const ok = it.source === "upload"
+            ? (await fileById(it.source, it.projectId, p.versionId, teamId))?.upload?.itemId === it.id
+            : !!(await fileStore(deps).savedOf(teamId, it.source, it.projectId, p.versionId));
+          if (!ok) throw new HttpError(404, `「${it.title}」の、ライブラリに保存した版が見つかりません`);
+          versionNumber = (await fileById(it.source, it.projectId, p.versionId, teamId))?.versionNumber ?? "";
+        }
+        rows.push({ serverId, itemId: it.id, versionId: p.versionId, versionNumber, updatedAt: new Date() });
+      }
+      for (const r of rows) {
+        await db.insert(serverSetPick).values(r).onConflictDoUpdate({ target: [serverSetPick.serverId, serverSetPick.itemId], set: { versionId: r.versionId, versionNumber: r.versionNumber, updatedAt: r.updatedAt } });
+      }
+      const lib = rows.filter((r) => r.versionId).length;
+      await record({ teamId, userId: user.id, kind: "admin", action: "セットで入れる版を選ぶ", target: `${await serverName(serverId)}(${set.name})`, detail: `最新 ${rows.length - lib} · ライブラリ ${lib}` });
     },
 
     /** サーバーにセットを結び付ける(setId が null なら外す)。結び付けるのは 1 台に 1 つ */
@@ -338,6 +421,8 @@ export function setService(deps: Deps) {
       const { teamId, user } = who;
       await serverInTeam(teamId, serverId);
       await needServerAccess(deps, who, serverId);
+      const [was] = await db.select({ setId: serverSet.setId }).from(serverSet).where(eq(serverSet.serverId, serverId));
+      if (was && was.setId !== setId) await db.delete(serverSetPick).where(eq(serverSetPick.serverId, serverId));
       if (!setId) {
         await db.delete(serverSet).where(eq(serverSet.serverId, serverId));
         forgetLatest(teamId);
@@ -366,7 +451,7 @@ export function setService(deps: Deps) {
       const [b] = await db.select({ setId: serverSet.setId }).from(serverSet).where(eq(serverSet.serverId, serverId));
       if (!b) throw new HttpError(400, "このサーバーにはセットを結び付けていません");
       const set = await setOf(teamId, b.setId);
-      const items = await itemsOf(set.id);
+      const items = await itemsFor(set.id, serverId);
       const r = await jobs.track({ teamId, userId: user.id, serverId, action: "セットでそろえる", target: set.name },
         () => applyTo(teamId, user.id, items, serverId, mode === "update" ? "update" : "sync", mode === "mirror"), head);
       await record({ teamId, userId: user.id, kind: "sets", action: "セットでそろえる", target: `${await serverName(serverId)}(${set.name})`, detail: summary(r) });
@@ -424,7 +509,7 @@ export function setService(deps: Deps) {
       const out: { server: string; set: string; results: ApplyResult[]; error: string }[] = [];
       for (const b of bound) {
         try {
-          out.push({ server: b.name, set: b.setName, results: await applyTo(teamId, null, await itemsOf(b.setId), b.serverId, mode), error: "" });
+          out.push({ server: b.name, set: b.setName, results: await applyTo(teamId, null, await itemsFor(b.setId, b.serverId), b.serverId, mode), error: "" });
         } catch (e) {
           if (!isHttpError(e)) throw e;
           out.push({ server: b.name, set: b.setName, results: [], error: e.message });
@@ -504,7 +589,7 @@ export function setService(deps: Deps) {
     async syncForSchedule(teamId: string, serverId: string) {
       const [b] = await db.select({ setId: serverSet.setId }).from(serverSet).where(eq(serverSet.serverId, serverId));
       if (!b) throw new HttpError(400, "このサーバーにはセットを結び付けていません");
-      return applyTo(teamId, null, await itemsOf(b.setId), serverId, "sync");
+      return applyTo(teamId, null, await itemsFor(b.setId, serverId), serverId, "sync");
     },
 
     summary,

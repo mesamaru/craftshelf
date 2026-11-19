@@ -1,5 +1,7 @@
 // セットの版の固定(03.59.00)。Pterodactyl と Modrinth は偽物の応答で代わりをする
+import { eq } from "drizzle-orm";
 import { beforeAll, describe, expect, it } from "vitest";
+import { serverSetPick } from "~/server/db/schema";
 import { HttpError } from "~/server/guard";
 import { libraryService } from "~/server/library";
 import type { FetchLike } from "~/server/net";
@@ -136,5 +138,28 @@ describe("セットの版の固定", () => {
     await lib.setHold(owner, serverId, "modrinth", PLUGIN, false);
     expect((await sets.sync(owner, serverId, "update"))[0]).toMatchObject({ status: "updated", detail: "5.4.0 → 5.3.0(固定した版)" });
     expect(plugins()).toEqual(["LuckPerms-5.3.0.jar"]);
+  });
+});
+
+describe("サーバーごとに入れる版(セットの画面の「編集」)", () => {
+  it("一覧は最新(このサーバーに合う、いちばん新しい版)を出し、選んでいなければセットの固定を出す。保存した版でないものは選べない", async () => {
+    const r = await sets.serverPicks(owner, setId, serverId);
+    expect(r.server.mcVersion).toBe("1.21.4");
+    expect(r.items[0]).toMatchObject({ title: "LuckPerms", latest: { versionNumber: "5.4.0", support: "ok" }, saved: [], pick: "ver00001", picked: false });
+    expect(await code(sets.savePicks(viewer, setId, serverId, [{ itemId, versionId: null }]))).toBe(403);
+    expect(await code(sets.savePicks(owner, setId, serverId, [{ itemId, versionId: "ver00002" }]))).toBe(404); // ライブラリに保存した版ではない
+    await sets.savePicks(owner, setId, serverId, [{ itemId, versionId: null }]);
+    expect((await sets.serverPicks(owner, setId, serverId)).items[0]).toMatchObject({ pick: null, picked: true });
+  });
+
+  it("最新を選ぶと、セットで固定していても最新にそろえる。ライブラリの版を選ぶと、その版にそろえる。結び付けを外すと選んだ版は消え、保存もできない", async () => {
+    expect((await sets.sync(owner, serverId, "update"))[0]).toMatchObject({ status: "updated", detail: "5.3.0 → 5.4.0" });
+    // ライブラリの版を選んだとき(ここでは保存の仕組みを通さず、選んだ版を直に書く)
+    await t.db.update(serverSetPick).set({ versionId: "ver00001", versionNumber: "5.3.0" }).where(eq(serverSetPick.serverId, serverId));
+    expect((await sets.sync(owner, serverId, "update"))[0]).toMatchObject({ status: "updated", detail: "5.4.0 → 5.3.0(固定した版)" });
+    await sets.bind(owner, serverId, null);
+    expect(await t.db.select().from(serverSetPick)).toEqual([]);
+    expect(await code(sets.savePicks(owner, setId, serverId, [{ itemId, versionId: null }]))).toBe(400);
+    await sets.bind(owner, serverId, setId);
   });
 });

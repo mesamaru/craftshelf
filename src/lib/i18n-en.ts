@@ -1,6 +1,27 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "このセットに、このサーバーの種類のものがありません": "This set has nothing for this server type",
+  "種類を決めていないので選べません": "Can't choose: type not set",
+  "種類を決めていません": "Type not set",
+  "保存した版がありません": "No saved versions",
+  "このサーバーに合う版がありません": "No version fits this server",
+  "配布元が無い(アップロードしたもの)": "No source (uploaded)",
+  "ライブラリ(保存なし)": "Library (none saved)",
+  "最新(なし)": "Latest (none)",
+  "このサーバーを外す": "Remove this server",
+  "入れられる版がありません(入れるときに飛ばします)": "No installable version (skipped when installing)",
+  "このサーバーの種類には入れないので、飛ばします": "Skipped: doesn't fit this server type",
+  "すべてライブラリ": "All library",
+  "すべて最新": "All latest",
+  "版を読み込んでいます…(配布元に問い合わせます)": "Loading versions… (asking the source)",
+  "サーバーに入れています…(上のバーの処理のしるしでも見られます)": "Installing on the server… (also shown by the jobs icon in the top bar)",
+  "＋ サーバーを追加": "+ Add server",
+  "選ぶ": "Choose",
+  "追加できるサーバーは、もうありません。": "No more servers to add.",
+  "追加するサーバーを選ぶ": "Choose a server to add",
+  "このセットを入れるサーバーは、まだありません。": "No servers use this set yet.",
+  "このセットを入れるサーバーです。「＋ サーバーを追加」で 1 台ずつ足します(1 台のサーバーに結び付けるセットは 1 つ)。「編集」で、アドオンごとに「最新」(このサーバーに合う、配布元のいちばん新しい版)か「ライブラリ」(保存した版。その版に固定)を選べます。「入れる」は、足りないものを入れ、選んだ版にそろえます。": "Servers this set is installed on. Add them one at a time with “+ Add server” (a server is linked to one set). Under “Edit”, choose for each add-on “Latest” (the newest version from the source that fits this server) or “Library” (a saved version, pinned). “Install” adds what's missing and syncs to the chosen versions.",
   "新しいものから数えます。0 なら全部残します": "Counted from the newest. 0 keeps everything",
   "保存先の inbox/ に .jar・.zip・.mrpack を置いて押すと、中身から配布元を探して(Modrinth・CurseForge)ライブラリに載せます。見つからないものは、アップロードしたものとして載せます。取り込んだものは inbox/ から消します。": "Put .jar, .zip or .mrpack files in inbox/ of the storage location and press this to look up their source (Modrinth / CurseForge) and add them to the library. Files that can't be identified are added as uploads. Imported files are removed from inbox/.",
   "「記録なし」は、このアプリが登録していないファイルです(バックアップ・ほかのアプリのものなど)。ライブラリに取り込むときは、保存先の inbox/ に移してから下の「inbox/ から取り込む」を押します。": "“Not registered” files weren't registered by this app (backups, other apps' files, etc.). To import them into the library, move them into inbox/ in the storage location and press “Import from inbox/” below.",
@@ -2039,6 +2060,14 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^サーバー (.+) · Minecraft (.+)$/, "Server $1 · Minecraft $2"],
+  [/^いまは「(.+)」$/, "now “$1”"],
+  [/^ほか (\d+) 個$/, "$1 more"],
+  [/^選んでいる版は、このサーバー\(Minecraft (.+)\)に対応していません$/, "The chosen version doesn't support this server (Minecraft $1)"],
+  [/^「(.+)」に「(.+)」を入れますか[?？]\(足りないものを入れ、選んだ版にそろえます\)$/, "Install “$2” on “$1”? (Adds what's missing and syncs to the chosen versions.)"],
+  [/^このサーバーは、いまセット「(.+)」を結び付けています。「(.+)」に付け替えますか[?？]\(サーバーに入っているものはそのままです\)$/, "This server is linked to set “$1”. Switch it to “$2”? (What's installed stays as is.)"],
+  [/^「(.+)」をこのセットから外しますか[?？]\(サーバーに入っているものはそのままです\)$/, "Remove “$1” from this set? (What's installed stays as is.)"],
+  [/^「(.+)」の、ライブラリに保存した版が見つかりません$/, "No saved library version of “$1” found"],
   [/^既定 · (.+)$/, "Default · $1"],
   [/^空き (.+) \/ 全体 (.+)$/, "$1 free / $2 total"],
   [/^登録しているファイル (\d+) 個 · (.+?)( · うち保存した版 (\d+) 個)?$/, (_, n, s, _x, v) => `${n} registered files · ${s}${v ? ` · ${v} saved versions` : ""}`],

@@ -30,6 +30,16 @@ export const applySet = createServerFn({ method: "POST" })
   .validator(z.object({ id: sid, serverId: sid }))
   .handler(async ({ data }) => (await svc()).apply(headers(), data.id, data.serverId));
 
+/** セットを結び付けたサーバーで、アイテムごとに入れる版(最新・ライブラリに保存した版)を選ぶための一覧 */
+export const setServerPicks = createServerFn({ method: "GET" })
+  .validator(z.object({ id: sid, serverId: sid }))
+  .handler(async ({ data }) => (await svc()).serverPicks(headers(), data.id, data.serverId));
+
+/** サーバーごとの入れる版を保存する(versionId が null = 最新) */
+export const saveSetServerPicks = createServerFn({ method: "POST" })
+  .validator(z.object({ id: sid, serverId: sid, picks: z.array(z.object({ itemId: sid, versionId: z.string().min(1).max(200).nullable() })).max(500) }))
+  .handler(async ({ data }) => (await svc()).savePicks(headers(), data.id, data.serverId, data.picks));
+
 export const bindServerSet = createServerFn({ method: "POST" })
   .validator(z.object({ serverId: sid, setId: sid.nullable() }))
   .handler(async ({ data }) => (await svc()).bind(headers(), data.serverId, data.setId));

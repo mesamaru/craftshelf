@@ -8,8 +8,8 @@ import { getSchedule, setSchedule } from "~/lib/schedule-api";
 import { ITEM_TYPES, PLATFORMS, PLATFORM_IDS, mcRange } from "~/lib/platforms";
 import { localDate } from "~/lib/format";
 import { AddonIcon } from "~/lib/type-icon";
-import { addSetDeps, applySet, createSet, listSets, pinSetItem, removeSet, renameSet, setMissingDeps, syncServerSet, toggleSetItem } from "~/lib/sets-api";
-import { Btn, Chip, Icon, Info, Menu, Sheet, fmtSize } from "~/lib/ui";
+import { addSetDeps, applySet, bindServerSet, createSet, listSets, pinSetItem, removeSet, renameSet, saveSetServerPicks, setMissingDeps, setServerPicks, syncServerSet, toggleSetItem } from "~/lib/sets-api";
+import { Btn, Chip, Icon, Info, Menu, Seg, Sheet, fmtSize } from "~/lib/ui";
 import { sourceLabel } from "~/lib/sources";
 import { useCan } from "~/lib/use-can";
 import { sharedLocalEnabled } from "~/lib/servers-api";
@@ -75,7 +75,7 @@ function Sets() {
       <div className="cards">
         {sets.map((s) => <SetCard key={s.id} set={s} edit={edit} local={local} onOpen={() => setOpen(s.id)} onChange={reload} />)}
       </div>
-      {opened && <SetSheet set={opened} catalog={catalog} edit={edit} local={local} onChange={reload} onClose={() => setOpen("")} />}
+      {opened && <SetSheet set={opened} catalog={catalog} elsewhere={new Map(sets.filter((x) => x.id !== opened.id).flatMap((x) => x.servers.map((v) => [v.id, x.name] as const)))} edit={edit} local={local} onChange={reload} onClose={() => setOpen("")} />}
       {sheet === "new" && (
         <Sheet title="セットを作成" onClose={() => setSheet("")}>
           <NewSet onCreated={() => { reload(); setSheet(""); }} />
@@ -138,16 +138,13 @@ function SetCard({ set, edit, local, onOpen, onChange }: { set: SetRow; edit: bo
 }
 
 // セットのシート: 中身(版の固定・外す・足す)・前提・サーバー(そろえる・入れる)
-function SetSheet({ set, catalog, edit, local, onChange, onClose }: { set: SetRow; catalog: Catalog; edit: boolean; local: boolean; onChange: () => void; onClose: () => void }) {
+function SetSheet({ set, catalog, elsewhere, edit, local, onChange, onClose }: { set: SetRow; catalog: Catalog; elsewhere: Map<string, string>; edit: boolean; local: boolean; onChange: () => void; onClose: () => void }) {
   const toggle = useServerFn(toggleSetItem);
   const plan = useServerFn(zipPlan);
-  const apply = useServerFn(applySet);
-  const sync = useServerFn(syncServerSet);
   const rename = useServerFn(renameSet);
   const remove = useServerFn(removeSet);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
-  const [results, setResults] = useState<{ server: string; verb: string; list: Result } | null>(null);
   const [type, setType] = useState(""); // 種類での絞り込み(空 = すべて)
   const [pinning, setPinning] = useState<string | null>(null); // 版を選ぶ欄を開いているアイテム
   const [adding, setAdding] = useState(set.items.length === 0); // ライブラリから選ぶ欄(中身が空なら初めから開く)
@@ -155,8 +152,6 @@ function SetSheet({ set, catalog, edit, local, onChange, onClose }: { set: SetRo
   const fits = (i: { projectType: string }) => !type || i.projectType === type;
   const addable = catalog.items.filter((i) => !inSet.has(i.id) && fits(i));
   const types = [...new Set([...set.items, ...catalog.items].map((i) => i.projectType))];
-  const bound = new Set(set.servers.map((s) => s.id));
-  const targets = catalog.servers.filter((s) => s.type && !bound.has(s.id));
 
   const run = async (key: string, fn: () => Promise<unknown>) => {
     setBusy(key);
@@ -216,37 +211,185 @@ function SetSheet({ set, catalog, edit, local, onChange, onClose }: { set: SetRo
         <div className="gtitle">前提<Info>セットの Mod・プラグインが必要とするもの(Modrinth・CurseForge の「必須」)のうち、セットに入っていないものを探します。必要なものはサーバーの種類で変わるので、入れる先の種類を選んでから確かめます。</Info></div>
         <section className="group"><Deps set={set} edit={edit} onChange={onChange} /></section>
       </>}
-      {edit && set.items.length > 0 && <>
-        <div className="gtitle">サーバー<Info>「そろえる」は、結び付けたサーバーに足りないものを入れ、新しい版があれば更新します(セットを結び付けるのは、サーバーの画面の「アドオン」の「そろえる」)。「サーバーに入れる」は、選んだサーバーにまだ入っていないものだけを入れます。</Info></div>
-        <section className="group">
-          {set.servers.map((s) => (
-            <div className="row" key={s.id}>
-              <span className="mid"><span className="ttl" translate="no">{s.name}</span><span className="sub">このセットに結び付けています</span></span>
-              <Btn kind="tint" sm disabled={!!busy} onClick={async () => {
-                if ((await confirmDialog({ message: `「${s.name}」を「${set.name}」にそろえますか?(足りないものも入れる)`, ok: "そろえる" }))) run("sync", async () => { jobsChanged(); setResults({ server: s.name, verb: "そろえた", list: await sync({ data: { serverId: s.id, mode: "add" } }) }); });
-              }}>そろえる</Btn>
-            </div>
-          ))}
-          {targets.map((t) => (
-            <div className="row" key={t.id}>
-              <span className="mid">
-                <span className="ttl" translate="no">{t.name}</span>
-                <span className="sub">{[t.type === "mod" ? "Mod のサーバー" : "プラグインのサーバー", t.mc && `Minecraft ${t.mc}`].filter(Boolean).join(" · ")}</span>
-              </span>
-              <Btn kind="tint" sm disabled={!!busy} onClick={async () => {
-                if (await confirmDialog({ message: `「${t.name}」に「${set.name}」を入れますか?(まだ入っていないものだけを入れます。入っているものはそのままです)`, ok: "入れる" })) {
-                  run("apply", async () => { jobsChanged(); return setResults({ server: t.name, verb: "入れた", list: await apply({ data: { id: set.id, serverId: t.id } }) }); });
-                }
-              }}>入れる</Btn>
-            </div>
-          ))}
-          {!targets.length && !set.servers.length && <div className="row muted">入れられるサーバーがありません(サーバーの画面で、サーバーの種類を決めると出ます)。</div>}
-          {(busy === "apply" || busy === "sync") && <div className="row muted">サーバーに入れています…</div>}
-          {results && <ApplyResults server={results.server} verb={results.verb} list={results.list} />}
-        </section>
-      </>}
+      {edit && set.items.length > 0 && <SetServers set={set} catalog={catalog} elsewhere={elsewhere} onChange={onChange} />}
       {error && <p className="error" role="alert">{error}</p>}
     </Sheet>
+  );
+}
+
+// セットのサーバー: このセットを結び付けたサーバーを並べ、「＋ サーバーを追加」で 1 台ずつ足す(結び付けるのは 1 台に 1 つ)。
+// 「編集」でアイテムごとに入れる版(最新・ライブラリに保存した版)を選び、「入れる」で足りないものを入れて、選んだ版にそろえる
+function SetServers({ set, catalog, elsewhere, onChange }: { set: SetRow; catalog: Catalog; elsewhere: Map<string, string>; onChange: () => void }) {
+  const bind = useServerFn(bindServerSet);
+  const sync = useServerFn(syncServerSet);
+  const [picking, setPicking] = useState(false);
+  const [editing, setEditing] = useState<string | null>(null);
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [results, setResults] = useState<{ server: string; list: Result } | null>(null);
+  const info = (id: string) => catalog.servers.find((s) => s.id === id);
+  const candidates = catalog.servers.filter((s) => !set.servers.some((b) => b.id === s.id));
+  const kinds = new Set(set.items.map((i) => i.projectType));
+  // 入れられるか: 種類を決めていて、セットの中にそのサーバーの種類のもの(またはデータパック)がある
+  const fitsSet = (s: Catalog["servers"][number]) => !!s.type && (kinds.has(s.type) || (kinds.has("datapack") && s.kinds.includes("datapack")));
+  const run = async (key: string, fn: () => Promise<unknown>) => {
+    setBusy(key);
+    setError("");
+    try {
+      await fn();
+    } catch (e) {
+      setError(message(e));
+    } finally {
+      setBusy("");
+    }
+  };
+  const add = (id: string) => run(`add:${id}`, async () => {
+    const from = elsewhere.get(id);
+    if (from && !(await confirmDialog({ message: `このサーバーは、いまセット「${from}」を結び付けています。「${set.name}」に付け替えますか?(サーバーに入っているものはそのままです)`, ok: "付け替える" }))) return;
+    await bind({ data: { serverId: id, setId: set.id } });
+    setPicking(false);
+    setEditing(id);
+    onChange();
+  });
+  return (
+    <>
+      <div className="gtitle">サーバー<Info>このセットを入れるサーバーです。「＋ サーバーを追加」で 1 台ずつ足します(1 台のサーバーに結び付けるセットは 1 つ)。「編集」で、アドオンごとに「最新」(このサーバーに合う、配布元のいちばん新しい版)か「ライブラリ」(保存した版。その版に固定)を選べます。「入れる」は、足りないものを入れ、選んだ版にそろえます。</Info></div>
+      <section className="group">
+        {set.servers.length === 0 && !picking && <div className="row muted">このセットを入れるサーバーは、まだありません。</div>}
+        {set.servers.map((b) => {
+          const s = info(b.id);
+          const open = editing === b.id;
+          return [
+            <div className="row" key={b.id}>
+              <span className="cicon c-teal" aria-hidden="true"><Icon name="servers" /></span>
+              <span className="mid">
+                <span className="ttl" translate="no">{b.name}</span>
+                <span className="sub">{[s?.type === "mod" ? "Mod" : s?.type ? "プラグイン" : "種類を決めていません", s?.mc && `MC ${s.mc}`].filter(Boolean).join(" · ")}</span>
+              </span>
+              <Btn sm disabled={!!busy} aria-expanded={open} onClick={() => setEditing(open ? null : b.id)}>{open ? "閉じる" : "編集"}</Btn>
+              <Btn kind="tint" sm disabled={!!busy} onClick={async () => {
+                if (await confirmDialog({ message: `「${b.name}」に「${set.name}」を入れますか?(足りないものを入れ、選んだ版にそろえます)`, ok: "入れる" })) {
+                  run(`sync:${b.id}`, async () => { jobsChanged(); setResults({ server: b.name, list: await sync({ data: { serverId: b.id, mode: "add" } }) }); });
+                }
+              }}>{busy === `sync:${b.id}` ? "入れています…" : "入れる"}</Btn>
+            </div>,
+            open && <PicksPanel key={`p-${b.id}`} set={set} serverId={b.id} serverName={b.name} busy={!!busy}
+              onClose={() => setEditing(null)}
+              onRemove={() => run(`rm:${b.id}`, async () => {
+                if (!(await confirmDialog({ message: `「${b.name}」をこのセットから外しますか?(サーバーに入っているものはそのままです)`, ok: "外す", danger: true }))) return;
+                await bind({ data: { serverId: b.id, setId: null } });
+                setEditing(null);
+                onChange();
+              })} />,
+          ];
+        })}
+        {picking && (
+          <div className="row column set-pick">
+            <span className="pick-head"><span className="muted small">追加するサーバーを選ぶ</span><Btn sm onClick={() => setPicking(false)}>やめる</Btn></span>
+            {candidates.length === 0 && <span className="muted small">追加できるサーバーは、もうありません。</span>}
+            <div className="group flat">
+              {candidates.map((s) => {
+                const ok = fitsSet(s);
+                return (
+                  <button key={s.id} type="button" className="row click" disabled={!ok || !!busy} onClick={() => add(s.id)}>
+                    <span className="cicon c-teal" aria-hidden="true"><Icon name="servers" /></span>
+                    <span className="mid">
+                      <span className="ttl" translate="no">{s.name}</span>
+                      <span className="sub">{!s.type ? "種類を決めていないので選べません" : !ok ? "このセットに、このサーバーの種類のものがありません"
+                        : [s.type === "mod" ? "Mod のサーバー" : "プラグインのサーバー", s.mc && `Minecraft ${s.mc}`, elsewhere.get(s.id) && `いまは「${elsewhere.get(s.id)}」`].filter(Boolean).join(" · ")}</span>
+                    </span>
+                    {ok && <span className="trail link">選ぶ</span>}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+        {!picking && <button type="button" className="row link add-row" disabled={!!busy} onClick={() => { setPicking(true); setEditing(null); }}>＋ サーバーを追加</button>}
+        {busy.startsWith("sync:") && <div className="row muted">サーバーに入れています…(上のバーの処理のしるしでも見られます)</div>}
+        {results && <ApplyResults server={results.server} verb="入れた" list={results.list} />}
+        {error && <p className="row error" role="alert">{error}</p>}
+      </section>
+    </>
+  );
+}
+
+const SUPPORT_TAG: Record<string, [string, string]> = { ok: ["対応", "ok"], unknown: ["対応不明", "muted-badge"], no: ["非対応", "bad"] };
+type Picks = Awaited<ReturnType<typeof setServerPicks>>;
+
+// サーバーで入れる版を、アドオンごとに「最新」か「ライブラリ(保存した版)」から選ぶ(行の下に開く)。保存した版が 2 つ以上あれば、どの版かも選ぶ
+function PicksPanel({ set, serverId, serverName, busy, onClose, onRemove }: { set: SetRow; serverId: string; serverName: string; busy: boolean; onClose: () => void; onRemove: () => void }) {
+  const load = useServerFn(setServerPicks);
+  const save = useServerFn(saveSetServerPicks);
+  const [data, setData] = useState<Picks | null>(null);
+  const [draft, setDraft] = useState<Record<string, string | null>>({});
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  useEffect(() => {
+    load({ data: { id: set.id, serverId } }).then((d) => { setData(d); setDraft(Object.fromEntries(d.items.map((i) => [i.itemId, i.pick]))); }, (e) => setError(message(e)));
+  }, [serverId, set.items.length]);
+  const tag = (s: string) => <span className={`badge ${SUPPORT_TAG[s]?.[1] ?? "muted-badge"}`}>{SUPPORT_TAG[s]?.[0] ?? s}</span>;
+  const range = (mc: string[]) => (mc.length ? `MC ${mcRange(mc)}` : "MC 不明");
+  const items = data?.items.filter((i) => !i.unfit) ?? [];
+  const setAll = (lib: boolean) => setDraft((d) => Object.fromEntries(items.map((i) => [i.itemId, lib ? (i.saved[0]?.versionId ?? d[i.itemId]) : i.latest ? null : d[i.itemId]])));
+  const submit = async () => {
+    setSaving(true);
+    setError("");
+    try {
+      await save({ data: { id: set.id, serverId, picks: items.map((i) => ({ itemId: i.itemId, versionId: draft[i.itemId] ?? null })) } });
+      onClose();
+    } catch (e) {
+      setError(message(e));
+      setSaving(false);
+    }
+  };
+  return (
+    <div className="row column picks-panel">
+      {!data && !error && <span className="muted">版を読み込んでいます…(配布元に問い合わせます)</span>}
+      {data && (
+        <span className="picks-head">
+          <span className="muted small">{`サーバー ${serverName} · Minecraft ${data.server.mcVersion ?? "不明"}`}</span>
+          <span className="actions"><Btn sm disabled={saving} onClick={() => setAll(false)}>すべて最新</Btn><Btn sm disabled={saving} onClick={() => setAll(true)}>すべてライブラリ</Btn></span>
+        </span>
+      )}
+      {data?.items.map((i) => {
+        const lib = draft[i.itemId] != null;
+        const chosen = lib ? i.saved.find((v) => v.versionId === draft[i.itemId]) : null;
+        const now = lib ? chosen : i.latest;
+        return (
+          <div className="pick-card" key={i.itemId}>
+            <span className="pick-top">
+              <AddonIcon type={i.projectType} url={i.iconUrl} />
+              <span className="mid"><span className="ttl" translate="no">{i.title}</span><span className="sub">{sourceLabel(i.source)}</span></span>
+            </span>
+            {i.unfit ? <span className="muted small">このサーバーの種類には入れないので、飛ばします</span> : (
+              <>
+                <Seg label={`${i.title} の入れる版`} value={lib ? "lib" : "latest"} options={[["latest", i.latest ? "最新" : "最新(なし)"], ["lib", i.saved.length ? "ライブラリ" : "ライブラリ(保存なし)"]] as const}
+                  onChange={(v) => setDraft((d) => ({ ...d, [i.itemId]: v === "lib" ? (i.saved[0]?.versionId ?? d[i.itemId] ?? null) : null }))} />
+                {lib && i.saved.length > 1 && (
+                  <select value={draft[i.itemId] ?? ""} disabled={saving} aria-label={`${i.title} の保存した版`} onChange={(e) => setDraft((d) => ({ ...d, [i.itemId]: e.target.value }))}>
+                    {i.saved.map((v) => <option key={v.versionId} value={v.versionId} translate="no">{`${v.versionNumber}(${range(v.mcVersions)})`}</option>)}
+                  </select>
+                )}
+                <dl className="pick-info">
+                  <dt>最新</dt><dd className={lib ? "dim" : ""}>{i.latest ? <><span translate="no">{i.latest.versionNumber}</span> · {range(i.latest.mcVersions)} {tag(i.latest.support)}</> : i.source === "upload" ? "配布元が無い(アップロードしたもの)" : i.error || "このサーバーに合う版がありません"}</dd>
+                  <dt>ライブラリ</dt><dd className={lib ? "" : "dim"}>{(lib ? chosen : i.saved[0]) ? <><span translate="no">{(lib ? chosen : i.saved[0])!.versionNumber}</span> · {range((lib ? chosen : i.saved[0])!.mcVersions)} {tag((lib ? chosen : i.saved[0])!.support)}{i.saved.length > 1 && !lib ? ` ほか ${i.saved.length - 1} 個` : ""}</> : "保存した版がありません"}</dd>
+                </dl>
+                {now && now.support === "no" && <span className="small warn-text">{`選んでいる版は、このサーバー(Minecraft ${data.server.mcVersion ?? "不明"})に対応していません`}</span>}
+                {!now && <span className="small warn-text">入れられる版がありません(入れるときに飛ばします)</span>}
+              </>
+            )}
+          </div>
+        );
+      })}
+      {error && <p className="error small" role="alert">{error}</p>}
+      <span className="actions picks-foot">
+        <Btn kind="red" sm disabled={saving || busy} onClick={onRemove}>このサーバーを外す</Btn>
+        <span className="grow" />
+        <Btn sm disabled={saving} onClick={onClose}>やめる</Btn>
+        <Btn kind="pri" sm disabled={saving || !data} onClick={submit}>{saving ? "保存しています…" : "保存"}</Btn>
+      </span>
+    </div>
   );
 }
 

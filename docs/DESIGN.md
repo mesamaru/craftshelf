@@ -136,6 +136,8 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 
 ## 操作の記録と通知
 
+設定では「操作の記録」(`/activity`)と「Discord への通知」(`/activity?s=notify`)を別の項目に分けている(03.89.00 から)。
+
 - 操作の記録(表 `audit_log`。`src/server/events.ts` の `record`)。各サービスの、変える操作の最後に記録する(だれが・何を・どのサーバーに・詳しい内容)。予約で動いたものは user_id が null。見られるのは `member: ["update"]`(管理者以上)。画面では操作・対象・詳しく・人の名前で探せる(`list` の `q`、ILIKE。`%`・`_` はそのままの文字)。
 - Discord への通知(表 `team_notify`)。Webhook の URL は `seal` で暗号化して保存し、`https://discord.com/api/webhooks/…`(discordapp.com・ptb・canary を含む)だけを受け付ける。記録の種類(`EVENT_KINDS`: changes・sets・schedule・power・admin・updates・auto・errors・backup・panel)のうち、選んだものだけを送る。記録は 1 つの種類(`kind`)で残し、ほかにも当てはまる種類は `also` で渡す(自動更新・予約で入れた → auto、失敗 → errors、バックアップ → backup。前からの種類を選んだチームにも、前と同じように届く)。`allowed_mentions` を空にしてメンションさせない。送れなくても、もとの操作は失敗させない。
 

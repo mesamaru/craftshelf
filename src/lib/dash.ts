@@ -1,8 +1,9 @@
 // ホームのウィジェットの並び(03.69.00 から。v02 の「ウィジェットを編集」と同じ: 並べ替え・表示 / 非表示・全幅・メモ / ToDo / 時計 / 今日の日付)。
 // アカウントに保存する(user_pref.dash の JSON)ので、画面と保存の両方でここの cleanDash を通す
+// 03.89.00 から、ホームは全体のいまの状態(サーバーの稼働・更新・処理・バックアップ)を先に。ライブラリの数は初めは隠す(ライブラリの画面で見られる)
 export const DASH_WIDGETS = [
-  ["tiles", "概要"], ["updates", "更新があるもの"], ["recent", "最近追加したもの"], ["cats", "種類ごとの件数"],
-  ["attention", "見てほしいもの"], ["servers", "サーバー"], ["links", "配布元"], ["storage", "保存先とバックアップ"],
+  ["tiles", "概要"], ["servers", "サーバー"], ["updates", "更新があるもの"], ["jobs", "最近の処理"],
+  ["attention", "見てほしいもの"], ["storage", "保存先とバックアップ"], ["recent", "最近追加したもの"], ["cats", "種類ごとの件数"], ["links", "配布元"],
 ] as const;
 export const CUSTOM_TYPES = { memo: "メモ", todo: "ToDo リスト", clock: "時計", date: "今日の日付" } as const;
 export type CustomType = keyof typeof CUSTOM_TYPES;
@@ -10,7 +11,7 @@ export type Custom = { id: string; type: CustomType; title: string; text: string
 export type DashLayout = { order: string[]; hidden: string[]; full: string[]; custom: Custom[] };
 
 export const DASH_LIMITS = { custom: 12, title: 40, text: 10000, items: 100, item: 200 };
-export const DASH_DEFAULT: DashLayout = { order: DASH_WIDGETS.map(([k]) => k), hidden: [], full: ["tiles"], custom: [] };
+export const DASH_DEFAULT: DashLayout = { order: DASH_WIDGETS.map(([k]) => k), hidden: ["cats", "links"], full: ["tiles"], custom: [] };
 
 const KNOWN = new Set<string>(DASH_WIDGETS.map(([k]) => k));
 const ID = /^x[0-9a-f]{8}$/;
@@ -35,7 +36,7 @@ export function cleanDash(v: unknown): DashLayout {
   const keep = (l: unknown) => [...new Set(strs(l).filter((k) => known.has(k)))];
   const order = keep(d.order);
   for (const k of known) if (!order.includes(k)) order.push(k);
-  return { order, hidden: keep(d.hidden), full: d.full === undefined ? DASH_DEFAULT.full : keep(d.full), custom };
+  return { order, hidden: d.hidden === undefined ? DASH_DEFAULT.hidden : keep(d.hidden), full: d.full === undefined ? DASH_DEFAULT.full : keep(d.full), custom };
 }
 
 /** 新しいウィジェットの ID(x と 16 進 8 桁) */

@@ -120,7 +120,7 @@ describe("ホームのウィジェットの並び", () => {
       ],
     });
     expect(saved.order.slice(0, 3)).toEqual(["servers", "x0123abcd", "tiles"]);
-    expect(saved.order).toHaveLength(9); // 足りない標準のウィジェットは後ろに足す
+    expect(saved.order).toHaveLength(10); // 足りない標準のウィジェットは後ろに足す(標準 9 個 + メモ 1 個)
     expect(saved.hidden).toEqual(["links"]);
     expect(saved.custom).toHaveLength(1);
     expect(saved.custom[0].title).toHaveLength(40);
@@ -128,6 +128,8 @@ describe("ホームのウィジェットの並び", () => {
     expect(await prefs.dash(await idOf(a))).toEqual(saved);
     expect(await prefs.dash(await idOf(b))).toBeNull();
     expect(cleanDash(undefined).order).toEqual(DASH_DEFAULT.order);
+    expect(cleanDash(undefined).hidden).toEqual(["cats", "links"]); // ライブラリの数は初めは隠す
+    expect(cleanDash({ hidden: [] }).hidden).toEqual([]); // 前に全部出すと決めた人は、そのまま
     await expect(prefs.setDash(new Headers({ "x-api-key": "cs_wrongwrongwrong" }), {})).rejects.toMatchObject({ status: 401 });
   });
 

@@ -716,16 +716,6 @@ input.switch.trail { margin-left: auto; }
 .dropcard .s { color: var(--muted); font-size: 13px; }
 .dropcard .acts { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .dropcard label.btn { cursor: pointer; }
-.lsum { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-.ls-tile { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 14px; border-radius: 16px; border: 1px solid var(--line); background: var(--glass); backdrop-filter: blur(24px) saturate(1.6); color: var(--text); font: inherit; text-align: left; cursor: pointer; transition: transform 0.2s; }
-.ls-tile:hover { transform: translateY(-1px); }
-.ls-tile .l { display: flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
-.ls-tile .l svg { width: 15px; height: 15px; }
-.ls-tile .h { font-size: 11.5px; color: var(--muted); }
-.ls-tile .v { font-size: 24px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
-.ls-tile.upd .l { color: var(--warn); }
-.ls-tile.deps .l { color: var(--danger); }
-.ls-tile.on { box-shadow: inset 0 0 0 2px var(--accent); }
 .toolbar { position: sticky; top: 76px; z-index: 10; padding: 8px; border-radius: 22px; display: flex; flex-direction: column; gap: 8px; box-shadow: var(--shadow); }
 .toolbar .row1 { display: flex; gap: 8px; align-items: center; }
 .toolbar .q { position: relative; flex: 1; min-width: 0; }
@@ -813,9 +803,6 @@ a.kv.linkish span:last-child { color: var(--link); font-weight: 600; }
   .dropcard { padding: 10px; border-style: solid; }
   .dropcard .dz { display: none; }
   .dropcard .acts { width: 100%; display: grid; grid-template-columns: 1fr 1fr; }
-  .lsum { gap: 6px; }
-  .ls-tile { padding: 8px 10px; border-radius: 14px; }
-  .ls-tile .v { font-size: 19px; }
   .tile { padding: 12px; }
   .tile .v { font-size: 24px; }
   .sg-steps .sg-acts { width: 100%; padding-left: 36px; justify-content: flex-start; }
@@ -1023,3 +1010,14 @@ a:not([class]) { color: var(--link); text-underline-offset: 2px; text-decoration
   .ports-table th:first-child, .ports-table td:first-child { white-space: normal; max-width: 36vw; min-width: 96px; }
   .ports-table th, .ports-table td { padding: 6px 8px; }
 }
+
+/* はじめの設定を 1 行に畳んだ形(ライブラリの上。03.89.00) */
+.setup.sg-line { display: flex; align-items: center; gap: 10px; padding: 10px 14px; flex-wrap: wrap; }
+.sg-line .mid { flex: 1 1 160px; min-width: 0; display: flex; flex-direction: column; }
+.sg-line .ttl { font-weight: 700; font-size: 14px; }
+.sg-line .ttl small { color: var(--muted); font-weight: 500; font-size: 12.5px; margin-left: 4px; }
+.sg-line .sub { color: var(--muted); font-size: 12.5px; }
+.sg-line .sg-dot { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--accent-soft); color: var(--link); font-weight: 800; font-size: 13px; flex: none; }
+/* ライブラリの「更新あり」「前提不足」は、絞り込みのチップ(03.89.00 から。前は大きな数のカード) */
+.lsum { display: flex; gap: 8px; flex-wrap: wrap; }
+.chip.deps.on { background: rgba(255, 69, 58, 0.14); color: var(--danger); border-color: rgba(255, 69, 58, 0.3); }

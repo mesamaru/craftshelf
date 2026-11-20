@@ -157,12 +157,12 @@ function Library() {
 
       {cat && cat.items.length > 0 && (
         <div className="lsum">
-          {cat.items.some((i) => i.source !== "upload") && <button type="button" className={`ls-tile upd${f.old ? " on" : ""}`} aria-pressed={f.old} onClick={toggleOld} title="どこかのサーバーに古い版が入っているもの(配布元に問い合わせます。更新を止めたものは除きます)">
-            <span className="l"><Icon name="reload" />更新あり</span><span className="v">{f.oldIds ? f.oldIds.size : "—"}</span>{!f.oldIds && <span className="h">押すと確かめます</span>}
-          </button>}
-          <button type="button" className={`ls-tile deps${f.deps ? " on" : ""}`} aria-pressed={f.deps} onClick={toggleDeps} title="入っているサーバーに、必須の前提が無いもの(配布元に問い合わせます)">
-            <span className="l"><Icon name="puzzle" />前提不足</span><span className="v">{f.depIds ? f.depIds.size : "—"}</span>{!f.depIds && <span className="h">押すと確かめます</span>}
-          </button>
+          {cat.items.some((i) => i.source !== "upload") && <Chip warn on={f.old} onClick={toggleOld} title="どこかのサーバーに古い版が入っているもの(押すと配布元に問い合わせます。更新を止めたものは除きます)">
+            <Icon name="reload" />更新あり{f.oldIds && <span className="n">{f.oldIds.size}</span>}
+          </Chip>}
+          <Chip className="deps" on={f.deps} onClick={toggleDeps} title="入っているサーバーに、必須の前提が無いもの(押すと配布元に問い合わせます)">
+            <Icon name="puzzle" />前提不足{f.depIds && <span className="n">{f.depIds.size}</span>}
+          </Chip>
         </div>
       )}
 

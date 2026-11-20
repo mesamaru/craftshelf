@@ -30,7 +30,8 @@ function useGroups(ctx: Ctx): [string, Entry[]][] {
     ["チーム", [
       e("members", SETTING_LABEL.members, "team", "c-resourcepack", "/team", true),
       e("perms", SETTING_LABEL.perms, "shield", "c-other", "/team", admin, "perms"),
-      e("activity", SETTING_LABEL.activity, "bell", "c-plugin", "/activity", can({ audit: ["read"] }) || can({ integrations: ["manage"] })),
+      e("activity", SETTING_LABEL.activity, "file", "c-plugin", "/activity", can({ audit: ["read"] })),
+      e("notify", SETTING_LABEL.notify, "bell", "c-red", "/activity", can({ integrations: ["manage"] }), "notify"),
       e("usage", SETTING_LABEL.usage, "chart", "c-teal", "/usage", admin),
       e("setup", SETTING_LABEL.setup, "check", "c-teal", "/team", admin, "setup"),
     ]],

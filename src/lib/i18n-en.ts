@@ -1,6 +1,20 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "入っているサーバーに、必須の前提が無いもの(押すと配布元に問い合わせます)": "Items missing a required dependency on a server where they're installed (checks the source when clicked)",
+  "どこかのサーバーに古い版が入っているもの(押すと配布元に問い合わせます。更新を止めたものは除きます)": "Items with an older version on some server (checks the source when clicked; excludes items with updates paused)",
+  "たたむ": "Collapse",
+  "すべて見る": "Show all",
+  "どこかのサーバーに古い版": "Older versions on some servers",
+  "すべて動いています": "All running",
+  "自動バックアップは未設定": "Automatic backup is off",
+  "動いている処理はありません": "No jobs running",
+  "24 時間以内に失敗": "Failed in the last 24 hours",
+  "まだ処理はありません": "No jobs yet",
+  "すべての処理": "All jobs",
+  "最近の処理": "Recent jobs",
+  "動いているサーバー": "Servers running",
+  "Webhook と知らせる種類": "Webhook and what to send",
   "更新の予約": "Scheduled updates",
   "そろえる予約": "Scheduled sync",
   "古い版・重複・使っていないものを探して消す": "Find and remove old versions, duplicates and unused items",
@@ -2087,6 +2101,12 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^次: (.+)$/, (_, s) => "Next: " + (EN[s] ?? s)],
+  [/^アドオン (\d+) 件$/, "$1 add-ons"],
+  [/^\/ (\d+) 台$/, "/ $1"],
+  [/^ほか (\d+) 台はサーバーの画面で$/, "$1 more on the Servers page"],
+  [/^止まっている (\d+) 台$/, "$1 stopped"],
+  [/^毎日 (\d+:\d+) に自動で$/, "Daily at $1"],
   [/^ · Minecraft (.+) が出ています$/, " · Minecraft $1 is out"],
   [/^サーバー (.+) · Minecraft (.+)$/, "Server $1 · Minecraft $2"],
   [/^いまは「(.+)」$/, "now “$1”"],

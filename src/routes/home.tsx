@@ -3,6 +3,10 @@ import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { libraryCatalog, outdatedLibraryServers } from "~/lib/library-api";
 import { listBackups } from "~/lib/backup-api";
+import { sharedJobs } from "~/lib/jobs-api";
+import { type Job, JobRow, partlyFailed } from "~/lib/jobs-ui";
+import { STATE_LABELS } from "~/lib/platforms";
+import { useStatuses } from "~/lib/server-status";
 import { CUSTOM_TYPES, type Custom, type CustomType, DASH_DEFAULT, DASH_LIMITS, DASH_WIDGETS, type DashLayout, cleanDash, newCustomId } from "~/lib/dash";
 import { CustomWidget, customName } from "~/lib/dash-widgets";
 import { LIBRARY_CHANGED } from "~/lib/library-add";
@@ -31,7 +35,7 @@ const SHOW_SERVERS = 8; // サーバー欄は 8 台まで。残りは「ほか N
 const SHOW = 4; // 一覧は 4 件まで。あとは「もっと見る」でライブラリへ
 const NAMES = Object.fromEntries(DASH_WIDGETS) as Record<string, string>;
 
-// ホーム(v02 のダッシュボード): 数のカード・更新があるもの・最近追加したもの・種類ごとの件数・見てほしいもの・サーバー・配布元の連携。
+// ホーム(v02 のダッシュボード): 全体のいまの状態(サーバーの稼働・更新・処理・バックアップ)。アドオンの一覧と追加はライブラリの画面で。
 // 「ウィジェットを編集」で、並べ替え・表示 / 非表示・全幅・メモ / ToDo / 時計 / 今日の日付の追加ができる(並びはアカウントに保存)
 function Home() {
   const { user } = Route.useRouteContext();
@@ -73,7 +77,15 @@ function Home() {
   // 保存先とバックアップ(自分用の版の管理者だけ。バックアップの予約は管理者しか読めない)
   const backups = useServerFn(listBackups);
   const [backup, setBackup] = useState<Awaited<ReturnType<typeof listBackups>>["schedule"] | null>(null);
-  useEffect(() => { if (admin && cat?.storage) backups().then((b) => setBackup(b.schedule), () => setBackup(null)); }, [admin, !!cat?.storage]);
+  const [lastBackup, setLastBackup] = useState<string | null>(null);
+  useEffect(() => {
+    if (admin && cat?.storage) backups().then((b) => { setBackup(b.schedule); setLastBackup([...b.backups, ...b.stored].map((x) => x.at).sort().pop() ?? null); }, () => setBackup(null));
+  }, [admin, !!cat?.storage]);
+  // 処理(パネルのデータベースだけを読む。上のバーのしるしと 1 回にまとめる)
+  const [jobs, setJobs] = useState<Job[] | null>(null);
+  useEffect(() => { if (teamKey !== null) sharedJobs().then(setJobs, () => setJobs([])); }, [teamKey]);
+  // サーバーの稼働は、左のメニューと同じ 8 台を同じ間隔で(同じ 1 回の問い合わせにまとまるので、Pterodactyl への問い合わせは増えない)
+  const st = useStatuses((cat?.servers ?? []).slice(0, SHOW_SERVERS).map((s) => s.id), 60_000);
 
   const items = cat?.items ?? [];
   const files = items.reduce((s, i) => s + i.files, 0);
@@ -85,6 +97,14 @@ function Home() {
   const max = Math.max(1, ...counts.map(([, n]) => n));
   const noMc = items.filter((i) => !i.mc.length).length;
   const pct = items.length ? Math.round((linked.length / items.length) * 100) : 0;
+  const shownServers = (cat?.servers ?? []).slice(0, SHOW_SERVERS);
+  const stateOf = (id: string) => { const x = st[id]; return typeof x === "object" ? x.state : x === undefined ? "" : "unknown"; };
+  const known = shownServers.filter((s) => stateOf(s.id));
+  const running = known.filter((s) => stateOf(s.id) === "running").length;
+  const runningJobs = (jobs ?? []).filter((x) => x.state === "running" || x.state === "queued").length;
+  const dayAgo = new Date(Date.now() - 86_400_000).toISOString();
+  const failedJobs = (jobs ?? []).filter((x) => (x.state === "failed" || partlyFailed(x)) && (x.finishedAt ?? x.createdAt) > dayAgo).length;
+  const fmtDay = (s: string) => new Date(s).toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" });
   const itemRow = (i: CatItem, trail: ReactNode) => (
     <Link key={i.id} to="/" search={{ item: i.id }} className="row click">
       <AddonIcon type={i.projectType} url={i.iconUrl} />
@@ -97,10 +117,15 @@ function Home() {
   const nodes: Record<string, ReactNode> = cat ? {
     tiles: (
       <div className="tiles">
-        <Tile to="/" icon="library" k="登録しているもの" v={<>{items.length}<small>件</small></>} s={`${files} ファイル`} />
-        <Tile to={admin && cat.storage ? "/storage" : "/"} icon="disk" k="使っている容量" v={fmtSize(size)} s={cat.storage ? cat.storage.name || "パネルの中" : ""} />
-        <Tile to="/" search={{ f: "upd" }} icon="reload" k="更新があるもの" warn={upd.length > 0} v={<>{old ? upd.length : "—"}<small>件</small></>} s={linked.length ? `配布元がわかる ${linked.length} 件を確かめます` : "配布元がわかるものがありません"} />
-        <Tile to="/" icon="link" k="配布元" v={<>{pct}<small>%</small></>} s={`${linked.length} / ${items.length} 件`} />
+        <Tile to="/servers" icon="servers" k="動いているサーバー" warn={known.length > running}
+          v={cat.servers.length ? <>{known.length ? running : "—"}<small>{`/ ${shownServers.length} 台`}</small></> : "—"}
+          s={!cat.servers.length ? "まだサーバーがありません" : cat.servers.length > SHOW_SERVERS ? `ほか ${cat.servers.length - SHOW_SERVERS} 台はサーバーの画面で` : !known.length ? "確かめています…" : known.length > running ? `止まっている ${known.length - running} 台` : "すべて動いています"} />
+        <Tile to="/" search={{ f: "upd" }} icon="reload" k="更新があるもの" warn={upd.length > 0} v={<>{old ? upd.length : "—"}<small>件</small></>} s={linked.length ? (old ? "どこかのサーバーに古い版" : "押すと確かめます") : "配布元がわかるものがありません"} />
+        <Tile to="/jobs" icon="jobs" k="処理" warn={failedJobs > 0} v={<>{jobs ? (runningJobs || failedJobs) : "—"}<small>件</small></>}
+          s={!jobs ? "" : runningJobs ? "動いています" : failedJobs ? "24 時間以内に失敗" : "動いている処理はありません"} />
+        {admin && cat.storage
+          ? <Tile to="/backup" icon="download" k="バックアップ" warn={!!backup && !backup.enabled} v={lastBackup ? fmtDay(lastBackup) : "—"} s={!backup ? "" : backup.enabled ? `毎日 ${backup.time} に自動で` : "自動バックアップは未設定"} />
+          : <Tile to="/" icon="library" k="ライブラリ" v={<>{items.length}<small>件</small></>} s={`${files} ファイル · ${fmtSize(size)}`} />}
       </div>
     ),
     updates: (
@@ -137,6 +162,16 @@ function Home() {
         </div>
       </section>
     ),
+    jobs: (
+      <section className="card glass">
+        <div className="card-h"><h4>最近の処理</h4></div>
+        <div className="card-b">
+          {!jobs ? <p className="dash-empty">読み込んでいます…</p> : jobs.length === 0 ? <p className="dash-empty">まだ処理はありません</p>
+            : <div className="group flat">{jobs.slice(0, SHOW).map((x) => <JobRow key={x.id} j={x} />)}</div>}
+          {(jobs?.length ?? 0) > SHOW && <Link to="/jobs" className="kv linkish"><span>すべての処理</span><span>›</span></Link>}
+        </div>
+      </section>
+    ),
     attention: (
       <section className="card glass">
         <div className="card-h"><h4>見てほしいもの</h4>{editor && <Link to="/cleanup" className="btn sm tint"><Icon name="wand" />整理</Link>}</div>
@@ -156,11 +191,14 @@ function Home() {
             <div className="group flat">
               {cat.servers.slice(0, SHOW_SERVERS).map((s) => {
                 const n = items.filter((i) => i.installs.some((x) => x.serverId === s.id)).length;
+                const x = st[s.id];
+                const state = stateOf(s.id);
+                const now = typeof x === "object" && x.state === "running" && x.ping ? `${x.ping.online} / ${x.ping.max} 人` : state ? STATE_LABELS[state] ?? "状態がわかりません" : "確かめています…";
                 const behind = old ? [...old.values()].filter((ids) => ids.includes(s.id)).length : null;
                 return (
                   <Link key={s.id} to="/servers/$id" params={{ id: s.id }} className="row click">
-                    <span className="ic"><span className="icon-ph t-server"><Icon name="servers" /></span></span>
-                    <span className="mid"><span className="ttl" translate="no">{s.name}</span><span className="sub">{`ライブラリ管理 ${n} 件`}</span></span>
+                    <span className={`dot ${state}`} aria-hidden="true" />
+                    <span className="mid"><span className="ttl" translate="no">{s.name}</span><span className="sub"><span>{now}</span> · <span>{`アドオン ${n} 件`}</span></span></span>
                     {behind !== null && (behind ? <span className="badge upd">{`未同期 ${behind}`}</span> : <span className="badge ok">同期済み</span>)}
                     <span className="chev" aria-hidden="true">›</span>
                   </Link>

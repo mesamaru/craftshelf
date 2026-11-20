@@ -13,24 +13,26 @@ export const Route = createFileRoute("/activity")({
     if (!context.user) throw redirect({ to: "/login", search: { next: "/activity" } });
     return { user: context.user };
   },
-  head: () => ({ meta: [{ title: settingsTitle("activity") }] }),
+  validateSearch: (s: Record<string, unknown>): { s?: "notify" } => (s.s === "notify" ? { s: "notify" } : {}),
+  head: ({ match }) => ({ meta: [{ title: settingsTitle(match.search.s === "notify" ? "notify" : "activity") }] }),
   component: Activity,
 });
 
 const message = (e: unknown) => (e instanceof Error ? e.message : "うまくいきませんでした");
 type Row = Awaited<ReturnType<typeof listEvents>>[number];
 
-// 操作の記録(権限 audit:read)と Discord への通知(権限 integrations:manage)。どちらも管理者以上と、メンバーごとに足した人
+// 操作の記録(権限 audit:read)と、?s=notify の Discord への通知(権限 integrations:manage)。どちらも管理者以上と、メンバーごとに足した人
 function Activity() {
   const { user } = Route.useRouteContext();
+  const { s } = Route.useSearch();
   const { can, me } = useCan(user.id);
-  const log = can({ audit: ["read"] });
-  const notify = can({ integrations: ["manage"] });
+  const notify = s === "notify";
+  const ok = notify ? can({ integrations: ["manage"] }) : can({ audit: ["read"] });
   return (
-    <SettingsFrame at="activity">
+    <SettingsFrame at={notify ? "notify" : "activity"}>
       {!me ? <section className="group"><div className="row muted">読み込んでいます…</div></section>
-        : !log && !notify ? <section className="group"><div className="row muted">見られるのは、チームの管理者とオーナー(と、権限を足してもらった人)だけです。</div></section>
-        : <>{notify && <Notify />}{log && <Log />}</>}
+        : !ok ? <section className="group"><div className="row muted">見られるのは、チームの管理者とオーナー(と、権限を足してもらった人)だけです。</div></section>
+        : notify ? <Notify /> : <Log />}
     </SettingsFrame>
   );
 }
@@ -67,7 +69,7 @@ function Notify() {
 
   return (
     <>
-      <div className="gtitle">Discord への通知<Info>Discord のチャンネルの設定 → 連携サービス → ウェブフックで作った URL を入れてください。URL は暗号化して保存し、画面には最後の 4 文字だけを出します。通知ではメンションはしません。</Info></div>
+      <div className="gtitle">Webhook と知らせる種類<Info>Discord のチャンネルの設定 → 連携サービス → ウェブフックで作った URL を入れてください。URL は暗号化して保存し、画面には最後の 4 文字だけを出します。通知ではメンションはしません。</Info></div>
       <form className="group form" onSubmit={(e) => (e.preventDefault(), run("save", () => save({ data: { url, kinds: [...picked] } }), "保存しました"))}>
         <input className="row" type="password" autoComplete="off" value={url} onChange={(e) => setUrl(e.target.value)}
           placeholder={s.configured ? `Webhook の URL(設定済み ${s.hint}。変えるときだけ入力)` : "Webhook の URL(https://discord.com/api/webhooks/…)"} />

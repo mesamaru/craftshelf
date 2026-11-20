@@ -2,8 +2,7 @@
 // しるしは、動いている処理があるか、まだ見ていない終わった処理があるときだけ出し、押すとシートで様子を見られる
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { useServerFn } from "@tanstack/react-start";
-import { listJobs } from "./jobs-api";
+import { type listJobs, sharedJobs } from "./jobs-api";
 import { Icon, Sheet } from "./ui";
 
 export type Job = Awaited<ReturnType<typeof listJobs>>[number];
@@ -54,11 +53,10 @@ const readSeen = () => {
 
 /** 上のバーの「処理」のしるし(いつも出す)。動いている数(回る輪)・まだ見ていない終わった数(失敗があれば赤)。押すと様子のシート */
 export function JobsButton() {
-  const load = useServerFn(listJobs);
   const [jobs, setJobs] = useState<Job[] | null>(null);
   const [seen, setSeen] = useState("");
   const [open, setOpen] = useState(false);
-  const reload = () => { load().then(setJobs, () => {}); };
+  const reload = () => { sharedJobs().then(setJobs, () => {}); };
   useEffect(() => {
     setSeen(readSeen());
     reload();

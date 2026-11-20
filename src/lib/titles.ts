@@ -6,13 +6,13 @@ export const pageTitle = (...parts: (string | null | undefined | false)[]) => [.
 
 export type SettingsKey =
   | "profile" | "security" | "passkeys" | "look"
-  | "members" | "perms" | "activity" | "storage" | "shares" | "tokens" | "curseforge" | "setup" | "channel"
+  | "members" | "perms" | "activity" | "notify" | "storage" | "shares" | "tokens" | "curseforge" | "setup" | "channel"
   | "backup" | "versions" | "usage" | "telemetry" | "api" | "import" | "feedback" | "cleanup";
 
 /** 設定の左の一覧の名前(v02 の設定と同じ言葉) */
 export const SETTING_LABEL: Record<SettingsKey, string> = {
   profile: "プロフィール", security: "パスワードと二段階認証", passkeys: "パスキー", look: "見た目と言語",
-  members: "メンバーと権限", perms: "権限とサーバーの割り当て", activity: "操作の記録と通知", storage: "保存先", shares: "共有リンク",
+  members: "メンバーと権限", perms: "権限とサーバーの割り当て", activity: "操作の記録", notify: "Discord への通知", storage: "保存先", shares: "共有リンク",
   tokens: "API トークン", curseforge: "CurseForge API キー", setup: "はじめの設定", channel: "アドオンの更新で入れる版",
   backup: "バックアップ", versions: "パネルのアップデート", usage: "メンバーごとの利用状況", telemetry: "開発者への匿名の統計",
   api: "API の説明", import: "v02 からの取り込み", feedback: "お問い合わせ・要望", cleanup: "アドオンの整理",
@@ -27,7 +27,7 @@ const SETTING_AT: [SettingsKey, string, string?][] = [
   ["profile", "/settings", "profile"], ["security", "/settings", "security"], ["passkeys", "/settings", "passkeys"], ["look", "/settings", "look"],
   ["members", "/team"], ["perms", "/team", "perms"], ["usage", "/usage"], ["channel", "/team", "channel"],
   ["storage", "/storage"], ["curseforge", "/team", "curseforge"], ["tokens", "/settings", "tokens"], ["api", "/api-docs"],
-  ["backup", "/backup"], ["activity", "/activity"], ["shares", "/shares"], ["cleanup", "/cleanup"],
+  ["backup", "/backup"], ["activity", "/activity"], ["notify", "/activity", "notify"], ["shares", "/shares"], ["cleanup", "/cleanup"],
   ["feedback", "/settings", "feedback"], ["telemetry", "/settings", "telemetry"], ["setup", "/team", "setup"],
   ["versions", "/settings", "versions"], ["import", "/settings", "import"],
 ];

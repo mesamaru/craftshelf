@@ -54,8 +54,8 @@ await step("左のメニュー・スマホの下のタブで画面を移れる",
   await page.waitForURL(base + "/sets");
   await page.locator("aside.side a.nav", { hasText: "ホーム" }).click(); // ホーム(v02 のダッシュボード)
   await page.waitForURL(base + "/home");
-  await page.getByText("登録しているもの").waitFor();
-  await page.getByRole("heading", { name: "種類ごとの件数" }).waitFor();
+  await page.getByText("動いているサーバー").waitFor();
+  await page.getByRole("heading", { name: "最近の処理" }).waitFor();
   await page.screenshot({ path: ".e2e/home.png", fullPage: true });
   // ‹ で畳むとアイコンだけ(この端末に覚える)、› で戻る
   await page.getByRole("button", { name: "メニューを畳む" }).click();
@@ -91,11 +91,12 @@ await step("ホームのウィジェットを編集して、メモ・ToDo を足
   await page.getByRole("group", { name: "足すウィジェット" }).waitFor({ state: "detached" });
   await page.getByRole("button", { name: "＋ ウィジェットを追加" }).click();
   await page.getByRole("group", { name: "足すウィジェット" }).getByRole("button", { name: "ToDo リスト" }).click();
-  // 種類ごとの件数を隠す
-  const cats = page.locator(".widget", { has: page.getByRole("heading", { name: "種類ごとの件数" }) });
-  await cats.getByRole("button", { name: "非表示にする" }).click();
+  // 最近追加したものを隠す(種類ごとの件数・配布元は、初めから隠れている)
+  if (!(await page.locator(".widget.off", { has: page.getByRole("heading", { name: "種類ごとの件数" }) }).count())) throw new Error("種類ごとの件数が初めから隠れていません");
+  const recent = page.locator(".widget", { has: page.getByRole("heading", { name: "最近追加したもの" }) });
+  await recent.getByRole("button", { name: "非表示にする" }).click();
   await page.getByRole("button", { name: "完了", exact: true }).click();
-  if (await page.getByRole("heading", { name: "種類ごとの件数" }).count()) throw new Error("隠したウィジェットが出ています");
+  if (await page.getByRole("heading", { name: "最近追加したもの" }).count()) throw new Error("隠したウィジェットが出ています");
   const todo = page.locator(".cw-todo");
   await todo.getByLabel("やることを追加").fill("牛乳を買う");
   await todo.getByRole("button", { name: "追加", exact: true }).click();
@@ -111,7 +112,7 @@ await step("ホームのウィジェットを編集して、メモ・ToDo を足
   await page.reload(); // アカウントに保存してあるので、読み直しても同じ
   await page.locator(".cw-memo").getByRole("heading", { name: "買い物" }).waitFor();
   await page.locator(".cw-todo").getByText("牛乳を買う").waitFor();
-  if (await page.getByRole("heading", { name: "種類ごとの件数" }).count()) throw new Error("隠したウィジェットが戻っています");
+  if (await page.getByRole("heading", { name: "最近追加したもの" }).count()) throw new Error("隠したウィジェットが戻っています");
   // 初期状態に戻しても、足したウィジェットは残る
   await page.getByRole("button", { name: "ウィジェットを編集" }).click();
   await page.getByRole("button", { name: "初期状態に戻す" }).click();
@@ -169,11 +170,14 @@ await step("チームの画面に自分がオーナーとして出る", async ()
 await step("設定の左の一覧から、操作の記録と Discord への通知を開ける", async () => {
   await page.goto(base + "/team");
   for (const g of ["自分", "チーム", "ライブラリ", "パネル", "サポート"]) await page.locator(".set-nav .gtitle", { hasText: g }).first().waitFor(); // だれに効くかで分ける
-  await page.locator(".set-nav").getByRole("link", { name: "操作の記録と通知" }).click();
+  await page.locator(".set-nav").getByRole("link", { name: "操作の記録", exact: true }).click();
   await page.waitForURL(base + "/activity");
-  await page.locator(".gtitle", { hasText: "Discord への通知" }).waitFor();
+  await page.getByRole("searchbox", { name: "操作の記録を探す" }).waitFor();
   await page.getByText("セットを作る").first().waitFor(); // さっき作ったセットが記録に出る
   await page.screenshot({ path: ".e2e/activity.png", fullPage: true });
+  await page.locator(".set-nav").getByRole("link", { name: "Discord への通知" }).click();
+  await page.waitForURL(base + "/activity?s=notify");
+  await page.locator(".gtitle", { hasText: "Webhook と知らせる種類" }).waitFor();
 });
 
 await step("おかしな URL のパネルは登録できず、理由が出る", async () => {
@@ -529,10 +533,10 @@ await step("画面を開く・移るとき、同じ問い合わせを繰り返�
     if (dup.length) throw new Error(`${what}で同じ問い合わせが重なりました: ${dup.join(" ")}`);
   };
   await page.goto(base + "/home");
-  await page.getByRole("heading", { name: "種類ごとの件数" }).waitFor();
+  await page.getByRole("heading", { name: "最近の処理" }).waitFor();
   await quiet("ホームを開いたとき");
   appState = 0;
-  for (const [nav, heading] of [["ライブラリ", "ライブラリ"], ["セット", "セット"], ["ホーム", "種類ごとの件数"]]) {
+  for (const [nav, heading] of [["ライブラリ", "ライブラリ"], ["セット", "セット"], ["ホーム", "最近の処理"]]) {
     await page.locator("aside.side a.nav", { hasText: nav }).click();
     await page.getByRole("heading", { name: heading }).first().waitFor();
     await quiet(`「${nav}」へ移ったとき`);
@@ -591,7 +595,7 @@ await step("JS・CSS は事前に圧縮して届く(gzip・br。展開すると�
 await step("ページのタイトルが画面ごとに変わる(サーバーは名前、設定はまとまりの名前)", async () => {
   const title = async (p) => { await page.goto(base + p); await page.waitForFunction(() => document.title !== "CraftShelf", null, { timeout: 5000 }); return page.title(); };
   const want = [["/", "ライブラリ - CraftShelf"], ["/home", "ホーム - CraftShelf"], ["/sets", "セット - CraftShelf"], ["/compare", "比較 - CraftShelf"], ["/jobs", "処理 - CraftShelf"],
-    ["/team", "設定: メンバーと権限 - CraftShelf"], ["/settings?s=passkeys", "設定: パスキー - CraftShelf"], ["/storage", "設定: 保存先 - CraftShelf"], ["/activity", "設定: 操作の記録と通知 - CraftShelf"]];
+    ["/team", "設定: メンバーと権限 - CraftShelf"], ["/settings?s=passkeys", "設定: パスキー - CraftShelf"], ["/storage", "設定: 保存先 - CraftShelf"], ["/activity", "設定: 操作の記録 - CraftShelf"], ["/activity?s=notify", "設定: Discord への通知 - CraftShelf"]];
   for (const [p, t] of want) { const got = await title(p); if (got !== t) throw new Error(`${p} のタイトルが ${got}(${t} のはず)`); }
   await page.goto(base + "/servers");
   const link = page.locator(".srv-side a.row", { hasText: "E2E" }).first();
@@ -603,13 +607,13 @@ await step("ページのタイトルが画面ごとに変わる(サーバーは�
 
 await step("Ctrl K に、いまのメニュー・設定の名前の行き先が出る(古い名前は出ない)", async () => {
   await page.goto(base + "/home");
-  await page.getByRole("heading", { name: "種類ごとの件数" }).waitFor();
+  await page.getByRole("heading", { name: "最近の処理" }).waitFor();
   await page.waitForLoadState("networkidle"); // 画面が動き出す(ショートカットが効く)のを待つ
   await page.keyboard.press("Control+k");
   await page.getByRole("dialog", { name: "検索" }).waitFor();
   await page.locator(".palette-input").fill("設定");
   await page.locator(".palette-hit", { hasText: "メンバーと権限" }).waitFor();
-  for (const n of ["保存先", "メンバーごとの利用状況", "操作の記録と通知", "パスキー"]) await page.locator(".palette-hit", { hasText: n }).first().waitFor();
+  for (const n of ["保存先", "メンバーごとの利用状況", "操作の記録", "Discord への通知", "パスキー"]) await page.locator(".palette-hit", { hasText: n }).first().waitFor();
   await page.locator(".palette-input").fill("サーバー本体");
   await page.locator(".palette-hit", { hasText: "サーバー本体" }).waitFor();
   await page.locator(".palette-input").fill("チーム");
@@ -645,7 +649,7 @@ await step("英語の辞書は英語のときだけ読み込む(日本語では�
   const onRequest = (r) => { if (/i18n-en/.test(r.url())) dict.push(r.url()); };
   page.on("request", onRequest);
   await page.goto(base + "/home");
-  await page.getByRole("heading", { name: "種類ごとの件数" }).waitFor();
+  await page.getByRole("heading", { name: "最近の処理" }).waitFor();
   if (dict.length) throw new Error("日本語の画面で英語の辞書を読み込みました");
   await page.evaluate(() => localStorage.setItem("craftshelf.lang", "en"));
   await page.goto(base + "/home");
@@ -660,7 +664,7 @@ await step("英語の辞書は英語のときだけ読み込む(日本語では�
   await page.evaluate(() => localStorage.removeItem("craftshelf.lang"));
   page.off("request", onRequest);
   await page.goto(base + "/home");
-  await page.getByRole("heading", { name: "種類ごとの件数" }).waitFor();
+  await page.getByRole("heading", { name: "最近の処理" }).waitFor();
 });
 
 await step("ログアウトはアカウントの設定にあり、押すとログイン画面に戻る", async () => {

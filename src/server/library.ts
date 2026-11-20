@@ -1,5 +1,6 @@
 // サーバーの Mod・プラグイン: 一覧・配布元(Modrinth・SpigotMC)での検索・入れる(更新を含む)・外す。
 // ファイルはこのアプリを通さず、Pterodactyl に配布元から直接取り込ませる
+import { archiverOf } from "./ptero";
 import { createHash, randomUUID } from "node:crypto";
 import { cfFingerprint } from "./fingerprint";
 import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
@@ -403,9 +404,17 @@ export function modTools(deps: Deps) {
       const name = analyzeJar(await target.client.readBytes(target.remoteId, `${dir}/${jar}`, IDENTIFY_BYTES), jar).name.toLowerCase();
       const folder = name ? (await target.client.listFiles(target.remoteId, dir)).find((f) => !f.isFile && f.name.toLowerCase() === name)?.name : undefined;
       if (!folder || folder.startsWith(".")) return "";
-      const list = await walk(target, `${dir}/${folder}`);
+      const list = await walk(target, `${dir}/${folder}`); // 数・大きさの上限を確かめる(フォルダ 1 つにつき 1 回の問い合わせ)
       if (!list?.length) return "";
-      const key = `${randomUUID().slice(0, 8)}/${folder}`;
+      const id = randomUUID().slice(0, 8);
+      // Pterodactyl は 1 つの圧縮ファイルにまとめる(問い合わせ 2 回。ファイルごとに写すと 1 ファイル 2 回)。作れなければファイルごとに写す
+      const arc = archiverOf(target.client);
+      if (arc) {
+        const key = `${id}/${folder}.tar.gz`;
+        const ok = await arc.archiveFolder(target.remoteId, dir, folder, `${CONFIG_DIR}/${key}`).then(() => true, () => false);
+        if (ok) return key;
+      }
+      const key = `${id}/${folder}`;
       await copyTree(target, `${dir}/${folder}`, `${dir}/${CONFIG_DIR}/${key}`, list);
       return key;
     } catch {
@@ -416,6 +425,13 @@ export function modTools(deps: Deps) {
   async function restoreConfig(target: Target, p: Profile, key: string) {
     const dir = PLATFORMS[p.platform].dir;
     try {
+      // 圧縮ファイルで退避したもの(03.89.02 から、Pterodactyl)は、plugins に展開する(中身は <フォルダ>/…)
+      if (key.endsWith(".tar.gz")) {
+        const arc = archiverOf(target.client);
+        if (!arc) return false;
+        await arc.unarchiveInto(target.remoteId, dir, `${CONFIG_DIR}/${key}`);
+        return true;
+      }
       const list = await walk(target, `${dir}/${CONFIG_DIR}/${key}`);
       if (!list?.length) return false;
       await copyTree(target, `${dir}/${CONFIG_DIR}/${key}`, `${dir}/${key.split("/")[1]}`, list);

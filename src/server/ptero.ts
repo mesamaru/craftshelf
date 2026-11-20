@@ -334,6 +334,30 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
     async rename(ident: string, root: string, from: string, to: string) {
       await req("PUT", srv(ident) + "/files/rename", { root, files: [{ from, to }] });
     },
+    // フォルダ(root の中の folder)を 1 つの圧縮ファイルにまとめ、to(root からの道すじ。途中のフォルダは Wings が作る)へ置く。
+    // プラグインの設定フォルダの退避に使う(ファイルごとに読んで書くと 1 ファイル 2 回の問い合わせになるため。Pterodactyl だけ)
+    async archiveFolder(ident: string, root: string, folder: string, to: string) {
+      const r = (rel: string) => (`/${rel}`.replace(/\/+$/, "") || "/");
+      const a = (await (await req("POST", srv(ident) + "/files/compress", { root: r(root), files: [folder] }, [200], 10 * 60_000)).json())?.attributes;
+      const name = typeof a?.name === "string" ? a.name : "";
+      if (!name || name.includes("/")) throw new PteroError("圧縮ファイルを作れませんでした");
+      // 移せなければ(古い Wings で、途中のフォルダを作れないなど)、作った圧縮ファイルを消して知らせる(呼ぶ側はファイルごとに写す)
+      await base.rename(ident, root || "/", name, to).catch(async (e) => {
+        await base.deleteFiles(ident, root || "/", [name]).catch(() => {});
+        throw e;
+      });
+    },
+    // root の中の archive(root からの道すじ)を、root に展開する(同じ名前のファイルは上書き)。圧縮ファイルは元の場所に戻す
+    async unarchiveInto(ident: string, root: string, archive: string) {
+      const r = (rel: string) => (`/${rel}`.replace(/\/+$/, "") || "/");
+      const temp = `${STAGING}${randomBytes(6).toString("hex")}.tar.gz`;
+      await base.rename(ident, root || "/", archive, temp); // Wings は圧縮ファイルのあるフォルダに展開するので、root へ移してから
+      try {
+        await req("POST", srv(ident) + "/files/decompress", { root: r(root), file: temp }, [200, 204], 10 * 60_000);
+      } finally {
+        await base.rename(ident, root || "/", temp, archive).catch(() => {});
+      }
+    },
     // パネルのバックアップ(Pterodactyl だけ。フォルダのサーバー・エージェントには無い)
     backups: {
       async list(ident: string): Promise<RemoteBackup[]> {
@@ -514,5 +538,8 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
 }
 
 // ファイル・コマンドなど、フォルダのサーバー・エージェントも同じ形で持つ操作(バックアップは Pterodactyl だけ)
-export type PteroClient = Omit<ReturnType<typeof pteroClient>, "backups" | "details" | "addAllocation">;
+export type PteroClient = Omit<ReturnType<typeof pteroClient>, "backups" | "details" | "addAllocation" | "archiveFolder" | "unarchiveInto">;
+/** 設定フォルダを圧縮ファイルで退避・復元できるクライアント(Pterodactyl だけ) */
+export type Archiver = Pick<ReturnType<typeof pteroClient>, "archiveFolder" | "unarchiveInto">;
+export const archiverOf = (c: unknown): Archiver | null => (c && typeof (c as Archiver).archiveFolder === "function" && typeof (c as Archiver).unarchiveInto === "function" ? (c as Archiver) : null);
 export type PteroBackups = ReturnType<typeof pteroClient>["backups"];

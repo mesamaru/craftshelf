@@ -56,12 +56,16 @@ export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 // 上の「読み直す」は、チームのパネルの覚えを捨ててから読む(forgetPteroReadsFor)
 export const READ_TTL = { list: 30_000, file: 30_000, resources: 2_000, servers: 60_000, allocations: 120_000, details: 300_000 } as const;
 // このファイルはビルドで 2 か所に入る(画面の下ごしらえとサーバーの処理)ので、覚えと同時の数はプロセスで 1 つにする
-const G = globalThis as { __csPteroReads?: Map<string, { until: number; p: Promise<unknown> }>; __csPteroGates?: Map<string, { busy: number; queue: (() => void)[] }> };
+const G = globalThis as {
+  __csPteroReads?: Map<string, { until: number; p: Promise<unknown> }>; __csPteroGates?: Map<string, { busy: number; queue: (() => void)[] }>;
+  __csPteroBudgets?: Map<string, Budget>; __csPteroPauses?: Map<string, number>;
+};
 const reads = (G.__csPteroReads ??= new Map());
-function remembered<T>(key: string, ttl: number, fresh: boolean | undefined, fn: () => Promise<T>): Promise<T> {
+// stale: 回数の残りが少ないとき、期限の切れた覚えでも使う(状態の見回りなどで、利用者の操作の分の回数を食わない)
+function remembered<T>(key: string, ttl: number, fresh: boolean | undefined, fn: () => Promise<T>, stale = false): Promise<T> {
   const now = Date.now();
   const hit = reads.get(key);
-  if (!fresh && hit && hit.until > now) return hit.p as Promise<T>;
+  if (!fresh && hit && (hit.until > now || stale)) return hit.p as Promise<T>;
   if (reads.size > 5000) for (const [k, v] of reads) if (v.until <= now) reads.delete(k);
   const p = fn();
   reads.set(key, { until: now + ttl, p });
@@ -70,12 +74,27 @@ function remembered<T>(key: string, ttl: number, fresh: boolean | undefined, fn:
 }
 const forgetReads = (prefix: string) => { for (const k of reads.keys()) if (k.startsWith(prefix)) reads.delete(k); };
 /** 覚えをすべて捨てる(テストで、パネルの中身を外から変えたとき) */
-export const forgetPteroReads = () => reads.clear();
+export const forgetPteroReads = () => { reads.clear(); budgets.clear(); pauses.clear(); };
 /** そのパネルの覚えを捨てる(画面の「読み直す」。キーは問わない) */
 export const forgetPteroReadsFor = (baseUrl: string) => forgetReads(`${baseUrl}|`);
 
 // パネルごとの、同時の問い合わせの数(一度にたくさん送って、Pterodactyl の回数の上限に当たらないように)
 const PANEL_PARALLEL = 6;
+
+// 回数の上限(Pterodactyl は API キーの持ち主ごとに 1 分あたりの回数を決めている。既定は 720、ホストによってはもっと少ない)。
+// 応答の X-RateLimit-Remaining で残りを覚え、少ないときは見回りの読み取りを覚えで済ませる。
+// 429 は、パネルが処理する前に断ったもの(数にも入らない)なので、書き込みでもやり直してよい。言われた時間(Retry-After)だけ
+// 同じ種類の問い合わせ(キー × 操作 × 道すじ)を止めて待ち、やり直す。止めるのは種類ごと(ほかの道すじだけの上限もあるため)
+type Budget = { remaining: number; limit: number; at: number };
+const budgets = (G.__csPteroBudgets ??= new Map<string, Budget>());
+const pauses = (G.__csPteroPauses ??= new Map<string, number>());
+// 1 回に待つのは 90 秒まで、合わせて 5 分まで(それより長いときは理由を返す)。数で区切らない(上限の小さいパネルに一度にたくさん頼んでも、順に通す)
+export const RATE = { maxWaitSec: 90, totalWaitSec: 300, lowShare: 0.2 } as const;
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+/** 残りが少ない(1 分のうちに覚えた値で、上限の 2 割より下)か */
+const lowOn = (key: string) => { const b = budgets.get(key); return !!b && Date.now() - b.at < 60_000 && b.remaining < b.limit * RATE.lowShare; };
+/** 止めている種類の、待つ残りのミリ秒 */
+const pausedFor = (kind: string) => { const until = pauses.get(kind) ?? 0; const ms = until - Date.now(); if (ms <= 0) pauses.delete(kind); return Math.max(0, ms); };
 const gates = (G.__csPteroGates ??= new Map());
 async function gate(panel: string) {
   let g = gates.get(panel);
@@ -92,19 +111,37 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
   const dirKey = (d: string) => d.replace(/^\/+|\/+$/g, "");
   // body が文字列なら、そのまま送る(ファイルの書き込み)。それ以外は JSON
   async function req(method: string, path: string, body?: unknown, ok = [200, 201, 204], timeoutMs = 20_000): Promise<Response> {
-    const release = await gate(baseUrl);
-    let res: Response;
+    // 種類 = キー × 操作 × 道すじ(サーバーの ID・? のあとは除く)
+    const kind = memoKey + method + " " + path.replace(/\?.*$/, "").replace(/^(\/api\/client\/servers\/)[^/]+/, "$1*");
+    let res!: Response;
+    let waited = 0;
     try {
-      res = await send(method, path, body, timeoutMs);
-      // 回数の上限: 読むだけなら、言われた時間(10 秒まで)待って 1 回だけやり直す
-      if (res.status === 429 && method === "GET") {
-        const wait = Math.min(10, Math.max(1, Number(res.headers.get("retry-after")) || 2));
+      for (let i = 0; ; i++) {
+        // 止めているあいだは、枠を取らずに待つ(待っている問い合わせが、ほかの種類の枠をふさがない)
+        for (let ms = pausedFor(kind); ms > 0; ms = pausedFor(kind)) await sleep(ms);
+        const release = await gate(baseUrl);
+        try {
+          res = await send(method, path, body, timeoutMs);
+        } finally {
+          release();
+        }
+        const left = Number(res.headers.get("x-ratelimit-remaining"));
+        const limit = Number(res.headers.get("x-ratelimit-limit"));
+        if (res.headers.has("x-ratelimit-remaining") && Number.isFinite(left) && limit > 0) budgets.set(memoKey, { remaining: left, limit, at: Date.now() });
+        if (res.status !== 429) break;
+        const sec = Number(res.headers.get("retry-after"));
+        const wait = Number.isFinite(sec) && sec > 0 ? sec : 2 ** Math.min(i, 5); // 言われなければ 1・2・4… 秒(32 秒まで)
+        // 長く待てと言われたとき・何度も断られたときは、待たずに理由を返す
+        if (wait > RATE.maxWaitSec || waited + wait > RATE.totalWaitSec) {
+          await res.body?.cancel().catch(() => {});
+          throw new PteroError(`Pterodactyl へのリクエストが多すぎます。${Math.ceil(wait)} 秒ほど待ってからお試しください`);
+        }
         await res.body?.cancel().catch(() => {});
-        await new Promise((r) => setTimeout(r, wait * 1000));
-        res = await send(method, path, body, timeoutMs);
+        waited += wait;
+        pauses.set(kind, Math.max(pauses.get(kind) ?? 0, Date.now() + wait * 1000));
+        budgets.set(memoKey, { remaining: 0, limit: Number.isFinite(limit) && limit > 0 ? limit : 1, at: Date.now() });
       }
     } finally {
-      release();
       const m = method !== "GET" && path.match(/^\/api\/client\/servers\/([^/?]+)/);
       if (m) forgetReads(serverKey(m[1])); // 書き込んだサーバーの覚えを捨てる
     }
@@ -465,13 +502,13 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
   };
   // 画面に出すために読むもの(覚えを使う)。返すものは呼ぶ側が変えても覚えに響かないよう写す。展開(extract)は、覚えを使わない base を使う
   const cachedReads = {
-    servers: () => remembered(`${memoKey}servers`, READ_TTL.servers, false, () => base.servers()).then((l) => l.map((x) => ({ ...x }))),
-    resources: (ident: string) => remembered(`${serverKey(ident)}resources`, READ_TTL.resources, false, () => base.resources(ident)).then((r) => ({ ...r })),
+    servers: () => remembered(`${memoKey}servers`, READ_TTL.servers, false, () => base.servers(), lowOn(memoKey)).then((l) => l.map((x) => ({ ...x }))),
+    resources: (ident: string) => remembered(`${serverKey(ident)}resources`, READ_TTL.resources, false, () => base.resources(ident), lowOn(memoKey)).then((r) => ({ ...r })),
     listFiles: (ident: string, directory: string, fresh?: boolean) =>
       remembered(`${serverKey(ident)}list|${dirKey(directory)}`, READ_TTL.list, fresh, () => base.listFiles(ident, directory)).then((l) => l.map((x) => ({ ...x }))),
     readFile: (ident: string, file: string, fresh?: boolean) => remembered(`${serverKey(ident)}file|${dirKey(file)}`, READ_TTL.file, fresh, () => base.readFile(ident, file)),
-    allocations: (ident: string) => remembered(`${serverKey(ident)}allocations`, READ_TTL.allocations, false, () => base.allocations(ident)).then((l) => l.map((x) => ({ ...x }))),
-    details: (ident: string) => remembered(`${serverKey(ident)}details`, READ_TTL.details, false, () => base.details(ident)).then((d) => ({ egg: d.egg, vars: { ...d.vars } })),
+    allocations: (ident: string) => remembered(`${serverKey(ident)}allocations`, READ_TTL.allocations, false, () => base.allocations(ident), lowOn(memoKey)).then((l) => l.map((x) => ({ ...x }))),
+    details: (ident: string) => remembered(`${serverKey(ident)}details`, READ_TTL.details, false, () => base.details(ident), lowOn(memoKey)).then((d) => ({ egg: d.egg, vars: { ...d.vars } })),
   };
   return { ...base, ...cachedReads, ...extract };
 }

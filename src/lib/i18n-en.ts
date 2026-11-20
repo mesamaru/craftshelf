@@ -1478,7 +1478,7 @@ export const EN: Record<string, string> = {
   "止まっています": "Stopped",
   "止めるのをやめる": "Resume",
   "決まった範囲": "Fixed range",
-  "決めた曜日・時刻に、セットを結び付けたすべてのサーバーをそろえる(足りないものを入れ、新しい版があれば更新する)か、何も変えずに更新があるかを確かめます。結果は設定の「操作の記録と通知」に残り、Discord の「予約の結果」を選んでいれば知らせます。決められるのは管理者以上です。": "On the chosen days and time, either sync every server linked to a set (install what is missing and update anything with a new version) or just check for updates without changing anything. Results go to Settings → “Activity and notifications”, and are sent to Discord if “Schedule results” is selected. Admins and above can set this.",
+  "決めた曜日・時刻に、セットを結び付けたすべてのサーバーをそろえる(足りないものを入れ、新しい版があれば更新する)か、何も変えずに更新があるかを確かめます。結果は設定の「操作の記録」に残り、Discord の「予約の結果」を選んでいれば知らせます。決められるのは管理者以上です。": "On the chosen days and time, either sync every server linked to a set (install what is missing and update anything with a new version) or just check for updates without changing anything. Results go to Settings → “Activity log”, and are sent to Discord if “Schedule results” is selected. Admins and above can set this.",
   "消しました": "Deleted",
   "消す": "Delete",
   "版の形が違います": "Invalid version format",
@@ -1678,8 +1678,8 @@ export const EN: Record<string, string> = {
   "結び付けたセットでそろえる": "Sync with the linked set",
   "決めた時刻に、このサーバーの Mod・プラグインを新しい版にする(「更新を止める」にしたもの・無効にしたものは除く)か、結び付けたセットでそろえます。何か変えて「変えたら再起動する」を選んでいれば、サーバーを再起動します。セットの画面の予約(チームで 1 つ)とは別に動きます。時刻は保存したときのブラウザの時間帯です。決められるのは管理者以上です。":
     "At the set time, updates this server's mods and plugins (except held and disabled ones) or syncs it with the linked set. If something changed and “Restart if anything changed” is on, the server restarts. This runs separately from the team schedule on the Sets page. The time uses the browser's time zone when saved. Admins and above can change it.",
-  "決めた曜日・時刻に、セットを結び付けたすべてのサーバーをそろえる(足りないものを入れ、新しい版があれば更新する)か、何も変えずに更新があるかを確かめます。結果は設定の「操作の記録と通知」に残り、Discord の「予約の結果」を選んでいれば知らせます。決められるのは管理者以上です。サーバーごとの予約(毎日・毎週・変えたら再起動)は、それぞれのサーバーの画面で決められます。":
-    "On the chosen days and time, syncs every server linked to a set (installs missing items and updates to new versions) or only checks for updates without changing anything. Results are kept in Settings → “Activity and notifications”, and sent to Discord if “Scheduled results” is selected. Admins and above can change it. Per-server schedules (daily, weekly, restart after changes) are set on each server's page.",
+  "決めた曜日・時刻に、セットを結び付けたすべてのサーバーをそろえる(足りないものを入れ、新しい版があれば更新する)か、何も変えずに更新があるかを確かめます。結果は設定の「操作の記録」に残り、Discord の「予約の結果」を選んでいれば知らせます。決められるのは管理者以上です。サーバーごとの予約(毎日・毎週・変えたら再起動)は、それぞれのサーバーの画面で決められます。":
+    "On the chosen days and time, syncs every server linked to a set (installs missing items and updates to new versions) or only checks for updates without changing anything. Results are kept in Settings → “Activity log”, and sent to Discord if “Scheduled results” is selected. Admins and above can change it. Per-server schedules (daily, weekly, restart after changes) are set on each server's page.",
   // 03.55.00: サーバーの一覧の「すべて最新にする」
   "最新にしています…": "Updating…",
   "すべてのサーバーを最新にする": "Update all servers",
@@ -2101,6 +2101,7 @@ export const EN_WHOLE: Record<string, string> = {
 const DAY: Record<string, string> = { 日: "Sun", 月: "Mon", 火: "Tue", 水: "Wed", 木: "Thu", 金: "Fri", 土: "Sat" };
 type To = string | ((...m: string[]) => string);
 export const EN_RULES: [RegExp, To][] = [
+  [/^Pterodactyl へのリクエストが多すぎます。(\d+) 秒ほど待ってからお試しください$/, "Too many requests to Pterodactyl. Wait about $1 seconds and try again"],
   [/^次: (.+)$/, (_, s) => "Next: " + (EN[s] ?? s)],
   [/^アドオン (\d+) 件$/, "$1 add-ons"],
   [/^\/ (\d+) 台$/, "/ $1"],

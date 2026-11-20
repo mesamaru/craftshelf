@@ -604,6 +604,8 @@ window.CS_EN = {
   "古いファイルを削除": "old files deleted",
   "このユーザーを削除": "Delete this user",
   "ほかの保存先へ移行": "Migrate to another storage",
+  "すべてダウンロード": "Download all",
+  "登録したファイルを全バージョン、種類ごとのフォルダに分けて zip にします": "Every version of every registered file, as a zip with one folder per type",
   "今すぐバックアップ": "Back up now",
   "未登録のファイル": "Unregistered files",
   "登録されているもの": "Registered items",

@@ -76,6 +76,14 @@ with A.app.app_context():
     A.db().execute("UPDATE shares SET expires_at='2000-01-01T00:00:00Z'"); A.db().commit()
 check(anon.get(f"/s/{token}").status_code in (404, 410), "expired share link no longer works")
 
+# ---- 保存先の一括ダウンロード: 全バージョンが入る・閲覧のみは使えない ----
+c.put("/api/upload?filename=Vault-1.8.jar", data=jar("Vault", "1.8"), headers=H)
+tid = c.get("/api/storage/targets", headers=H).get_json()["targets"][0]["id"]
+r = c.get(f"/api/storage/targets/{tid}/download", headers=H)
+names = zipfile.ZipFile(io.BytesIO(r.get_data())).namelist() if r.status_code == 200 else []
+check(sorted(names) == ["plugins/Vault-1.7.jar", "plugins/Vault-1.8.jar"], f"storage download has every version ({names})")
+check(v.get(f"/api/storage/targets/{tid}/download", headers=H).status_code == 403, "viewer cannot download the whole storage")
+
 # ---- 秘密の値は返さない ----
 c.patch("/api/settings", json={"cf_api_key": "secret-cf-key-123", "discord_webhook": "https://discord.com/api/webhooks/1/secret"}, headers=H)
 body = c.get("/api/settings", headers=H).get_data(as_text=True)

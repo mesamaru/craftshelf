@@ -847,6 +847,7 @@ curl -X POST -H "Authorization: Bearer cs_…" -H "Content-Type: application/jso
         <div class="group">
           ${t.active && (t.protocol === "local" || t.mounted) ? "" : `<button class="row tint noicon" type="button" data-ta="activate"><span class="main"><span class="title">${t.active ? "再接続" : "この保存先を使う"}</span></span></button>`}
           <button class="row noicon" type="button" data-ta="contents"><span class="main"><span class="title">中身を確認</span></span><span class="trail">${icon("chev", "i chev")}</span></button>
+          ${t.item_count ? `<a class="row noicon" href="/api/storage/targets/${tid}/download" download><span class="main"><span class="title">すべてダウンロード</span><span class="subtitle">登録したファイルを全バージョン、種類ごとのフォルダに分けて zip にします</span></span><span class="trail">${icon("download")}</span></a>` : ""}
           <button class="row noicon" type="button" data-ta="migrate"><span class="main"><span class="title">ほかの保存先へ移行</span></span><span class="trail">${icon("chev", "i chev")}</span></button>
           ${t.protocol !== "local" ? `<button class="row noicon" type="button" data-ta="test"><span class="main"><span class="title">接続テスト</span></span></button>
           <button class="row noicon" type="button" data-ta="edit"><span class="main"><span class="title">編集</span></span><span class="trail">${icon("chev", "i chev")}</span></button>` : ""}

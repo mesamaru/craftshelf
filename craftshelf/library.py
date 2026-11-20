@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote
 import hashlib
+import io
 import json
 import os
 import secrets
@@ -1453,6 +1454,78 @@ def api_items_zip():
         raise ApiError("ダウンロードするものを選んでください")
     audit("まとめてダウンロード", f"{len(pairs)} 件", ", ".join(i["name"] for i, _v in pairs)[:500])
     return _send_zip(store, pairs, f"craftshelf-{datetime.now().strftime('%Y%m%d-%H%M')}.zip")
+
+
+class _ZipPipe(io.RawIOBase):
+    """zipfile の書き出し先。たまった分を take() で取り出して、そのまま送る(シークできないので zipfile はデータ記述子を使う)。"""
+
+    def __init__(self):
+        self.buf = bytearray()
+
+    def writable(self):
+        return True
+
+    def write(self, b):
+        self.buf += b
+        return len(b)
+
+    def take(self):
+        out = bytes(self.buf)
+        self.buf.clear()
+        return out
+
+
+def stream_zip(store, entries):
+    """[(zip 内の名前, 保存先の相対パス)] を zip にしながら少しずつ返す(一時ファイルを作らないので、大きなライブラリでも空き容量を使わない)。"""
+    pipe, missing = _ZipPipe(), []
+    with zipfile.ZipFile(pipe, "w", zipfile.ZIP_STORED) as z:  # jar / zip はもともと圧縮済み
+        for arc, rel in entries:
+            try:
+                src = store.open_read(rel)
+            except Exception:  # noqa: BLE001 見つからない・読めないものは飛ばして、最後に一覧を入れる
+                missing.append(arc)
+                continue
+            with src, z.open(arc, "w", force_zip64=True) as dst:
+                while chunk := src.read(1024 * 1024):
+                    dst.write(chunk)
+                    yield pipe.take()
+            yield pipe.take()
+        if missing:
+            z.writestr("読み込めなかったファイル.txt", "\n".join(missing) + "\n")
+    yield pipe.take()
+
+
+def all_version_entries(conn, target_id):
+    """保存先に登録されているすべてのアイテムの、すべてのバージョンを [(zip 内の名前, 相対パス)] にする。"""
+    rows = conn.execute("SELECT i.category, v.id, v.filename, v.relpath FROM versions v JOIN items i ON i.id=v.item_id "
+                        "WHERE i.target_id=? ORDER BY i.category, i.name, v.id", (target_id,)).fetchall()
+    out, used = [], set()
+    for r in rows:
+        folder = CATEGORIES.get(r["category"], ("other",))[0]
+        arc = f"{folder}/{r['filename']}"
+        if arc in used:  # 同じ名前のファイルが別のアイテム・バージョンにあるときは、番号を付けて両方入れる
+            arc = f"{folder}/{r['id']}-{r['filename']}"
+        used.add(arc)
+        out.append((arc, lib_rel(r["relpath"])))
+    return out
+
+
+@app.get("/api/storage/targets/<int:tid>/download")
+@require_perm("storage")
+def api_storage_download(tid):
+    """保存先のライブラリ(すべてのアイテムのすべてのバージョン)を、種類ごとのフォルダに分けた zip で一括ダウンロードする。"""
+    conn = db()
+    target = conn.execute("SELECT * FROM storage_targets WHERE id=?", (tid,)).fetchone()
+    if not target:
+        raise ApiError("見つかりません", 404)
+    entries = all_version_entries(conn, tid)
+    if not entries:
+        raise ApiError("この保存先にはファイルが登録されていません")
+    store = open_store(target)
+    audit("保存先を一括ダウンロード", target["name"], f"{len(entries)} ファイル")
+    name = f"{safe_name(target['name'], 'craftshelf')}-{datetime.now().strftime('%Y%m%d-%H%M')}.zip"
+    return Response(stream_zip(store, entries), mimetype="application/zip",
+                    headers={"Content-Disposition": f"attachment; filename*=UTF-8''{quote(name)}"})
 
 
 @app.post("/api/shares")

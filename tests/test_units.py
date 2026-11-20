@@ -118,3 +118,14 @@ def test_rebuilt_version_is_not_offered(monkeypatch):
     d = selfupdate.check(force=True)
     assert d["update_available"] is False and d["rebuilt"] is True and d["notes"] == []
     assert "安定版" in d["blocked"]
+
+
+def test_stream_zip(tmp_path):
+    from craftshelf import library
+    from storage import LocalStorage
+    (tmp_path / "library").mkdir()
+    (tmp_path / "library" / "a.jar").write_bytes(b"x" * 3_000_000)  # 1MB ずつ読むので、いくつかに分かれて流れる
+    data = b"".join(library.stream_zip(LocalStorage(tmp_path), [("mods/a.jar", "library/a.jar"), ("mods/b.jar", "library/b.jar")]))
+    with zipfile.ZipFile(io.BytesIO(data)) as z:
+        assert z.read("mods/a.jar") == b"x" * 3_000_000
+        assert "mods/b.jar" in z.read("読み込めなかったファイル.txt").decode()

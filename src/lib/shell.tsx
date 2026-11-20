@@ -131,7 +131,7 @@ export function Shell({ user, children }: { user: { id: string; name: string }; 
           <div className="side-foot">
             <button type="button" className="nav" title="お知らせ" onClick={openNotices}><Icon name="bell" /><span className="t">お知らせ</span>{unread}</button>
             {nav("/settings", "settings", "設定", "settings")}
-            <Link to="/settings" className="nav me" title={user.name} aria-label="アカウントの設定">
+            <Link to="/settings" search={{ s: "profile" } as never} className="nav me" title={user.name} aria-label="アカウントの設定">
               <span className="av" aria-hidden="true" translate="no">{user.name.slice(0, 1).toUpperCase()}</span>
               <span className="t"><b translate="no">{user.name}</b><small>{me ? roleLabel(me.role) : ""}</small></span>
             </Link>
@@ -144,7 +144,7 @@ export function Shell({ user, children }: { user: { id: string; name: string }; 
               <Icon name="search" /><span className="lbl">検索</span><kbd>Ctrl K</kbd>
             </button>
             <span className="grow" />
-            {edit && <button type="button" className="btn pri addbtn" onClick={() => setSheet("add")}>＋ 追加</button>}
+            {edit && <button type="button" className="btn pri addbtn" onClick={() => setSheet("add")} title="アドオンを追加">＋ アドオン</button>}
             <JobsButton />
             <button type="button" className="rbtn" onClick={reload} aria-label="読み直す" title="読み直す"><Icon name="reload" /></button>
             <button type="button" className="rbtn m" onClick={openNotices} aria-label={`お知らせ ${notices.unread} 件`} title="お知らせ"><Icon name="bell" />{unread}</button>

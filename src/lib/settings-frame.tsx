@@ -1,4 +1,4 @@
-// 設定の 2 段の形: 左にまとまり(自分・セキュリティ・管理・連携・運用・ツール・サポート・表示・CraftShelf。v02 の設定と同じ分け方)、右に中身。スマホは一覧から押して入り、中身の上に「‹ 設定」。使い方は docs/UI.md
+// 設定の 2 段の形: 左にまとまり(自分・チーム・ライブラリ・パネル・サポート)、右に中身。スマホは一覧から押して入り、中身の上に「‹ 設定」。使い方は docs/UI.md
 import { type ReactNode, useEffect } from "react";
 import { Link, useRouteContext, useRouter } from "@tanstack/react-router";
 import { authClient } from "./auth-client";
@@ -12,48 +12,43 @@ export type { SettingsKey };
 type Entry = { key: SettingsKey; label: string; to: string; s?: string; show: boolean; icon: IconName; color: string };
 type Ctx = { user?: { id: string; name?: string } | null; app: { mode: "self" | "service" } };
 
-// 分け方・言葉・色つきの四角は v02 の設定(歯車)に合わせた(03.69.00)。権限で使えないものは出さない(本当の確認はそれぞれの画面のサーバー側の処理で行う)
+// 色つきの四角は v02 の設定(歯車)に合わせた(03.69.00)。分け方は 03.88.00 から、だれに効くか(自分・チーム・ライブラリ・パネル)で。権限で使えないものは出さない(本当の確認はそれぞれの画面のサーバー側の処理で行う)
 function useGroups(ctx: Ctx): [string, Entry[]][] {
   const { can } = useCan(ctx.user?.id ?? "");
   const self = ctx.app.mode === "self";
   const admin = can({ member: ["update"] });
   const panel = self && can({ panel: ["manage"] });
   const e = (key: SettingsKey, label: string, icon: IconName, color: string, to: string, show: boolean, s?: string): Entry => ({ key, label, icon, color, to, s, show });
+  // だれに効くかで分ける: 自分(アカウント)・チーム・ライブラリ・パネル全体(自分で動かす CraftShelf)・サポート
   const groups: [string, Entry[]][] = [
-    ["セキュリティ", [
+    ["自分", [
       e("security", SETTING_LABEL.security, "key", "c-other", "/settings", true, "security"),
       e("passkeys", SETTING_LABEL.passkeys, "shield", "c-mod", "/settings", true, "passkeys"),
+      e("look", SETTING_LABEL.look, "sparkle", "c-resourcepack", "/settings", true, "look"),
+      e("tokens", SETTING_LABEL.tokens, "link", "c-plugin", "/settings", true, "tokens"),
     ]],
-    ["管理", [
-      e("storage", SETTING_LABEL.storage, "servers", "c-plugin", "/storage", self && can({ storage: ["manage"] })),
+    ["チーム", [
       e("members", SETTING_LABEL.members, "team", "c-resourcepack", "/team", true),
       e("perms", SETTING_LABEL.perms, "shield", "c-other", "/team", admin, "perms"),
-      e("usage", SETTING_LABEL.usage, "chart", "c-teal", "/usage", admin),
-      e("channel", SETTING_LABEL.channel, "clock", "c-datapack", "/team", admin, "channel"),
-    ]],
-    ["連携", [
-      e("curseforge", SETTING_LABEL.curseforge, "key", "c-other", "/team", self && can({ integrations: ["manage"] }), "curseforge"),
-      e("tokens", SETTING_LABEL.tokens, "link", "c-plugin", "/settings", true, "tokens"),
-      e("api", SETTING_LABEL.api, "file", "c-other", "/api-docs", true),
-    ]],
-    ["運用", [
-      e("backup", SETTING_LABEL.backup, "download", "c-mod", "/backup", self && admin),
       e("activity", SETTING_LABEL.activity, "bell", "c-plugin", "/activity", can({ audit: ["read"] }) || can({ integrations: ["manage"] })),
-      e("shares", SETTING_LABEL.shares, "share", "c-teal", "/shares", self),
+      e("usage", SETTING_LABEL.usage, "chart", "c-teal", "/usage", admin),
+      e("setup", SETTING_LABEL.setup, "check", "c-teal", "/team", admin, "setup"),
     ]],
-    ["ツール", [
+    ["ライブラリ", [
+      e("storage", SETTING_LABEL.storage, "servers", "c-plugin", "/storage", self && can({ storage: ["manage"] })),
+      e("channel", SETTING_LABEL.channel, "clock", "c-datapack", "/team", admin, "channel"),
+      e("curseforge", SETTING_LABEL.curseforge, "key", "c-other", "/team", self && can({ integrations: ["manage"] }), "curseforge"),
+      e("shares", SETTING_LABEL.shares, "share", "c-teal", "/shares", self && can({ library: ["edit"] })),
       e("cleanup", SETTING_LABEL.cleanup, "wand", "c-mod", "/cleanup", can({ library: ["edit"] })),
+    ]],
+    ["パネル", [
+      e("backup", SETTING_LABEL.backup, "download", "c-mod", "/backup", self && admin),
+      e("versions", SETTING_LABEL.versions, "reload", "c-mod", "/settings", panel, "versions"),
+      e("telemetry", SETTING_LABEL.telemetry, "chart", "c-other", "/settings", panel, "telemetry"),
     ]],
     ["サポート", [
       e("feedback", SETTING_LABEL.feedback, "chat", "c-teal", "/settings", true, "feedback"),
-      e("telemetry", SETTING_LABEL.telemetry, "chart", "c-other", "/settings", panel, "telemetry"),
-    ]],
-    ["表示", [
-      e("look", SETTING_LABEL.look, "sparkle", "c-resourcepack", "/settings", true, "look"),
-      e("setup", SETTING_LABEL.setup, "sparkle", "c-teal", "/team", admin, "setup"),
-    ]],
-    ["CraftShelf", [
-      e("versions", SETTING_LABEL.versions, "sparkle", "c-mod", "/settings", panel, "versions"),
+      e("api", SETTING_LABEL.api, "file", "c-other", "/api-docs", true),
     ]],
   ];
   return groups.map(([g, list]) => [g, list.filter((x) => x.show)]);

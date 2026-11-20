@@ -24,7 +24,7 @@ import { Btn, Chip, ChipBar, Icon, Info, Menu, Row, Seg, Sheet, Tabs, fmtSize } 
 import { confirmDialog } from "~/lib/dialog-queue";
 
 // タブは v02 の並びと名前(「保存」= ワールドのバックアップとアドオンの変更の履歴)
-const TABS = [["overview", "概要"], ["console", "コンソール"], ["addons", "アドオン"], ["files", "ファイル"], ["backup", "保存"], ["settings", "設定"]] as const;
+const TABS = [["overview", "概要"], ["console", "コンソール"], ["addons", "アドオン"], ["files", "ファイル"], ["backup", "バックアップ"], ["settings", "設定"]] as const;
 type Tab = (typeof TABS)[number][0];
 const isTab = (v: unknown): v is Tab => TABS.some(([t]) => t === v);
 
@@ -852,7 +852,7 @@ function Worlds({ id, admin, chips }: { id: string; admin: boolean; chips: React
   return (
     <>
       <ChipBar label="バックアップ" tools={d?.available && (
-        <Btn kind="pri" sm disabled={busy || d.running} onClick={() => act(() => create({ data: { id } }), "")}>{d.running ? "保存しています…" : "いますぐ保存"}</Btn>
+        <Btn kind="pri" sm disabled={busy || d.running} onClick={() => act(() => create({ data: { id } }), "")}>{d.running ? "バックアップしています…" : "いますぐバックアップ"}</Btn>
       )}>{chips}</ChipBar>
       <div className="gtitle">ワールドのバックアップ
         <Info>
@@ -909,7 +909,7 @@ function Worlds({ id, admin, chips }: { id: string; admin: boolean; chips: React
       {note && <p className="muted" role="status">{note}</p>}
       {error && <p className="error" role="alert">{error}</p>}
       {admin && d?.available && s && <>
-        <div className="gtitle">予約</div>
+        <div className="gtitle">バックアップの予約</div>
         <section className="group">
           <Row onClick={() => { setDraft(s); setPlan(true); }}>
             <span className="mid"><span className="ttl">{s.mode === "off" ? "しない" : `${s.mode === "weekly" ? `毎週 ${DAY_NAMES[s.dow]}曜日` : "毎日"} ${s.time}`}</span>

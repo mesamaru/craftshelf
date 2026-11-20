@@ -83,7 +83,7 @@ export function SettingsRows({ server, perms, soft, version, onOpen }: { server:
               onChange={(e) => { const on = e.target.checked; run(async () => { await setAuto({ data: { serverId: server.id, on } }); await router.invalidate(); }); }} />
           </label>
         ) : <div className="row"><span className="mid"><span className="ttl">自動更新</span></span><span className="trail">{server.autoUpdate ? "オン" : "オフ"}</span></div>)}
-        {p && schedule && (perms.update || schedule.mode !== "off") && row("schedule", "予約", scheduleText(schedule))}
+        {p && schedule && (perms.update || schedule.mode !== "off") && row("schedule", "更新の予約", scheduleText(schedule))}
         {local && row("control", "起動・停止・RCON", CONTROL_LABEL[control] ?? "確かめています…")}
         {perms.admin && members !== null && row("members", "割り当てるメンバー", `${members} 人`)}
         {row("profile", "アドオンの種類とバージョン", p ? `${PLATFORMS[p.platform as keyof typeof PLATFORMS]?.label ?? p.platform} · ${p.mcVersion || "指定なし"} · ${PLATFORMS[p.platform as keyof typeof PLATFORMS]?.dir ?? "plugins"}/` : "未設定")}
@@ -106,7 +106,7 @@ export function SettingsRows({ server, perms, soft, version, onOpen }: { server:
 /** 設定の行を押すと出るシート */
 export function SettingSheet({ kind, server, perms, soft, reloadSoft, onChanged, onClose }:
   { kind: SettingKey; server: Detail; perms: Perms; soft: SoftInfo | string | null; reloadSoft: () => Promise<unknown>; onChanged: () => void; onClose: () => void }) {
-  const title = { software: "サーバー本体", schedule: "予約", control: "起動・停止・RCON", members: "割り当てるメンバー", profile: "アドオンの種類とバージョン", promote: "検証用から本番へ反映" }[kind];
+  const title = { software: "サーバー本体", schedule: "更新の予約", control: "起動・停止・RCON", members: "割り当てるメンバー", profile: "アドオンの種類とバージョン", promote: "検証用から本番へ反映" }[kind];
   return (
     <Sheet title={title} onClose={onClose}>
       {kind === "software" && <Software id={server.id} admin={perms.update} info={soft} reload={reloadSoft} />}

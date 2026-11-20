@@ -66,7 +66,7 @@ function Sets() {
       <div className="view-head">
         <p className="muted">よく使う組み合わせをセットにして、サーバーにまとめて入れます。</p>
         <span className="grow" />
-        <Btn sm onClick={() => setSheet("schedule")}>予約</Btn>
+        <Btn sm onClick={() => setSheet("schedule")}>そろえる予約</Btn>
         {edit && <Btn kind="pri" onClick={() => setSheet("new")}>＋ セットを作る</Btn>}
       </div>
       {sets.length === 0 && (
@@ -82,7 +82,7 @@ function Sets() {
           <FromModpack onCreated={reload} servers={can({ server: ["update"] }) ? catalog.servers : []} />
         </Sheet>
       )}
-      {sheet === "schedule" && <Sheet title="予約" onClose={() => setSheet("")}><Schedule editable={can({ server: ["update"] })} /></Sheet>}
+      {sheet === "schedule" && <Sheet title="そろえる予約" onClose={() => setSheet("")}><Schedule editable={can({ server: ["update"] })} /></Sheet>}
     </main>
   );
 }

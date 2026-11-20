@@ -38,7 +38,7 @@ await step("登録するとライブラリが開く", async () => {
   await page.getByText(/まだ何もありません/).waitFor();
   await page.screenshot({ path: ".e2e/library.png", fullPage: true });
   // 配布元から足すのは「＋ 追加」のシート
-  await page.locator(".top").getByRole("button", { name: "＋ 追加" }).click();
+  await page.locator(".top").getByRole("button", { name: "＋ アドオン" }).click();
   await page.getByRole("tab", { name: "探す" }).waitFor();
   await page.getByPlaceholder("名前(空なら人気順)").waitFor();
   await page.getByRole("tab", { name: "URL" }).click();
@@ -153,7 +153,7 @@ await step("セットを作ると一覧に出る", async () => {
   await page.getByRole("dialog").getByRole("heading", { name: "ロビー用2" }).waitFor();
   await page.keyboard.press("Escape");
   await page.locator(".set-card", { hasText: "ロビー用2" }).waitFor();
-  await page.getByRole("button", { name: "予約", exact: true }).click(); // 予約もシート
+  await page.getByRole("button", { name: "そろえる予約", exact: true }).click(); // 予約もシート
   await page.getByRole("dialog").getByText("予約を使う").waitFor();
   await page.keyboard.press("Escape");
 });
@@ -168,7 +168,7 @@ await step("チームの画面に自分がオーナーとして出る", async ()
 // 自分用の版は家の中のパネルも登録できるので、どちらの版でも断る URL(ftp)で確かめる
 await step("設定の左の一覧から、操作の記録と Discord への通知を開ける", async () => {
   await page.goto(base + "/team");
-  for (const g of ["セキュリティ", "管理", "連携", "運用", "サポート", "表示"]) await page.locator(".set-nav .gtitle", { hasText: g }).first().waitFor(); // v02 の設定の分け方
+  for (const g of ["自分", "チーム", "ライブラリ", "パネル", "サポート"]) await page.locator(".set-nav .gtitle", { hasText: g }).first().waitFor(); // だれに効くかで分ける
   await page.locator(".set-nav").getByRole("link", { name: "操作の記録と通知" }).click();
   await page.waitForURL(base + "/activity");
   await page.locator(".gtitle", { hasText: "Discord への通知" }).waitFor();
@@ -179,9 +179,9 @@ await step("設定の左の一覧から、操作の記録と Discord への通�
 await step("おかしな URL のパネルは登録できず、理由が出る", async () => {
   await page.goto(base + "/servers");
   await page.getByText("まだサーバーがありません。").waitFor();
-  await page.getByRole("link", { name: "比較", exact: true }).waitFor(); // 上の行: 比較・サーバー本体・ファイル比較・ポート・処理
+  await page.getByRole("link", { name: "比較", exact: true }).waitFor(); // 上の行: 比較・サーバー本体・ポート(ファイル比較は比較の画面のタブ、処理は上のバー)
   await page.getByRole("link", { name: "サーバー本体" }).waitFor();
-  await page.getByRole("link", { name: "処理" }).waitFor();
+  await page.locator(".top .rbtn.jobs").waitFor(); // 処理は上のバーのしるしから
   await page.locator("main").getByRole("button", { name: "＋ サーバーを追加" }).click(); // つなぎ方は「＋ サーバーを追加」のシート
   await page.getByRole("dialog").getByRole("tab", { name: "Pterodactyl" }).waitFor();
   await page.getByPlaceholder("パネルの URL(https://…)").fill("ftp://panel.example.com");
@@ -240,7 +240,7 @@ await step("フォルダのサーバーを足すと、一覧と詳細のタブ�
   await page.waitForURL(/\/servers\/[^/?]+/);
   await page.locator(".srv-side .sstats").getByText("稼働").waitFor();
   await page.locator(".srv-main").getByRole("heading", { name: "E2E" }).waitFor();
-  for (const t of ["概要", "アドオン", "ファイル", "保存", "設定"]) await page.getByRole("tab", { name: t }).waitFor(); // v02 の並びと名前(コンソールは操作できる人だけ)
+  for (const t of ["概要", "アドオン", "ファイル", "バックアップ", "設定"]) await page.getByRole("tab", { name: t }).waitFor(); // v02 の並びと名前(コンソールは操作できる人だけ)
   await page.locator(".srv-qacts").getByRole("button", { name: "起動", exact: true }).waitFor();
   await page.screenshot({ path: ".e2e/server-detail.png" });
   await page.getByText("やること", { exact: true }).waitFor();
@@ -251,7 +251,7 @@ await step("フォルダのサーバーを足すと、一覧と詳細のタブ�
   await page.getByText("server.properties").waitFor();
   await page.goBack(); // 戻るボタンで前のタブへ
   await page.waitForURL(/tab=addons/);
-  await page.getByRole("tab", { name: "保存" }).click(); // v02 の「保存」= ワールドのバックアップと変更の履歴
+  await page.getByRole("tab", { name: "バックアップ" }).click(); // v02 の「保存」= ワールドのバックアップと変更の履歴
   await page.waitForURL(/tab=backup/);
   await page.getByText("変更の履歴", { exact: true }).first().waitFor();
   await page.getByRole("tab", { name: "設定" }).click();
@@ -310,7 +310,7 @@ await step("ファイルのタブで圧縮ファイルを展開できる。悪�
   await sheet.getByRole("button", { name: "展開先を開く" }).click();
   await page.getByText("a.txt").first().waitFor();
   // 変更の履歴に載り、元に戻せる
-  await page.getByRole("tab", { name: "保存" }).click();
+  await page.getByRole("tab", { name: "バックアップ" }).click();
   await page.getByRole("button", { name: "変更の履歴" }).click(); // ワールドのバックアップの隣
   await page.getByText("Good.zip", { exact: true }).waitFor();
   await page.getByText("を展開した").waitFor();
@@ -436,7 +436,7 @@ await step("ドラッグ&ドロップの欄から jar を足すと、一覧と�
 // 配布元に紐づいたものはアイコンの画像、紐づいていないもの(アップロード)は種類の図(本物の Modrinth につなぐ。つながらなければ飛ばす)
 await step("配布元に紐づけたアドオンは、ライブラリ・検索でアイコンの画像を出す", async () => {
   await page.goto(base + "/");
-  await page.locator(".top").getByRole("button", { name: "＋ 追加" }).click();
+  await page.locator(".top").getByRole("button", { name: "＋ アドオン" }).click();
   await page.getByRole("tab", { name: "URL" }).click();
   await page.getByPlaceholder("ページの URL(Modrinth・SpigotMC・CurseForge)").fill("https://modrinth.com/plugin/luckperms");
   await page.getByRole("button", { name: "足す" }).click();

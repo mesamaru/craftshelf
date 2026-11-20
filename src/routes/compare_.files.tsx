@@ -1,5 +1,5 @@
 import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
-import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
+import { Link, createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { Btn, Chip, ChipBar, Info, Tabs } from "~/lib/ui";
 import { alignAll, splitLines, takeBase } from "~/lib/diff";
@@ -69,6 +69,7 @@ function FileCompare() {
 
   return (
     <main className="page fill wide">
+      <Link to="/servers" className="back">‹ サーバー</Link>
       <header className="bar">
         <h1>比較<Info>比べるサーバーを 2 台以上選んでください(8 台まで)。設定ファイル(server.properties・plugins・config の中など)を並べて見比べ、左のサーバーの中身をほかのサーバーへ写せます。見る・直すのは管理者以上です(チームの設定で、編集者にも許せます)。</Info></h1>
       </header>

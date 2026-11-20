@@ -146,6 +146,7 @@ function Library() {
             <span>データパックは、サーバーのワールド(server.properties の level-name)の datapacks に入れます。リソースパック・シェーダーはクライアントで使うものなので、ライブラリで持ち、「詳しく」の版からダウンロードできます。Modパックからは、セットを作ったり、サーバーに中の Mod と設定ファイルを入れたりできます(新しい版が出たらお知らせします)。</span>
           </Info>
         </h1>
+        {edit && <Link to="/cleanup" className="btn sm" title="古い版・重複・使っていないものを探して消す">整理</Link>}
         <StoragePill />
       </header>
       <MobileSearch />

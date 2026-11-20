@@ -12,9 +12,9 @@ export type SettingsKey =
 /** 設定の左の一覧の名前(v02 の設定と同じ言葉) */
 export const SETTING_LABEL: Record<SettingsKey, string> = {
   profile: "プロフィール", security: "パスワードと二段階認証", passkeys: "パスキー", look: "見た目と言語",
-  members: "メンバーと権限", perms: "権限と割り当て", activity: "操作の記録と通知", storage: "保存先", shares: "共有リンク",
-  tokens: "API トークン", curseforge: "CurseForge API キー", setup: "はじめの設定", channel: "受け取る版",
-  backup: "バックアップ", versions: "パネルのアップデート", usage: "メンバーごとの利用状況", telemetry: "利用状況の送信",
+  members: "メンバーと権限", perms: "権限とサーバーの割り当て", activity: "操作の記録と通知", storage: "保存先", shares: "共有リンク",
+  tokens: "API トークン", curseforge: "CurseForge API キー", setup: "はじめの設定", channel: "アドオンの更新で入れる版",
+  backup: "バックアップ", versions: "パネルのアップデート", usage: "メンバーごとの利用状況", telemetry: "開発者への匿名の統計",
   api: "API の説明", import: "v02 からの取り込み", feedback: "お問い合わせ・要望", cleanup: "アドオンの整理",
 };
 

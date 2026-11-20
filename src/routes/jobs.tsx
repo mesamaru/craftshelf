@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { createFileRoute, redirect } from "@tanstack/react-router";
+import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { Btn, Chip, ChipBar, Info } from "~/lib/ui";
 import { listJobs } from "~/lib/jobs-api";
@@ -36,6 +36,7 @@ function Jobs() {
   const row = (j: Job) => <JobRow key={j.id} j={j} />;
   return (
     <main className="page fill">
+      <Link to="/servers" className="back">‹ サーバー</Link>
       <header className="bar">
         <h1>処理<Info>サーバーに入れる・セットでそろえる・まとめて最新にする・本体の入れ替え・バックアップなどの、時間のかかる処理です。終わったものは 30 日たつと消えます。結果の詳しい内容は「操作の記録」にも残ります。</Info></h1>
       </header>

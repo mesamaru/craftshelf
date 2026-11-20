@@ -1,6 +1,17 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "更新の予約": "Scheduled updates",
+  "そろえる予約": "Scheduled sync",
+  "古い版・重複・使っていないものを探して消す": "Find and remove old versions, duplicates and unused items",
+  "いますぐバックアップ": "Back up now",
+  "バックアップしています…": "Backing up…",
+  "アドオンを追加": "Add an add-on",
+  "＋ アドオン": "+ Add-on",
+  "開発者への匿名の統計": "Anonymous stats for the developer",
+  "アドオンの更新で入れる版": "Release channel for add-on updates",
+  "権限とサーバーの割り当て": "Permissions and server access",
+  "自分": "You",
   "最初のセットを作る": "Create your first set",
   "パスワードを忘れたときは、チームのオーナー・管理者に頼んでください(設定の「メンバーと権限」から、ログインを戻せます)。": "If you forgot your password, ask the team owner or an admin (they can reset your sign-in under Settings → Members and permissions).",
   "読み取りは、どのトークンでもできます": "Any token can read",

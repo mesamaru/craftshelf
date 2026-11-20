@@ -9,7 +9,6 @@ import { shared } from "~/lib/shared";
 import { ApplyResults } from "~/lib/apply-results";
 import { updateServers } from "~/lib/sets-api";
 import { outdatedLibraryServers } from "~/lib/library-api";
-import { filesAccess } from "~/lib/files-api";
 import { addAgentServer, createAgent, listAgents, removeAgent } from "~/lib/agents-api";
 import { STATE_LABELS, kindLabel } from "~/lib/platforms";
 import { type Status, ServerStatusCtx, refreshStatus, useStatuses } from "~/lib/server-status";
@@ -52,16 +51,13 @@ function Servers() {
   const edit = can({ library: ["edit"] });
   const create = can({ server: ["create"] });
   const outdated = useServerFn(outdatedLibraryServers);
-  const access = useServerFn(filesAccess);
   const [old, setOld] = useState<Map<string, number> | null>(() => (lastOld && lastOld.team === teamKey && Date.now() - lastOld.at < OLD_TTL ? lastOld.map : null)); // サーバー → 古い版の数
   const [checking, setChecking] = useState(false);
-  const [files, setFiles] = useState(false);
   const [sheet, setSheet] = useState<"" | "add" | "update">("");
   const [error, setError] = useState("");
 
   // 状態は 15 秒ごとに、権限のあるサーバーぶんを 1 回でまとめて取る(メニューの点・詳細も同じ結果。src/lib/server-status.ts)
   const st = useStatuses(servers.map((s) => s.id), 15_000, true);
-  useEffect(() => { if (teamKey !== null) shared("files-access", () => access(), 5000).then((a) => setFiles(a.allowed), () => setFiles(false)); }, [teamKey]);
   // 「更新あり」は配布元に問い合わせる。開いたとき(前の結果が新しければそれを使う)と、「更新」の数を押したときに確かめる
   const checkOld = (fresh = false) => {
     setChecking(true);
@@ -127,9 +123,7 @@ function Servers() {
         <div className="srv-top">
           {link("/compare", "compare", "比較")}
           {link("/software", "servers", "サーバー本体")}
-          {files && link("/compare/files", "file", "ファイル比較")}
           {link("/ports", "tray", "ポート")}
-          {link("/jobs", "jobs", "処理")}
           <span className="grow" />
           {create && <Btn kind="pri" onClick={() => setSheet("add")}>＋ サーバーを追加</Btn>}
         </div>

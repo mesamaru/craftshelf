@@ -52,7 +52,7 @@ const readSeen = () => {
   }
 };
 
-/** 上のバーの「処理」のしるし。動いている数(回る輪)・まだ見ていない終わった数(失敗があれば赤)。押すと様子のシート */
+/** 上のバーの「処理」のしるし(いつも出す)。動いている数(回る輪)・まだ見ていない終わった数(失敗があれば赤)。押すと様子のシート */
 export function JobsButton() {
   const load = useServerFn(listJobs);
   const [jobs, setJobs] = useState<Job[] | null>(null);
@@ -80,8 +80,7 @@ export function JobsButton() {
     try { localStorage.setItem(SEEN, now); } catch { /* 覚えられなくても開く */ }
     setOpen(true);
   };
-  if (!running.length && !fresh.length && !open) return null;
-  const label = running.length ? `処理 ${running.length} 件が動いています` : failed ? `処理 ${failed} 件に失敗があります` : `処理 ${fresh.length} 件が終わりました`;
+  const label = !running.length && !fresh.length ? "処理" : running.length ? `処理 ${running.length} 件が動いています` : failed ? `処理 ${failed} 件に失敗があります` : `処理 ${fresh.length} 件が終わりました`;
   const ended = (jobs ?? []).filter((j) => j.state === "done" || j.state === "failed").slice(0, 8);
   return (
     <>

@@ -1,6 +1,6 @@
 // Pterodactyl への問い合わせの覚え: 同じ読みはまとめる・書いたら捨てる・fresh は読み直す・429 は言われた時間だけ止めてやり直す・残りが少なければ見回りは覚えで済ませる
 import { describe, expect, it, vi } from "vitest";
-import { READ_TTL, forgetPteroReadsFor, pteroClient } from "../src/server/ptero";
+import { READ_TTL, forgetPteroReadsFor, gateState, inBackground, pteroClient } from "../src/server/ptero";
 import type { FetchLike } from "../src/server/net";
 
 function fake() {
@@ -141,4 +141,30 @@ describe("回数の上限が小さいパネル", () => {
     await Promise.all(Array.from({ length: 60 }, (_, i) => c.writeFile(`abcd${String(1000 + i)}`, "a.txt", "x")));
     expect(done).toBe(60);
   }, 20_000);
+});
+
+describe("利用者の操作を先に", () => {
+  it("見回りは同時に 2 つまで。利用者の操作は、待っている見回りより先に送る", async () => {
+    const order: string[] = [];
+    let busyBg = 0;
+    let peakBg = 0;
+    const fetch = (async (url: string) => {
+      const bg = url.includes("/resources");
+      if (bg) { busyBg++; peakBg = Math.max(peakBg, busyBg); }
+      order.push(bg ? "bg" : "user");
+      await new Promise((r) => setTimeout(r, 30));
+      if (bg) busyBg--;
+      return bg ? Response.json({ attributes: { current_state: "running", resources: {} } }) : Response.json({ data: [] });
+    }) as unknown as FetchLike;
+    const c = pteroClient("https://prio.example", "ptlc_aaaaaaaaaaaa", fetch);
+    const bgs = inBackground(() => Promise.all(Array.from({ length: 10 }, (_, i) => c.resources(`bbbb${1000 + i}`))));
+    await new Promise((r) => setTimeout(r, 5)); // 見回りが先に並んでいるところへ
+    expect(gateState("https://prio.example")).toMatchObject({ bg: 2, bgWaiting: 8 });
+    const users = Promise.all(Array.from({ length: 4 }, (_, i) => c.listFiles(`aaaa${1000 + i}`, "plugins", true)));
+    await Promise.all([bgs, users]);
+    expect(peakBg).toBe(2);
+    // 利用者の 4 つは、最初の 2 つの見回りのすぐ後(待っていた見回りより先)に送る
+    expect(order.slice(0, 6)).toEqual(["bg", "bg", "user", "user", "user", "user"]);
+    expect(gateState("https://prio.example")).toMatchObject({ busy: 0, bg: 0, waiting: 0, bgWaiting: 0 });
+  });
 });

@@ -78,8 +78,8 @@ describe("サーバーの状態に人数を出す", () => {
     const outsider = t.headers(await t.signUp("ほか", "other@example.com"));
     await expect(servers.status(outsider, id)).rejects.toSatisfy((e) => e instanceof HttpError && e.status === 404);
     writeFileSync(join(root, "server.properties"), "server-port=1\n");
-    vi.useFakeTimers({ toFake: ["Date"] }); // 状態は 5 秒覚えている。覚えが切れたあとは、ポートの変更が見える
-    vi.setSystemTime(Date.now() + 6000);
+    vi.useFakeTimers({ toFake: ["Date"] }); // 状態は 10 秒覚えている。覚えが切れたあとは、ポートの変更が見える
+    vi.setSystemTime(Date.now() + 11_000);
     expect(await servers.status(owner, id)).toMatchObject({ state: "offline", ping: null });
     vi.useRealTimers();
   });

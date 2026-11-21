@@ -8,6 +8,7 @@ import type { ReadableStream as WebStream } from "node:stream/web";
 import type { FetchLike } from "./net";
 import { FormData as UFormData } from "undici";
 import { createHash, randomBytes } from "node:crypto";
+import { AsyncLocalStorage } from "node:async_hooks";
 import { type Created, EXTRACT_LIMITS, ExtractError, type JobState, type Mode, type Plan, type Scan, type Space, STAGING, assemblePlan, cancelJob, entriesManifest, findConflicts, freeFolderName, hashEntries, isExtractError, jobState, levelOf, memorySource, memoryTar, protectedOf, relOf, removeCreated, reserveRead, scanTar, scanZip, startJob } from "./extract-safe";
 import { fmtSize } from "../lib/format";
 import { formatOf, unsupportedReason } from "../lib/archive";
@@ -54,11 +55,12 @@ export const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 // CraftShelf から書き込んだ(GET 以外を送った)サーバーの分は、すぐ捨てる。パネルで直接変えたものは、長くても ttl だけ遅れて見える。
 // 読んでから書く・利用者が開いて直す・ファイルのタブでたどるときは fresh(覚えを使わない)
 // 上の「読み直す」は、チームのパネルの覚えを捨ててから読む(forgetPteroReadsFor)
-export const READ_TTL = { list: 30_000, file: 30_000, resources: 2_000, servers: 60_000, allocations: 120_000, details: 300_000 } as const;
+export const READ_TTL = { list: 30_000, file: 30_000, resources: 10_000, servers: 60_000, allocations: 120_000, details: 300_000 } as const;
 // このファイルはビルドで 2 か所に入る(画面の下ごしらえとサーバーの処理)ので、覚えと同時の数はプロセスで 1 つにする
 const G = globalThis as {
   __csPteroReads?: Map<string, { until: number; p: Promise<unknown> }>; __csPteroGates?: Map<string, { busy: number; queue: (() => void)[] }>;
   __csPteroBudgets?: Map<string, Budget>; __csPteroPauses?: Map<string, number>;
+  __csPteroGates2?: Map<string, Gate>; __csPteroBg?: AsyncLocalStorage<boolean>;
 };
 const reads = (G.__csPteroReads ??= new Map());
 // stale: 回数の残りが少ないとき、期限の切れた覚えでも使う(状態の見回りなどで、利用者の操作の分の回数を食わない)
@@ -95,15 +97,36 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 const lowOn = (key: string) => { const b = budgets.get(key); return !!b && Date.now() - b.at < 60_000 && b.remaining < b.limit * RATE.lowShare; };
 /** 止めている種類の、待つ残りのミリ秒 */
 const pausedFor = (kind: string) => { const until = pauses.get(kind) ?? 0; const ms = until - Date.now(); if (ms <= 0) pauses.delete(kind); return Math.max(0, ms); };
-const gates = (G.__csPteroGates ??= new Map());
-async function gate(panel: string) {
-  let g = gates.get(panel);
-  if (!g) gates.set(panel, (g = { busy: 0, queue: [] }));
-  const q = g;
-  if (q.busy >= PANEL_PARALLEL) await new Promise<void>((r) => q.queue.push(r)); // 空いた枠を、そのまま受け取る
-  else q.busy++;
-  return () => { const next = q.queue.shift(); if (next) next(); else q.busy--; };
+// 見回り(予約・自動更新・新しい版の見回り・サーバーの状態の読み取り)と、利用者の操作を分ける。
+// 見回りはパネルごとに同時 BG_PARALLEL まで、利用者の操作が待っていれば後に回す(利用者の操作には、いつも 4 つ以上の枠が空いている)
+const BG_PARALLEL = 2;
+const bgStore = (G.__csPteroBg ??= new AsyncLocalStorage<boolean>());
+/** fn の中の Pterodactyl への問い合わせを、見回り(後回しでよいもの)として送る */
+export const inBackground = <T>(fn: () => Promise<T>): Promise<T> => bgStore.run(true, fn);
+const isBackground = () => bgStore.getStore() === true;
+type Gate = { busy: number; bg: number; queue: (() => void)[]; bgQueue: (() => void)[] };
+const gates = (G.__csPteroGates2 ??= new Map<string, Gate>());
+function pump(g: Gate) {
+  while (g.busy < PANEL_PARALLEL) {
+    const next = g.queue.shift() ?? (g.bg < BG_PARALLEL ? g.bgQueue.shift() : undefined);
+    if (!next) return;
+    next();
+  }
 }
+async function gate(panel: string, background = isBackground()) {
+  let g = gates.get(panel);
+  if (!g) gates.set(panel, (g = { busy: 0, bg: 0, queue: [], bgQueue: [] }));
+  const q = g;
+  // 枠を受け取ったら数える(受け取るのは pump か、すぐに空いていたとき)
+  await new Promise<void>((r) => {
+    const take = () => { q.busy++; if (background) q.bg++; r(); };
+    if (background) q.bgQueue.push(take); else q.queue.push(take);
+    pump(q);
+  });
+  return () => { q.busy--; if (background) q.bg--; pump(q); };
+}
+/** テスト用: パネルの順番待ちの様子 */
+export const gateState = (panel: string) => { const g = gates.get(panel); return g ? { busy: g.busy, bg: g.bg, waiting: g.queue.length, bgWaiting: g.bgQueue.length } : null; };
 
 export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
   const memoKey = `${baseUrl}|${createHash("sha256").update(apiKey).digest("hex").slice(0, 16)}|`;

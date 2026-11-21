@@ -56,8 +56,9 @@ function Servers() {
   const [sheet, setSheet] = useState<"" | "add" | "update">("");
   const [error, setError] = useState("");
 
-  // 状態は 15 秒ごとに、権限のあるサーバーぶんを 1 回でまとめて取る(メニューの点・詳細も同じ結果。src/lib/server-status.ts)
-  const st = useStatuses(servers.map((s) => s.id), 15_000, true);
+  // 状態は 30 秒ごとに、権限のあるサーバーぶんを 1 回でまとめて取る(メニューの点・詳細も同じ結果。src/lib/server-status.ts)。
+  // 起動・停止の後は、そのサーバーだけすぐ読み直す(refreshStatus)ので、間隔を空けても操作の結果は遅れない
+  const st = useStatuses(servers.map((s) => s.id), 30_000, true);
   // 「更新あり」は配布元に問い合わせる。開いたとき(前の結果が新しければそれを使う)と、「更新」の数を押したときに確かめる
   const checkOld = (fresh = false) => {
     setChecking(true);

@@ -9,7 +9,7 @@ import { agentServer, localServer, member, memberServer, memberServerLimit, pter
 import { HttpError, requireTeam } from "./guard";
 import { type FetchLike, UnsafeUrlError, checkPublicUrl, isPublicAddress } from "./net";
 import { type Ping, gamePort, ping } from "./mcping";
-import { POWER_SIGNALS, type PowerSignal, PteroError, type Resources, forgetPteroReadsFor, pteroClient } from "./ptero";
+import { POWER_SIGNALS, type PowerSignal, PteroError, type Resources, forgetPteroReadsFor, inBackground, pteroClient } from "./ptero";
 import { eventService } from "./events";
 import { checkRoot, detectFromJar, localClient } from "./local";
 import { hint, open, seal } from "./secrets";
@@ -116,7 +116,7 @@ export async function serverOf(deps: Deps, who: Who | string, id: string) {
 }
 
 const POWER_LABEL: Record<PowerSignal, string> = { start: "起動", stop: "停止", restart: "再起動", kill: "強制停止" };
-const STATUS_TTL = 5000; // 状態を覚えておく時間(ms)
+const STATUS_TTL = 10_000; // 状態を覚えておく時間(ms。開いている人・画面が多くても、10 秒に 1 回だけ読む)
 const STATUS_PARALLEL = 8; // 状態を読むときの、外への同時の問い合わせ
 type Status = Resources & { ping: Ping | null };
 
@@ -132,7 +132,7 @@ export function serverService(deps: Deps) {
     for (const [k, v] of statusMemo) if (now - v.at > STATUS_TTL) statusMemo.delete(k);
     const key = `${teamId}:${id}`;
     let hit = statusMemo.get(key);
-    if (!hit) statusMemo.set(key, (hit = { at: now, p: readStatus(teamId, id) }));
+    if (!hit) statusMemo.set(key, (hit = { at: now, p: inBackground(() => readStatus(teamId, id)) })); // 操作の後に回す
     return hit.p;
   }
   async function readStatus(teamId: string, id: string): Promise<Status> {

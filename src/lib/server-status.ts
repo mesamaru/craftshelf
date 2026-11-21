@@ -1,6 +1,6 @@
 // サーバーの今の状態を取る場所(1 か所)。左のメニュー・サーバーの一覧・サーバーの詳細が、この 1 つの結果を共有して使う。
 // 状態は serverStatuses で、権限のあるサーバーぶんを 1 回の呼び出しでまとめて取る(間隔は見ている画面の中でいちばん短いもの。
-// 一覧 = 15 秒、メニューだけ = 60 秒)。タブが見えていないあいだは取らない。サーバー側も 5 秒は同じ結果を返す
+// 一覧 = 30 秒、メニュー・ホーム = 60 秒)。タブが見えていないあいだは取らない。サーバー側も 10 秒は同じ結果を返す
 import { createContext, useContext, useEffect, useSyncExternalStore } from "react";
 import { type serverStatus, serverStatuses } from "./servers-api";
 import { shared } from "./shared";

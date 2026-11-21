@@ -1,15 +1,16 @@
 // 起動したときに、データベースの準備(移行・v02 の取り込み)と「起動できた」しるしを済ませる。
 // 最初のリクエストを待つと、だれも開かないうちの再起動で「起動できなかった」と見なされてしまうため。
 // あわせて、予約などを 1 分ごとに確かめる(処理ごとに独立して動かし、前の回が終わっていない処理は、その回は飛ばす)
+import { inBackground } from "./ptero";
 
-/** 1 分ごとに呼ぶ関数を作る。どれかが返ってこなくても、ほかの処理は毎回動く */
+/** 1 分ごとに呼ぶ関数を作る。どれかが返ってこなくても、ほかの処理は毎回動く。Pterodactyl への問い合わせは、利用者の操作の後に回す(inBackground) */
 export function minuteTasks(tasks: [string, (now: Date) => Promise<unknown>][]) {
   const busy = new Set<string>();
   return (now = new Date()) => {
     for (const [name, fn] of tasks) {
       if (busy.has(name)) continue;
       busy.add(name);
-      Promise.resolve().then(() => fn(now)).catch((e) => console.error(`[${name}] 動かせませんでした:`, e)).finally(() => busy.delete(name));
+      Promise.resolve().then(() => inBackground(() => fn(now))).catch((e) => console.error(`[${name}] 動かせませんでした:`, e)).finally(() => busy.delete(name));
     }
   };
 }

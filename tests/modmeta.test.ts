@@ -29,12 +29,18 @@ describe("jarMeta: Mod の前提と、提供する id", () => {
       depends: { fabricloader: ">=0.15", minecraft: "~1.21", java: ">=21", "fabric-api": "*", somelib: [">=1", "<3"] },
       recommends: { modmenu: "*" }, suggests: { extra: "*" }, breaks: { bad: "*" }, conflicts: { worse: "*" },
     }));
-    expect(m).toMatchObject({ key: "mod:mymod", name: "MyMod", depends: [{ key: "mod:fabric-api", name: "fabric-api" }, { key: "mod:somelib", name: "somelib" }], provides: ["mod:mymod"] });
+    expect(m).toMatchObject({ key: "mod:mymod", name: "MyMod", provides: [{ key: "mod:mymod", version: "1.0" }] });
+    expect(m.depends).toEqual([
+      { key: "mod:fabric-api", name: "fabric-api", range: { style: "fabric", any: ["*"] } },
+      { key: "mod:somelib", name: "somelib", range: { style: "fabric", any: [">=1", "<3"] } },
+    ]);
   });
 
-  it("provides と、jar の中の jar(Fabric API の部品)の id も、提供するものに入れる", () => {
-    expect(jarMeta(fabricApi).provides.sort()).toEqual(["mod:fabric", "mod:fabric-api", "mod:fabric-api-base", "mod:fabric-resource-loader-v0"]);
-    expect(jarMeta(fabricMod({ id: "a", provides: ["old-a", "older-a"] })).provides).toEqual(["mod:a", "mod:old-a", "mod:older-a"]);
+  it("provides と、jar の中の jar(Fabric API の部品)の id も、版と一緒に提供するものに入れる", () => {
+    expect(jarMeta(fabricApi).provides.sort((a, b) => a.key.localeCompare(b.key))).toEqual([
+      { key: "mod:fabric", version: "0.100.0" }, { key: "mod:fabric-api", version: "0.100.0" }, { key: "mod:fabric-api-base", version: "0.4" }, { key: "mod:fabric-resource-loader-v0", version: "1.0" },
+    ]);
+    expect(jarMeta(fabricMod({ id: "a", provides: ["old-a", "older-a"] })).provides.map((p) => p.key)).toEqual(["mod:a", "mod:old-a", "mod:older-a"]);
   });
 
   it("クライアントだけの Mod の前提は、サーバーでは数えない", () => {
@@ -45,9 +51,12 @@ describe("jarMeta: Mod の前提と、提供する id", () => {
   it("quilt.mod.json: quilt_loader の depends(文字・{ id })。任意(optional)は数えない。quilt_loader・minecraft は前提にしない。provides も読む", () => {
     const q = makeZip({ "quilt.mod.json": JSON.stringify({ schema_version: 1, quilt_loader: {
       id: "qmod", version: "1.0", provides: [{ id: "alias", version: "1" }, "alias2"],
-      depends: [{ id: "quilt_loader", versions: ">=0.20" }, { id: "minecraft" }, { id: "qsl", versions: ">=1" }, { id: "optmod", optional: true }, "other_mod"],
+      depends: [{ id: "quilt_loader", versions: ">=0.20" }, { id: "minecraft" }, { id: "qsl", versions: ">=1" }, { id: "optmod", optional: true }, "other_mod", { id: "anyof", versions: { any: ["1.x", "2.x"] } }, { id: "allof", versions: { all: [">=1", "<2"] } }],
     } }) }, false);
-    expect(jarMeta(q)).toMatchObject({ key: "mod:qmod", depends: [{ key: "mod:qsl", name: "qsl" }, { key: "mod:other_mod", name: "other_mod" }], provides: ["mod:qmod", "mod:alias", "mod:alias2"] });
+    expect(jarMeta(q)).toEqual(expect.objectContaining({ key: "mod:qmod", depends: [
+      { key: "mod:qsl", name: "qsl", range: { style: "quilt", any: [">=1"] } }, { key: "mod:other_mod", name: "other_mod" },
+      { key: "mod:anyof", name: "anyof", range: { style: "quilt", any: ["1.x", "2.x"] } }, { key: "mod:allof", name: "allof", range: { style: "quilt", any: [">=1 <2"] } },
+    ], provides: [{ key: "mod:qmod", version: "1.0" }, { key: "mod:alias", version: "1" }, { key: "mod:alias2", version: "1.0" }] }));
   });
 
   it("mods.toml: mandatory = true の前提だけ。forge・minecraft・fml・javafml・lowcodefml・mixinextras は前提にしない。クライアント側だけの前提も数えない。[[mods]] の modId は全部提供する", () => {
@@ -58,11 +67,18 @@ describe("jarMeta: Mod の前提と、提供する id", () => {
       "[[dependencies.mymod]]", 'modId="forge"', "mandatory=true", 'versionRange="[47,)"', "",
       "[[dependencies.mymod]]", 'modId="minecraft"', "mandatory=true", "",
       "[[dependencies.mymod]]", 'modId="mixinextras"', "mandatory=true", "",
-      "[[dependencies.mymod]]", 'modId="jei"', "mandatory=true", 'side="BOTH"', "",
+      "[[dependencies.mymod]]", 'modId="jei"', "mandatory=true", 'versionRange="[19.0,)"', 'side="BOTH"', "",
       "[[dependencies.mymod]]", 'modId="curios"', "mandatory=false", "",
       "[[dependencies.mymod]]", 'modId="clientonly"', "mandatory=true", 'side="CLIENT"', "",
     ].join("\n");
-    expect(jarMeta(makeZip({ "META-INF/mods.toml": toml }, false))).toMatchObject({ key: "mod:mymod", depends: [{ key: "mod:jei", name: "jei" }], provides: ["mod:mymod", "mod:mymod_api"] });
+    expect(jarMeta(makeZip({ "META-INF/mods.toml": toml }, false))).toEqual(expect.objectContaining({ key: "mod:mymod",
+      depends: [{ key: "mod:jei", name: "jei", range: { style: "maven", any: ["[19.0,)"] } }], provides: [{ key: "mod:mymod", version: "1.0" }, { key: "mod:mymod_api", version: "" }] }));
+  });
+
+  it("mods.toml の version が ${file.jarVersion} なら、MANIFEST.MF の Implementation-Version を版にする(無ければ分からない)", () => {
+    const toml = '[[mods]]\nmodId="jarver"\nversion="${file.jarVersion}"\n';
+    expect(jarMeta(makeZip({ "META-INF/mods.toml": toml, "META-INF/MANIFEST.MF": "Manifest-Version: 1.0\r\nImplementation-Version: 4.4.9\r\n" }, false)).provides).toEqual([{ key: "mod:jarver", version: "4.4.9" }]);
+    expect(jarMeta(makeZip({ "META-INF/mods.toml": toml }, false)).provides).toEqual([{ key: "mod:jarver", version: "" }]);
   });
 
   it("neoforge.mods.toml: type = \"required\" の前提だけ(optional・incompatible・discouraged は数えない。neoforge・minecraft は前提にしない)", () => {
@@ -177,6 +193,30 @@ describe("Mod の前提不足(手で置いた jar)", () => {
     await unmet("fab00001");
     await unmet("fab00001");
     expect([modrinthAsked.length, jarReads]).toEqual(before); // jar を読み直さない・同じ前提を Modrinth に聞き直さない(数分は覚えている)
+  });
+
+  it("入っていても版の範囲を満たさなければ「版が合わない」(need・have。入れるは付けない)。版が分からないものは満たすとみなす", async () => {
+    // Forge: geckolib(版なし)が入っている → 範囲があっても満たすとみなす
+    const needs = (id: string, name: string, range: string) => makeZip({ "META-INF/mods.toml": ['[[mods]]', `modId="${id}"`, `displayName="${name}"`, "", `[[dependencies.${id}]]`, 'modId="geckolib"', "mandatory=true", `versionRange="${range}"`, ""].join("\n") }, false);
+    put("frg00001", "needsnew.jar", needs("needsnew", "NeedsNew", "[4.4,)"));
+    put("frg00001", "needsold.jar", needs("needsold", "NeedsOld", "[4.0,5.0)"));
+    expect(await unmet("frg00001")).toEqual([]);
+    disk.delete("frg00001/mods/geckolib.jar");
+    put("frg00001", "geckolib-4.2.jar", makeZip({ "META-INF/mods.toml": '[[mods]]\nmodId="geckolib"\nversion="${file.jarVersion}"\n', "META-INF/MANIFEST.MF": "Implementation-Version: 4.2.0\n" }, false));
+    expect(await unmet("frg00001")).toEqual([{ name: "geckolib", by: ["NeedsNew"], need: "[4.4,)", have: "4.2.0" }]);
+    disk.delete("frg00001/mods/geckolib-4.2.jar");
+    put("frg00001", "geckolib-4.5.jar", makeZip({ "META-INF/mods.toml": '[[mods]]\nmodId="geckolib"\nversion="4.5.1"\n' }, false));
+    expect(await unmet("frg00001")).toEqual([]);
+
+    // Fabric: Fabric API 0.100.0 が入っている。足りないもの(my-private-lib)とは別に出す。部品・provides の版も見る
+    put("fab00001", "wantsnew.jar", fabricMod({ id: "wantsnew", name: "WantsNew", depends: { "fabric-api": ">=0.110", "fabric-api-base": ">=0.4", fabric: ["<0.50", ">=0.100"], "fabric-resource-loader-v0": ">=2.0" } }));
+    expect(await unmet("fab00001")).toEqual([
+      { name: "my-private-lib", by: ["MyMod"] },
+      { name: "fabric-api", by: ["WantsNew"], need: ">=0.110", have: "0.100.0" },
+      { name: "fabric-resource-loader-v0", by: ["WantsNew"], need: ">=2.0", have: "1.0" },
+    ]);
+    disk.delete("fab00001/mods/wantsnew.jar");
+    forgetPteroReads();
   });
 
   it("jar が多すぎて全部は読めないとき(100 個を超える)は、誤って出さないよう Mod の前提は確かめない", async () => {

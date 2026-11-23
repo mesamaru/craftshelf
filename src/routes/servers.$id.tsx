@@ -242,10 +242,10 @@ function Overview({ st, state, control, server, soft, onPower, onSoftware, onTab
               </Row>
             )}
             {a.deps?.unmet.map((d) => (
-              <div className="row" key={`unmet:${d.name}`}>
-                <span className="badge bad">前提不足</span>
+              <div className="row" key={`unmet:${d.name}:${d.need ?? ""}`}>
+                <span className="badge bad">{d.need ? "版が合わない" : "前提不足"}</span>
                 {d.install && <AddonIcon type={d.install.projectType} url={d.install.iconUrl} />}
-                <span className="mid"><span className="ttl" translate="no">{d.name}</span><span className="sub"><span translate="no">{d.by.join("、")}</span> に必要です(入っていません)</span></span>
+                <span className="mid"><span className="ttl" translate="no">{d.name}</span><span className="sub"><span translate="no">{d.by.join("、")}</span>{d.need ? ` に必要な版は ${d.need} です(入っているのは ${d.have})` : " に必要です(入っていません)"}</span></span>
                 {d.install && a.edit && <Btn kind="tint" sm disabled={!!busy} onClick={() => act(`dep:${d.install!.projectId}`, () => install({ data: { id: a.id, projectId: d.install!.projectId, source: d.install!.source } }))}>
                   {busy === `dep:${d.install.projectId}` ? "入れています…" : "入れる"}</Btn>}
               </div>
@@ -340,10 +340,10 @@ function Addons(a: AddonProps) {
       {a.deps && (a.deps.missing.length > 0 || a.deps.unmet.length > 0) && (
         <section className="group">
           {a.deps.unmet.map((d) => (
-            <div className="row" key={`unmet:${d.name}`}>
-              <span className="badge bad">前提不足</span>
+            <div className="row" key={`unmet:${d.name}:${d.need ?? ""}`}>
+              <span className="badge bad">{d.need ? "版が合わない" : "前提不足"}</span>
               {d.install && <AddonIcon type={d.install.projectType} url={d.install.iconUrl} />}
-              <span className="mid"><span className="ttl" translate="no">{d.name}</span><span className="sub"><span translate="no">{d.by.join("、")}</span> に必要です(入っていません)</span></span>
+              <span className="mid"><span className="ttl" translate="no">{d.name}</span><span className="sub"><span translate="no">{d.by.join("、")}</span>{d.need ? ` に必要な版は ${d.need} です(入っているのは ${d.have})` : " に必要です(入っていません)"}</span></span>
               {d.install && edit && <Btn kind="tint" sm disabled={!!busy} onClick={() => run(`dep:${d.install!.projectId}`, () => install({ data: { id, projectId: d.install!.projectId, source: d.install!.source } }))}>
                 {busy === `dep:${d.install.projectId}` ? "入れています…" : "入れる"}</Btn>}
             </div>

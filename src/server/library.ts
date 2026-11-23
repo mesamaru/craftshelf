@@ -16,6 +16,7 @@ import { addonSetItem, installHistory, libraryDep, libraryFavorite, libraryFile,
 import { hint, open, seal } from "./secrets";
 import { fileStore, uploadService } from "./uploads";
 import { type JarMeta, analyzeJar, jarMeta } from "./jar";
+import { type VersionRange, rangeText, satisfies } from "./dep-range";
 import { eventService } from "./events";
 import { jobService } from "./jobs";
 import { type Deps, remote, serverOf, serverScope, worldOf } from "./servers";
@@ -504,32 +505,45 @@ export function modTools(deps: Deps) {
   const FABRIC_PART = /^mod:fabric-(?:api-base|[a-z0-9-]+-v\d+)$/;
   /**
    * 手で置いた jar(このアプリの記録が無いもの)の、必須の前提(plugin.yml の depend・Mod の depends・mods.toml の mandatory)のうち、サーバーに入っていないもの。
-   * 入っているかは、入っている jar 全部の「提供する名前」(自分の id・provides・jar の中の jar の id)と突き合わせる。バージョンの範囲は見ない(あるかだけ)。
-   * Mod の前提の id が Modrinth の slug と同じなら、「入れる」ための情報(install)を付ける
-   * shortcut: バージョン範囲(>=0.5 など)は満たしているかまでは見ない。要るなら、provides に版も持たせて比べる。
-   * shortcut: Fabric API の jar の中の jar を読めなかったときは、fabric-api が入っていれば fabric-api-base・fabric-*-v1 は入っているとみなす
+   * 入っているかは、入っている jar 全部の「提供する名前」(自分の id・provides・jar の中の jar の id)と突き合わせる。
+   * Mod の前提に版の範囲(>=0.5・[1.0,2.0) など)があれば、提供する版が満たすかも見て、満たさなければ need(範囲)・have(入っている版)を付けて出す(dep-range.ts。版・範囲が読めなければ満たすとみなす)。
+   * Mod の前提の id が Modrinth の slug と同じなら、「入れる」ための情報(install)を付ける(版が合わないものには付けない)
+   * shortcut: Fabric API の jar の中の jar を読めなかったときは、fabric-api が入っていれば fabric-api-base・fabric-*-v1 は入っている(版も合う)とみなす。部品の版は jar の中の jar にしか無いので、読めないときは確かめようがない
    */
   async function unmetOf(target: Target, p: Profile) {
     const known = new Set((await db.select({ f: installedMod.filename }).from(installedMod).where(eq(installedMod.serverId, target.row.id))).map((r) => r.f));
     const metas = await metasIn(target, p);
     // jar が多すぎて全部は読めないとき、Mod の前提は誤って出さないよう確かめない(プラグインは今までどおり)
     const skipMods = metas.more > 0;
-    const have = new Set([...metas].filter(([f]) => !isDisabled(f)).flatMap(([, m]) => [m.key, ...m.provides]));
-    const partsRead = [...have].some((k) => /^mod:fabric-.+-v\d+$/.test(k));
-    const need = new Map<string, { name: string; by: string[] }>(); // 前提の見分ける名前 → 書いてあった名前と、使うもの
+    const have = new Map<string, string[]>(); // 提供する名前 → 版("" = 分からない)
+    for (const [f, m] of metas) {
+      if (isDisabled(f)) continue;
+      for (const x of m.provides.length ? m.provides : [{ key: m.key, version: "" }]) have.set(x.key, [...(have.get(x.key) ?? []), x.version]);
+    }
+    const partsRead = [...have.keys()].some((k) => /^mod:fabric-.+-v\d+$/.test(k));
+    // 前提の見分ける名前(版が合わないものは範囲も) → 書いてあった名前と、使うもの
+    const need = new Map<string, { key: string; name: string; by: string[]; range?: VersionRange }>();
     for (const [f, m] of metas) {
       if (known.has(f) || isDisabled(f)) continue;
       for (const d of m.depends.filter((x) => /^(plugin|velocity):/.test(x.key) || (!skipMods && x.key.startsWith("mod:")))) {
-        if (have.has(d.key) || (have.has("mod:fabric-api") && !partsRead && FABRIC_PART.test(d.key))) continue;
-        need.set(d.key, { name: d.name, by: [...(need.get(d.key)?.by ?? []), m.name || f] });
+        const vers = have.get(d.key);
+        if (!vers && have.has("mod:fabric-api") && !partsRead && FABRIC_PART.test(d.key)) continue;
+        if (vers && (!d.range || vers.some((v) => satisfies(v, d.range!)))) continue;
+        const k = vers ? `${d.key} ${rangeText(d.range!)}` : d.key;
+        need.set(k, { key: d.key, name: d.name, by: [...(need.get(k)?.by ?? []), m.name || f], ...(vers ? { range: d.range } : {}) });
       }
     }
     // 配布元から入れたもの(記録がある jar)も、中の名前で入っていると数える(説明ファイルの名前が、記録の名前と違うこともあるので)
     const titles = new Set((await db.select({ t: installedMod.title }).from(installedMod).where(eq(installedMod.serverId, target.row.id))).map((r) => `plugin:${r.t.toLowerCase()}`));
-    const out: { name: string; by: string[]; install?: NonNullable<Awaited<ReturnType<typeof modrinthMod>>> }[] = [];
-    for (const [key, d] of [...need].filter(([d]) => !titles.has(d))) {
-      const install = key.startsWith("mod:") ? await modrinthMod(key.slice(4)) : null;
-      out.push({ name: d.name, by: [...new Set(d.by)], ...(install ? { install } : {}) });
+    const out: { name: string; by: string[]; install?: NonNullable<Awaited<ReturnType<typeof modrinthMod>>>; need?: string; have?: string }[] = [];
+    for (const d of [...need.values()].filter((d) => !titles.has(d.key))) {
+      const by = [...new Set(d.by)];
+      if (d.range) {
+        out.push({ name: d.name, by, need: rangeText(d.range), have: [...new Set(have.get(d.key))].join(", ") });
+        continue;
+      }
+      const install = d.key.startsWith("mod:") ? await modrinthMod(d.key.slice(4)) : null;
+      out.push({ name: d.name, by, ...(install ? { install } : {}) });
     }
     return out;
   }

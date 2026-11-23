@@ -2,11 +2,12 @@
 // zip の目次(セントラルディレクトリ)だけを見て、決まったファイルだけを取り出す(全体は展開しない)
 import { closeSync, fstatSync, openSync, readSync } from "node:fs";
 import { inflateRawSync } from "node:zlib";
+import type { VersionRange } from "./dep-range";
 
 export type JarInfo = { name: string; version: string; projectType: "plugin" | "mod" | null; loaders: string[]; mcVersions: string[] };
 
 const MAX_ENTRY = 1024 * 1024; // 説明ファイルは 1 MB まで
-const WANTED = ["plugin.yml", "paper-plugin.yml", "bungee.yml", "velocity-plugin.json", "fabric.mod.json", "quilt.mod.json", "META-INF/mods.toml", "META-INF/neoforge.mods.toml"];
+const WANTED = ["plugin.yml", "paper-plugin.yml", "bungee.yml", "velocity-plugin.json", "fabric.mod.json", "quilt.mod.json", "META-INF/mods.toml", "META-INF/neoforge.mods.toml", "META-INF/MANIFEST.MF"];
 
 // 読む元: メモリの中身か、ディスクのファイル(大きいアップロードを、全体を読み込まずに調べる)
 type ZipSource = { size: number; read(pos: number, len: number): Buffer };
@@ -134,42 +135,63 @@ function paperDeps(text: string): string[] {
   return out;
 }
 
-// forge・neoforge の mods.toml の、必須の前提の modId(本体の分は BUILT_IN で除く)。クライアント側だけの前提(side = "CLIENT")は、サーバーでは要らない
-function tomlDeps(text: string): string[] {
-  const out: string[] = [];
+type Need = { name: string; range?: VersionRange };
+
+// forge・neoforge の mods.toml の、必須の前提の modId と versionRange(本体の分は BUILT_IN で除く)。クライアント側だけの前提(side = "CLIENT")は、サーバーでは要らない
+function tomlDeps(text: string): Need[] {
+  const out: Need[] = [];
   for (const block of text.split(/^\s*\[\[dependencies\./m).slice(1)) {
     const section = block.split(/^\s*\[/m)[0];
     const id = section.match(/modId\s*=\s*["']([^"']+)["']/)?.[1];
     if (!id || /type\s*=\s*["'](?:optional|incompatible|discouraged)["']/.test(section) || /mandatory\s*=\s*false/.test(section) || /side\s*=\s*["']CLIENT["']/i.test(section)) continue;
-    out.push(id);
+    const range = section.match(/versionRange\s*=\s*["']([^"']*)["']/)?.[1];
+    out.push({ name: id, ...(range ? { range: { style: "maven", any: [range] } } : {}) });
   }
   return out;
+}
+
+// fabric.mod.json の depends の値(文字・文字の並び)、quilt.mod.json の versions(文字・並び・{ any }・{ all })を、版の範囲にする
+function rangeOf(style: "fabric" | "quilt", v: unknown): VersionRange | undefined {
+  const all = (v as { all?: unknown })?.all;
+  const list = typeof v === "string" ? [v] : Array.isArray(v) ? v : Array.isArray((v as { any?: unknown })?.any) ? (v as { any: unknown[] }).any
+    : Array.isArray(all) && all.every((x) => typeof x === "string") ? [all.join(" ")] : [];
+  return list.length && list.every((x) => typeof x === "string") ? { style, any: list as string[] } : undefined;
 }
 
 // 前提にしない名前: Minecraft・Java・Mod の読み込み本体(Fabric・Quilt・Forge・NeoForge)と、本体が持っているライブラリ
 const BUILT_IN = new Set(["minecraft", "java", "fabricloader", "fabric-loader", "quilt_loader", "forge", "neoforge", "fml", "javafml", "lowcodefml", "mixinextras"]);
 
-// Mod の説明ファイルが提供する id: 自分の id と provides(fabric.mod.json・quilt.mod.json)・[[mods]] の modId すべて(mods.toml)
-function modIds(files: Map<string, string>): string[] {
-  const out: unknown[] = [];
+type Provided = { id: string; version: string };
+
+// Mod の説明ファイルが提供する id と版: 自分の id と provides(fabric.mod.json・quilt.mod.json)・[[mods]] の modId すべて(mods.toml)。
+// provides の版は Mod の版(quilt の { id, version } はその版)。mods.toml の ${file.jarVersion} は MANIFEST.MF の Implementation-Version。分からなければ ""
+function modIds(files: Map<string, string>): Provided[] {
+  const out: [unknown, unknown][] = [];
   const f = files.get("fabric.mod.json");
-  if (f) { const j = json(f); out.push(j.id, ...(Array.isArray(j.provides) ? j.provides : [])); }
+  if (f) { const j = json(f); for (const id of [j.id, ...(Array.isArray(j.provides) ? j.provides : [])]) out.push([id, j.version]); }
   const qt = files.get("quilt.mod.json");
   if (qt) {
     const q = (json(qt).quilt_loader ?? {}) as Record<string, unknown>;
-    out.push(q.id, ...(Array.isArray(q.provides) ? q.provides.map((x) => (typeof x === "string" ? x : (x as { id?: unknown })?.id)) : []));
+    out.push([q.id, q.version]);
+    for (const x of Array.isArray(q.provides) ? q.provides : []) out.push(typeof x === "string" ? [x, q.version] : [(x as { id?: unknown })?.id, (x as { version?: unknown })?.version ?? q.version]);
   }
+  const jarVersion = files.get("META-INF/MANIFEST.MF")?.match(/^Implementation-Version:\s*(.+?)\s*$/m)?.[1] ?? "";
   for (const t of [files.get("META-INF/neoforge.mods.toml"), files.get("META-INF/mods.toml")]) {
-    if (t) for (const block of t.split(/^\s*\[\[mods\]\]/m).slice(1)) out.push(block.split(/^\s*\[/m)[0].match(/modId\s*=\s*["']([^"']+)["']/)?.[1]);
+    if (t) for (const block of t.split(/^\s*\[\[mods\]\]/m).slice(1)) {
+      const section = block.split(/^\s*\[/m)[0];
+      const v = section.match(/^\s*version\s*=\s*["']([^"']+)["']/m)?.[1] ?? "";
+      out.push([section.match(/modId\s*=\s*["']([^"']+)["']/)?.[1], v === "${file.jarVersion}" ? jarVersion : v]);
+    }
   }
-  return out.filter((x): x is string => typeof x === "string" && !!x.trim()).map((x) => x.trim());
+  return out.filter((x): x is [string, unknown] => typeof x[0] === "string" && !!x[0].trim())
+    .map(([id, v]) => ({ id: id.trim(), version: typeof v === "string" ? v.trim() : "" }));
 }
 
 // jar の中の jar(Fabric API の部品など。META-INF/jars/・META-INF/jarjar/)が提供する id。入れ子は 2 段まで・1 つ 16 MB まで・合計 64 MB まで
 const NESTED = /^META-INF\/(?:jars|jarjar)\/.+\.jar$/i;
-const MOD_FILES = ["fabric.mod.json", "quilt.mod.json", "META-INF/mods.toml", "META-INF/neoforge.mods.toml"];
-function nestedIds(buf: Uint8Array | ZipSource, depth = 0, budget = { left: 64 * 1024 * 1024 }): string[] {
-  const out: string[] = [];
+const MOD_FILES = ["fabric.mod.json", "quilt.mod.json", "META-INF/mods.toml", "META-INF/neoforge.mods.toml", "META-INF/MANIFEST.MF"];
+function nestedIds(buf: Uint8Array | ZipSource, depth = 0, budget = { left: 64 * 1024 * 1024 }): Provided[] {
+  const out: Provided[] = [];
   for (const data of (readEntries(buf, (n) => NESTED.test(n), 16 * 1024 * 1024) ?? new Map<string, Buffer>()).values()) {
     if ((budget.left -= data.length) < 0) break;
     out.push(...modIds(readZipTexts(data, MOD_FILES) ?? new Map<string, string>()));
@@ -184,10 +206,10 @@ export type JarMeta = {
   /** 表示する名前・版(説明ファイルが無ければ "") */
   name: string;
   version: string;
-  /** 必須の前提(key は見分ける名前、name は書いてあったままの名前) */
-  depends: { key: string; name: string }[];
-  /** この jar が提供する名前(key と同じ形)。Mod は、自分の id・provides・jar の中の jar の id(Fabric API の部品など)。プラグインは [](key だけ) */
-  provides: string[];
+  /** 必須の前提(key は見分ける名前、name は書いてあったままの名前、range は Mod の版の範囲。書いてあるときだけ) */
+  depends: { key: string; name: string; range?: VersionRange }[];
+  /** この jar が提供する名前(key と同じ形)と版(分からなければ "")。Mod は、自分の id・provides・jar の中の jar の id(Fabric API の部品など)。プラグインは [](key だけ) */
+  provides: { key: string; version: string }[];
 };
 
 /**
@@ -198,13 +220,22 @@ export type JarMeta = {
 export function jarMeta(buf: Uint8Array | ZipSource): JarMeta {
   const files = readZipTexts(buf) ?? new Map<string, string>();
   const key = (kind: string, v: unknown) => (typeof v === "string" && v.trim() ? `${kind}:${v.trim().toLowerCase()}` : "");
-  const keys = (kind: string, list: string[]) => {
-    const seen = new Map<string, string>();
-    for (const x of list) if (x && !BUILT_IN.has(x.toLowerCase()) && key(kind, x) && !seen.has(key(kind, x))) seen.set(key(kind, x), x.trim());
-    return [...seen].map(([k, name]) => ({ key: k, name }));
+  const keys = (kind: string, list: (string | Need)[]) => {
+    const seen = new Map<string, JarMeta["depends"][number]>();
+    for (const x of list) {
+      const { name, range } = typeof x === "string" ? { name: x } as Need : x;
+      const k = key(kind, name);
+      if (name && !BUILT_IN.has(name.toLowerCase()) && k && !seen.has(k)) seen.set(k, { key: k, name: name.trim(), ...(range ? { range } : {}) });
+    }
+    return [...seen.values()];
   };
   const info = analyzeFiles(files, "");
-  const mods = (list: string[]) => [...new Set(list.map((x) => key("mod", x)).filter(Boolean))];
+  // 同じ名前は最初のものの版
+  const mods = (list: Provided[]) => {
+    const out = new Map<string, string>();
+    for (const p of list) if (key("mod", p.id) && !out.has(key("mod", p.id))) out.set(key("mod", p.id), p.version);
+    return [...out].map(([k, version]) => ({ key: k, version }));
+  };
   const base = { name: info.projectType ? info.name : "", version: info.projectType ? info.version : "" };
   for (const f of ["paper-plugin.yml", "plugin.yml", "bungee.yml"]) {
     const t = files.get(f);
@@ -225,8 +256,10 @@ export function jarMeta(buf: Uint8Array | ZipSource): JarMeta {
     const q = j.quilt_loader as Record<string, unknown> | undefined;
     const d = (f === "fabric.mod.json" ? j.depends : q?.depends) as unknown;
     // 任意(optional)の前提と、クライアントだけの Mod の前提は、サーバーでは要らない
-    const ids = Array.isArray(d) ? d.filter((x) => (x as { optional?: unknown })?.optional !== true).map((x) => (typeof x === "string" ? x : String((x as { id?: unknown })?.id ?? "")))
-      : d && typeof d === "object" ? Object.keys(d) : [];
+    const style = f === "fabric.mod.json" ? "fabric" : "quilt";
+    const ids: Need[] = Array.isArray(d) ? d.filter((x) => (x as { optional?: unknown })?.optional !== true)
+      .map((x) => (typeof x === "string" ? { name: x } : { name: String((x as { id?: unknown })?.id ?? ""), range: rangeOf(style, (x as { versions?: unknown })?.versions) }))
+      : d && typeof d === "object" ? Object.entries(d).map(([name, v]) => ({ name, range: rangeOf(style, v) })) : [];
     const client = f === "fabric.mod.json" ? j.environment === "client" : (q as { minecraft?: { environment?: unknown } } | undefined)?.minecraft?.environment === "client";
     return { key: key("mod", j.id ?? q?.id), ...base, depends: keys("mod", client ? [] : ids), provides: mods([...modIds(files), ...nestedIds(buf)]) };
   }

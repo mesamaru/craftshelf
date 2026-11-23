@@ -210,6 +210,76 @@ export function webdavStore(url: string, user: string, password: string, fetch: 
   };
 }
 
+// ---- SMB の空き容量 ----
+// node-smb2 には QUERY_INFO が無いので、そのメッセージだけここで組み立てて送り、答えはライブラリが読む前に受け取る
+// (ライブラリは知らない種類の答えを読むと落ちる)。ほかの答えは、いままでどおりライブラリが読む
+type SmbClient = InstanceType<typeof smb2.Client>;
+type SmbTree = Awaited<ReturnType<Awaited<ReturnType<SmbClient["authenticate"]>>["connectTree"]>>;
+const QUERY_INFO = 0x10;
+
+/** FileFsFullSizeInformation(MS-FSCC 2.5.4)をバイトに。容量は「全体の割り当て単位」、空きは「この利用者が使える割り当て単位」。使えない数なら null */
+export function fsFullSize(b: Buffer) {
+  if (b.length < 32) return null;
+  const unit = BigInt(b.readUInt32LE(24)) * BigInt(b.readUInt32LE(28)); // 1 単位のセクター数 × 1 セクターのバイト数
+  const total = b.readBigInt64LE(0) * unit;
+  const free = b.readBigInt64LE(8) * unit;
+  if (unit <= 0n || total <= 0n || free < 0n || free > total || total > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+  return { total: Number(total), free: Number(free) };
+}
+
+/** QUERY_INFO の答えを、ライブラリより先に受け取るようにする(つなぐ前 = authenticate の前に呼ぶ) */
+export function hookQueryInfo(client: SmbClient) {
+  const orig = client.onData;
+  let rest = Buffer.alloc(0);
+  client.onData = (data) => {
+    rest = Buffer.concat([rest, data]);
+    const pass: Buffer[] = [];
+    // NetBIOS の枠(先頭 1 バイトが 0 + 長さ 3 バイト)ごとに分ける。そろっていない分は次に回す
+    while (rest.length >= 4 && rest[0] === 0) {
+      const end = 4 + rest.readUInt32BE(0);
+      if (end > rest.length) break;
+      const f = rest.subarray(0, end);
+      rest = rest.subarray(end);
+      if (f.length >= 76 && f.readUInt32BE(4) === 0xfe534d42 && f.readUInt16LE(16) === QUERY_INFO) {
+        const off = f.readUInt16LE(70); // 答えの本体: StructureSize(2)・OutputBufferOffset(2、ヘッダーの先頭から)・OutputBufferLength(4)
+        client.onResponse({ header: { messageId: f.readBigUInt64LE(28), status: f.readUInt32LE(12), type: QUERY_INFO }, body: { buffer: f.subarray(4 + off, 4 + off + f.readUInt32LE(72)) } } as never);
+      } else pass.push(f);
+    }
+    if (rest.length && rest[0] !== 0) { pass.push(rest); rest = Buffer.alloc(0); } // NetBIOS でないものは、いままでどおりライブラリに任せる
+    if (pass.length) orig(Buffer.concat(pass));
+  };
+}
+
+/** 共有の容量と空き(SMB2 QUERY_INFO、SMB2_0_INFO_FILESYSTEM・FileFsFullSizeInformation)。hookQueryInfo したクライアントで呼ぶ */
+export async function smbSpace(client: SmbClient, tree: SmbTree) {
+  // 共有のいちばん上を開く(中身は node-smb2 の Directory.open と同じ。5 = CREATE、6 = CLOSE)
+  const opened = await tree.request({ type: 5 }, { buffer: Buffer.alloc(0), desiredAccess: 0x100081, fileAttributes: 0x10, shareAccess: 7, createDisposition: 1, createOptions: 0, nameOffset: 0x78, createContextsOffset: 0x7a });
+  const fileId: string = opened.body.fileId;
+  try {
+    // NetBIOS(4) + SMB2 ヘッダー(64) + QUERY_INFO の要求(40 + 1 バイトの埋め草)
+    const m = Buffer.alloc(4 + 64 + 41);
+    m.writeUInt32BE(m.length - 4, 0);
+    m.writeUInt32BE(0xfe534d42, 4);
+    m.writeUInt16LE(64, 8);
+    m.writeUInt16LE(QUERY_INFO, 16);
+    m.writeUInt16LE(126, 18); // 頼むクレジット(ライブラリと同じ)
+    const messageId = client.nextMessageId++;
+    m.writeBigUInt64LE(messageId, 28);
+    Buffer.from(client._id, "hex").copy(m, 36);
+    m.writeUInt32LE(tree._id >>> 0, 40);
+    Buffer.from(tree.session._id, "hex").copy(m, 44);
+    m.writeUInt16LE(41, 68);
+    m[70] = 2; // SMB2_0_INFO_FILESYSTEM
+    m[71] = 7; // FileFsFullSizeInformation
+    m.writeUInt32LE(32, 72); // 受け取る長さ(この情報は 32 バイト)
+    Buffer.from(fileId, "hex").copy(m, 68 + 24);
+    const res = await client.send({ header: { messageId, type: QUERY_INFO }, serialize: () => m } as never);
+    return fsFullSize((res.body as { buffer: Buffer }).buffer);
+  } finally {
+    await tree.request({ type: 6 }, { fileId }).catch(() => {});
+  }
+}
+
 // SMB(SMB 2.0・2.1、NTLMv2)。通信への署名・SMB 3 には対応していないので、それを求める NAS・Windows のサーバーにはつながらない
 // (そのときは NAS をマウントしてフォルダとして使う)。1 回の操作ごとにつないで、終わったら切る
 export function smbStore(c: { host: string; share: string; path: string; user: string; password: string; domain: string }): Store {
@@ -221,9 +291,11 @@ export function smbStore(c: { host: string; share: string; path: string; user: s
   if (base && base.split("/").some((x) => !x || x === "." || x === "..")) throw new StorageError("共有フォルダの中の場所が正しくありません");
   const at = (key: string) => [base, cleanKey(key)].filter(Boolean).join("/");
 
-  type Tree = Awaited<ReturnType<Awaited<ReturnType<InstanceType<typeof smb2.Client>["authenticate"]>>["connectTree"]>>;
-  async function connect() {
-    const client = new smb2.Client(host, { connectTimeout: 10_000, requestTimeout: 120_000 });
+  type Tree = SmbTree;
+  // forSpace: 空き容量の問い合わせ用(短く待ち、QUERY_INFO の答えを受け取れるようにする)
+  async function connect(forSpace = false) {
+    const client = new smb2.Client(host, forSpace ? { connectTimeout: 5_000, requestTimeout: 5_000 } : { connectTimeout: 10_000, requestTimeout: 120_000 });
+    if (forSpace) hookQueryInfo(client);
     try {
       // NTLMv1 は安全でないので、いつも NTLMv2 を使う(サーバーの返事しだいで v1 に落ちないように)
       const session = await client.authenticate({ domain: c.domain, username: c.user, password: c.password, forceNtlmVersion: "v2" });
@@ -314,8 +386,18 @@ export function smbStore(c: { host: string; share: string; path: string; user: s
       return (await tree.readDirectory(d)).filter((e) => e.filename !== "." && e.filename !== "..")
         .map((e) => ({ name: e.filename, dir: e.type === "Directory", size: e.type === "File" ? Number(e.fileSize) : 0 }));
     }),
-    // shortcut: node-smb2 は空き容量を問い合わせられないので出さない(要るなら NAS をマウントしてフォルダとして使う)
-    space: async () => null,
+    // 共有の容量と空き。答えない・失敗した・10 秒で返らないときは「分からない」(null)
+    space: () => Promise.race([
+      (async () => {
+        const { client, tree } = await connect(true);
+        try {
+          return await smbSpace(client, tree);
+        } finally {
+          await client.close().catch(() => {});
+        }
+      })().catch(() => null),
+      new Promise<null>((r) => setTimeout(r, 10_000, null).unref()),
+    ]),
     test: () => withTree(async (tree) => {
       const key = ".craftshelf-test";
       try {

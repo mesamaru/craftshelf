@@ -1,7 +1,9 @@
 // Pterodactyl パネルとの連携(Client API)。CraftShelf 02 の ptero.py と同じ考え方。
 // パネルの「アカウント → API 認証情報」で作る Client API キー(ptlc_…)を使う
-import { createWriteStream, openAsBlob } from "node:fs";
+import { createReadStream, createWriteStream, openAsBlob } from "node:fs";
 import { rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as WebStream } from "node:stream/web";
@@ -12,6 +14,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { type Created, EXTRACT_LIMITS, ExtractError, type JobState, type Mode, type Plan, type Scan, type Space, STAGING, assemblePlan, cancelJob, entriesManifest, findConflicts, freeFolderName, hashEntries, isExtractError, jobState, levelOf, memorySource, memoryTar, protectedOf, relOf, removeCreated, reserveRead, scanTar, scanZip, startJob } from "./extract-safe";
 import { fmtSize } from "../lib/format";
 import { formatOf, unsupportedReason } from "../lib/archive";
+import { BUILD_HOSTS } from "../lib/software";
 
 export class PteroError extends Error {}
 
@@ -27,6 +30,11 @@ export type PowerSignal = (typeof POWER_SIGNALS)[number];
 const IDENT = /^[a-z0-9-]{1,64}$/i;
 // 大きいファイルを送る・読むときに待つ長さ(5 分か、1 MB/秒で送れる長さの長い方)
 export const transferTimeout = (bytes: number) => Math.max(300_000, Math.ceil(bytes / 1_000_000) * 1000);
+// サーバーへ取り込ませてよい取得先(配布元の CDN と、サーバー本体の公式の取得先だけ)。フォルダのサーバー・エージェントと、
+// パネルが取り込みを断ったときにこのアプリが取ってくるときに使う
+export const PULL_HOSTS = new Set(["cdn.modrinth.com", "api.spiget.org", "cdn.spiget.org", "edge.forgecdn.net", "mediafilez.forgecdn.net", ...BUILD_HOSTS]);
+// パネルが取り込みを断ったときに、このアプリが取ってきて送る大きさの上限(フォルダのサーバーの取り込みと同じ)と、断られたことを覚える長さ
+export const PULL_RELAY = { bytes: 300 * 1024 * 1024, refusedMs: 3_600_000 };
 
 /** 応答の中身を、maxBytes まで少しずつファイルに書く(超えたら書いたものを消して PteroError) */
 export async function bodyToFile(res: Response, maxBytes: number, path: string) {
@@ -60,9 +68,11 @@ export const READ_TTL = { list: 30_000, file: 30_000, resources: 10_000, servers
 const G = globalThis as {
   __csPteroReads?: Map<string, { until: number; p: Promise<unknown> }>; __csPteroGates?: Map<string, { busy: number; queue: (() => void)[] }>;
   __csPteroBudgets?: Map<string, Budget>; __csPteroPauses?: Map<string, number>;
-  __csPteroGates2?: Map<string, Gate>; __csPteroBg?: AsyncLocalStorage<boolean>;
+  __csPteroGates2?: Map<string, Gate>; __csPteroBg?: AsyncLocalStorage<boolean>; __csPteroNoPull?: Map<string, number>;
 };
 const reads = (G.__csPteroReads ??= new Map());
+// URL からの取り込みを断ったパネル(パネルの URL とキーごと → 覚える期限)。そのあいだは取り込みを頼まずに、このアプリを通して送る(断られる分の回数も使わない)
+const noPull = (G.__csPteroNoPull ??= new Map<string, number>());
 // stale: 回数の残りが少ないとき、期限の切れた覚えでも使う(状態の見回りなどで、利用者の操作の分の回数を食わない)
 function remembered<T>(key: string, ttl: number, fresh: boolean | undefined, fn: () => Promise<T>, stale = false): Promise<T> {
   const now = Date.now();
@@ -76,9 +86,12 @@ function remembered<T>(key: string, ttl: number, fresh: boolean | undefined, fn:
 }
 const forgetReads = (prefix: string) => { for (const k of reads.keys()) if (k.startsWith(prefix)) reads.delete(k); };
 /** 覚えをすべて捨てる(テストで、パネルの中身を外から変えたとき) */
-export const forgetPteroReads = () => { reads.clear(); budgets.clear(); pauses.clear(); };
-/** そのパネルの覚えを捨てる(画面の「読み直す」。キーは問わない) */
-export const forgetPteroReadsFor = (baseUrl: string) => forgetReads(`${baseUrl}|`);
+export const forgetPteroReads = () => { reads.clear(); budgets.clear(); pauses.clear(); noPull.clear(); };
+/** そのパネルの覚えを捨てる(画面の「読み直す」。キーは問わない。パネルの設定を直したあとに、取り込みをもう一度頼めるよう、断られた覚えも捨てる) */
+export const forgetPteroReadsFor = (baseUrl: string) => {
+  forgetReads(`${baseUrl}|`);
+  for (const k of noPull.keys()) if (k.startsWith(`${baseUrl}|`)) noPull.delete(k);
+};
 
 // パネルごとの、同時の問い合わせの数(一度にたくさん送って、Pterodactyl の回数の上限に当たらないように)
 const PANEL_PARALLEL = 6;
@@ -202,6 +215,43 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
     return `/api/client/servers/${ident}`;
   };
 
+  // パネルが取り込みを断ったとき: このアプリが一時ファイルに少しずつ取ってきて(取得先と転送は PULL_HOSTS だけ・3 回まで)、upload で送る。
+  // 中身が配布元の記録(hash)と合わなければ送らない(サーバーに残さない)
+  async function relay(ident: string, url: string, directory: string, filename: string, hash: string) {
+    const tmp = join(tmpdir(), `craftshelf-pull-${randomBytes(8).toString("hex")}.part`);
+    try {
+      for (let hop = 0; ; hop++) {
+        const u = new URL(url);
+        if (u.protocol !== "https:" || !PULL_HOSTS.has(u.host)) throw new PteroError("配布元の外のファイルは取ってきません");
+        let res: Response;
+        try {
+          res = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(transferTimeout(PULL_RELAY.bytes)) });
+        } catch {
+          throw new PteroError("配布元からファイルを取ってこられませんでした");
+        }
+        const to = res.status >= 300 && res.status < 400 ? res.headers.get("location") : null;
+        if (to) {
+          await res.body?.cancel().catch(() => {});
+          if (hop >= 3) throw new PteroError("配布元からファイルを取ってこられませんでした(転送が多すぎます)");
+          url = new URL(to, url).toString();
+          continue;
+        }
+        if (!res.ok) throw new PteroError(`ファイルを取ってこられませんでした(HTTP ${res.status})`);
+        await bodyToFile(res, PULL_RELAY.bytes, tmp);
+        break;
+      }
+      const algo = /^[0-9a-f]{128}$/i.test(hash) ? "sha512" : /^[0-9a-f]{40}$/i.test(hash) ? "sha1" : "";
+      if (algo) {
+        const h = createHash(algo);
+        for await (const chunk of createReadStream(tmp)) h.update(chunk as Buffer);
+        if (h.digest("hex") !== hash.toLowerCase()) throw new PteroError("取ってきたファイルが配布元の記録と合わないので、サーバーに送りませんでした");
+      }
+      await base.upload(ident, directory, filename, tmp);
+    } finally {
+      await rm(tmp, { force: true });
+    }
+  }
+
   const base = {
     // 操作できるサーバーの一覧(このキーの持ち主が所有者かサブユーザーのもの)
     async servers(): Promise<RemoteServer[]> {
@@ -241,13 +291,16 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
         name: String(a.name ?? ""), size: Number(a.size ?? 0), isFile: !!a.is_file, modifiedAt: String(a.modified_at ?? ""), link: !!a.is_symlink,
       }));
     },
-    // URL のファイルを、Pterodactyl(Wings)に直接取り込ませる。このアプリはファイルを持たない
-    async pull(ident: string, url: string, directory: string, filename: string) {
+    // URL のファイルを、Pterodactyl(Wings)に直接取り込ませる。このアプリはファイルを持たない。
+    // パネルが取り込みを断ったら(設定で止められているなど)、このアプリが取ってきて送る。hash(sha512 か sha1)があれば、送る前に確かめる
+    async pull(ident: string, url: string, directory: string, filename: string, hash = "") {
+      if ((noPull.get(memoKey) ?? 0) > Date.now()) return relay(ident, url, directory, filename, hash);
       try {
         await req("POST", srv(ident) + "/files/pull", { url, directory, filename, use_header: false, foreground: true });
       } catch (e) {
         if (e instanceof PteroError && /HTTP 4\d\d/.test(e.message)) {
-          throw new PteroError("パネルが URL からの取り込みを受け付けませんでした(パネルの設定で止められている可能性があります)");
+          noPull.set(memoKey, Date.now() + PULL_RELAY.refusedMs);
+          return relay(ident, url, directory, filename, hash);
         }
         throw e;
       }

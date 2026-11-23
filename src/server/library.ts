@@ -573,12 +573,12 @@ export function modTools(deps: Deps) {
     // 入れ替えるときは、古い jar を消す前にプラグインの設定フォルダを退避しておく(元に戻すときに戻す)
     const config = stale.length ? await saveConfig(target, p, stale[0].filename) : "";
 
-    // アップロードしたものは、保存先から読んでサーバーに送る。配布元のものは、サーバーに直接取り込ませる
+    // アップロードしたものは、保存先から読んでサーバーに送る。配布元のものは、サーバーに直接取り込ませる(パネルが断れば、このアプリが取ってきて送る)
     if (file.upload) {
       // 一時フォルダに少しずつ写してから送る(1 GB の jar もメモリに全部を載せない)
       await files.withTemp(teamId, file.upload, (path) => remote(() => client.upload(remoteId, dir, file.filename, path)));
     } else {
-      await remote(() => client.pull(remoteId, file.url, dir, file.filename));
+      await remote(() => client.pull(remoteId, file.url, dir, file.filename, file.sha512));
     }
 
     if (stale.length) {

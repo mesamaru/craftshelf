@@ -1260,7 +1260,7 @@ export const EN: Record<string, string> = {
   "パスワードが違います": "Incorrect password",
   "パスワードは 10 文字以上にしてください": "Use a password of 10 or more characters",
   "パネルから見えるフォルダ(同じ PC・NAS・Docker でマウントしたフォルダ)にあるサーバーを、Pterodactyl を通さずに管理します。": "Manage servers in folders the panel can see (same PC, NAS, or folders mounted in Docker) without Pterodactyl.",
-  "パネルが URL からの取り込みを受け付けませんでした(パネルの設定で止められている可能性があります)": "The panel refused to pull from the URL (it may be disabled in the panel settings)",
+  "取ってきたファイルが配布元の記録と合わないので、サーバーに送りませんでした": "The downloaded file did not match the source's record, so it was not sent to the server",
   "パネルに問い合わせています…": "Asking the panel…",
   "パネルの URL(https://…)": "Panel URL (https://…)",
   "パネルの「アカウント → API 認証情報」で作った Client API キー(ptlc_…)を使います。キーは暗号化して保存し、画面には最後の 4 文字だけを出します。": "Uses a Client API key (ptlc_…) created under “Account → API Credentials” in the panel. The key is stored encrypted and only its last 4 characters are shown.",

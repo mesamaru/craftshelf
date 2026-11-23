@@ -52,6 +52,10 @@ export const removeConnection = createServerFn({ method: "POST" })
   .validator(id)
   .handler(async ({ data }) => (await svc()).removeConnection(headers(), data.id));
 
+export const checkConnection = createServerFn({ method: "POST" })
+  .validator(id)
+  .handler(async ({ data }) => (await svc()).checkConnection(headers(), data.id));
+
 export const remoteServers = createServerFn({ method: "GET" })
   .validator(id)
   .handler(async ({ data }) => (await svc()).remoteServers(headers(), data.id));

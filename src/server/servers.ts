@@ -1,5 +1,6 @@
 // サーバーと Pterodactyl の接続・フォルダでつなぐサーバー(自分用の版だけ)。どの処理も、選んでいるチームの中だけを読み書きする
-import { randomUUID } from "node:crypto";
+import { STATE_LABELS } from "~/lib/platforms";
+import { randomBytes, randomUUID } from "node:crypto";
 import { readdirSync } from "node:fs";
 import { basename, dirname, isAbsolute, resolve } from "node:path";
 import { and, asc, count, eq } from "drizzle-orm";
@@ -9,7 +10,7 @@ import { agentServer, localServer, member, memberServer, memberServerLimit, pter
 import { HttpError, requireTeam } from "./guard";
 import { type FetchLike, UnsafeUrlError, checkPublicUrl, isPublicAddress } from "./net";
 import { type Ping, gamePort, ping } from "./mcping";
-import { POWER_SIGNALS, type PowerSignal, PteroError, type Resources, forgetPteroReadsFor, inBackground, pteroClient } from "./ptero";
+import { POWER_SIGNALS, type PowerSignal, PteroError, type Resources, archiverOf, forgetPteroReadsFor, inBackground, pteroClient } from "./ptero";
 import { eventService } from "./events";
 import { checkRoot, detectFromJar, localClient } from "./local";
 import { hint, open, seal } from "./secrets";
@@ -246,6 +247,63 @@ export function serverService(deps: Deps) {
       await detectAdded(client, r.rows);
       if (r.added) await record({ teamId, userId: user.id, kind: "admin", action: "サーバーを追加", target: r.names.join("、") });
       return { added: r.added };
+    },
+
+    /**
+     * 接続を確かめる(管理者以上): CraftShelf が使う Pterodactyl の操作を、実際のパネルで 1 つずつ試す。
+     * 書き込みは、サーバーの一番上に作る隠しフォルダ(.craftshelf-check-…)の中だけで行い、最後に消す
+     */
+    async checkConnection(headers: Headers, id: string) {
+      const { teamId } = await requireTeam(auth, headers, { member: ["update"] });
+      const { client } = await connectionOf(deps, teamId, id);
+      type Step = { label: string; ok: boolean | null; detail: string };
+      const steps: Step[] = [];
+      const msg = (e: unknown) => (e instanceof Error ? e.message : String(e));
+      const step = async (label: string, fn: () => Promise<string>, skip = "") => {
+        if (skip) { steps.push({ label, ok: null, detail: skip }); return false; }
+        try { steps.push({ label, ok: true, detail: await fn() }); return true; } catch (e) { steps.push({ label, ok: false, detail: msg(e) }); return false; }
+      };
+      let ident = "";
+      let name = "";
+      const listed = await step("API キーでサーバーの一覧を読む", async () => {
+        const list = await client.servers();
+        // 試すのは、このパネルから追加したサーバー(無ければ一覧の最初)
+        const [mine] = await db.select({ r: server.remoteId, name: server.name }).from(server)
+          .where(and(eq(server.teamId, teamId), eq(server.pteroConnectionId, id))).orderBy(asc(server.createdAt)).limit(1);
+        const pick = list.find((s) => s.identifier === mine?.r) ?? list[0];
+        if (!pick) throw new Error("このキーで操作できるサーバーがありません");
+        ident = pick.identifier;
+        name = mine?.r === pick.identifier ? mine.name : pick.name;
+        return `${list.length} 台`;
+      });
+      const none = listed ? "" : "サーバーの一覧を読めなかったので試していません";
+      await step("サーバーの状態を読む", async () => STATE_LABELS[(await client.resources(ident)).state] ?? "状態がわかりません", none);
+      await step("ポートの割り当てを読む", async () => `${(await client.allocations(ident)).length} 個`, none);
+      await step("ファイルの一覧を読む", async () => `一番上に ${(await client.listFiles(ident, "/", true)).length} 個`, none);
+      const dir = `.craftshelf-check-${randomBytes(4).toString("hex")}`;
+      const file = `${dir}.txt`;
+      const text = `CraftShelf ${new Date().toISOString()}\n`;
+      const wrote = await step("ファイルを書いて読み直す", async () => {
+        await client.writeFile(ident, file, text);
+        if ((await client.readFile(ident, file, true)) !== text) throw new Error("書いた中身と違います");
+        return "書けました";
+      }, none);
+      const arc = archiverOf(client);
+      const archived = await step("圧縮して、別のフォルダへ移す(設定フォルダの退避)", async () => {
+        await arc!.archiveFolder(ident, "", file, `${dir}/sub/check.tar.gz`);
+        return "移せました";
+      }, !wrote ? "ファイルを書けなかったので試していません" : !arc ? "このサーバーでは使いません" : "");
+      await step("展開して元に戻す(設定フォルダの復元)", async () => {
+        await client.deleteFiles(ident, "/", [file]);
+        await arc!.unarchiveInto(ident, `${dir}/sub`, "check.tar.gz");
+        if ((await client.readFile(ident, `${dir}/sub/${file}`, true)) !== text) throw new Error("展開した中身が違います");
+        return "戻せました";
+      }, archived ? "" : "圧縮できなかったので試していません");
+      // 片付け(失敗しても結果は返す。残った隠しフォルダは、次に確かめたときにも消す)
+      if (wrote) await client.deleteFiles(ident, "/", [file, dir]).catch(() => {});
+      const rl = (client as unknown as { rateLimit?: () => { limit: number; remaining: number } | null }).rateLimit?.() ?? null;
+      steps.push({ label: "回数の上限(1 分あたり)", ok: rl ? true : null, detail: rl ? `${rl.limit} 回(残り ${rl.remaining} 回)` : "パネルが知らせていません" });
+      return { server: name, steps };
     },
 
     async removeConnection(headers: Headers, id: string) {

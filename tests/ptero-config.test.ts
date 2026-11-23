@@ -25,6 +25,7 @@ const fake: FetchLike = async (url, init) => {
   const sub = m[1] ?? "";
   calls.push(`${init?.method ?? "GET"} ${sub}`);
   if (sub === "") return json({ attributes: { limits: { disk: 0 } } });
+  if (sub === "/network/allocations") return json({ data: [{ attributes: { ip: "203.0.113.10", ip_alias: "", port: 25565, notes: "", is_default: true } }] });
   if (sub === "/resources") return json({ attributes: { current_state: "offline", resources: {} } });
   if (sub === "/files/list") {
     const dir = norm(u.searchParams.get("directory") ?? "/");
@@ -41,11 +42,12 @@ const fake: FetchLike = async (url, init) => {
   }
   if (sub === "/files/contents") { const f = norm(u.searchParams.get("file")!); return disk.has(f) ? new Response(disk.get(f)!) : json({}, 404); }
   if (sub === "/files/download") return json({ attributes: { url: `https://wings.example.com/dl?file=${encodeURIComponent(norm(u.searchParams.get("file")!))}` } });
+  if (sub === "/files/write") { disk.set(norm(u.searchParams.get("file")!), String(init?.body ?? "")); return new Response(null, { status: 204 }); }
   if (sub === "/files/upload") return json({ attributes: { url: "https://wings.example.com/up" } });
   if (sub === "/files/compress") {
     if (compressFails) return json({}, 500);
     const out: Record<string, string> = {};
-    for (const f of body.files) { const t = join(body.root, f); for (const [p, v] of disk) if (v !== null && p.startsWith(t + "/")) out[p.slice(norm(body.root).length + (norm(body.root) ? 1 : 0))] = v; }
+    for (const f of body.files) { const t = join(body.root, f); for (const [p, v] of disk) if (v !== null && (p === t || p.startsWith(t + "/"))) out[p.slice(norm(body.root).length + (norm(body.root) ? 1 : 0))] = v; }
     const name = `archive-${calls.length}.tar.gz`;
     disk.set(join(body.root, name), JSON.stringify(out));
     return json({ object: "file_object", attributes: { name, is_file: true } });
@@ -75,16 +77,19 @@ describe("Pterodactyl の設定フォルダの退避", () => {
   let lib: ReturnType<typeof libraryService>;
   let owner: Headers;
   let id: string;
+  let servers: ReturnType<typeof serverService>;
+  let conn: string;
   beforeAll(async () => {
     const t = await setup();
     const deps = { db: t.db, auth: t.auth, secret: SECRET, fetch: fake };
-    const servers = serverService(deps);
+    servers = serverService(deps);
     lib = libraryService(deps);
     owner = t.headers(await t.signUp("オーナー", "owner@example.com"));
     disk.set("paper-1.21.4-1.jar", "");
     disk.set("server.properties", "level-name=world\n");
     const c = await servers.addConnection(owner, { name: "", url: "panel.example.com", apiKey: "ptlc_0123456789abcdefghij" });
     await servers.addServers(owner, c.id, ["abcd1234"]);
+    conn = c.id;
     id = (await servers.listServers(owner))[0].id;
   });
   const reset = () => {
@@ -128,5 +133,28 @@ describe("Pterodactyl の設定フォルダの退避", () => {
     const [c] = await lib.changes(owner, id);
     expect(c).toMatchObject({ action: "外す" });
     expect(calls.filter((x) => x === "GET /files/upload").length).toBeGreaterThan(0);
+  });
+
+  it("接続を確かめる: 読む・書く・圧縮して移す・展開するを試し、試したものは片付ける", async () => {
+    reset();
+    const before = [...disk.keys()].sort();
+    const r = await servers.checkConnection(owner, conn);
+    expect(r.server).toBe("ロビー");
+    expect(r.steps.filter((x) => x.ok === false)).toEqual([]);
+    expect(r.steps.map((x) => x.label)).toContain("展開して元に戻す(設定フォルダの復元)");
+    expect([...disk.keys()].sort()).toEqual(before); // 隠しフォルダ・ファイルは残さない
+  });
+
+  it("圧縮できないパネルでは、そこで失敗と出し、後の手順は試さない", async () => {
+    reset();
+    compressFails = true;
+    try {
+      const r = await servers.checkConnection(owner, conn);
+      expect(r.steps.find((x) => x.label.startsWith("圧縮して"))).toMatchObject({ ok: false });
+      expect(r.steps.find((x) => x.label.startsWith("展開して"))).toMatchObject({ ok: null });
+      expect([...disk.keys()].some((k) => k.includes("craftshelf-check"))).toBe(false);
+    } finally {
+      compressFails = false;
+    }
   });
 });

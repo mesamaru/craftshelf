@@ -53,6 +53,35 @@ describe("招待", () => {
   });
 });
 
+describe("招待を受ける前のメールアドレスの確認(自分用の版でメールを送れるとき)", () => {
+  it("確かめるまでは招待を見られず、確認のメールのリンクを開くと参加できる。最初の 1 人には確認のメールを送らない", async () => {
+    const own: Mail[] = [];
+    const s = await setup({ mode: "self", mailer: { send: async (m) => { own.push(m); } } });
+    const owner = await s.signUp("オーナー", "owner@example.com");
+    expect(own.filter((m) => m.subject.includes("確認"))).toEqual([]);
+    const inv = await (await s.call("/organization/invite-member", { email: "cat@example.com", role: "viewer" }, owner)).json();
+    const cat = await s.signUp("Cat", "cat@example.com"); // 招待されたアドレスなので登録はできる
+    const blocked = await s.get(`/organization/get-invitation?id=${inv.id}`, cat);
+    expect(blocked.status).toBe(403);
+    expect((await blocked.json()).code).toMatch(/EMAIL_VERIFICATION_REQUIRED/);
+    expect((await s.call("/organization/accept-invitation", { invitationId: inv.id }, cat)).status).toBe(403);
+    // 招待のページの「確認のメールを送る」
+    expect((await s.call("/send-verification-email", { email: "cat@example.com", callbackURL: `/invite/${inv.id}` }, cat)).status).toBe(200);
+    const m = [...own].reverse().find((x) => x.to === "cat@example.com" && x.subject.includes("メールアドレスの確認"))!;
+    const url = new URL(link(m));
+    expect((await s.get(url.pathname.slice("/api/auth".length) + url.search)).status).toBeLessThan(400);
+    expect((await s.call("/organization/accept-invitation", { invitationId: inv.id }, cat)).status).toBe(200);
+  });
+
+  it("メールを送れないパネルでは、確認なしで参加できる(リンクを本人だけに渡す)", async () => {
+    const s = await setup({ mode: "self" });
+    const owner = await s.signUp("オーナー", "owner@example.com");
+    const inv = await (await s.call("/organization/invite-member", { email: "dan@example.com", role: "viewer" }, owner)).json();
+    const dan = await s.signUp("Dan", "dan@example.com");
+    expect((await s.call("/organization/accept-invitation", { invitationId: inv.id }, dan)).status).toBe(200);
+  });
+});
+
 describe("Resend", () => {
   it("API キーと送り元を付けて送る。失敗したら理由を返す", async () => {
     const sent: { url: string; init: RequestInit }[] = [];

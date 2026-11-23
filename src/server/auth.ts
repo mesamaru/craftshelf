@@ -47,7 +47,8 @@ export function createAuth(db: Db, opts: Options) {
     return m?.id ?? null;
   };
   const userCount = async () => (await db.select({ n: count() }).from(schema.user))[0].n;
-  // メール: 送れるとき(と、リンクに使う URL がわかるとき)だけ。メールアドレスの確認はサービス版だけ(自分用の版は招待した人だけが登録する)
+  // メール: 送れるとき(と、リンクに使う URL がわかるとき)だけ。ログインの前にメールアドレスの確認を求めるのはサービス版だけ。
+  // 招待を受けるときは、メールを送れるならどちらの版でも確認を求める(リンクを知っている他人が、そのアドレスで先に登録して参加できないように)
   const mailer = opts.mailer ?? null;
   const verify = !!mailer && mode === "service";
   const send = (to: string, m: { subject: string; text: string }) => mailer!.send({ to, ...m }).catch((e) => console.error("[メール] 送れませんでした:", e));
@@ -98,9 +99,10 @@ export function createAuth(db: Db, opts: Options) {
         }
       }),
     },
-    ...(verify ? {
+    ...(mailer ? {
       emailVerification: {
-        sendOnSignUp: true, sendOnSignIn: true, autoSignInAfterVerification: true, expiresIn: 60 * 60 * 24,
+        // 自分用の版は、招待のページで「確認のメールを送る」を押したときだけ送る(最初の 1 人・招待を受けない人には送らない)
+        sendOnSignUp: verify, sendOnSignIn: verify, autoSignInAfterVerification: true, expiresIn: 60 * 60 * 24,
         sendVerificationEmail: async ({ user, url: link }: { user: { email: string }; url: string }) => send(user.email, MAILS.verify(link)),
       },
     } : {}),
@@ -159,6 +161,8 @@ export function createAuth(db: Db, opts: Options) {
         organizationLimit: mode === "self" ? 1 : LIMITS.teamsPerUser,
         ...(mode === "service" ? { membershipLimit: LIMITS.membersPerTeam } : {}),
         cancelPendingInvitationsOnReInvite: true,
+        // メールを送れるときは、確かめたメールアドレスでないと招待を見る・受ける・断ることができない
+        requireEmailVerificationOnInvitation: !!mailer,
         // 外された人のセッションに、選んでいたチームが残らないようにする(Better Auth が消すのは、自分で抜けたときだけ)
         organizationHooks: {
           afterRemoveMember: async ({ member: m, organization: o }: { member: { userId: string }; organization: { id: string } }) => {

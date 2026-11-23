@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, createFileRoute, redirect, useParams, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
-  addConnection, addLocalServer, addServers, browseHost, listConnections, listServers, remoteServers, sharedLocalEnabled, sharedServers, removeConnection,
+  addConnection, addLocalServer, addServers, browseHost, checkConnection, listConnections, listServers, remoteServers, sharedLocalEnabled, sharedServers, removeConnection,
 } from "~/lib/servers-api";
 import { useCan, useTeamKey } from "~/lib/use-can";
 import { shared } from "~/lib/shared";
@@ -270,8 +270,17 @@ function AddServer({ connections, local, admin, onDone, onClose }:
 function Connection({ id, name, url, apiKeyHint, removable, onDone }:
   { id: string; name: string; url: string; apiKeyHint: string; removable: boolean; onDone: () => void }) {
   const remove = useServerFn(removeConnection);
+  const check = useServerFn(checkConnection);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
+  const [checking, setChecking] = useState(false);
+  const [result, setResult] = useState<Awaited<ReturnType<typeof checkConnection>> | null>(null);
+  const runCheck = async () => {
+    setChecking(true);
+    setError("");
+    setResult(null);
+    try { setResult(await check({ data: { id } })); } catch (e) { setError(message(e)); } finally { setChecking(false); }
+  };
   const drop = async () => {
     if (!(await confirmDialog({ message: `${name} の登録を消しますか?このパネルから追加したサーバーも一覧から外れます。`, ok: "消す", danger: true }))) return;
     try {
@@ -291,6 +300,18 @@ function Connection({ id, name, url, apiKeyHint, removable, onDone }:
         {removable && <Btn kind="red" sm onClick={drop}>登録を消す</Btn>}
       </div>
       {!open && <button className="row link" type="button" onClick={() => setOpen(true)}>このパネルのサーバーを追加</button>}
+      {removable && <button className="row link" type="button" disabled={checking} onClick={runCheck}
+        title="CraftShelf が使う操作(読む・書く・圧縮して移す・展開する)を、このパネルで試します。書き込みはサーバーの一番上の隠しフォルダの中だけで、最後に消します">
+        {checking ? "確かめています…" : "接続を確かめる"}</button>}
+      {result && <>
+        <div className="row muted small">試したサーバー: <span translate="no">{result.server || "—"}</span></div>
+        {result.steps.map((s) => (
+          <div className="row" key={s.label}>
+            <span className={`badge ${s.ok === true ? "ok" : s.ok === false ? "state-failed" : ""}`}>{s.ok === true ? "OK" : s.ok === false ? "失敗" : "—"}</span>
+            <span className="mid"><span className="ttl">{s.label}</span><span className={`sub${s.ok === false ? " error" : ""}`}>{s.detail}</span></span>
+          </div>
+        ))}
+      </>}
       {open && <PickServers connectionId={id} onDone={() => { setOpen(false); onDone(); }} />}
       {error && <p className="row error" role="alert">{error}</p>}
     </section>

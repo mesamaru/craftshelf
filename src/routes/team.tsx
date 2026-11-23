@@ -57,7 +57,7 @@ function Team() {
                 removable={m.role !== "owner" && m.userId !== user.id && can({ member: ["delete"] })} onDone={refetch} />
             ))}
           </section>
-          {can({ invitation: ["create"] }) && <Invite onDone={refetch} />}
+          {can({ invitation: ["create"] }) && <Invite onDone={refetch} mail={app.mail} />}
           {team.invitations.some((i) => i.status === "pending") && (
             <>
               <div className="gtitle">返事を待っている招待</div>
@@ -184,7 +184,7 @@ function MemberRow({ member, isMe, editable, removable, onDone }:
   );
 }
 
-function Invite({ onDone }: { onDone: () => void }) {
+function Invite({ onDone, mail }: { onDone: () => void; mail: boolean }) {
   const [email, setEmail] = useState("");
   const [role, setRole] = useState<RoleName>("viewer");
   const [link, setLink] = useState("");
@@ -215,6 +215,7 @@ function Invite({ onDone }: { onDone: () => void }) {
         {link && (
           <>
             <p className="row muted">このリンクを招待する人に送ってください(48 時間有効。そのメールアドレスでログインした人だけが参加できます)。</p>
+            {!mail && <p className="row muted">このパネルはメールを送らないので、メールアドレスの確認をしません。リンクを知っている人は、そのアドレスで登録して参加できてしまうので、本人だけに渡してください。</p>}
             <input className="row" readOnly value={link} onFocus={(e) => e.currentTarget.select()} />
           </>
         )}

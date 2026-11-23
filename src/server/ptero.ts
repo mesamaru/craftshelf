@@ -557,11 +557,13 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
     allocations: (ident: string) => remembered(`${serverKey(ident)}allocations`, READ_TTL.allocations, false, () => base.allocations(ident), lowOn(memoKey)).then((l) => l.map((x) => ({ ...x }))),
     details: (ident: string) => remembered(`${serverKey(ident)}details`, READ_TTL.details, false, () => base.details(ident), lowOn(memoKey)).then((d) => ({ egg: d.egg, vars: { ...d.vars } })),
   };
-  return { ...base, ...cachedReads, ...extract };
+  /** パネルが最後に知らせてきた回数の上限と残り(知らせていなければ null) */
+  const rateLimit = () => { const b = budgets.get(memoKey); return b ? { limit: b.limit, remaining: b.remaining } : null; };
+  return { ...base, ...cachedReads, ...extract, rateLimit };
 }
 
 // ファイル・コマンドなど、フォルダのサーバー・エージェントも同じ形で持つ操作(バックアップは Pterodactyl だけ)
-export type PteroClient = Omit<ReturnType<typeof pteroClient>, "backups" | "details" | "addAllocation" | "archiveFolder" | "unarchiveInto">;
+export type PteroClient = Omit<ReturnType<typeof pteroClient>, "backups" | "details" | "addAllocation" | "archiveFolder" | "unarchiveInto" | "rateLimit">;
 /** 設定フォルダを圧縮ファイルで退避・復元できるクライアント(Pterodactyl だけ) */
 export type Archiver = Pick<ReturnType<typeof pteroClient>, "archiveFolder" | "unarchiveInto">;
 export const archiverOf = (c: unknown): Archiver | null => (c && typeof (c as Archiver).archiveFolder === "function" && typeof (c as Archiver).unarchiveInto === "function" ? (c as Archiver) : null);

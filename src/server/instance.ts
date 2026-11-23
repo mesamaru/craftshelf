@@ -170,8 +170,8 @@ async function build() {
       console.error("[v02] パネルの自動アップデートの取り込みに失敗しました(v02 のデータはそのままです):", e);
     }
   }
-  const { resendMailer } = await import("./mail");
-  const mailer = env.mail ? resendMailer(safeFetch, env.mail.resendKey, env.mail.from) : null;
+  const { resendMailer, smtpMailer } = await import("./mail");
+  const mailer = !env.mail ? null : env.mail.kind === "resend" ? resendMailer(safeFetch, env.mail.key, env.mail.from) : smtpMailer(env.mail.key, env.mail.from);
   const auth = createAuth(db, { ...env, mailer });
   // 自分用の版は家の中のアドレスにもつなぐ。サービス版は公開されたアドレスだけ(SSRF 対策)
   // エージェントとのやりとりの列(このプロセスに 1 つ)

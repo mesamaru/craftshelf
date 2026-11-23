@@ -42,7 +42,7 @@ await step("登録するとライブラリが開く", async () => {
   await page.getByRole("tab", { name: "探す" }).waitFor();
   await page.getByPlaceholder("名前(空なら人気順)").waitFor();
   await page.getByRole("tab", { name: "URL" }).click();
-  await page.getByPlaceholder("ページの URL(Modrinth・SpigotMC・CurseForge)").waitFor();
+  await page.getByRole("textbox", { name: "配布元のページの URL" }).waitFor();
   await page.screenshot({ path: ".e2e/add.png" });
   await page.keyboard.press("Escape");
   await page.getByRole("dialog").waitFor({ state: "detached" });
@@ -442,7 +442,7 @@ await step("配布元に紐づけたアドオンは、ライブラリ・検索�
   await page.goto(base + "/");
   await page.locator(".top").getByRole("button", { name: "＋ アドオン" }).click();
   await page.getByRole("tab", { name: "URL" }).click();
-  await page.getByPlaceholder("ページの URL(Modrinth・SpigotMC・CurseForge)").fill("https://modrinth.com/plugin/luckperms");
+  await page.getByRole("textbox", { name: "配布元のページの URL" }).fill("https://modrinth.com/plugin/luckperms");
   await page.getByRole("button", { name: "足す" }).click();
   await page.getByText(/足しました|ライブラリに足しました|すでに/).first().waitFor({ timeout: 15000 }).catch(() => {});
   await page.keyboard.press("Escape");

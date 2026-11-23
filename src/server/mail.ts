@@ -1,5 +1,5 @@
-// メールの送信(招待・パスワードの再設定・メールアドレスの確認)。Resend(https://resend.com)を使う。
-// RESEND_API_KEY と MAIL_FROM(送り元。例 CraftShelf <no-reply@example.com>)があるときだけ送り、無ければ送らずに動く
+// メールの送信(招待・パスワードの再設定・メールアドレスの確認)。Resend(https://resend.com)か SMTP(いつものメールのサーバー)を使う。
+// MAIL_FROM(送り元。例 CraftShelf <no-reply@example.com>)と、RESEND_API_KEY か SMTP_URL があるときだけ送り、無ければ送らずに動く
 import type { FetchLike } from "./net";
 
 export type Mail = { to: string; subject: string; text: string };
@@ -20,6 +20,25 @@ export function resendMailer(fetch: FetchLike, apiKey: string, from: string): Ma
         throw new Error("メールの送信サービスに接続できません");
       }
       if (!res.ok) throw new Error(`メールを送れませんでした(HTTP ${res.status})`);
+    },
+  };
+}
+
+/**
+ * SMTP で送る(03.96.00 から)。url は smtp://ユーザー:パスワード@ホスト:587(STARTTLS)か smtps://…:465。
+ * ユーザー名・パスワードに @ や : があるときは、URL の形に直して(%40 など)書く
+ */
+export function smtpMailer(url: string, from: string): Mailer {
+  let transport: { sendMail: (m: { from: string; to: string; subject: string; text: string }) => Promise<unknown> } | null = null;
+  return {
+    async send(m) {
+      // 送るときに初めて読み込む(送らないパネルでは読み込まない)
+      transport ??= (await import("nodemailer")).createTransport(url);
+      try {
+        await transport.sendMail({ from, to: m.to, subject: m.subject, text: m.text });
+      } catch (e) {
+        throw new Error(`メールを送れませんでした(SMTP: ${e instanceof Error ? e.message : String(e)})`);
+      }
     },
   };
 }

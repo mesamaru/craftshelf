@@ -15,6 +15,7 @@ services:
       CLIENT_IP_HEADER: cf-connecting-ip
       # メール(メールアドレスの確認・パスワードの再設定・招待)。両方あるときだけ送る
       RESEND_API_KEY: ${RESEND_API_KEY:-}
+      SMTP_URL: ${SMTP_URL:-}
       MAIL_FROM: ${MAIL_FROM:-}
     depends_on:
       postgres: { condition: service_healthy }

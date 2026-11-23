@@ -180,7 +180,7 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 
 - v02 から移る: v02 のパネル(`v03switch.py`)は GitHub のリリース `v03.xx.xx`(安定版)と `dev-v03.xx.xx`(開発版)の一式を取ってきて乗り換える(同じ版なら安定版)。安定版は `release-v03.yml` が作る(「最新」にはしない。v02 のインストーラー版が最新の正式リリースを見るため)。取り込み直すときは `reimport-pending` を置いて終了し、次の起動で `applyPendingReimport` が v03 のデータを `before-reimport-<日時>` に移す(データベースが空になるので、いつもどおり v02 から取り込む)。
 
-- メール(`mail.ts`、Resend): `RESEND_API_KEY`・`MAIL_FROM` があるときだけ送る。サービス版はメールアドレスの確認を必須にする(`requireEmailVerification`。確かめていない人がログインしようとしたら、確認のメールを送り直す)。パスワードの再設定・招待(URL を決めているとき)も送る。送れなくても、処理は止めない(記録に残す)。
+- メール(`mail.ts`、Resend か SMTP): `MAIL_FROM` と、`RESEND_API_KEY` か `SMTP_URL`(03.96.00 から。nodemailer。送るときに初めて読み込む)があるときだけ送る(両方あれば Resend)。サービス版はメールアドレスの確認を必須にする(`requireEmailVerification`。確かめていない人がログインしようとしたら、確認のメールを送り直す)。パスワードの再設定・招待(URL を決めているとき)も送る。送れなくても、処理は止めない(記録に残す)。
 
 - エージェント(`agent-hub.ts`・`agents.ts`・`src/agent/main.ts`、表 `agent`・`agent_server`): 家の中から外向きにロングポーリングで取りに来る。頼めるのは `AGENT_METHODS` だけで、エージェントも同じ一覧で確かめる。フォルダの操作は `local.ts` をそのまま使い、取り込む URL は最初から配布元の公式の取得先だけに絞る。サーバーは `kind = "agent"` で、`serverOf` が `agentClient`(Pterodactyl と同じ形)を返す。詳しくは docs/AGENT.md。
 

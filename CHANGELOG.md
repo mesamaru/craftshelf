@@ -2,6 +2,10 @@
 
 バージョンは `00.00.00`(メジャー.マイナー.修正)の形式です。
 
+## 03.96.00 - 2026-11-23 いつものメールのサーバー(SMTP)でメールを送る
+
+- Resend のほかに、SMTP でもメールを送れるようにしました。`MAIL_FROM`(送り元)と `SMTP_URL`(例 `smtp://user:password@smtp.example.com:587`。465 番なら `smtps://`)を書くと、招待・パスワードの再設定のメールを送り、招待された人はメールアドレスを確かめてから参加します。Docker の `docker-compose.yml` に書き方の例を足しました
+
 ## 03.95.00 - 2026-11-23 Hangar(PaperMC)を配布元に足す
 
 - Hangar(hangar.papermc.io)のプラグインを、探す・URL から足す・入れる・更新する・前の版に戻すことができるようになりました(Paper・Purpur・Velocity・BungeeCord / Waterfall のサーバー)

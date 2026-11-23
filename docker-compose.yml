@@ -14,3 +14,6 @@ services:
       - TZ=Asia/Tokyo
       # パスキーを使うときや、リバースプロキシの後ろに置くときは、開く URL を書く(例 https://craftshelf.example.com)
       # - APP_URL=
+      # メールを送るとき(招待・パスワードの再設定。招待された人はメールアドレスを確かめてから参加する)。送り元と SMTP のサーバー
+      # - MAIL_FROM=CraftShelf <no-reply@example.com>
+      # - SMTP_URL=smtp://user:password@smtp.example.com:587

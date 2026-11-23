@@ -11,7 +11,7 @@ import { AddonIcon } from "~/lib/type-icon";
 import { listServers, powerServer } from "~/lib/servers-api";
 import { filesAccess, undoExtract } from "~/lib/files-api";
 import { bindServerSet, copyServer, listSets, syncServerSet, updateServers } from "~/lib/sets-api";
-import { SOURCE_LABEL, type Source, pageUrl, sourceLabel } from "~/lib/sources";
+import { SOURCE_LABEL, type Source, pageUrl, pluginOnly, sourceLabel } from "~/lib/sources";
 import { type Status, useServerStatus } from "~/lib/server-status";
 import { useCan } from "~/lib/use-can";
 import { shared } from "~/lib/shared";
@@ -426,7 +426,7 @@ function Addons(a: AddonProps) {
       {sheet === "search" && (
         <Sheet title="入れる" onClose={() => setSheet("")}>
           <AddSheet id={id} installed={items ?? []} datapacks={kindsOf(a.profile.platform as keyof typeof PLATFORMS).includes("datapack")} type={type} mc={a.profile.mcVersion ?? ""}
-            sources={a.sources.filter((s) => s !== "spigot" || type === "plugin")} onInstalled={a.onChange} />
+            sources={a.sources.filter((s) => !pluginOnly(s) || type === "plugin")} onInstalled={a.onChange} />
         </Sheet>
       )}
       {sheet === "sync" && (
@@ -503,7 +503,7 @@ function Find({ id, have, sources, datapacks, type, onChoose }:
   const search = useServerFn(searchMods);
   const [source, setSource] = useState<Source>("modrinth");
   const [kind, setKind] = useState<"" | "datapack">(""); // datapack なら、ワールドのデータパックを探す
-  const shown = kind ? sources.filter((s) => s !== "spigot") : sources;
+  const shown = kind ? sources.filter((s) => !pluginOnly(s)) : sources;
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<Awaited<ReturnType<typeof searchMods>> | null>(null);
   const [error, setError] = useState("");
@@ -518,7 +518,7 @@ function Find({ id, have, sources, datapacks, type, onChoose }:
   };
   useEffect(() => { find(); }, [id]);
   const pickSource = (s: Source) => { setSource(s); setHits(null); find(s); };
-  const pickKind = (k: "" | "datapack") => { const s = k && source === "spigot" ? "modrinth" : source; setKind(k); setSource(s); setHits(null); find(s, k); };
+  const pickKind = (k: "" | "datapack") => { const s = k && pluginOnly(source) ? "modrinth" : source; setKind(k); setSource(s); setHits(null); find(s, k); };
 
   return (
     <>

@@ -65,7 +65,7 @@ export const setMissingDeps = createServerFn({ method: "GET" })
   .handler(async ({ data }) => (await svc()).missingDeps(headers(), data.id, data.platform));
 
 export const addSetDeps = createServerFn({ method: "POST" })
-  .validator(z.object({ id: sid, platform: z.string().max(20), list: z.array(z.object({ source: z.enum(["modrinth", "spigot", "curseforge", "upload"]), projectId: sid })).min(1).max(100) }))
+  .validator(z.object({ id: sid, platform: z.string().max(20), list: z.array(z.object({ source: z.enum(["modrinth", "spigot", "curseforge", "hangar", "upload"]), projectId: sid })).min(1).max(100) }))
   .handler(async ({ data }) => (await svc()).addDeps(headers(), data.id, data.list, data.platform));
 
 export const pinSetItem = createServerFn({ method: "POST" })

@@ -17,7 +17,7 @@ import { gamePort, ping } from "../server/mcping";
 
 export const AGENT_VERSION = "1.2.0";
 // 取り込んでよい取得先(Mod・プラグインの配布元と、サーバー本体の公式の取得先)
-export const AGENT_PULL_HOSTS = new Set(["cdn.modrinth.com", "api.spiget.org", "cdn.spiget.org", "edge.forgecdn.net", "mediafilez.forgecdn.net", ...BUILD_HOSTS]);
+export const AGENT_PULL_HOSTS = new Set(["cdn.modrinth.com", "api.spiget.org", "cdn.spiget.org", "edge.forgecdn.net", "mediafilez.forgecdn.net", "hangarcdn.papermc.io", ...BUILD_HOSTS]);
 
 type ServerConf = { key: string; name?: string; root: string; control?: string; startCmd?: string; stopCmd?: string; container?: string; rconPort?: number; rconPassword?: string };
 export type AgentConf = { url: string; token: string; servers: ServerConf[] };

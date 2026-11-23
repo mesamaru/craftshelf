@@ -86,7 +86,8 @@ export function savedService(deps: Deps) {
       return f;
     }
     const cf = i.source === "curseforge" ? await tools.curseforge(teamId) : null;
-    const list = (await fromSource(() => (cf ? cf.allFiles(i.projectId) : tools.modrinth.allVersions(i.projectId)))).filter((v) => v.url && v.filename);
+    const list = (await fromSource(() => (cf ? cf.allFiles(i.projectId) : i.source === "hangar" ? tools.hangar.allVersions(i.projectId) : tools.modrinth.allVersions(i.projectId))))
+      .filter((v) => v.url && v.filename);
     let v = versionId ? list.find((x) => x.versionId === versionId) : undefined;
     if (!versionId) {
       const loaders = (() => { try { return i.loaders ? (JSON.parse(i.loaders) as string[]) : null; } catch { return null; } })();
@@ -371,7 +372,9 @@ export function savedService(deps: Deps) {
         const cf = items.filter((i) => i.source === "curseforge");
         const key = cf.length ? await tools.cfKeyOf(teamId) : null;
         if (key) await quiet(async () => { for (const [id, p] of await curseforgeClient(deps.fetch, key).projects(cf.map((i) => i.projectId))) dates.set(`curseforge:${id}`, p.updated); });
-        for (const i of items.filter((x) => x.source === "spigot")) await quiet(async () => { const p = await tools.spiget.project(i.projectId); if (p?.updated) dates.set(`spigot:${i.projectId}`, p.updated); });
+        for (const i of items.filter((x) => x.source === "spigot" || x.source === "hangar")) {
+          await quiet(async () => { const p = await (i.source === "hangar" ? tools.hangar : tools.spiget).project(i.projectId); if (p?.updated) dates.set(`${i.source}:${i.projectId}`, p.updated); });
+        }
         for (const i of items) {
           const up = i.source === "upload";
           const d = up ? all.find((f) => f.itemId === i.id)?.createdAt.toISOString() : dates.get(`${i.source}:${i.projectId}`);

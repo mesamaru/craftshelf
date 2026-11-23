@@ -244,7 +244,7 @@ export async function sha256Of(path: string) {
 }
 
 // 配布元のファイルを取ってくる先(配布元の CDN だけ。SpigotMC は spiget の転送の先も)
-const SAVE_HOSTS = new Set(["cdn.modrinth.com", "api.spiget.org", "cdn.spiget.org", ...CF_HOSTS]);
+const SAVE_HOSTS = new Set(["cdn.modrinth.com", "api.spiget.org", "cdn.spiget.org", "hangarcdn.papermc.io", ...CF_HOSTS]);
 
 /** 配布元の CDN から、ファイルに少しずつ書く(転送は CDN の中だけ・3 回まで。UPLOAD_LIMITS.fileBytes を超えたらやめる) */
 export async function downloadTo(fetch: Deps["fetch"], url: string, path: string) {

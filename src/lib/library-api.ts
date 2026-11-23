@@ -6,7 +6,7 @@ import { z } from "zod";
 const svc = async () => (await import("~/server/instance")).library;
 const headers = () => getRequest().headers;
 const sid = z.string().min(1).max(64);
-const source = z.enum(["modrinth", "spigot", "curseforge", "upload"]).default("modrinth");
+const source = z.enum(["modrinth", "spigot", "curseforge", "hangar", "upload"]).default("modrinth");
 // 種類(ライブラリ)と、サーバーに入れるときの種類(データパックだけ。ほかはサーバーの種類のもの)
 const type = z.enum(["plugin", "mod", "datapack", "resourcepack", "shader", "modpack"]);
 const kind = z.enum(["datapack"]).optional();

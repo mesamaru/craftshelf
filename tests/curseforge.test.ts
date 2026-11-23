@@ -93,12 +93,12 @@ describe("CurseForge をライブラリ・サーバーで使う", () => {
   });
 
   it("キーを設定するまでは使えない。使えないキーは保存しない", async () => {
-    expect((await lib.catalog(owner)).sources).toEqual(["modrinth", "spigot"]);
+    expect((await lib.catalog(owner)).sources).toEqual(["modrinth", "spigot", "hangar"]);
     expect(await code(lib.search(owner, id, "", "curseforge"))).toBe(400);
     expect(await code(lib.setCurseforgeKey(owner, "$2a$10$wrongwrongwrongwrongwrongwrongwrongwrongwrongwrongwron"))).toBe(502);
     await lib.setCurseforgeKey(owner, CF);
     expect((await lib.curseforgeKey(owner)).hint).toBe("…NOPQ");
-    expect((await lib.catalog(owner)).sources).toEqual(["modrinth", "spigot", "curseforge"]);
+    expect((await lib.catalog(owner)).sources).toEqual(["modrinth", "spigot", "hangar", "curseforge"]);
   });
 
   it("サーバーが CurseForge の CDN から直接取り込み、ライブラリに CurseForge のものとして載る", async () => {
@@ -114,6 +114,6 @@ describe("CurseForge をライブラリ・サーバーで使う", () => {
   it("サービス版(自分用の版でない)では設定できない", async () => {
     const svc = libraryService({ db: t.db, auth: t.auth, secret: SECRET, fetch: fake });
     expect(await code(svc.setCurseforgeKey(owner, CF))).toBe(400);
-    expect((await svc.catalog(owner)).sources).toEqual(["modrinth", "spigot"]);
+    expect((await svc.catalog(owner)).sources).toEqual(["modrinth", "spigot", "hangar"]);
   });
 });

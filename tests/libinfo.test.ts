@@ -137,12 +137,11 @@ describe("画面とサーバーで共有する小さな処理", () => {
 });
 
 describe("URL から足す", () => {
-  it("編集者以上が、Modrinth・SpigotMC のページの URL から足せる。Hangar・ほかのサイトは断る", async () => {
+  it("編集者以上が、Modrinth・SpigotMC のページの URL から足せる。ほかのサイトは断る(Hangar は hangar.test.ts)", async () => {
     expect(await code(lib.addFromUrl(viewer, "https://modrinth.com/plugin/luckperms"))).toBe(403);
     expect(await lib.addFromUrl(editor, "https://modrinth.com/plugin/luckperms")).toMatchObject({ title: "LuckPerms" });
     expect((await item("LuckPerms")).projectId).toBe(LP);
     expect(await lib.addFromUrl(owner, "https://www.spigotmc.org/resources/essentialsx.9089/")).toMatchObject({ title: "EssentialsX" });
-    expect(await code(lib.addFromUrl(owner, "https://hangar.papermc.io/ViaVersion/ViaVersion"))).toBe(400);
     expect(await code(lib.addFromUrl(owner, "https://example.com/plugin/x"))).toBe(400);
     expect(await code(lib.addFromUrl(owner, "https://modrinth.com/plugin/nothing-here"))).toBe(404);
   });

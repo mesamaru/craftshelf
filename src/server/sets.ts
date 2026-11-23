@@ -97,7 +97,7 @@ export function setService(deps: Deps) {
             out.push(now ? { title: it.title, status: "available", detail: `${now.versionNumber} → ${pin.label}(固定した版)` }
               : { title: it.title, status: "missing", detail: `入っていません(固定した版 ${pin.label})` });
           } else {
-            const file = await fileById(it.source, it.projectId, pin.id, teamId);
+            const file = await fileById(it.source, it.projectId, pin.id, teamId, p.platform);
             if (!file) throw new HttpError(404, `固定した版 ${pin.label} が見つかりません`);
             const r = await installInto(teamId, userId, target, p, it.source, it.projectId, { file });
             out.push({ title: it.title, status: now ? "updated" : "installed", detail: now ? `${now.versionNumber} → ${r.versionNumber}(固定した版)` : `${r.versionNumber}(固定した版)` });
@@ -190,7 +190,7 @@ export function setService(deps: Deps) {
         const q = fileProfile(p, s.filename); // データパックはワールドの datapacks に
         // そろえる元と同じ版を、このサーバーの種類・バージョンに合うときだけ入れる。SpigotMC はいちばん新しい版だけ
         const file = s.source === "spigot" ? await latestFile(s.source, s.projectId, q, teamId)
-          : (await versionsOf(s.source, s.projectId, q, teamId)).some((v) => v.versionId === s.versionId) ? await fileById(s.source, s.projectId, s.versionId, teamId) : null;
+          : (await versionsOf(s.source, s.projectId, q, teamId)).some((v) => v.versionId === s.versionId) ? await fileById(s.source, s.projectId, s.versionId, teamId, q.platform) : null;
         if (!file || file.versionId !== s.versionId) {
           out.push({ title: s.title, status: "failed", detail: s.source === "spigot" ? `SpigotMC のものは、いちばん新しい版しか入れられません(${s.versionNumber})` : `${s.versionNumber} は、このサーバーの種類・バージョンに合いません` });
           continue;
@@ -487,7 +487,7 @@ export function setService(deps: Deps) {
           added.push(known.title);
           continue;
         }
-        if (d.source !== "modrinth" && d.source !== "curseforge") throw new HttpError(400, "足せるのは Modrinth・CurseForge のものだけです");
+        if (d.source !== "modrinth" && d.source !== "curseforge" && d.source !== "hangar") throw new HttpError(400, "足せるのは Modrinth・CurseForge・Hangar のものだけです");
         const info = await project(d.source, d.projectId, teamId);
         if (!info) throw new HttpError(404, `${d.projectId} が配布元に見つかりません`);
         const itemId = await remember(teamId, user.id, d.source, d.projectId, { title: info.title, slug: info.slug, iconUrl: info.iconUrl, projectType: PLATFORMS[platform].type });

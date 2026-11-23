@@ -32,7 +32,7 @@ const IDENT = /^[a-z0-9-]{1,64}$/i;
 export const transferTimeout = (bytes: number) => Math.max(300_000, Math.ceil(bytes / 1_000_000) * 1000);
 // サーバーへ取り込ませてよい取得先(配布元の CDN と、サーバー本体の公式の取得先だけ)。フォルダのサーバー・エージェントと、
 // パネルが取り込みを断ったときにこのアプリが取ってくるときに使う
-export const PULL_HOSTS = new Set(["cdn.modrinth.com", "api.spiget.org", "cdn.spiget.org", "edge.forgecdn.net", "mediafilez.forgecdn.net", ...BUILD_HOSTS]);
+export const PULL_HOSTS = new Set(["cdn.modrinth.com", "api.spiget.org", "cdn.spiget.org", "edge.forgecdn.net", "mediafilez.forgecdn.net", "hangarcdn.papermc.io", ...BUILD_HOSTS]);
 // パネルが取り込みを断ったときに、このアプリが取ってきて送る大きさの上限(フォルダのサーバーの取り込みと同じ)と、断られたことを覚える長さ
 export const PULL_RELAY = { bytes: 300 * 1024 * 1024, refusedMs: 3_600_000 };
 

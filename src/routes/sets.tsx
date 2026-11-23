@@ -207,8 +207,8 @@ function SetSheet({ set, catalog, elsewhere, edit, local, onChange, onClose }: {
         <AddPicker items={addable} busy={!!busy} onClose={() => setAdding(false)}
           onAdd={(ids) => run("add", async () => { for (const itemId of ids) await toggle({ data: { id: set.id, itemId, add: true } }); setAdding(false); })} />
       )}
-      {set.items.some((i) => i.source === "modrinth" || i.source === "curseforge") && <>
-        <div className="gtitle">前提<Info>セットの Mod・プラグインが必要とするもの(Modrinth・CurseForge の「必須」)のうち、セットに入っていないものを探します。必要なものはサーバーの種類で変わるので、入れる先の種類を選んでから確かめます。</Info></div>
+      {set.items.some((i) => i.source === "modrinth" || i.source === "curseforge" || i.source === "hangar") && <>
+        <div className="gtitle">前提<Info>セットの Mod・プラグインが必要とするもの(Modrinth・CurseForge・Hangar の「必須」)のうち、セットに入っていないものを探します。必要なものはサーバーの種類で変わるので、入れる先の種類を選んでから確かめます。</Info></div>
         <section className="group"><Deps set={set} edit={edit} onChange={onChange} /></section>
       </>}
       {edit && set.items.length > 0 && <SetServers set={set} catalog={catalog} elsewhere={elsewhere} onChange={onChange} />}
@@ -492,7 +492,7 @@ const V_TYPE: Record<string, string> = { beta: "ベータ", alpha: "アルファ
 // 動く作り(同じ版番号が Paper 向け・Bukkit 向けのように分かれていることがあるので、見分けられるように出す)
 const loaderNames = (ls: string[]) => ls.slice(0, 3).map((l) => l.charAt(0).toUpperCase() + l.slice(1)).join("・") + (ls.length > 3 ? " ほか" : "");
 
-// セットの前提(Modrinth・CurseForge の必須)のうち、セットに入っていないものを確かめて足す
+// セットの前提(Modrinth・CurseForge・Hangar の必須)のうち、セットに入っていないものを確かめて足す
 function Deps({ set, edit, onChange }: { set: SetRow; edit: boolean; onChange: () => void }) {
   const check = useServerFn(setMissingDeps);
   const add = useServerFn(addSetDeps);

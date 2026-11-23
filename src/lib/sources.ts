@@ -1,13 +1,15 @@
 import { isOrigin, ORIGIN_LABEL } from "./origin";
 import type { ItemType } from "./platforms";
-// 配布元(画面とサーバーで共有)。Modrinth・SpigotMC は、ファイルをこのアプリを通さず Pterodactyl に直接取り込ませる。
+// 配布元(画面とサーバーで共有)。Modrinth・SpigotMC・CurseForge・Hangar は、ファイルをこのアプリを通さず Pterodactyl に直接取り込ませる。
 // upload は利用者がアップロードしたもの(自分用の版だけ。保存先に置いて、サーバーに送る)
-export const SOURCES = ["modrinth", "spigot", "curseforge"] as const; // 探せる配布元(CurseForge は API キーを設定したチームだけ)
+export const SOURCES = ["modrinth", "spigot", "curseforge", "hangar"] as const; // 探せる配布元(CurseForge は API キーを設定したチームだけ)
 export type Source = (typeof SOURCES)[number];
 export type ItemSource = Source | "upload";
-export const isSource = (v: unknown): v is Source => v === "modrinth" || v === "spigot" || v === "curseforge";
+export const isSource = (v: unknown): v is Source => v === "modrinth" || v === "spigot" || v === "curseforge" || v === "hangar";
 export const isItemSource = (v: unknown): v is ItemSource => isSource(v) || v === "upload";
-export const SOURCE_LABEL: Record<ItemSource, string> = { modrinth: "Modrinth", spigot: "SpigotMC", curseforge: "CurseForge", upload: "アップロード" };
+/** プラグインだけを配っている配布元(SpigotMC・Hangar) */
+export const pluginOnly = (s: string) => s === "spigot" || s === "hangar";
+export const SOURCE_LABEL: Record<ItemSource, string> = { modrinth: "Modrinth", spigot: "SpigotMC", curseforge: "CurseForge", hangar: "Hangar", upload: "アップロード" };
 
 /** 配布元の名前(画面に出すとき。知らないものはそのまま)。アップロードしたもの(upload)は、origin(ファイルの出どころ。src/lib/origin.ts)があれば、それで言い分ける */
 export const sourceLabel = (s: string, origin = "") => (s === "upload" && isOrigin(origin) ? ORIGIN_LABEL[origin] : isItemSource(s) ? SOURCE_LABEL[s] : s);
@@ -15,7 +17,8 @@ export const sourceLabel = (s: string, origin = "") => (s === "upload" && isOrig
 /** 配布元のページ(アップロードしたものには無い) */
 export const pageUrl = (source: string, projectId: string, slug = "") =>
   source === "upload" ? "" : source === "spigot" ? `https://www.spigotmc.org/resources/${projectId}/`
-    : source === "curseforge" ? (slug ? `https://www.curseforge.com/minecraft/${slug}` : "") : `https://modrinth.com/project/${slug || projectId}`;
+    : source === "curseforge" ? (slug ? `https://www.curseforge.com/minecraft/${slug}` : "")
+    : source === "hangar" ? (slug ? `https://hangar.papermc.io/${slug}` : "") : `https://modrinth.com/project/${slug || projectId}`;
 
 // 受け取る版(03.56.00 から): release = 正式版だけ(正式版が無いときだけベータを使う)/ all = ベータ・アルファも
 export const CHANNELS = { release: "正式版だけ", all: "ベータ版・アルファ版も" } as const;
@@ -32,7 +35,7 @@ const URL_KINDS: Record<string, ItemType | undefined> = {
  * 配布元のページの URL を読む(Modrinth は ID か slug、SpigotMC は番号、CurseForge と Hangar は slug)。
  * type はページの分類から分かったときだけ。読めなければ null
  */
-export function parseSourceUrl(input: string): { source: Source | "hangar"; ref: string; type?: ItemType } | null {
+export function parseSourceUrl(input: string): { source: Source; ref: string; type?: ItemType } | null {
   let u: URL;
   try {
     u = new URL(input.trim());

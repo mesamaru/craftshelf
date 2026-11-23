@@ -3,7 +3,7 @@ import { useState } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { addLibraryItem, addLibraryItemFromUrl, type libraryCatalog, searchCatalog } from "./library-api";
 import { ITEM_TYPES, ITEM_TYPE_IDS, type ItemType } from "./platforms";
-import { SOURCE_LABEL, type Source, pageUrl } from "./sources";
+import { SOURCE_LABEL, type Source, pageUrl, pluginOnly } from "./sources";
 import { AddonIcon } from "./type-icon";
 import { Btn, Chip, Info, Seg, Sheet } from "./ui";
 
@@ -63,7 +63,7 @@ function AddFromSource({ sources, have }: { sources: Source[]; have: Set<string>
       setBusy("");
     }
   };
-  const pickSource = (src: Source) => { const t = src === "spigot" ? "plugin" : type; setSource(src); setType(t); if (hits) find(t, src); };
+  const pickSource = (src: Source) => { const t = pluginOnly(src) ? "plugin" : type; setSource(src); setType(t); if (hits) find(t, src); };
   return (
     <>
       <form onSubmit={(e) => { e.preventDefault(); find(); }}>
@@ -71,7 +71,7 @@ function AddFromSource({ sources, have }: { sources: Source[]; have: Set<string>
       </form>
       <div className="chips">
         {sources.map((x) => <Chip key={x} on={x === source} onClick={() => pickSource(x)}>{SOURCE_LABEL[x]}</Chip>)}
-        <select className="chip" value={type} aria-label="種類" disabled={source === "spigot"} onChange={(e) => { const t = e.target.value as ItemType; setType(t); if (hits) find(t); }}>
+        <select className="chip" value={type} aria-label="種類" disabled={pluginOnly(source)} onChange={(e) => { const t = e.target.value as ItemType; setType(t); if (hits) find(t); }}>
           {ITEM_TYPE_IDS.map((t) => <option key={t} value={t}>{ITEM_TYPES[t]}</option>)}
         </select>
         <Btn kind="pri" sm disabled={busy === "find"} onClick={() => find()}>{busy === "find" ? "探しています…" : "探す"}</Btn>
@@ -124,7 +124,7 @@ function AddFromUrl() {
   };
   return (
     <form className="chips" onSubmit={(e) => { e.preventDefault(); submit(); }}>
-      <input className="input" type="url" placeholder="ページの URL(Modrinth・SpigotMC・CurseForge)" aria-label="配布元のページの URL" value={url} disabled={busy} onChange={(e) => setUrl(e.target.value)} />
+      <input className="input" type="url" placeholder="ページの URL(Modrinth・SpigotMC・CurseForge・Hangar)" aria-label="配布元のページの URL" value={url} disabled={busy} onChange={(e) => setUrl(e.target.value)} />
       <button className="btn pri" type="submit" disabled={busy || !url.trim()}>{busy ? "足しています…" : "足す"}</button>
       {note && <p className="muted" role="status" translate="no">{note}</p>}
       {error && <p className="error" role="alert">{error}</p>}

@@ -7,6 +7,7 @@ import { and, asc, count, desc, eq, inArray, isNotNull, isNull, lt, or, sql } fr
 import { ITEM_TYPES, PLATFORMS, MC_VERSION, LOADERS, type Platform, isItemType, isPlatform, kindsOf, mcClean, mcCovers, mcRange, supportOf, type Support } from "~/lib/platforms";
 import { installedMod, libraryItem, server, serverHold, serverProfile, user as userTable } from "./db/schema";
 import { HttpError, isHttpError, requireTeam } from "./guard";
+import { byName } from "~/lib/server-list";
 import { type Channel, type ItemSource, SOURCE_LABEL, isChannel, isItemSource, parseSourceUrl, pluginOnly } from "~/lib/sources";
 import { ModrinthError, type ProjectType, type UpRow, modrinthClient } from "./modrinth";
 import { bestOf, mcLatest } from "./addon-versions";
@@ -1035,7 +1036,7 @@ export function libraryService(deps: Deps) {
         // 配布元はわかっているが、ライブラリに無いもの(ライブラリから外したものなど)
         orphans: installs.filter((r) => !listed.has(`${r.source}:${r.projectId}`)).map(({ serverId, source, projectId, title, versionNumber, filename, disabled }) => ({ serverId, source, projectId, title, versionNumber, filename, disabled })),
         // 種類を決めていないサーバーには入れられない(type が null)。kinds は入れられる種類(プラグイン・Mod と、ワールドがあればデータパック)
-        servers: servers.filter((x) => mine(x.id)).map((x) => ({ id: x.id, name: x.name, type: isPlatform(x.platform) ? PLATFORMS[x.platform].type : null, kinds: kindsOf(x.platform), mc: x.mcVersion ?? "" })),
+        servers: servers.filter((x) => mine(x.id)).sort(byName).map((x) => ({ id: x.id, name: x.name, type: isPlatform(x.platform) ? PLATFORMS[x.platform].type : null, kinds: kindsOf(x.platform), mc: x.mcVersion ?? "" })),
         sources: await sourcesOf(teamId),
       };
     },

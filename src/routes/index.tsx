@@ -267,7 +267,7 @@ function Toolbar({ cat, f, set, edit, selecting, onSort, onSelect }:
   return (
     <div className="toolbar glass">
       <div className="row1">
-        <label className="q"><Icon name="search" /><input type="search" placeholder="検索" aria-label="名前で絞り込む" value={f.q} onChange={(e) => set({ q: e.target.value })} /></label>
+        <label className="q"><Icon name="search" /><input type="search" placeholder="名前で絞り込む" aria-label="名前で絞り込む" value={f.q} onChange={(e) => set({ q: e.target.value })} /></label>
         {sources.length > 1 && (
           <select className="sel" value={f.source} aria-label="配布元で絞り込む" onChange={(e) => set({ source: e.target.value })}>
             <option value="">配布元: すべて</option>

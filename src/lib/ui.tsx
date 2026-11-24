@@ -144,6 +144,9 @@ export function Info({ children, label = "説明" }: { children: ReactNode; labe
 const Over = ({ children }: { children: ReactNode }) => (typeof document === "undefined" ? null : createPortal(children, document.body));
 
 /** 右から出るシート(スマホは下から)。外を押す・Esc・✕ で閉じる。head は題の前(アイコン)、actions は題の後ろ(☆ など)に置く */
+/** Tab で移れるもの(シート・確認の窓の中に Tab を閉じ込めるのに使う) */
+export const FOCUSABLE = 'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [href], [tabindex]:not([tabindex="-1"])';
+
 export function Sheet({ title, label, head, actions, onClose, children }: { title: ReactNode; label?: string; head?: ReactNode; actions?: ReactNode; onClose: () => void; children: ReactNode }) {
   const close = useRef<HTMLButtonElement>(null);
   const self = useRef<HTMLElement>(null);
@@ -151,7 +154,17 @@ export function Sheet({ title, label, head, actions, onClose, children }: { titl
     const back = document.activeElement as HTMLElement | null;
     close.current?.focus();
     // シートの上にシートを重ねたときは、いちばん上のものだけ閉じる
-    const key = (e: KeyboardEvent) => { if (e.key === "Escape" && self.current === [...document.querySelectorAll(".sheet")].at(-1)) onClose(); };
+    const key = (e: KeyboardEvent) => {
+      const top = self.current === [...document.querySelectorAll(".sheet")].at(-1);
+      if (e.key === "Escape" && top) onClose();
+      // Tab で後ろの画面へ出ないようにする(確認の窓が上に出ているときは、そちらに任せる)
+      else if (e.key === "Tab" && top && self.current && !document.querySelector(".dlg")) {
+        const f = [...self.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => x.offsetParent !== null);
+        if (!f.length) return;
+        const at = f.indexOf(document.activeElement as HTMLElement);
+        if (e.shiftKey ? at <= 0 : at === f.length - 1 || at < 0) { e.preventDefault(); f[e.shiftKey ? f.length - 1 : 0].focus(); }
+      }
+    };
     document.addEventListener("keydown", key);
     return () => { document.removeEventListener("keydown", key); back?.focus?.(); };
   }, []);

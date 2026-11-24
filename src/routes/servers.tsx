@@ -141,7 +141,7 @@ function Servers() {
             {servers.length === 0 && <section className="group"><div className="row muted">まだサーバーがありません。</div></section>}
             {servers.length > 0 && (
               <div className="sfilter">
-                {many && <label className="q"><Icon name="search" /><input type="search" placeholder="検索" aria-label="名前で絞り込む" value={q} onChange={(e) => setQ(e.target.value)} /></label>}
+                {many && <label className="q"><Icon name="search" /><input type="search" placeholder="名前で絞り込む" aria-label="名前で絞り込む" value={q} onChange={(e) => setQ(e.target.value)} /></label>}
                 <select className="sel" value={pref.sort} aria-label="並べ替え" onChange={(e) => save({ sort: e.target.value as ServerSort })}>
                   {SERVER_SORTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                 </select>

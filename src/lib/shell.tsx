@@ -10,6 +10,7 @@ import { AddSheet, LIBRARY_CHANGED, libraryChanged } from "./library-add";
 import { OPEN_NOTICES, OPEN_PALETTE } from "./palette";
 import { roleLabel } from "./permissions";
 import { listServers, sharedLocalEnabled, forgetServerReads } from "./servers-api";
+import { byName } from "./server-list";
 import { useStatuses } from "./server-status";
 import { unreadCount } from "./notices";
 import { Icon, type IconName, Sheet } from "./ui";
@@ -66,7 +67,7 @@ export function Shell({ user, children }: { user: { id: string; name: string }; 
   // 画面を移るたびに数を読み直す(サーバーを足した・消したあと)。ページが同じ時に読んだものは、共有して使う(src/lib/shared.ts)
   useEffect(() => {
     if (teamKey === null) return;
-    shared("servers", () => loadServers(), 3000).then(setServers, () => setServers([]));
+    shared("servers", () => loadServers(), 3000).then((l) => setServers([...l].sort(byName)), () => setServers([]));
     reloadSum();
   }, [path, teamKey]);
   useEffect(() => { if (sheet === "add") loadCat().then(setCat, () => setCat(null)); }, [sheet]);

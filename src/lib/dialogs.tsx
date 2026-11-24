@@ -5,11 +5,10 @@ import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react"
 import { createPortal } from "react-dom";
 import { type Req, dialogs, wordOk } from "./dialog-queue";
 import { translate } from "./i18n";
-import { Btn } from "./ui";
+import { Btn, FOCUSABLE } from "./ui";
 
 export { confirmDialog, dialogs, promptDialog, useConfirm, usePrompt } from "./dialog-queue";
 
-const FOCUSABLE = 'button:not(:disabled), input:not(:disabled), [href], [tabindex]:not([tabindex="-1"])';
 
 export function DialogHost() {
   const req = useSyncExternalStore(dialogs.subscribe, dialogs.current, () => undefined);

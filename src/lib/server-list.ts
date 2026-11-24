@@ -13,6 +13,8 @@ export const isServerSort = (v: unknown): v is ServerSort => SERVER_SORTS.some((
 export type ServerItem = { id: string; name: string; platform?: string | null; mcVersion?: string | null; state: string; old: number; online: number; index: number };
 
 const byText = (a: string, b: string) => a.localeCompare(b, "ja", { numeric: true });
+/** 名前順(サーバーの一覧の「名前順」と同じ。大文字・小文字を分けず、数字は数の大きさで) */
+export const byName = (a: { name: string }, b: { name: string }) => byText(a.name, b.name);
 
 /** 並べ替え。同じものは名前順(元の配列は変えない) */
 export function sortServers<T extends ServerItem>(list: readonly T[], sort: ServerSort): T[] {

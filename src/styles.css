@@ -814,7 +814,7 @@ a.kv.linkish span:last-child { color: var(--link); font-weight: 600; }
 /* シートの上の丸いボタン(✎・⋯・✕)は v02 と同じく下地つき */
 .sheet > header .iconbtn, .sheet > header .rbtn { width: 32px; height: 32px; background: var(--chip); color: var(--text); }
 .sheet > header .iconbtn svg, .sheet > header .rbtn svg { width: 16px; height: 16px; }
-.items .row[aria-current="true"] { background: var(--accent-soft); }
+.items .row[aria-current] { background: var(--accent-soft); }
 
 /* ===== サーバー(src/routes/servers.tsx・servers.$id.tsx)。v02 と同じ 1 つの画面: 左に一覧、右に詳細。幅 900 px まで(スマホ)は一覧 → 詳細 ===== */
 .srv-top { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
@@ -840,7 +840,7 @@ a.kv.linkish span:last-child { color: var(--link); font-weight: 600; }
 .sfilter select.sel { max-width: 140px; min-width: 0; text-overflow: ellipsis; }
 .sfilter:not(:has(.q)) select.sel { max-width: none; flex: 1; }
 .srv-side .fbar { margin-bottom: 8px; }
-.slist .row[aria-current="true"] { background: var(--accent-soft); }
+.slist .row[aria-current] { background: var(--accent-soft); }
 .sall { width: 100%; margin-top: 14px; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: var(--r-card); text-align: left; cursor: pointer; font: inherit; color: var(--text); box-shadow: var(--shadow); }
 .sall > svg { width: 20px; height: 20px; color: var(--link); flex: none; }
 .srv-back { display: none; }
@@ -999,6 +999,10 @@ a:not([class]) { color: var(--link); text-underline-offset: 2px; text-decoration
   .pc { min-height: 32px; min-width: 40px; }
   .info { position: relative; }
   .info::before { content: ""; position: absolute; inset: -8px; }
+  /* お気に入りの ☆ と「‹ 戻る」は見た目のまま、押せる所だけ 44px 前後に */
+  .star, .back { position: relative; }
+  .star::before { content: ""; position: absolute; inset: -14px -10px; }
+  .back::before { content: ""; position: absolute; inset: -12px -8px; }
   .palette .foot { display: none; }
 }
 /* ポートの問題の種類を文字でも出す */

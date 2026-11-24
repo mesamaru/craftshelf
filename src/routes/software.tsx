@@ -3,6 +3,7 @@ import { Link, createFileRoute, redirect } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import { ActionBar, Btn, Chip, ChipBar, Info } from "~/lib/ui";
 import { sharedServers } from "~/lib/servers-api";
+import { byName } from "~/lib/server-list";
 import { softwareInfo, updateSoftware } from "~/lib/software-api";
 import { useCan } from "~/lib/use-can";
 import { pageTitle } from "~/lib/titles";
@@ -13,7 +14,7 @@ export const Route = createFileRoute("/software")({
     if (!context.user) throw redirect({ to: "/login", search: { next: "/software" } });
     return { user: context.user };
   },
-  loader: () => sharedServers(),
+  loader: async () => [...(await sharedServers())].sort(byName),
   head: () => ({ meta: [{ title: pageTitle("サーバー本体") }] }),
   component: Software,
 });

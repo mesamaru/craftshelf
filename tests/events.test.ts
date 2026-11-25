@@ -1,7 +1,7 @@
 // 操作の記録と Discord への通知(Pterodactyl・Modrinth・Discord は偽物の応答で代わりをする)
 import { beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
-import { teamNotify } from "~/server/db/schema";
+import { auditLog, teamNotify } from "~/server/db/schema";
 import { eventService } from "~/server/events";
 import { HttpError } from "~/server/guard";
 import { libraryService } from "~/server/library";
@@ -168,5 +168,23 @@ describe("パネルの新しい版", () => {
   it("サービス版の通知の設定には、パネルの更新は出ない", async () => {
     expect(Object.keys((await ev.notifySettings(owner)).kinds)).not.toContain("panel");
     expect(Object.keys((await eventService({ db: t.db, auth: t.auth, secret: SECRET, fetch: fake, local: { dataDir: "." } }).notifySettings(owner)).kinds)).toContain("panel");
+  });
+});
+
+describe("古い操作の記録を消す", () => {
+  it("チームごとに新しい keep 件だけ残し、ほかのチームの記録は数に入れない", async () => {
+    const teamOf = async (h: Headers) => (await t.auth.api.getSession({ headers: h }))!.session.activeOrganizationId!;
+    const [mine, theirs] = [await teamOf(owner), await teamOf(outsider)];
+    // 時刻が同じにならないよう、1 秒ずつ先の時刻で書く(Windows は時計が粗い)
+    const base = Date.now() + 60_000;
+    for (let i = 0; i < 5; i++) await t.db.insert(auditLog).values({ id: `prune-${i}`, teamId: mine, kind: "admin", action: `古い${i}`, at: new Date(base + i * 1000) });
+    await ev.record({ teamId: theirs, userId: null, kind: "admin", action: "部外者の記録", quiet: true });
+    const count = async (team: string) => (await t.db.select().from(auditLog).where(eq(auditLog.teamId, team))).length;
+    const [before, theirsBefore] = [await count(mine), await count(theirs)];
+    expect(await ev.prune(3)).toBe(before - 3);
+    const left = await ev.list(owner);
+    expect(left.map((r) => r.action)).toEqual(["古い4", "古い3", "古い2"]);
+    expect(await count(theirs)).toBe(theirsBefore); // keep 件より少ないので消さない
+    expect(await ev.prune(3)).toBe(0);
   });
 });

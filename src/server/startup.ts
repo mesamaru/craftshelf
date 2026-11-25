@@ -21,6 +21,10 @@ export default function startup() {
     const sweep = () => { extract.cleanStale().then((n) => { if (n) console.log(`[展開] 古い一時フォルダを ${n} 個片付けました`); }, () => {}); };
     setTimeout(sweep, 20_000).unref?.();
     setInterval(sweep, 60 * 60_000).unref?.(); // 1 時間ごとにも
+    // 古い操作の記録を消す(チームごとに新しい 2 万件だけ残す。1 時間ごと)
+    const prune = () => { events.prune().then((n) => { if (n) console.log(`[記録] 古い操作の記録を ${n} 件消しました`); }, (e) => console.error("[記録] 古い操作の記録を消せませんでした:", e)); };
+    setTimeout(prune, 30_000).unref?.();
+    setInterval(prune, 60 * 60_000).unref?.();
     // 利用状況の送信(同意したパネルだけ。1 時間ごとに確かめ、前に送ってから 1 日たっていれば送る)
     const tele = setInterval(() => { telemetry.sendIfDue().catch(() => {}); }, 60 * 60_000);
     tele.unref?.();

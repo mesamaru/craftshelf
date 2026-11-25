@@ -146,6 +146,7 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 
 - 操作の記録(表 `audit_log`。`src/server/events.ts` の `record`)。各サービスの、変える操作の最後に記録する(だれが・何を・どのサーバーに・詳しい内容)。予約で動いたものは user_id が null。見られるのは `member: ["update"]`(管理者以上)。画面では操作・対象・詳しく・人の名前で探せる(`list` の `q`、ILIKE。`%`・`_` はそのままの文字)。
 - ログイン・アカウントの操作(03.98.00 から。`auth.ts` の Better Auth の `hooks`): ログイン(パスワード・ユーザー名・パスキー・二段階認証の確かめ。IP 付き)・ログインに失敗(メールアドレスかユーザー名と IP。いる人ならその人の最初のチーム、いない人は自分用の版だけそのチームに)・ログアウト・パスワードを変える・メンバーを招待・役割を変える・外すを、種類 `account` で `audit_log` に直接書く(`EVENT_KINDS` に入れない: Discord には送らず、お知らせ(ベル)にも出さない。操作の記録の画面には出る)。書けなくてもログインなどは止めない。
+- 古い記録を消す(03.99.00 から。`events.prune`): チームごとに新しい `AUDIT_KEEP`(2 万件。v02 の `prune_audit` と同じ)だけ残す。`startup.ts` が起動の 30 秒あとと 1 時間ごとに呼ぶ。
 - Discord への通知(表 `team_notify`)。Webhook の URL は `seal` で暗号化して保存し、`https://discord.com/api/webhooks/…`(discordapp.com・ptb・canary を含む)だけを受け付ける。記録の種類(`EVENT_KINDS`: changes・sets・schedule・power・admin・updates・auto・errors・backup・panel)のうち、選んだものだけを送る。記録は 1 つの種類(`kind`)で残し、ほかにも当てはまる種類は `also` で渡す(自動更新・予約で入れた → auto、失敗 → errors、バックアップ → backup。前からの種類を選んだチームにも、前と同じように届く)。`allowed_mentions` を空にしてメンションさせない。送れなくても、もとの操作は失敗させない。
 
 - 新しい版の見回り(`setService.runUpdateChecks`、1 分ごと): 前に確かめてから 1 日(`UPDATE_CHECK_EVERY`)たったサーバーを 1 回に 2 台まで、`update_checked_at` を条件付きで書き換えてから確かめる(配布元へは入っているもの 1 つにつき 1 回。自動更新を入れたサーバーは見ない)。見つけた行を `server.update_notice` に残し、前に知らせていない行だけを `updates` で記録する。

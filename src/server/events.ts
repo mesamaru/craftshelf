@@ -1,6 +1,6 @@
 // 操作の記録と Discord への通知。どの処理も、選んでいるチームの中だけを読み書きする
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, ilike, lt, inArray, ne, or, sql } from "drizzle-orm";
+import { and, desc, eq, gt, ilike, lt, inArray, ne, or, sql } from "drizzle-orm";
 import { auditLog, noticeSeen, organization, teamNotify, user, server } from "./db/schema";
 import { HttpError, holds, requireTeam } from "./guard";
 import type { Deps } from "./servers";
@@ -20,6 +20,8 @@ export const EVENT_KINDS = {
   panel: "パネルのアップデート(v03 の新しい版)",
 } as const;
 export type EventKind = keyof typeof EVENT_KINDS;
+// 操作の記録は、チームごとに新しいものからこの数だけ残す(v02 の prune_audit と同じ 2 万件)
+export const AUDIT_KEEP = 20_000;
 const isKind = (v: unknown): v is EventKind => typeof v === "string" && v in EVENT_KINDS;
 
 // also は、記録の種類のほかに当てはまる知らせる種類(自動更新で入れた → auto、失敗 → errors など)。記録は kind で残す。
@@ -98,6 +100,14 @@ export function eventService(deps: Deps) {
 
   return {
     record,
+
+    /** 古い操作の記録を消す(チームごとに新しい keep 件だけ残す)。起動のあとと 1 時間ごとに呼ぶ */
+    async prune(keep = AUDIT_KEEP) {
+      const ranked = db.select({ id: auditLog.id, rn: sql<number>`row_number() over (partition by ${auditLog.teamId} order by ${auditLog.at} desc, ${auditLog.id} desc)`.as("rn") })
+        .from(auditLog).as("ranked");
+      const gone = await db.delete(auditLog).where(inArray(auditLog.id, db.select({ id: ranked.id }).from(ranked).where(gt(ranked.rn, keep)))).returning({ id: auditLog.id });
+      return gone.length;
+    },
 
     /** 操作の記録(新しい順。before より前のもの。q で操作・対象・詳しく・人の名前を探す)。見るのは管理者以上 */
     async list(headers: Headers, before?: string, q?: string) {

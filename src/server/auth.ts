@@ -1,6 +1,6 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { betterAuth } from "better-auth";
-import { APIError, createAuthMiddleware } from "better-auth/api";
+import { APIError, createAuthMiddleware, getIP, getSessionFromCtx, isAPIError } from "better-auth/api";
 import { hashPassword, verifyPassword } from "better-auth/crypto";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { organization, twoFactor, username } from "better-auth/plugins";
@@ -21,6 +21,10 @@ export const USERNAME_RE = /^[\p{L}\p{N}_.@-]{1,40}$/u;
 export const legacyTotpContext = (userId: string) => `v02-totp:${userId}`;
 
 export const APP_NAME = "CraftShelf";
+
+// ログイン・アカウントの操作を残す操作の記録の種類(EVENT_KINDS には入れない: Discord には送らず、お知らせにも出さない)
+export const ACCOUNT_KIND = "account";
+const SIGN_IN = new Set(["/sign-in/email", "/sign-in/username", "/passkey/verify-authentication", "/two-factor/verify-totp", "/two-factor/verify-backup-code", "/two-factor/verify-otp"]);
 
 // サービス版で無料で使える範囲。自分用の版はチームを 1 つだけ使う
 export const LIMITS = { teamsPerUser: 5, membersPerTeam: 20 };
@@ -46,6 +50,16 @@ export function createAuth(db: Db, opts: Options) {
       .where(eq(schema.member.userId, userId)).orderBy(asc(schema.member.createdAt)).limit(1);
     return m?.id ?? null;
   };
+  // 操作の記録に残す(記録できなくても、ログインなどは止めない)
+  const log = async (teamId: string | null, userId: string | null, action: string, target = "", detail = "") => {
+    if (!teamId) return;
+    try {
+      await db.insert(schema.auditLog).values({ id: randomUUID(), teamId, userId, kind: ACCOUNT_KIND, action, target: target.slice(0, 200), detail: detail.slice(0, 2000) });
+    } catch (e) {
+      console.error("[記録] ログインの記録を残せませんでした:", e instanceof Error ? e.message : e);
+    }
+  };
+  const nameOf = async (userId: string) => (await db.select({ name: schema.user.name }).from(schema.user).where(eq(schema.user.id, userId)).limit(1))[0]?.name ?? "";
   const userCount = async () => (await db.select({ n: count() }).from(schema.user))[0].n;
   // メール: 送れるとき(と、リンクに使う URL がわかるとき)だけ。ログインの前にメールアドレスの確認を求めるのはサービス版だけ。
   // 招待を受けるときは、メールを送れるならどちらの版でも確認を求める(リンクを知っている他人が、そのアドレスで先に登録して参加できないように)
@@ -70,6 +84,12 @@ export function createAuth(db: Db, opts: Options) {
       // v02 で二段階認証を使っていた人は、v02 の認証アプリのコード(ヘッダー x-v02-totp)も確かめる。
       // パスワードが合っているときだけ求める(ユーザー名からは、二段階認証の有無がわからないように)
       before: createAuthMiddleware(async (ctx) => {
+        // ログアウト(消したあとはだれかわからないので、消す前に残す)
+        if (ctx.path === "/sign-out") {
+          const s = await getSessionFromCtx(ctx).catch(() => null);
+          if (s) await log(s.session.activeOrganizationId ?? (await firstTeam(s.user.id)), s.user.id, "ログアウト");
+          return;
+        }
         // 表示名の長さ(Better Auth は決めていない)
         if ((ctx.path === "/update-user" || ctx.path === "/sign-up/email") && String((ctx.body as { name?: unknown } | undefined)?.name ?? "").length > 60) {
           throw new APIError("BAD_REQUEST", { message: "表示名は 60 文字までです", code: "NAME_TOO_LONG" });
@@ -96,6 +116,42 @@ export function createAuth(db: Db, opts: Options) {
         if (!code) throw new APIError("UNAUTHORIZED", { message: "認証アプリのコードを入力してください", code: "V02_TOTP_REQUIRED" });
         if (!verifyV02Totp(open(opts.secret, legacy.secretSealed, legacyTotpContext(u.id)), code)) {
           throw new APIError("UNAUTHORIZED", { message: "コードが違います", code: "V02_TOTP_INVALID" });
+        }
+      }),
+      // ログイン(と失敗)・パスワードの変更・メンバーの招待・役割の変更・外すを、操作の記録に残す
+      after: createAuthMiddleware(async (ctx) => {
+        const failed = isAPIError(ctx.context.returned);
+        const ip = getIP(ctx.request ?? ctx.headers ?? new Headers(), ctx.context.options) ?? "";
+        const from = ip ? `IP ${ip}` : "";
+        if (SIGN_IN.has(ctx.path)) {
+          const s = ctx.context.newSession;
+          if (s) return log(s.session.activeOrganizationId ?? (await firstTeam(s.user.id)), s.user.id, "ログイン", "", from);
+          if (!failed || (ctx.path !== "/sign-in/email" && ctx.path !== "/sign-in/username")) return;
+          const body = (ctx.body ?? {}) as { username?: unknown; email?: unknown };
+          const name = String((ctx.path === "/sign-in/username" ? body.username : body.email) ?? "").toLowerCase().slice(0, 100);
+          const [u] = name ? await db.select({ id: schema.user.id }).from(schema.user)
+            .where(ctx.path === "/sign-in/username" ? eq(schema.user.username, name) : eq(schema.user.email, name)).limit(1) : [];
+          // いない人の名前の失敗は、自分用の版だけ(チームが 1 つなのでそこに残す)
+          const team = u ? await firstTeam(u.id) : mode === "self" ? (await db.select({ id: schema.organization.id }).from(schema.organization).limit(1))[0]?.id ?? null : null;
+          return log(team, u?.id ?? null, "ログインに失敗", name, from);
+        }
+        if (failed) return;
+        // チームの操作は、Better Auth が読んだセッションを after に渡さないので読み直す
+        const s = ctx.context.session ?? (await getSessionFromCtx(ctx).catch(() => null));
+        if (!s) return;
+        const body = (ctx.body ?? {}) as { organizationId?: unknown; email?: unknown; role?: unknown };
+        const team = typeof body.organizationId === "string" ? body.organizationId : s.session.activeOrganizationId ?? null;
+        const ret = ctx.context.returned as { member?: { userId?: string; role?: string }; userId?: string; role?: string } | null;
+        const role = (r: unknown) => String(Array.isArray(r) ? r.join("・") : r ?? "");
+        if (ctx.path === "/change-password") return log(await firstTeam(s.user.id), s.user.id, "パスワードを変える", "", from);
+        if (ctx.path === "/organization/invite-member") return log(team, s.user.id, "メンバーを招待", String(body.email ?? ""), role(body.role));
+        if (ctx.path === "/organization/update-member-role") {
+          const m = ret?.member ?? ret;
+          return log(team, s.user.id, "メンバーの役割を変える", m?.userId ? await nameOf(m.userId) : "", role(body.role));
+        }
+        if (ctx.path === "/organization/remove-member") {
+          const m = ret?.member;
+          return log(team, s.user.id, "メンバーを外す", m?.userId ? await nameOf(m.userId) : "");
         }
       }),
     },

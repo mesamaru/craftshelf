@@ -65,7 +65,7 @@ describe("操作の記録", () => {
     await lib.setProfile(owner, id, { platform: "paper", mcVersion: "1.21.1" });
     const rows = await ev.list(owner);
     expect(rows.map((r) => [r.action, r.target, r.userName])).toEqual([
-      ["サーバーの種類を設定", "ロビー", "オーナー"], ["再起動", "ロビー", "編集者"], ["サーバーを追加", "ロビー", "オーナー"], ["Pterodactyl パネルを登録", "家のパネル", "オーナー"]]);
+      ["サーバーの種類を設定", "ロビー", "オーナー"], ["再起動", "ロビー", "編集者"], ["メンバーを招待", "editor@example.com", "オーナー"], ["サーバーを追加", "ロビー", "オーナー"], ["Pterodactyl パネルを登録", "家のパネル", "オーナー"]]);
     expect(rows[0].detail).toBe("Paper 1.21.1");
     expect(await code(ev.list(editor))).toBe(403);
     expect(await ev.list(outsider)).toEqual([]); // 部外者のチームには、まだ記録が無い

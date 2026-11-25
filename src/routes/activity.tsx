@@ -132,7 +132,7 @@ function Log() {
             <span className="main">
               <span>{r.action} <span translate="no">{r.target}</span></span>
               {r.detail && <span className="muted pre" translate="no">{r.detail}</span>}
-              <span className="muted">{new Date(r.at).toLocaleString("ja-JP")} · {r.userName ? <span translate="no">{r.userName}</span> : r.kind === "schedule" ? "予約" : "自動"}</span>
+              <span className="muted">{new Date(r.at).toLocaleString("ja-JP")} · {r.userName ? <span translate="no">{r.userName}</span> : r.kind === "schedule" ? "予約" : r.kind === "account" ? "登録の無い人" : "自動"}</span>
             </span>
           </div>
         ))}

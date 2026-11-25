@@ -1,6 +1,6 @@
 // 操作の記録と Discord への通知。どの処理も、選んでいるチームの中だけを読み書きする
 import { randomUUID } from "node:crypto";
-import { and, desc, eq, ilike, lt, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, lt, inArray, ne, or, sql } from "drizzle-orm";
 import { auditLog, noticeSeen, organization, teamNotify, user, server } from "./db/schema";
 import { HttpError, holds, requireTeam } from "./guard";
 import type { Deps } from "./servers";
@@ -78,7 +78,7 @@ export function eventService(deps: Deps) {
     const admin = holds(who, { audit: ["read"] });
     const rows = await db.select({ id: auditLog.id, kind: auditLog.kind, action: auditLog.action, target: auditLog.target, detail: auditLog.detail, at: auditLog.at, userId: auditLog.userId, userName: user.name })
       .from(auditLog).leftJoin(user, eq(auditLog.userId, user.id))
-      .where(and(eq(auditLog.teamId, who.teamId), ...(admin ? [] : [inArray(auditLog.kind, MEMBER_KINDS)])))
+      .where(and(eq(auditLog.teamId, who.teamId), admin ? ne(auditLog.kind, "account") : inArray(auditLog.kind, MEMBER_KINDS))) // ログインの記録(auth.ts)はお知らせに出さない
       .orderBy(desc(auditLog.at)).limit(admin ? 30 : 100);
     const { serverScope } = await import("./servers");
     const scope = admin ? null : await serverScope(deps as never, who);

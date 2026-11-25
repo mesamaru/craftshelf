@@ -1,6 +1,11 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "ログインに失敗": "Sign-in failed",
+  "登録の無い人": "Unregistered user",
+  "メンバーを招待": "Invite member",
+  "メンバーの役割を変える": "Change member role",
+  "メンバーを外す": "Remove member",
   "このキーで操作できるサーバーがありません": "No servers available with this key",
   "展開した中身が違います": "Extracted content differs",
   "書いた中身と違います": "Content differs from what was written",

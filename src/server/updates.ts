@@ -10,6 +10,7 @@ import { HttpError, isHttpError, requireTeam } from "./guard";
 import { jobService } from "./jobs";
 import type { Deps } from "./servers";
 import type { Release, versionService } from "./versions";
+import { compareVersion, generationOf, isVersion, newerVersion } from "~/lib/version";
 
 export type UpdateChannel = "stable" | "dev";
 export type UpdateEntry = { at: string; from: string; to: string; backup: string | null; auto: boolean; rolledBackAt?: string };
@@ -23,7 +24,6 @@ const HISTORY_MAX = 20;
  * 一度上げた下限は panel-update.json に残り、下げない(下限より古い版を、ほかの版を経由して使わないように)
  */
 export const DATA_FLOOR = "03.60.00";
-const newer = (a: string, b = "") => (a > b ? a : b);
 
 export const updateStatePath = (v03Dir: string) => join(v03Dir, "panel-update.json");
 
@@ -32,17 +32,16 @@ export function readUpdateState(v03Dir: string): UpdateState {
   try {
     if (existsSync(updateStatePath(v03Dir))) s = JSON.parse(readFileSync(updateStatePath(v03Dir), "utf8"));
   } catch { /* 読めなければ既定 */ }
-  return { auto: s.auto === true, channel: s.channel === "dev" ? "dev" : "stable", lastCheck: String(s.lastCheck ?? ""), floor: /^\d{2}\.\d{2}\.\d{2}$/.test(String(s.floor)) ? String(s.floor) : "",
+  return { auto: s.auto === true, channel: s.channel === "dev" ? "dev" : "stable", lastCheck: String(s.lastCheck ?? ""), floor: isVersion(String(s.floor)) ? String(s.floor) : "",
     skip: Array.isArray(s.skip) ? s.skip.map(String) : [], history: Array.isArray(s.history) ? s.history : [] };
 }
 
 export const writeUpdateState = (v03Dir: string, s: UpdateState) => writeFileSync(updateStatePath(v03Dir), JSON.stringify(s, null, 2) + "\n");
 
-const majorOf = (v: string) => v.split(".")[0];
-
-/** 自動で入れる版: 選んだ範囲(安定版だけ / 開発版も)で、いまより新しく、大きな版上げ(メジャーが変わる)でなく、戻したことのないもの(releases は新しい順) */
+/** 自動で入れる版: 選んだ範囲(安定版だけ / 開発版も)で、いまより新しく、大型(製品の世代)が同じで、戻したことのないもの(releases は新しい順)。
+ * メジャーが変わる版(03.99.xx → 0.04.00 など)も、大型が同じなら入れる */
 export function pickAuto(releases: Release[], current: string, channel: UpdateChannel, skip: string[]): Release | null {
-  return releases.find((r) => (channel === "dev" || r.stable) && r.version > current && majorOf(r.version) === majorOf(current) && !skip.includes(r.version)) ?? null;
+  return releases.find((r) => (channel === "dev" || r.stable) && compareVersion(r.version, current) > 0 && generationOf(r.version) === generationOf(current) && !skip.includes(r.version)) ?? null;
 }
 
 type Versions = ReturnType<typeof versionService>;
@@ -57,7 +56,7 @@ export function updateService(deps: Deps, versions: Versions, backups: Backups) 
   const read = () => readUpdateState(v03Dir);
   const write = (s: UpdateState) => writeUpdateState(v03Dir, s);
   /** 切り替えられるいちばん古い版(このコードの下限と、前に残した下限の新しい方) */
-  const floorOf = () => newer(DATA_FLOOR, read().floor);
+  const floorOf = () => newerVersion(DATA_FLOOR, read().floor);
   // 起動したとき、下限を残す(古い版からほかの版を経由して、下限を下回らないように)
   try {
     const s0 = read();
@@ -73,7 +72,7 @@ export function updateService(deps: Deps, versions: Versions, backups: Backups) 
   async function apply(teamId: string, userId: string | null, version: string, auto: boolean) {
     const from = versions.state().current;
     const floor = floorOf();
-    if (version < floor) {
+    if (compareVersion(version, floor) < 0) {
       throw new HttpError(400, `v${version} は、いまのデータを読めないので切り替えられません(v${floor} より古い版は、メンバーごとの権限・共有リンクの回数などを知らないため、データが壊れます)`);
     }
     return jobs.track({ teamId, userId, action: auto ? "パネルの自動アップデート" : "パネルの版を切り替える", target: `v${from} → v${version}` }, async () => {
@@ -166,7 +165,7 @@ export function updateService(deps: Deps, versions: Versions, backups: Backups) 
       const s = read();
       s.lastCheck = now.toISOString();
       write(s);
-      if (releases[0] && releases[0].version > current) await announcePanel(releases[0].version);
+      if (releases[0] && compareVersion(releases[0].version, current) > 0) await announcePanel(releases[0].version);
       const pick = s.auto ? pickAuto(releases, current, s.channel, s.skip) : null;
       if (!pick) return false;
       if (await jobs.busy()) return false;

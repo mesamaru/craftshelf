@@ -45,6 +45,11 @@ describe("GitHub のリリースの読み方", () => {
     expect(pickReleases(releases()).map((r) => r.version)).toEqual([V]);
     expect(pickReleases({ message: "rate limited" })).toEqual([]);
   });
+  it("新しい形のタグ(v0.xx.xx・dev-v0.xx.xx)も拾い、版の数で新しい順に並べる(v02 のタグは拾わない)", () => {
+    const withAssets = (tag: string, v: string) => ({ tag_name: tag, assets: [{ name: assetName(v), browser_download_url: "https://github.com/a" }, { name: "SHA256SUMS", browser_download_url: "https://github.com/s" }] });
+    const list = [withAssets("v03.99.03", "03.99.03"), withAssets("dev-v0.04.01", "0.04.01"), withAssets("v0.04.00", "0.04.00"), withAssets("v02.26.00", "02.26.00")];
+    expect(pickReleases(list).map((r) => [r.version, r.stable])).toEqual([["0.04.01", false], ["0.04.00", true], ["03.99.03", true]]);
+  });
   it("SHA256SUMS から値を読む", () => {
     const h = "a".repeat(64);
     expect(sumFor(`${h}  ${assetName(V)}\n${"b".repeat(64)} *other`, assetName(V))).toBe(h);

@@ -24,7 +24,8 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
-const VERSION = /^\d{2}\.\d{2}\.\d{2}$/;
+// 版の形: 旧 03.xx.xx と、新 0.xx.xx(0.04.00 から。src/lib/version.ts と同じ)
+const VERSION = /^(\d{2}\.\d{2}\.\d{2}|\d\.\d{2}\.\d{2})$/;
 
 function parse(argv) {
   const o = { cmd: "", rest: [], dataDir: "", host: "", port: 0, browser: true, tray: true };

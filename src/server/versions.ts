@@ -7,10 +7,11 @@ import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import type { FetchLike } from "./net";
 import { v02DirOf } from "./env";
+import { compareVersion, isV03OrLater, isVersion } from "~/lib/version";
 
 const REPO = "mesamaru/craftshelf";
-const TAG = /^(dev-)?v(03\.\d{2}\.\d{2})$/; // v03.xx.xx = 安定版 / dev-v03.xx.xx = 開発版
-const VERSION = /^\d{2}\.\d{2}\.\d{2}$/;
+// v03.xx.xx・v0.xx.xx = 安定版 / dev-v03.xx.xx・dev-v0.xx.xx = 開発版(版の形は ~/lib/version。v02 のタグ v02.xx.xx は拾わない)
+const TAG = /^(dev-)?v(03\.\d{2}\.\d{2}|\d\.\d{2}\.\d{2})$/;
 const MAX_BYTES = 300 * 1024 * 1024;
 
 export type Release = { version: string; stable: boolean; publishedAt: string; notes: string; url: string; sumsUrl: string };
@@ -31,7 +32,7 @@ export function pickReleases(list: unknown): Release[] {
   }
   const best = new Map<string, Release>();
   for (const r of out) if (!best.has(r.version) || r.stable) best.set(r.version, r);
-  return [...best.values()].sort((a, b) => b.version.localeCompare(a.version));
+  return [...best.values()].sort((a, b) => compareVersion(b.version, a.version));
 }
 
 // SHA256SUMS(sha256sum の形)から、そのファイルの値
@@ -79,7 +80,7 @@ export function versionService({ fetch, dataDir, appDir = process.cwd() }: { fet
         current: readVersion(appDir), image, selected,
         // v02 のパネルから切り替えて動いている(v02 の v03switch.py が V02_CONFIG_DIR を渡して起動する。イメージが v03 のときは違う)。
         // このときは versions/current を消して再起動すると v02 で起動する
-        fromV02: !!process.env.V02_CONFIG_DIR && !!selected && !image.startsWith("03."),
+        fromV02: !!process.env.V02_CONFIG_DIR && !!selected && !isV03OrLater(image),
         v02Data: existsSync(join(v02DirOf(dataDir), "index.db")),
       };
     },
@@ -91,7 +92,7 @@ export function versionService({ fetch, dataDir, appDir = process.cwd() }: { fet
 
     /** その版を取ってきて確かめ、次の起動で使うようにする(再起動は呼ぶ側で) */
     async install(version: string) {
-      if (!VERSION.test(version)) throw new Error("版の形が違います");
+      if (!isVersion(version)) throw new Error("版の形が違います");
       const rel = (await this.list()).find((r) => r.version === version);
       if (!rel) throw new Error("その版は見つかりません");
       const want = sumFor(await (await get(rel.sumsUrl)).text(), assetName(version));
@@ -122,7 +123,7 @@ export function versionService({ fetch, dataDir, appDir = process.cwd() }: { fet
 
     /** その版を次の起動で使う: イメージの版ならそれに戻し、取ってきてあればそれを、無ければ取ってくる(再起動は呼ぶ側で) */
     async use(version: string) {
-      if (!VERSION.test(version)) throw new Error("版の形が違います");
+      if (!isVersion(version)) throw new Error("版の形が違います");
       if (version === readVersion(imageDir)) return this.useImage();
       const dir = join(root, version);
       if (readVersion(dir) === version && existsSync(join(dir, ".output", "server", "index.mjs"))) writeFileSync(join(root, "current"), version + "\n");

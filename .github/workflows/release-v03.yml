@@ -5,7 +5,7 @@
 name: release-v03
 on:
   push:
-    tags: ["v03.*"]
+    tags: ["v03.*", "v0.*"] # v0.xx.xx は 0.04.00 からの新しい形(v02.xx.xx は v0.* に当たらない)
 permissions:
   contents: write
   packages: write

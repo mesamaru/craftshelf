@@ -20,8 +20,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: docker build -t craftshelf-self .
-      - name: 起動できない版が選ばれていても、イメージの版で起動する
-        run: mkdir -p data/v03/versions && echo 03.99.99 > data/v03/versions/current
+      - name: 起動できない版が選ばれていても、イメージの版で起動する(新しい形 0.xx.xx の版)
+        run: mkdir -p data/v03/versions && echo 0.99.99 > data/v03/versions/current
       - run: docker run -d --name cs -p 8765:8080 -v "$PWD/data:/data" craftshelf-self
       - name: 起動を待つ
         run: |

@@ -17,6 +17,7 @@ import { saveMyBackground, saveMyTheme } from "~/lib/prefs-api";
 import { sendFeedback, setTelemetry, telemetryInfo } from "~/lib/telemetry-api";
 import { deleteAccount } from "~/lib/teams-api";
 import { settingsTitle } from "~/lib/titles";
+import { compareVersion } from "~/lib/version";
 import { confirmDialog, promptDialog } from "~/lib/dialog-queue";
 
 export const Route = createFileRoute("/settings")({
@@ -340,12 +341,14 @@ function Versions({ userId }: { userId: string }) {
   const { current, image, updates, releases } = info;
   const dev = updates.channel === "dev";
   const inChannel = (r: Rel) => dev || r.stable;
-  const byNew = (x: Rel, y: Rel) => y.version.localeCompare(x.version);
-  const newer = releases.filter((r) => inChannel(r) && r.version > current).sort(byNew);
+  // 版は文字のまま比べない(0.04.00 は 03.99.xx より新しい)
+  const cmp = compareVersion;
+  const byNew = (x: Rel, y: Rel) => cmp(y.version, x.version);
+  const newer = releases.filter((r) => inChannel(r) && cmp(r.version, current) > 0).sort(byNew);
   const latest = newer[0];
   // 戻せる版: いまのデータを読める版(下限)より新しく、いまの版より古いもの
-  const older = releases.filter((r) => inChannel(r) && r.version < current && r.version >= updates.floor).sort(byNew);
-  const imageOpt = dev && !!info.selected && image >= updates.floor && image < current && !older.some((r) => r.version === image);
+  const older = releases.filter((r) => inChannel(r) && cmp(r.version, current) < 0 && cmp(r.version, updates.floor) >= 0).sort(byNew);
+  const imageOpt = dev && !!info.selected && cmp(image, updates.floor) >= 0 && cmp(image, current) < 0 && !older.some((r) => r.version === image);
   const date = (s: string) => (s ? new Date(s).toLocaleDateString("ja-JP") : "");
   const update = (v: string) => run(`v${v} に更新しますか?パネルが再起動します(データはそのままです)`, "アップデート", false, () => installVersion({ data: { version: v } }));
   const goBack = (v: string) => run(`v${v} に戻しますか?パネルが再起動します(データはそのままです)`, "戻す", true, () => installVersion({ data: { version: v } }));

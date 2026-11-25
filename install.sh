@@ -54,8 +54,9 @@ for c in curl tar sha256sum; do
     fi
 done
 
-# 入れる版のリリース(新しい順の一覧から、安定版 v03.xx.xx か、開発版 dev-v03.xx.xx も)
-case "$CHANNEL" in stable) TAGRE='v03\.[0-9]{2}\.[0-9]{2}' ;; dev) TAGRE='(dev-)?v03\.[0-9]{2}\.[0-9]{2}' ;; *) die "CRAFTSHELF_CHANNEL は stable か dev にしてください" ;; esac
+# 入れる版のリリース(新しい順の一覧から、安定版 v03.xx.xx・v0.xx.xx か、開発版 dev-v03.xx.xx・dev-v0.xx.xx も。0.04.00 から新しい形)
+VRE='(03|[0-9])\.[0-9]{2}\.[0-9]{2}'
+case "$CHANNEL" in stable) TAGRE="v${VRE}" ;; dev) TAGRE="(dev-)?v${VRE}" ;; *) die "CRAFTSHELF_CHANNEL は stable か dev にしてください" ;; esac
 [ -z "$WANT" ] || TAGRE="(dev-)?v${WANT//./\\.}"
 say "https://github.com/${REPO} のリリースを確かめています"
 URL="$(curl -fsSL -H "User-Agent: CraftShelf" "https://api.github.com/repos/${REPO}/releases?per_page=50" \

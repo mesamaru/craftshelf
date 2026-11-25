@@ -22,13 +22,30 @@ const rel = (version: string, stable: boolean): Release => ({ version, stable, p
 const code = (p: Promise<unknown>) => p.then(() => 200, (e) => (e instanceof HttpError ? e.status : (console.error(e), 500)));
 
 describe("自動で入れる版", () => {
-  const list = [rel("04.00.00", true), rel("03.63.00", false), rel("03.62.00", true), rel("03.61.00", true)];
-  it("安定版だけ / 開発版も・大きな版上げはしない・いまより新しいものだけ・戻したものは飛ばす", () => {
+  const list = [rel("1.00.00", true), rel("03.63.00", false), rel("03.62.00", true), rel("03.61.00", true)];
+  it("安定版だけ / 開発版も・大型(世代)が変わる版上げはしない・いまより新しいものだけ・戻したものは飛ばす", () => {
     expect(pickAuto(list, "03.61.00", "stable", [])?.version).toBe("03.62.00");
     expect(pickAuto(list, "03.61.00", "dev", [])?.version).toBe("03.63.00");
     expect(pickAuto(list, "03.61.00", "dev", ["03.63.00"])?.version).toBe("03.62.00");
     expect(pickAuto(list, "03.62.00", "stable", [])).toBeNull();
     expect(pickAuto(list, "03.63.00", "dev", [])).toBeNull();
+  });
+
+  it("新しい形の版(0.04.00 から)へは、メジャーが変わっても大型が同じなので入れる", () => {
+    const next = [rel("1.00.00", true), rel("0.04.01", false), rel("0.04.00", true), rel("03.99.03", true)];
+    expect(pickAuto(next, "03.99.03", "stable", [])?.version).toBe("0.04.00");
+    expect(pickAuto(next, "03.99.03", "dev", [])?.version).toBe("0.04.01");
+    expect(pickAuto(next, "03.99.02", "stable", ["0.04.00"])?.version).toBe("03.99.03");
+    expect(pickAuto(next, "0.04.01", "dev", [])).toBeNull();
+  });
+
+  it("データの読める下限より新しい形の版は、下限より新しいとみなす", () => {
+    expect(DATA_FLOOR).toBe("03.60.00");
+    const dir = mkdtempSync(join(tmpdir(), "cs-floor-"));
+    writeUpdateState(dir, { auto: false, channel: "stable", lastCheck: "", skip: [], history: [], floor: "0.04.00" });
+    expect(readUpdateState(dir).floor).toBe("0.04.00");
+    writeUpdateState(dir, { auto: false, channel: "stable", lastCheck: "", skip: [], history: [], floor: "4.0" });
+    expect(readUpdateState(dir).floor).toBe("");
   });
 });
 
@@ -249,6 +266,15 @@ describe("ランチャー", () => {
     expect(existsSync(join(ver, ".starting"))).toBe(true);
     expect(pickApp(data, app, () => {})).toBe(app);
     expect(existsSync(join(data, "v03", "versions", "current"))).toBe(false);
+    // 新しい形の版(0.04.00 から)も使える
+    const next = join(data, "v03", "versions", "0.04.00");
+    mkdirSync(join(next, ".output", "server"), { recursive: true });
+    writeFileSync(join(next, ".output", "server", "index.mjs"), "");
+    writeFileSync(join(data, "v03", "versions", "current"), "0.04.00\n");
+    expect(pickApp(data, app, () => {})).toBe(next);
+    // 形の違う版は使わない
+    writeFileSync(join(data, "v03", "versions", "current"), "../0.04.00\n");
+    expect(pickApp(data, app, () => {})).toBe(app);
   });
 
   it("タスクトレイは Windows・macOS だけで、助けのファイルが無ければ出さない。Windows のスクリプトは PowerShell 5.1 が日本語を読める BOM 付き", () => {

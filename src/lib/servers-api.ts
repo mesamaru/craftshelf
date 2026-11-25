@@ -45,8 +45,12 @@ export const removeServer = createServerFn({ method: "POST" })
   .handler(async ({ data }) => (await svc()).removeServer(headers(), data.id));
 
 export const addConnection = createServerFn({ method: "POST" })
-  .validator(z.object({ name: z.string().max(60), url: z.string().min(1).max(300), apiKey: z.string().min(1).max(200) }))
+  .validator(z.object({ name: z.string().max(60), url: z.string().min(1).max(300), apiKey: z.string().min(1).max(200), insecure: z.boolean().optional() }))
   .handler(async ({ data }) => (await svc()).addConnection(headers(), data));
+
+export const setConnectionInsecure = createServerFn({ method: "POST" })
+  .validator(z.object({ id: z.string().min(1).max(64), insecure: z.boolean() }))
+  .handler(async ({ data }) => (await svc()).setConnectionInsecure(headers(), data.id, data.insecure));
 
 export const removeConnection = createServerFn({ method: "POST" })
   .validator(id)

@@ -23,7 +23,7 @@ export const SERVER_LIMITS = { connectionsPerTeam: 5 };
 
 // allowPrivate: 自分用の版では、家の中のアドレス・http のパネルも登録できる
 // local: 自分用の版だけ。フォルダでつなぐサーバーを使えるようにする(dataDir はパネルのデータの場所。サーバーにはできない)
-export type Deps = { db: Db; auth: Auth; secret: string; fetch: FetchLike; allowPrivate?: boolean; local?: { dataDir: string; extract?: import("./local").ExtractOpts }; agents?: AgentHub };
+export type Deps = { db: Db; auth: Auth; secret: string; fetch: FetchLike; allowPrivate?: boolean; insecureFetch?: FetchLike; local?: { dataDir: string; extract?: import("./local").ExtractOpts }; agents?: AgentHub };
 
 // Pterodactyl からのエラーは、画面に出せる言葉にして返す
 export async function remote<T>(fn: () => Promise<T>): Promise<T> {
@@ -54,10 +54,14 @@ const oneLine = (v: unknown, max: number, what: string) => {
   return s;
 };
 
-async function connectionOf({ db, secret, fetch }: Deps, teamId: string, id: string) {
+// 証明書を確かめない設定のパネルは、自分用の版だけ確かめずにつなぐ(サービス版は設定があっても確かめる)
+const pteroFetch = (deps: Deps, insecure: boolean) => (insecure && deps.allowPrivate && deps.insecureFetch) || deps.fetch;
+
+async function connectionOf(deps: Deps, teamId: string, id: string) {
+  const { db, secret, fetch } = deps;
   const [c] = await db.select().from(pteroConnection).where(and(eq(pteroConnection.id, id), eq(pteroConnection.teamId, teamId)));
   if (!c) throw new HttpError(404, "接続が見つかりません");
-  return { row: c, client: pteroClient(c.url, open(secret, c.apiKeySealed, sealContext(teamId, c.id)), fetch) };
+  return { row: c, client: pteroClient(c.url, open(secret, c.apiKeySealed, sealContext(teamId, c.id)), pteroFetch(deps, c.insecure), fetch) };
 }
 
 // チームのサーバーと、それを操作する Pterodactyl のクライアント(ほかのチームのものは 404)
@@ -186,7 +190,7 @@ export function serverService(deps: Deps) {
 
   return {
     /** Pterodactyl パネルを登録する。キーで一覧が取れることを確かめてから保存する */
-    async addConnection(headers: Headers, input: { name: string; url: string; apiKey: string }) {
+    async addConnection(headers: Headers, input: { name: string; url: string; apiKey: string; insecure?: boolean }) {
       const { teamId, user } = await requireTeam(auth, headers, { server: ["create"] });
       const name = input.name.trim().slice(0, 60) || "Pterodactyl";
       const apiKey = input.apiKey.trim();
@@ -200,12 +204,13 @@ export function serverService(deps: Deps) {
       const [{ n }] = await db.select({ n: count() }).from(pteroConnection).where(eq(pteroConnection.teamId, teamId));
       if (n >= SERVER_LIMITS.connectionsPerTeam) throw new HttpError(400, `登録できるパネルは ${SERVER_LIMITS.connectionsPerTeam} つまでです`);
 
-      const servers = await remote(() => pteroClient(url, apiKey, fetch).servers());
+      const insecure = !!input.insecure && !!deps.allowPrivate;
+      const servers = await remote(() => pteroClient(url, apiKey, pteroFetch(deps, insecure), fetch).servers());
       const id = randomUUID();
       await db.insert(pteroConnection).values({
-        id, teamId, name, url, apiKeySealed: seal(secret, apiKey, sealContext(teamId, id)), apiKeyHint: hint(apiKey), createdBy: user.id,
+        id, teamId, name, url, apiKeySealed: seal(secret, apiKey, sealContext(teamId, id)), apiKeyHint: hint(apiKey), createdBy: user.id, insecure,
       });
-      await record({ teamId, userId: user.id, kind: "admin", action: "Pterodactyl パネルを登録", target: name, detail: url });
+      await record({ teamId, userId: user.id, kind: "admin", action: "Pterodactyl パネルを登録", target: name, detail: insecure ? `${url}(証明書を確かめない)` : url });
       return { id, servers };
     },
 
@@ -218,7 +223,7 @@ export function serverService(deps: Deps) {
 
     async listConnections(headers: Headers) {
       const { teamId } = await requireTeam(auth, headers);
-      return db.select({ id: pteroConnection.id, name: pteroConnection.name, url: pteroConnection.url, apiKeyHint: pteroConnection.apiKeyHint })
+      return db.select({ id: pteroConnection.id, name: pteroConnection.name, url: pteroConnection.url, apiKeyHint: pteroConnection.apiKeyHint, insecure: pteroConnection.insecure })
         .from(pteroConnection).where(eq(pteroConnection.teamId, teamId)).orderBy(asc(pteroConnection.createdAt));
     },
 
@@ -304,6 +309,16 @@ export function serverService(deps: Deps) {
       const rl = (client as unknown as { rateLimit?: () => { limit: number; remaining: number } | null }).rateLimit?.() ?? null;
       steps.push({ label: "回数の上限(1 分あたり)", ok: rl ? true : null, detail: rl ? `${rl.limit} 回(残り ${rl.remaining} 回)` : "パネルが知らせていません" });
       return { server: name, steps };
+    },
+
+    /** 証明書を確かめるかを変える(管理者以上・自分用の版だけ) */
+    async setConnectionInsecure(headers: Headers, id: string, insecure: boolean) {
+      const { teamId, user } = await requireTeam(auth, headers, { member: ["update"] });
+      if (insecure && !deps.allowPrivate) throw new HttpError(400, "証明書を確かめない設定は、自分用の版だけで使えます");
+      const r = await db.update(pteroConnection).set({ insecure }).where(and(eq(pteroConnection.id, id), eq(pteroConnection.teamId, teamId))).returning({ name: pteroConnection.name, url: pteroConnection.url });
+      if (r.length === 0) throw new HttpError(404, "接続が見つかりません");
+      forgetPteroReadsFor(r[0].url);
+      await record({ teamId, userId: user.id, kind: "admin", action: insecure ? "Pterodactyl の証明書を確かめない" : "Pterodactyl の証明書を確かめる", target: r[0].name });
     },
 
     async removeConnection(headers: Headers, id: string) {

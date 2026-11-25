@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { pteroConnection } from "~/server/db/schema";
 import { HttpError } from "~/server/guard";
 import type { FetchLike } from "~/server/net";
+import { forgetPteroReadsFor } from "~/server/ptero";
 import { SERVER_LIMITS, serverService } from "~/server/servers";
 import { setup } from "./helpers";
 
@@ -135,5 +136,37 @@ describe("サーバーの台数に上限は無い", () => {
     expect(await svc2.addServers(owner, c.id, many.map((m) => m.attributes.identifier))).toMatchObject({ added: 45 });
     expect(await svc2.listServers(owner)).toHaveLength(45);
     expect(SERVER_LIMITS).toEqual({ connectionsPerTeam: 5 });
+  });
+});
+
+describe("証明書を確かめない(自己署名の証明書)", () => {
+  it("自分用の版だけ、その設定のパネルを証明書を確かめない fetch でつなぐ。サービス版は設定させない", async () => {
+    const used: string[] = [];
+    const via = (name: string): FetchLike => async (url, init) => { used.push(name); return fakePtero(url, init); };
+    const self = serverService({ db: t.db, auth: t.auth, secret: SECRET, fetch: via("verified"), insecureFetch: via("insecure"), allowPrivate: true });
+    const h = t.headers(await t.signUp("自分用", "insecure@example.com"));
+    const r = await self.addConnection(h, { name: "自己署名", url: "panel.example.com", apiKey: KEY, insecure: true });
+    expect(used).toEqual(["insecure"]);
+    expect((await self.listConnections(h))[0]).toMatchObject({ id: r.id, insecure: true });
+    used.length = 0;
+    forgetPteroReadsFor("https://panel.example.com"); // 読んだ結果の覚えを捨てて、つなぎ直させる
+    await self.remoteServers(h, r.id);
+    expect(used).toEqual(["insecure"]);
+    // 戻すと確かめる
+    await self.setConnectionInsecure(h, r.id, false);
+    used.length = 0;
+    forgetPteroReadsFor("https://panel.example.com"); // 読んだ結果の覚えを捨てて、つなぎ直させる
+    await self.remoteServers(h, r.id);
+    expect(used).toEqual(["verified"]);
+
+    // サービス版(allowPrivate なし): 設定しても確かめる・あとから変えることもできない
+    const svcMode = serverService({ db: t.db, auth: t.auth, secret: SECRET, fetch: via("verified"), insecureFetch: via("insecure") });
+    const h2 = t.headers(await t.signUp("サービス", "insecure-svc@example.com"));
+    used.length = 0;
+    forgetPteroReadsFor("https://panel.example.com");
+    const r2 = await svcMode.addConnection(h2, { name: "公開", url: "panel.example.com", apiKey: KEY, insecure: true });
+    expect(used).toEqual(["verified"]);
+    expect((await svcMode.listConnections(h2))[0].insecure).toBe(false);
+    expect(await code(svcMode.setConnectionInsecure(h2, r2.id, true))).toBe(400);
   });
 });

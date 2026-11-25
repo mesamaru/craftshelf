@@ -14,6 +14,8 @@ export const pteroConnection = pgTable(
     apiKeyHint: text("api_key_hint").notNull(),
     createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at").defaultNow().notNull(),
+    // 03.99.02 から。証明書を確かめない(自己署名の証明書のパネル。自分用の版だけ。v02 の ptero_insecure)
+    insecure: boolean("insecure").notNull().default(false),
   },
   (t) => [index("ptero_connection_team_idx").on(t.teamId)],
 );

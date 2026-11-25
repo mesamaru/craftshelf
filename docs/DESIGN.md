@@ -68,6 +68,7 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 ## Pterodactyl に直接つなぐ
 
 - チームがパネルの URL と Client API キー(`ptlc_…`)を登録し、パネルのサーバーを選んでチームのサーバーとして追加する(表 `ptero_connection`・`server`)。
+- 証明書を確かめない(03.99.02 から。`ptero_connection.insecure`、v02 の `ptero_insecure`): 自分用の版だけ。自己署名の証明書の https のパネルに、`net.ts` の `lanInsecureFetch`(undici の `rejectUnauthorized: false`)でつなぐ(Wings の署名付き URL も同じ)。配布元からファイルを取ってくる `relay` は、いつもの fetch(確かめる)を使う(`pteroClient` の `verified`)。サービス版は設定があっても確かめ、設定もさせない(`pteroFetch`)。登録のときと、登録したパネルの行で切り替えられる(管理者以上)。v02 から取り込むときは、そのまま引き継ぐ。
 - **API キーは AES-256-GCM で暗号化して保存する**(`src/server/secrets.ts`)。鍵は `BETTER_AUTH_SECRET` から HKDF で作り、行ごとの ID を一緒に渡して、ほかの行へ写し替えても読めないようにする。画面には最後の 4 文字だけを出す。
   - `BETTER_AUTH_SECRET` を変えると、保存したキーは読めなくなる(登録し直しになる)。鍵を入れ替えられるよう、保存する文字列の先頭に版(`v1:`)を付けている。
 - **利用者が入力した URL へつなぐときは、必ず `safeFetch`(`src/server/net.ts`)を使う**。このアプリは家の LAN の中で動くので、LAN の中の機器(ルーター・NAS など)やクラウドのメタデータにつながれると危ない(SSRF)。

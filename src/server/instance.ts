@@ -2,7 +2,7 @@
 import { createAuth } from "./auth";
 import { createDb } from "./db";
 import { readEnv } from "./env";
-import { lanFetch, safeFetch } from "./net";
+import { lanFetch, lanInsecureFetch, safeFetch } from "./net";
 import { libraryService } from "./library";
 import { portService } from "./ports";
 import { serverService } from "./servers";
@@ -178,6 +178,7 @@ async function build() {
   const { agentHub } = await import("./agent-hub");
   const hub = agentHub();
   const deps = { agents: hub, db, auth, secret: env.secret, fetch: env.mode === "self" ? lanFetch : safeFetch, allowPrivate: env.mode === "self",
+    ...(env.mode === "self" ? { insecureFetch: lanInsecureFetch } : {}),
     ...(env.mode === "self" ? { local: { dataDir: env.dataDir } } : {}) };
   const servers = serverService(deps);
   const library = libraryService(deps);

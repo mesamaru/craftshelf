@@ -90,6 +90,14 @@ export const lanFetch: FetchLike = async (url, init) => {
   return res as unknown as Response;
 };
 
+// 自分用の版で、証明書を確かめずにつなぐ fetch(自己署名の証明書の Pterodactyl だけに使う。配布元からの取得には使わない)
+const insecureAgent = new Agent({ connect: { timeout: 10_000, rejectUnauthorized: false }, headersTimeout: 20_000, bodyTimeout: 60_000 });
+export const lanInsecureFetch: FetchLike = async (url, init) => {
+  checkPublicUrl(url, true);
+  const res = await undiciFetch(url, { ...(init as object), redirect: "manual", dispatcher: insecureAgent } as never);
+  return res as unknown as Response;
+};
+
 export const safeFetch: FetchLike = async (url, init) => {
   checkPublicUrl(url);
   const res = await undiciFetch(url, { ...(init as object), redirect: "manual", dispatcher: agent } as never);

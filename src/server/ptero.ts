@@ -141,7 +141,8 @@ async function gate(panel: string, background = isBackground()) {
 /** テスト用: パネルの順番待ちの様子 */
 export const gateState = (panel: string) => { const g = gates.get(panel); return g ? { busy: g.busy, bg: g.bg, waiting: g.queue.length, bgWaiting: g.bgQueue.length } : null; };
 
-export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
+// verified: 配布元からファイルを取ってくるとき(relay)に使う fetch。証明書を確かめない fetch でパネルにつなぐときも、配布元は確かめる
+export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike, verified: FetchLike = fetch) {
   const memoKey = `${baseUrl}|${createHash("sha256").update(apiKey).digest("hex").slice(0, 16)}|`;
   const serverKey = (ident: string) => `${memoKey}${ident}|`;
   const dirKey = (d: string) => d.replace(/^\/+|\/+$/g, "");
@@ -225,7 +226,7 @@ export function pteroClient(baseUrl: string, apiKey: string, fetch: FetchLike) {
         if (u.protocol !== "https:" || !PULL_HOSTS.has(u.host)) throw new PteroError("配布元の外のファイルは取ってきません");
         let res: Response;
         try {
-          res = await fetch(url, { redirect: "manual", signal: AbortSignal.timeout(transferTimeout(PULL_RELAY.bytes)) });
+          res = await verified(url, { redirect: "manual", signal: AbortSignal.timeout(transferTimeout(PULL_RELAY.bytes)) });
         } catch {
           throw new PteroError("配布元からファイルを取ってこられませんでした");
         }

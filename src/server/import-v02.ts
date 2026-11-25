@@ -138,10 +138,9 @@ export async function importFrom(db: Db, v02: DatabaseSync, opts: { secret: stri
         connectionId = randomUUID();
         await tx.insert(schema.pteroConnection).values({
           id: connectionId, teamId, name: "Pterodactyl", url, apiKeySealed: seal(opts.secret, apiKey, `ptero:${teamId}:${connectionId}`),
-          apiKeyHint: hint(apiKey), createdBy: null,
+          apiKeyHint: hint(apiKey), createdBy: null, insecure: setting("ptero_insecure") === "1", // 自分用の版だけで取り込むので、そのまま引き継ぐ
         });
         report.ptero = { url, servers: 0 };
-        if (setting("ptero_insecure") === "1") report.notes.push("v02 では Pterodactyl の証明書を確かめない設定でした。v03 は確かめるので、自己署名の証明書だとつながりません");
       } catch (e) {
         report.skipped.push({ what: "Pterodactyl の設定", detail: `読めませんでした(${(e as Error).message})` });
       }

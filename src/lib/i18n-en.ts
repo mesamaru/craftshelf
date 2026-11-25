@@ -1,6 +1,11 @@
 // 英語表示の辞書(日本語 → 英語)。画面に日本語の文言を足したら、ここにも英訳を足す。
 // 長い語句から順に置き換えるので、文の一部だけが一致する短い語句は、長い文で先に置き換えられる
 export const EN: Record<string, string> = {
+  "証明書を確かめない": "Don't verify the certificate",
+  "自己署名の証明書のパネルにつなぐときだけ使います": "Use only for panels with a self-signed certificate",
+  "Pterodactyl の証明書を確かめない": "Stop verifying the Pterodactyl certificate",
+  "Pterodactyl の証明書を確かめる": "Verify the Pterodactyl certificate",
+  "証明書を確かめない設定は、自分用の版だけで使えます": "Skipping certificate checks is only available in the self-hosted edition",
   "ログインに失敗": "Sign-in failed",
   "登録の無い人": "Unregistered user",
   "メンバーを招待": "Invite member",

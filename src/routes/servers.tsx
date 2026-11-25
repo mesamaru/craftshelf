@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, createFileRoute, redirect, useParams, useRouter } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
-  addConnection, addLocalServer, addServers, browseHost, checkConnection, listConnections, listServers, remoteServers, sharedLocalEnabled, sharedServers, removeConnection,
+  addConnection, addLocalServer, addServers, browseHost, checkConnection, listConnections, setConnectionInsecure, listServers, remoteServers, sharedLocalEnabled, sharedServers, removeConnection,
 } from "~/lib/servers-api";
 import { useCan, useTeamKey } from "~/lib/use-can";
 import { shared } from "~/lib/shared";
@@ -258,8 +258,8 @@ function AddServer({ connections, local, admin, onDone, onClose }:
     <Sheet title="サーバーを追加" onClose={onClose}>
       <Seg label="つなぎ方" value={mode} options={modes} onChange={setMode} />
       {mode === "ptero" && <>
-        {connections.map((c) => <Connection key={c.id} {...c} removable={admin} onDone={onDone} />)}
-        <NewConnection first={connections.length === 0} onDone={onDone} />
+        {connections.map((c) => <Connection key={c.id} {...c} removable={admin} lan={local} onDone={onDone} />)}
+        <NewConnection first={connections.length === 0} lan={local} onDone={onDone} />
       </>}
       {mode === "local" && <NewLocal onDone={() => { onDone(); onClose(); }} />}
       {mode === "agent" && <Agents onDone={onDone} />}
@@ -267,9 +267,14 @@ function AddServer({ connections, local, admin, onDone, onClose }:
   );
 }
 
-function Connection({ id, name, url, apiKeyHint, removable, onDone }:
-  { id: string; name: string; url: string; apiKeyHint: string; removable: boolean; onDone: () => void }) {
+function Connection({ id, name, url, apiKeyHint, insecure, removable, lan, onDone }:
+  { id: string; name: string; url: string; apiKeyHint: string; insecure: boolean; removable: boolean; lan: boolean; onDone: () => void }) {
   const remove = useServerFn(removeConnection);
+  const setInsecure = useServerFn(setConnectionInsecure);
+  const toggleInsecure = async (on: boolean) => {
+    setError("");
+    try { await setInsecure({ data: { id, insecure: on } }); onDone(); } catch (e) { setError(message(e)); }
+  };
   const check = useServerFn(checkConnection);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState("");
@@ -299,6 +304,7 @@ function Connection({ id, name, url, apiKeyHint, removable, onDone }:
         </span>
         {removable && <Btn kind="red" sm onClick={drop}>登録を消す</Btn>}
       </div>
+      {removable && lan && url.startsWith("https:") && <InsecureSwitch on={insecure} onChange={toggleInsecure} />}
       {!open && <button className="row link" type="button" onClick={() => setOpen(true)}>このパネルのサーバーを追加</button>}
       {removable && <button className="row link" type="button" disabled={checking} onClick={runCheck}
         title="CraftShelf が使う操作(読む・書く・圧縮して移す・展開する)を、このパネルで試します。書き込みはサーバーの一番上の隠しフォルダの中だけで、最後に消します">
@@ -369,10 +375,24 @@ function PickServers({ connectionId, onDone }: { connectionId: string; onDone: (
   );
 }
 
+// 証明書を確かめない(自分用の版で、自己署名の証明書の https のパネルにつなぐとき)
+function InsecureSwitch({ on, onChange }: { on: boolean; onChange: (on: boolean) => void }) {
+  return (
+    <label className="row">
+      <span className="mid">
+        <span className="ttl">証明書を確かめない</span>
+        <span className="sub">自己署名の証明書のパネルにつなぐときだけ使います</span>
+      </span>
+      <input type="checkbox" className="switch" checked={on} onChange={(e) => onChange(e.target.checked)} />
+    </label>
+  );
+}
+
 // first: つないだパネルがまだ無い(入力欄をそのまま出す)。あるときは「＋ 別のパネルをつなぐ」の 1 行に折りたたむ
-function NewConnection({ first, onDone }: { first: boolean; onDone: () => void }) {
+function NewConnection({ first, lan, onDone }: { first: boolean; lan: boolean; onDone: () => void }) {
   const save = useServerFn(addConnection);
   const [open, setOpen] = useState(false);
+  const [insecure, setInsecure] = useState(false);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -383,7 +403,7 @@ function NewConnection({ first, onDone }: { first: boolean; onDone: () => void }
     setBusy(true);
     setError("");
     try {
-      await save({ data: { name, url, apiKey } });
+      await save({ data: { name, url, apiKey, insecure: lan && insecure } });
       setName("");
       setUrl("");
       setApiKey("");
@@ -405,6 +425,7 @@ function NewConnection({ first, onDone }: { first: boolean; onDone: () => void }
       <input className="input" placeholder="名前(例 いつものホスティング)" value={name} onChange={(e) => setName(e.target.value)} />
       <input className="input" placeholder="パネルの URL(https://…)" inputMode="url" value={url} onChange={(e) => setUrl(e.target.value)} required />
       <input className="input" type="password" autoComplete="off" placeholder="Client API キー(ptlc_…)" value={apiKey} onChange={(e) => setApiKey(e.target.value)} required />
+      {lan && /^https:/i.test(url.trim()) && <section className="group"><InsecureSwitch on={insecure} onChange={setInsecure} /></section>}
       <p className="foot">キーの作り方<Info>パネルの「アカウント → API 認証情報」で作った Client API キー(ptlc_…)を使います。キーは暗号化して保存し、画面には最後の 4 文字だけを出します。</Info></p>
       {error && <p className="error" role="alert">{error}</p>}
       <div className="sheet-foot">

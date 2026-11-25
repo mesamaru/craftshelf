@@ -1,0 +1,1 @@
+ALTER TABLE "ptero_connection" ADD COLUMN "insecure" boolean DEFAULT false NOT NULL;

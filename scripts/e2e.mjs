@@ -14,6 +14,9 @@ mkdirSync(".e2e", { recursive: true });
 const browser = await chromium.launch({ channel: channel === "chromium" ? undefined : channel });
 const page = await browser.newPage({ locale: "ja-JP" });
 let fails = 0;
+// CSP で止められたもの(スクリプト・画像など)を集め、最後に確かめる
+const cspBlocked = [];
+page.on("console", (m) => { if (/Content Security Policy/i.test(m.text())) cspBlocked.push(m.text().slice(0, 200)); });
 const step = async (name, fn) => {
   try {
     await fn();
@@ -674,6 +677,10 @@ await step("ログアウトはアカウントの設定にあり、押すとロ�
   await page.screenshot({ path: ".e2e/settings.png", fullPage: true });
   await page.getByRole("button", { name: "ログアウト" }).click();
   await page.waitForURL(base + "/login");
+});
+
+await step("CSP で止められたものが無い", async () => {
+  if (cspBlocked.length) throw new Error(cspBlocked.join(" / "));
 });
 
 await browser.close();

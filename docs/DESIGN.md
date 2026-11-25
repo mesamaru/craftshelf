@@ -43,6 +43,7 @@ v02(Python、`main`)は、v03 へ移れるようにしたところで更新を�
 - 本番のビルドでは `instance.ts` が 2 つの束(サーバーの関数 / サーバーのルートと起動時の処理)に別々に入る。データベース(`createDb`)とエージェントの列(`hub`)は `globalThis` でプロセスに 1 つにする(03.56.00 から。PGlite を 2 回開くと、互いの書き込みが見えない)。束ごとにクラスも別にできるので、`HttpError` は `instanceof` ではなく `isHttpError(e)`(名前と `status`)で見分ける(03.67.01 から)。独自のルート(`src/routes/api/**`)・REST API は、本文を読む前に権限(トークン)を確かめ、`readBody(request, 上限)` で上限付きで少しずつ読む。
 - 認証の表(`src/server/db/auth-schema.ts`)は `npm run auth:schema` で作る。Better Auth の設定(プラグイン)を変えたら作り直し、続けて `npm run db:generate`。
 - サーバーだけで動く処理は `src/server/` に置き、画面からは `createServerFn` かサーバーのルート(`src/routes/api/`)を通して使う。認証の確認は、画面の `beforeLoad` だけでなく、サーバー側の処理ごとに必ず行う。
+- セキュリティヘッダー(03.97.00 から。`src/server/security.ts`、Nitro のプラグイン `compress-plugin.ts` で全部の応答に付ける): CSP(スクリプトは自分のものと nonce の付いたものだけ・`frame-ancestors 'none'`・`connect-src 'self'`。画像は配布元のアイコンのため https も、style は React の style 属性のため `'unsafe-inline'`)・`X-Frame-Options: DENY`・`nosniff`・`Referrer-Policy: same-origin`、`/api/`・`/_serverFn/` は決めていなければ `Cache-Control: no-store`。ページの nonce は `src/router.tsx` がリクエストごとに作り、ルーターの `ssr.nonce`(TanStack が入れるスクリプトに付く)と CSP のヘッダーに同じ値を入れる。開発中(vite dev)は nonce を付けない。e2e は CSP で止められたもの(コンソールの警告)が無いかも確かめる。
 - 利用者の IP は、Cloudflare Tunnel が付ける `cf-connecting-ip` を使う(`CLIENT_IP_HEADER`)。app のポートを外に出さない構成のときだけ信頼できる。
 
 ## チームと権限

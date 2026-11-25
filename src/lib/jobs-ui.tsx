@@ -28,6 +28,12 @@ export function JobRow({ j }: { j: Job }) {
         <span className="sub">
           {time(j.createdAt)}{j.userName ? <> · <span translate="no">{j.userName}</span></> : " · 予約・自動"}{took(j) && <> · <span>{took(j)}</span></>}
         </span>
+        {j.state === "running" && j.progressDone != null && (
+          <span className="job-progress small muted">
+            {j.progressTotal ? <progress max={j.progressTotal} value={j.progressDone} aria-label={`${j.progressDone} / ${j.progressTotal}`} /> : null}
+            <span>{j.progressTotal ? `${j.progressDone} / ${j.progressTotal}` : String(j.progressDone)}{j.progressNote && <> · <span translate="no">{j.progressNote}</span></>}</span>
+          </span>
+        )}
         {j.detail && <span className={`small pre${j.state === "failed" ? " error" : " muted"}`}>{j.detail}</span>}
       </span>
     </div>

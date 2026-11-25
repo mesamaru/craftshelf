@@ -288,6 +288,13 @@
       "when": 1795076835330,
       "tag": "0040_server_set_pick",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1795582457435,
+      "tag": "0041_bored_tattoo",
+      "breakpoints": true
     }
   ]
 }

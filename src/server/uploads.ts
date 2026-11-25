@@ -11,7 +11,7 @@ import { PLATFORMS, type Platform, isPlatform } from "~/lib/platforms";
 import { addonSetItem, backupSchedule, libraryFile, libraryItem, storageTarget, installedMod, server, serverProfile, teamOption, worldBackup } from "./db/schema";
 import { CF_HOSTS } from "./curseforge";
 import { eventService } from "./events";
-import { jobService } from "./jobs";
+import { jobService, progress } from "./jobs";
 import { HttpError, isHttpError, requireTeam } from "./guard";
 import { remote, serverOf, worldOf } from "./servers";
 import { analyzeJar, analyzePack, fileSource } from "./jar";
@@ -391,7 +391,9 @@ export function uploadService(deps: Deps) {
       return jobs.track({ teamId, userId: user.id, action: "保存先のファイルを移す", target: `${names.get(from)} → ${names.get(to)}` }, async () => {
         let moved = 0;
         const failed: { filename: string; message: string }[] = [];
+        let n = 0;
         for (const [key, group] of byKey) {
+          progress(n++, byKey.size, group[0].filename);
           const tmp = tempPath("move");
           try {
             const there = onDst.get(key);
@@ -414,6 +416,7 @@ export function uploadService(deps: Deps) {
             rmSync(tmp, { force: true });
           }
         }
+        progress(byKey.size, byKey.size);
         await record({ teamId, userId: user.id, kind: "admin", action: "保存先のファイルを移す", target: `${names.get(from)} → ${names.get(to)}`,
           detail: `${moved} 個を移しました${failed.length ? `・${failed.length} 個は移せませんでした` : ""}` });
         return { moved, failed };

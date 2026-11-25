@@ -380,6 +380,10 @@ pre.curl { margin: 4px 0 0; padding: 6px 8px; border-radius: 8px; background: va
 .mid .sub.wrap, .mid .ttl.wrap { white-space: normal; }
 .ttl { font-weight: 600; }
 .sub { color: var(--muted); font-size: 12.5px; }
+/* 処理の途中経過(jobs-ui.tsx) */
+.job-progress { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.job-progress progress { flex: 0 0 120px; height: 6px; accent-color: var(--accent); }
+.job-progress > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .row.click { cursor: pointer; }
 .row.click:hover { background: var(--chip); }
 .gtitle { font-size: 12px; font-weight: 600; color: var(--muted); margin: 18px 6px 6px; }

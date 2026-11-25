@@ -3,7 +3,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 import * as schema from "~/server/db/schema";
 import { HttpError } from "~/server/guard";
-import { jobService } from "~/server/jobs";
+import { jobService, progress } from "~/server/jobs";
 import { setup } from "./helpers";
 
 let t: Awaited<ReturnType<typeof setup>>;
@@ -79,5 +79,21 @@ describe("処理の一覧", () => {
     expect((await jobs.list(owner))[0]).toMatchObject({ state: "failed", detail: "パネルが再起動したため、途中で止まりました" });
     release();
     await p;
+  });
+
+  it("途中経過を書き(1 秒に 1 回まで・最後は必ず)、処理の外では何もしない", async () => {
+    progress(1, 2, "外"); // 処理の外: 何も起きない
+    let release = () => {};
+    const p = jobs.track({ teamId, userId: ownerId, action: "途中経過" }, async () => {
+      progress(0, 3, "1 つ目");
+      progress(1, 3, "2 つ目"); // 1 秒たっていないので書かない
+      await new Promise<void>((r) => { release = r; });
+      progress(3, 3, "");
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect((await jobs.list(owner)).find((j) => j.action === "途中経過")).toMatchObject({ state: "running", progressDone: 0, progressTotal: 3, progressNote: "1 つ目" });
+    release();
+    await p;
+    expect((await jobs.list(owner)).find((j) => j.action === "途中経過")).toMatchObject({ state: "done", progressDone: 3, progressTotal: 3 });
   });
 });

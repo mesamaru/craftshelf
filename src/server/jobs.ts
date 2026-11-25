@@ -1,5 +1,6 @@
 // 処理の一覧(v02 の 01.22「処理」): 時間のかかる処理(サーバーへの導入・そろえる・バックアップなど)を、待ち・実行中・成功・失敗で残す。
 // 処理そのものは今までどおり各サービスで動かし、ここは前後に状態を書くだけ(書けなくても処理は止めない)
+import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { and, desc, eq, inArray, lt } from "drizzle-orm";
 import { job, server, user } from "./db/schema";
@@ -12,6 +13,12 @@ export type JobInfo = { teamId: string; userId: string | null; serverId?: string
 
 const short = (s: string) => (s.length > 2000 ? `${s.slice(0, 2000)}…` : s);
 const quiet = (p: Promise<unknown>) => p.catch((e) => console.error("[処理の一覧] 書けませんでした:", e));
+
+// 動いている処理の途中経過を書く先(track・queue の中で動いている処理だけ。外では何もしない)
+const current = new AsyncLocalStorage<(done: number, total: number | null, note: string) => void>();
+/** 途中経過を知らせる(done / total 個目と、いまの中身。total が分からなければ null)。処理の中のどこからでも呼べる */
+export const progress = (done: number, total: number | null, note = "") => current.getStore()?.(done, total, note);
+const PROGRESS_EVERY_MS = 1000; // 書くのは 1 秒に 1 回まで(最後の 1 つは必ず書く)
 
 export function jobService(deps: Deps) {
   const { db, auth } = deps;
@@ -30,12 +37,22 @@ export function jobService(deps: Deps) {
   /** id の処理を動かす(待ちから実行中へ)。結果を書き、失敗はそのまま投げ直す。keep が false を返した成功は、一覧から消す */
   async function runAs<T>(id: string, fn: () => Promise<T>, detail?: (r: T) => string, keep?: (r: T) => boolean): Promise<T> {
     await set(id, { state: "running", startedAt: new Date() });
+    let last = 0;
+    let writing: Promise<unknown> = Promise.resolve();
+    const report = (done: number, total: number | null, note: string) => {
+      const now = Date.now();
+      if (now - last < PROGRESS_EVERY_MS && done !== total) return;
+      last = now;
+      writing = writing.then(() => set(id, { progressDone: done, progressTotal: total, progressNote: note.slice(0, 200) }));
+    };
     try {
-      const r = await fn();
+      const r = await current.run(report, fn);
+      await writing; // 途中経過の書き込みが、終わったあとの状態を上書きしないように
       if (keep && !keep(r)) await quiet(db.delete(job).where(eq(job.id, id)));
       else await set(id, { state: "done", finishedAt: new Date(), detail: short(detail?.(r) ?? "") });
       return r;
     } catch (e) {
+      await writing;
       await set(id, { state: "failed", finishedAt: new Date(), detail: short(e instanceof Error ? e.message : String(e)) });
       throw e;
     }
@@ -69,7 +86,8 @@ export function jobService(deps: Deps) {
     async list(headers: Headers) {
       const who = await requireTeam(auth, headers);
       const rows = await db.select({ id: job.id, serverId: job.serverId, userId: job.userId, action: job.action, target: job.target, state: job.state, detail: job.detail,
-        createdAt: job.createdAt, startedAt: job.startedAt, finishedAt: job.finishedAt, serverName: server.name, userName: user.name })
+        createdAt: job.createdAt, startedAt: job.startedAt, finishedAt: job.finishedAt,
+        progressDone: job.progressDone, progressTotal: job.progressTotal, progressNote: job.progressNote, serverName: server.name, userName: user.name })
         .from(job).leftJoin(server, eq(job.serverId, server.id)).leftJoin(user, eq(job.userId, user.id))
         .where(eq(job.teamId, who.teamId)).orderBy(desc(job.createdAt)).limit(JOB_LIMITS.list);
       const scope = await serverScope(deps, who);

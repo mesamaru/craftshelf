@@ -586,6 +586,10 @@ export const job = pgTable(
     createdAt: timestamp("created_at").defaultNow().notNull(),
     startedAt: timestamp("started_at"),
     finishedAt: timestamp("finished_at"),
+    // 03.99.01 から。途中経過(done / total 個目と、いまの中身)。total が null なら数が分からない
+    progressDone: integer("progress_done"),
+    progressTotal: integer("progress_total"),
+    progressNote: text("progress_note").notNull().default(""),
   },
   (t) => [index("job_team_created_idx").on(t.teamId, t.createdAt)],
 );

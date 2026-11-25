@@ -15,7 +15,7 @@ import { type Deps, remote, serverOf, worldOf } from "./servers";
 import { tarGz, untarGz } from "./tar";
 import { type Ping, gamePort, ping } from "./mcping";
 import { fileStore, fromStorage } from "./uploads";
-import { jobService } from "./jobs";
+import { jobService, progress } from "./jobs";
 import { fmtSize } from "~/lib/format";
 
 export const WORLD_LIMITS = { keepMax: 30, fileBytes: 100 * 1024 * 1024, files: 200_000, depth: 32, stopWaitMs: 120_000 };
@@ -88,6 +88,7 @@ export function worldService(deps: Deps) {
           continue;
         }
         if (++files > WORLD_LIMITS.files) throw new HttpError(400, `ワールドのファイルが多すぎます(${WORLD_LIMITS.files} 個まで)`);
+        progress(files - 1, null, rel); // 数は読み終えるまで分からない
         let data: Uint8Array;
         try {
           data = await client.readBytes(remoteId, rel, WORLD_LIMITS.fileBytes);

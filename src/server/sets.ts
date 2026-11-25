@@ -10,7 +10,7 @@ import { type EventKind, eventService } from "./events";
 import { type Deps, serverOf, needServerAccess, serverScope } from "./servers";
 import { softwareService } from "./software";
 import { fileStore } from "./uploads";
-import { jobService } from "./jobs";
+import { jobService, progress } from "./jobs";
 import { bestOf } from "./addon-versions";
 
 // 無料で使える範囲
@@ -74,7 +74,8 @@ export function setService(deps: Deps) {
     const present = new Map(records.map((r) => [`${r.source}:${r.projectId}`, r]));
     const holds = await holdsOf(target.row.id);
     const out: ApplyResult[] = [];
-    for (const it of items) {
+    for (const [i, it] of items.entries()) {
+      progress(i, items.length, it.title); // 処理の一覧の途中経過
       const now = present.get(`${it.source}:${it.projectId}`);
       if (!isItemSource(it.source) || (!now && mode === "update")) continue; // update は入っているものだけ
       // データパックはワールドの datapacks に。サーバーの種類と違うもの・リソースパックなどは入れない
@@ -131,6 +132,7 @@ export function setService(deps: Deps) {
         out.push({ title: it.title, status: "failed", detail: e.message });
       }
     }
+    progress(items.length, items.length);
     // セットに無いもの(このアプリで入れたものだけ。手で置いたファイルは触らない)を外す
     if (removeExtra && mode === "sync") await removeExtras(target, server, userId, records, new Set(items.map((it) => `${it.source}:${it.projectId}`)), out);
     return out;

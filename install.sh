@@ -10,7 +10,7 @@
 # (v02 のデータは書き換えない。v02 に戻すときは v02 の install.sh をもう一度動かす)。
 #
 # 変えられる設定(環境変数): CRAFTSHELF_PORT(既定 8765)/ CRAFTSHELF_HOST(既定 0.0.0.0)/
-#   CRAFTSHELF_CHANNEL(stable = 安定版 v03.xx.xx〔既定〕/ dev = 開発版 dev-v03.xx.xx も)/ CRAFTSHELF_VERSION(03.62.00 のように版を決める)
+#   CRAFTSHELF_CHANNEL(stable = 安定版 v0.xx.xx・v03.xx.xx〔既定〕/ dev = 開発版 dev-v0.xx.xx・dev-v03.xx.xx も)/ CRAFTSHELF_VERSION(0.04.00 のように版を決める)
 # 取り除く: sudo bash install.sh --uninstall  (データ /var/lib/craftshelf は残す)
 set -euo pipefail
 

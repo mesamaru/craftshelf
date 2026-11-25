@@ -1,4 +1,5 @@
 // 版の読み方と比べ方(旧 03.xx.xx と新 0.xx.xx。03.99.03 から)
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { compareVersion, generationOf, isV03OrLater, isVersion, newerVersion, versionKey } from "~/lib/version";
 
@@ -37,5 +38,18 @@ describe("版の形", () => {
     expect(isV03OrLater("0.04.00")).toBe(true);
     expect(isV03OrLater("02.26.00")).toBe(false);
     expect(isV03OrLater("")).toBe(false);
+  });
+});
+
+describe("いまの版(VERSION・CHANGELOG)", () => {
+  const current = readFileSync("VERSION", "utf8").trim();
+  it("新しい形(大型.メジャー.マイナー)で、橋渡しの 03.99.03 より新しく、同じ大型(03.99.03 のパネルが自動アップデートで入れる)", () => {
+    expect(current).toMatch(/^\d\.\d{2}\.\d{2}$/);
+    expect(compareVersion(current, "03.99.03")).toBeGreaterThan(0);
+    expect(compareVersion(current, "0.04.00")).toBeGreaterThanOrEqual(0);
+    expect(generationOf(current)).toBe(generationOf("03.99.03"));
+  });
+  it("CHANGELOG の先頭の見出しが、いまの版", () => {
+    expect(readFileSync("CHANGELOG.md", "utf8").match(/^## (\S+) - \d{4}-\d{2}-\d{2} /m)?.[1]).toBe(current);
   });
 });

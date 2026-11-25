@@ -132,3 +132,33 @@ describe("安定版と開発版", () => {
     expect(got[1].url).toBe("https://x/v03.40.00");
   });
 });
+
+describe("新しい形の版(0.04.00)へ切り替える", () => {
+  it("03.99.03 のパネルが、リリース v0.04.00 を新しい版として見つけ、取ってきて、次の起動で使うようにする", async () => {
+    const NV = "0.04.00";
+    const src = mkdtempSync(join(tmpdir(), "cs-ver-new-"));
+    mkdirSync(join(src, ".output", "server"), { recursive: true });
+    mkdirSync(join(src, "drizzle"));
+    writeFileSync(join(src, ".output", "server", "index.mjs"), "// app\n");
+    writeFileSync(join(src, "VERSION"), NV + "\n");
+    const name = `${basename(src)}.tar.gz`;
+    execFileSync("tar", ["-czf", join("..", name), ".output", "drizzle", "VERSION"], { cwd: src });
+    const tgz = readFileSync(join(src, "..", name));
+    const list = [
+      { tag_name: `v${NV}`, assets: [{ name: assetName(NV), browser_download_url: "https://github.com/dl/new" }, { name: "SHA256SUMS", browser_download_url: "https://github.com/dl/new-sums" }] },
+      { tag_name: "v03.99.03", assets: [{ name: assetName("03.99.03"), browser_download_url: "https://github.com/dl/old" }, { name: "SHA256SUMS", browser_download_url: "https://github.com/dl/old-sums" }] },
+    ];
+    const f: FetchLike = async (url) => {
+      if (url.includes("/releases?")) return Response.json(list);
+      if (url === "https://github.com/dl/new-sums") return new Response(`${createHash("sha256").update(tgz).digest("hex")}  ${assetName(NV)}\n`);
+      if (url === "https://github.com/dl/new") return new Response(new Uint8Array(tgz));
+      return new Response("", { status: 404 });
+    };
+    const dataDir = mkdtempSync(join(tmpdir(), "cs-ver-newdata-"));
+    const svc = versionService({ fetch: f, dataDir, appDir: dataDir });
+    expect((await svc.list()).map((r) => r.version)).toEqual([NV, "03.99.03"]); // 文字の並びなら 03.99.03 が先になる
+    await svc.install(NV);
+    expect(readFileSync(join(dataDir, "v03", "versions", "current"), "utf8").trim()).toBe(NV);
+    expect(svc.state().selected).toBe(NV);
+  });
+});

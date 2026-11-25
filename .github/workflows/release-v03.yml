@@ -1,5 +1,5 @@
-# v03 の安定版を出す: v03.xx.xx のタグを push したら(VERSION と同じ番号のときだけ)、
-# Docker のイメージ(ghcr.io/mesamaru/craftshelf:v03 と :03.xx.xx)と、ビルド済みの一式・Docker なしで動かす配布物を付けた GitHub のリリース v03.xx.xx を作る。
+# v03 の安定版を出す: v0.xx.xx(03.99.03 までは v03.xx.xx)のタグを push したら(VERSION と同じ番号のときだけ)、
+# Docker のイメージ(ghcr.io/mesamaru/craftshelf:v03 と :0.xx.xx)と、ビルド済みの一式・Docker なしで動かす配布物を付けた GitHub のリリース v0.xx.xx を作る。
 # v02 のパネルの「v03 に移る」と、v03 の「パネルのバージョン」はこのリリースを使う。
 # まだ v02 が main(:latest)なので、リリースは「最新」にしない(v02 のインストーラー版が見るのは最新の正式リリース)
 name: release-v03

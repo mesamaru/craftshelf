@@ -51,7 +51,7 @@ GitHub のリリースから、OS に合うものを取ってきて展開しま�
 
 「アカウント」→「パネルのバージョン」(「パネルの設定」の権限がある人)で:
 
-- **版の切り替え**: GitHub にある v03 の版(安定版 `v03.xx.xx`・開発版 `dev-v03.xx.xx`)を選んで入れ替えます。切り替える前に、パネルのバックアップを作ります(置き場所・残す数は「チーム」→「バックアップ」の定期バックアップの設定のもの。データベースが PostgreSQL のときは作りません)。
+- **版の切り替え**: GitHub にある v03 の版(安定版 `v0.xx.xx`・開発版 `dev-v0.xx.xx`。03.99.03 までは `v03.xx.xx`・`dev-v03.xx.xx`)を選んで入れ替えます。切り替える前に、パネルのバックアップを作ります(置き場所・残す数は「チーム」→「バックアップ」の定期バックアップの設定のもの。データベースが PostgreSQL のときは作りません)。
 - **自動アップデート**: オンにすると、6 時間ごとに GitHub を確かめ、新しい版があればバックアップを作ってから入れて再起動します。「安定版だけ」か「開発版も」を選べます。大きな版上げ(v04 など、メジャーが変わるもの)・時間のかかる処理が動いている間は入れません。v02 で自動アップデートを使っていたら、安定版だけで引き継ぎます。
 - **この更新の前に戻す**: 「更新の記録」から選ぶと、その更新の前に作ったバックアップを次の起動で戻し、版も前のものにして再起動します(今のデータは `v03/before-restore-…` に残します)。データを戻すので、管理者以上だけが使えます。戻した版は、自動アップデートでは入れ直しません。更新の前のバックアップは、定期バックアップの「残す数」を超えると古いものから消えます。
 - 設定と更新の記録は `v03/panel-update.json` に置きます(バックアップから戻しても消えないように、データベースの外に置いています)。
@@ -74,4 +74,4 @@ GitHub のリリースから、OS に合うものを取ってきて展開しま�
 
 ## 配布物を作る(開発する人向け)
 
-`npm run build` のあと `node scripts/package.mjs`(動かしている OS 向け)/ `node scripts/package.mjs all`(全部。Linux で)で `dist/` に作ります。公式の Node.js を取ってきて(チェックサムで確かめる)、`app/`(`.output`・`drizzle`・`VERSION`)・`launcher.mjs`・起動するファイル・タスクトレイの部品(Windows は `packaging/tray.ps1`、macOS は `packaging/craftshelf-tray`)とまとめます。macOS の `craftshelf-tray` は macOS で `swiftc` を使って `packaging/tray-macos.swift` から作ります(ワークフローの `tray-macos` のジョブ。手元で作らないときは、macOS 向けにはアイコンを入れずに作ります)。`v03.xx.xx` のタグ(`release-v03.yml`)と `dev` への push(`image.yml` の開発版のリリース)で、全部の OS 向けに作ってリリースに付けます。
+`npm run build` のあと `node scripts/package.mjs`(動かしている OS 向け)/ `node scripts/package.mjs all`(全部。Linux で)で `dist/` に作ります。公式の Node.js を取ってきて(チェックサムで確かめる)、`app/`(`.output`・`drizzle`・`VERSION`)・`launcher.mjs`・起動するファイル・タスクトレイの部品(Windows は `packaging/tray.ps1`、macOS は `packaging/craftshelf-tray`)とまとめます。macOS の `craftshelf-tray` は macOS で `swiftc` を使って `packaging/tray-macos.swift` から作ります(ワークフローの `tray-macos` のジョブ。手元で作らないときは、macOS 向けにはアイコンを入れずに作ります)。`v0.xx.xx` のタグ(`release-v03.yml`。03.99.03 までは `v03.xx.xx`)と `dev` への push(`image.yml` の開発版のリリース)で、全部の OS 向けに作ってリリースに付けます。

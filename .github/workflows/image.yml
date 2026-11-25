@@ -1,5 +1,5 @@
 # dev に push したら、自分用の版の Docker のイメージを作って GitHub Container Registry に置く
-# (ghcr.io/mesamaru/craftshelf:dev と :dev-03.xx.xx)。テストが通ったものだけを置く
+# (ghcr.io/mesamaru/craftshelf:dev と :dev-0.xx.xx)。テストが通ったものだけを置く
 name: image
 on:
   push:
@@ -53,7 +53,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: craftshelf-tray, path: craftshelf-tray }
 
-  # パネルの「パネルのバージョン」で選べるよう、ビルド済みの一式を GitHub のプレリリース dev-v03.xx.xx に付ける
+  # パネルの「パネルのバージョン」で選べるよう、ビルド済みの一式を GitHub のプレリリース dev-v0.xx.xx(03.99.03 までは dev-v03.xx.xx)に付ける
   # (v02 のインストーラー版は「最新の正式リリース」だけを見るので、プレリリースは目に入らない)
   bundle:
     needs: [test, tray-macos]
